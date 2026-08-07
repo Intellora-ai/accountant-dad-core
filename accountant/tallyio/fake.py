@@ -27,10 +27,10 @@ from accountant.tallyio.client import (
 
 @dataclass
 class _Company:
-    accounts: list[str] = field(default_factory=list)
-    vouchers: list[Voucher] = field(default_factory=list)
+    accounts: list[str] = field(default_factory=list[str])
+    vouchers: list[Voucher] = field(default_factory=list[Voucher])
     backed_up: bool = False
-    _next_tally_id: int = 1
+    next_tally_id: int = 1
 
 
 class FakeTally:
@@ -96,8 +96,8 @@ class FakeTally:
             )
 
         narration = stamp(voucher.narration, operation_id)
-        tally_id = f"TALLY-{co._next_tally_id}"
-        co._next_tally_id += 1
+        tally_id = f"TALLY-{co.next_tally_id}"
+        co.next_tally_id += 1
 
         written = replace(voucher, narration=narration, tally_id=tally_id)
         co.vouchers.append(written)

@@ -36,16 +36,16 @@ TODAY = datetime.date(2026, 8, 7)
 
 
 def a_voucher(**kw) -> Voucher:
-    base = dict(
-        id="d1",
-        date=TODAY,
-        party="Sharma Traders",
-        narration="cement",
-        debit_account="Purchases",
-        credit_account="Cash",
-        amount_paise=420000,
-        gst_paise=None,
-    )
+    base = {
+        "id": "d1",
+        "date": TODAY,
+        "party": "Sharma Traders",
+        "narration": "cement",
+        "debit_account": "Purchases",
+        "credit_account": "Cash",
+        "amount_paise": 420000,
+        "gst_paise": None,
+    }
     base.update(kw)
     return Voucher(**base)
 
@@ -53,8 +53,13 @@ def a_voucher(**kw) -> Voucher:
 def past(party: str, account: str, amount: int = 380000, n: int = 1) -> list[Voucher]:
     return [
         Voucher(
-            id=f"h{i}", date=TODAY, party=party, narration="x",
-            debit_account=account, credit_account="Cash", amount_paise=amount,
+            id=f"h{i}",
+            date=TODAY,
+            party=party,
+            narration="x",
+            debit_account=account,
+            credit_account="Cash",
+            amount_paise=amount,
         )
         for i in range(n)
     ]
@@ -103,10 +108,10 @@ def test_every_answer_label_is_plain_english(build):
 
 
 def test_jargon_is_decided_by_whether_we_reuse_the_word():
-    assert Q.is_jargon("Purchases") is True          # we say "stuff you'll sell on"
-    assert Q.is_jargon("Sundry Expenses") is True    # we say "a small one-off thing"
-    assert Q.is_jargon("Cash") is False              # we say "cash"
-    assert Q.is_jargon("Rent") is False              # we say "rent for a place"
+    assert Q.is_jargon("Purchases") is True  # we say "stuff you'll sell on"
+    assert Q.is_jargon("Sundry Expenses") is True  # we say "a small one-off thing"
+    assert Q.is_jargon("Cash") is False  # we say "cash"
+    assert Q.is_jargon("Rent") is False  # we say "rent for a place"
     assert Q.is_jargon("Suspense A/c 4412") is True  # no words at all
 
 
@@ -160,8 +165,13 @@ def test_a_huge_amount_asks_rather_than_refuses():
     v = a_voucher(amount_paise=200_000_000)
     flags, _ = detectors.run(v, tuple(hist), index, detectors=(detectors.magnitude,))
     probs = problems.find(
-        v, checks.run(v, ACCOUNTS), index.lookup(v.party), flags, ACCOUNTS,
-        tuple(hist), index,
+        v,
+        checks.run(v, ACCOUNTS),
+        index.lookup(v.party),
+        flags,
+        ACCOUNTS,
+        tuple(hist),
+        index,
     )
     assert [p.id for p in probs] == ["magnitude"]
     assert probs[0].answerable is True
@@ -180,8 +190,11 @@ def test_only_an_internal_type_error_refuses():
         name="amount_is_integer_paise", passed=False, detail="amount is float"
     )
     probs = problems.find(
-        v, [bad], MatchResult(MatchStatus.MATCH, "sharma_traders", ("Purchases",)),
-        [], ACCOUNTS,
+        v,
+        [bad],
+        MatchResult(MatchStatus.MATCH, "sharma_traders", ("Purchases",)),
+        [],
+        ACCOUNTS,
     )
     assert probs[0].answerable is False
     assert decide_problems(probs).outcome is Outcome.NOT_VALID
@@ -195,7 +208,9 @@ def test_an_answerable_problem_must_carry_a_question():
 def test_an_unanswerable_problem_must_not_carry_a_question():
     with pytest.raises(ValueError):
         problems.Problem(
-            id="x", answerable=False, detail="d",
+            id="x",
+            answerable=False,
+            detail="d",
             question=Q.who_was_it(),
         )
 
@@ -207,8 +222,11 @@ def test_problem_ids_are_unique_within_one_entry():
     """Two sources reporting the same problem produce one question, not two."""
     v = a_voucher(debit_account="Nope", party="")
     probs = problems.find(
-        v, checks.run(v, ACCOUNTS),
-        MatchResult(MatchStatus.NO_MATCH, "unknown"), [], ACCOUNTS,
+        v,
+        checks.run(v, ACCOUNTS),
+        MatchResult(MatchStatus.NO_MATCH, "unknown"),
+        [],
+        ACCOUNTS,
     )
     ids = [p.id for p in probs]
     assert len(ids) == len(set(ids))
@@ -219,8 +237,13 @@ def test_a_problem_already_answered_is_never_asked_again():
     t.add_company(COMPANY, accounts=ACCOUNTS, backed_up=True)
     index = MemoryIndex()
     d = pipeline.build_draft(
-        COMPANY, b"paid Verma Cement 900 bags", "text/plain",
-        TypedTextExtractor(), ACCOUNTS, index, today=TODAY,
+        COMPANY,
+        b"paid Verma Cement 900 bags",
+        "text/plain",
+        TypedTextExtractor(),
+        ACCOUNTS,
+        index,
+        today=TODAY,
     )
     d = pipeline.evaluate(d, ACCOUNTS, (), index)
     first = pipeline.next_question(d)
@@ -244,7 +267,9 @@ def test_the_cap_is_five():
 def test_after_five_questions_the_entry_is_handed_over():
     probs = [
         problems.Problem(
-            id=f"p{i}", answerable=True, detail=f"thing {i}",
+            id=f"p{i}",
+            answerable=True,
+            detail=f"thing {i}",
             question=Q.who_was_it(),
         )
         for i in range(3)
@@ -260,8 +285,13 @@ def test_a_handed_over_entry_is_never_posted():
     t.add_company(COMPANY, accounts=ACCOUNTS, backed_up=True)
     index = MemoryIndex()
     d = pipeline.build_draft(
-        COMPANY, b"paid Verma Cement 900 bags", "text/plain",
-        TypedTextExtractor(), ACCOUNTS, index, today=TODAY,
+        COMPANY,
+        b"paid Verma Cement 900 bags",
+        "text/plain",
+        TypedTextExtractor(),
+        ACCOUNTS,
+        index,
+        today=TODAY,
     )
     d.answers = [(f"p{i}", "x") for i in range(5)]
     d = pipeline.evaluate(d, ACCOUNTS, (), index)

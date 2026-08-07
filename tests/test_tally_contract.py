@@ -194,7 +194,9 @@ def test_reverse_targets_the_exact_voucher_not_a_lookalike(client):
 
     assert client.reverse_by_operation_id(COMPANY, ops[1]) is True
 
-    remaining = {operation_id_in(v.narration) for v in client.list_our_vouchers(COMPANY)}
+    remaining = {
+        operation_id_in(v.narration) for v in client.list_our_vouchers(COMPANY)
+    }
     assert remaining == {ops[0], ops[2]}
 
 

@@ -87,12 +87,15 @@ class TallyClient(Protocol):
     def read_accounts(self, company: str) -> tuple[str, ...]:
         """The company's chart of accounts. Clarifying questions may only offer
         accounts from this list."""
+        ...
 
     def read_vouchers(self, company: str) -> tuple[Voucher, ...]:
         """Posted history. This is what the memory index is built from."""
+        ...
 
     def trial_balance(self, company: str) -> dict[str, int]:
         """Account name -> balance in paise. Used to prove reversal is exact."""
+        ...
 
     def write_voucher(
         self, company: str, voucher: Voucher, operation_id: str
@@ -102,15 +105,19 @@ class TallyClient(Protocol):
         Raises DuplicateOperation if this operation ID was already written.
         Raises CompanyNotBackedUp if the company has no recorded backup.
         """
+        ...
 
     def read_by_operation_id(self, company: str, operation_id: str) -> Voucher | None:
         """C6 read-back. Proves the voucher exists, rather than trusting a 200."""
+        ...
 
     def reverse_by_operation_id(self, company: str, operation_id: str) -> bool:
         """Reverse exactly the voucher carrying this operation ID.
 
         Never by amount, never by narration text. Returns False if not found.
         """
+        ...
 
     def list_our_vouchers(self, company: str) -> tuple[Voucher, ...]:
         """Every voucher we wrote, found by marker. Powers bulk reverse."""
+        ...

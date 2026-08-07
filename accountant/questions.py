@@ -42,6 +42,7 @@ def is_jargon(account: str) -> bool:
         return True
     return not all(_has_phrase(plain, w) for w in account.split() if len(w) > 2)
 
+
 RETYPE = "__retype__"
 YES = "__yes__"
 HANDOVER = "__handover__"

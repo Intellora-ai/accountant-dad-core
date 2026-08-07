@@ -11,7 +11,7 @@ from collections.abc import Sequence
 from accountant.schema import CheckResult, Voucher
 
 
-def amount_is_positive(voucher: Voucher, accounts: Sequence[str]) -> CheckResult:
+def amount_is_positive(voucher: Voucher, _accounts: Sequence[str]) -> CheckResult:
     ok = voucher.amount_paise > 0
     return CheckResult(
         name="amount_is_positive",
@@ -20,10 +20,12 @@ def amount_is_positive(voucher: Voucher, accounts: Sequence[str]) -> CheckResult
     )
 
 
-def amount_is_integer_paise(voucher: Voucher, accounts: Sequence[str]) -> CheckResult:
-    ok = isinstance(voucher.amount_paise, int) and not isinstance(
-        voucher.amount_paise, bool
-    )
+def amount_is_integer_paise(voucher: Voucher, _accounts: Sequence[str]) -> CheckResult:
+    # The annotation says int, so pyright calls this redundant. It is not:
+    # bool is a subclass of int, and an untyped caller can pass a float.
+    # Money must never be a float, so the runtime check stays.
+    amount = voucher.amount_paise
+    ok = isinstance(amount, int) and not isinstance(amount, bool)  # pyright: ignore[reportUnnecessaryIsInstance]
     return CheckResult(
         name="amount_is_integer_paise",
         passed=ok,
@@ -31,7 +33,7 @@ def amount_is_integer_paise(voucher: Voucher, accounts: Sequence[str]) -> CheckR
     )
 
 
-def accounts_differ(voucher: Voucher, accounts: Sequence[str]) -> CheckResult:
+def accounts_differ(voucher: Voucher, _accounts: Sequence[str]) -> CheckResult:
     ok = voucher.debit_account != voucher.credit_account
     return CheckResult(
         name="accounts_differ",
@@ -60,18 +62,20 @@ def accounts_exist(voucher: Voucher, accounts: Sequence[str]) -> CheckResult:
 
 
 def gst_not_larger_than_amount(
-    voucher: Voucher, accounts: Sequence[str]
+    voucher: Voucher, _accounts: Sequence[str]
 ) -> CheckResult:
     gst = voucher.gst_paise or 0
     ok = gst <= voucher.amount_paise
     return CheckResult(
         name="gst_not_larger_than_amount",
         passed=ok,
-        detail="" if ok else f"GST {gst} paise exceeds total {voucher.amount_paise} paise",
+        detail=""
+        if ok
+        else f"GST {gst} paise exceeds total {voucher.amount_paise} paise",
     )
 
 
-def party_is_named(voucher: Voucher, accounts: Sequence[str]) -> CheckResult:
+def party_is_named(voucher: Voucher, _accounts: Sequence[str]) -> CheckResult:
     ok = bool(voucher.party.strip())
     return CheckResult(
         name="party_is_named",

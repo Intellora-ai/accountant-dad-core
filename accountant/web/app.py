@@ -16,9 +16,9 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from accountant import pipeline
+from accountant import questions as Q
 from accountant.extract.adapter import TypedTextExtractor
 from accountant.memory.index import MemoryIndex
-from accountant import questions as Q
 from accountant.schema import Outcome, Voucher
 from accountant.tallyio.client import operation_id_in
 from accountant.tallyio.fake import FakeTally
@@ -45,7 +45,7 @@ def seed() -> FakeTally:
     """
     hist: list[Voucher] = []
 
-    def add(party, account, amount, n, note):
+    def add(party: str, account: str, amount: int, n: int, note: str) -> None:
         for i in range(n):
             hist.append(
                 Voucher(
@@ -128,7 +128,7 @@ def rupees(paise: int) -> str:
     return f"{paise // 100:,}.{paise % 100:02d}"
 
 
-def esc(s) -> str:
+def esc(s: object) -> str:
     return html.escape(str(s))
 
 
@@ -144,11 +144,13 @@ memory, not real accounting software. Nothing here touches any real books.</div>
 
 
 def render_decision(d: pipeline.Draft) -> str:
-    out = d.decision.outcome
+    out = d.outcome
     cls = {"valid": "valid", "unclear": "unclear", "not_valid": "notvalid"}[out.value]
-    badge = {"valid": "posted", "unclear": "needs an answer", "not_valid": "not posted"}[
-        out.value
-    ]
+    badge = {
+        "valid": "posted",
+        "unclear": "needs an answer",
+        "not_valid": "not posted",
+    }[out.value]
     v = d.voucher
 
     rows = "".join(
@@ -196,9 +198,10 @@ def render_decision(d: pipeline.Draft) -> str:
     posted = ""
     if d.posted_tally_id:
         posted = (
-            f"<p class=reason>Written to Tally as <code>{esc(d.posted_tally_id)}</code> "
+            f"<p class=reason>Written to Tally as "
+            f"<code>{esc(d.posted_tally_id)}</code> "
             f"&middot; operation <code>{esc(d.operation_id)}</code></p>"
-            f'<form method=post action=/reverse><input type=hidden name=op '
+            f"<form method=post action=/reverse><input type=hidden name=op "
             f'value="{esc(d.operation_id)}"><button>Undo this entry</button></form>'
         )
 
@@ -210,7 +213,7 @@ def render_decision(d: pipeline.Draft) -> str:
 
     return f"""<div class="card {cls}">
 <span class="badge b-{cls}">{badge}</span>
-<p class=reason>{esc(d.decision.reason)}</p>
+<p class=reason>{esc(d.reason)}</p>
 {flags}{ask}{posted}
 <h2>Voucher</h2><table>{rows}</table>
 <h2>Where each field came from</h2><table>{prov}</table>
@@ -225,34 +228,37 @@ def render_home(banner: str = "") -> bytes:
     posted_rows = (
         "".join(
             f"<tr><td>{esc(v.party)}</td><td>{esc(v.debit_account)}</td>"
-            f'<td class=num>₹{rupees(v.amount_paise)}</td>'
+            f"<td class=num>₹{rupees(v.amount_paise)}</td>"
             f"<td><code>{esc(operation_id_in(v.narration))}</code></td></tr>"
             for v in ours
         )
-        or '<tr><td colspan=4 class=muted>nothing posted yet</td></tr>'
+        or "<tr><td colspan=4 class=muted>nothing posted yet</td></tr>"
     )
 
     tb_rows = "".join(
-        f'<tr><td>{esc(k)}</td><td class=num>₹{rupees(abs(val))} '
-        f'{"Dr" if val > 0 else "Cr"}</td></tr>'
+        f"<tr><td>{esc(k)}</td><td class=num>₹{rupees(abs(val))} "
+        f"{'Dr' if val > 0 else 'Cr'}</td></tr>"
         for k, val in sorted(tb.items())
     )
 
     events = (
-        "".join(f'<div class=ev>{esc(m)}</div>' for _, m in EVENTS)
+        "".join(f"<div class=ev>{esc(m)}</div>" for _, m in EVENTS)
         or '<div class="ev muted">nothing yet</div>'
     )
 
     return page(f"""{banner}
 <form class=entry method=post action=/entry>
-<input type=text name=text autofocus placeholder="paid Sharma Traders 4200 for cement including 18% GST">
+<input type=text name=text autofocus
+ placeholder="paid Sharma Traders 4200 for cement including 18% GST">
 <button class=primary>Send</button></form>
-<p class=hint>Try: <b>paid Sharma Traders 4200 for cement</b> (known, posts straight through)
+<p class=hint>Try: <b>paid Sharma Traders 4200 for cement</b>
+(known, posts straight through)
 &middot; <b>paid Verma Cement 900 for bags</b> (used two accounts, asks)
 &middot; <b>paid Gupta Hardware 1500 for tools</b> (never seen, asks)</p>
 
 <h2>What we posted</h2>
-<table><tr><th>Party<th>Account<th class=num>Amount<th>Operation</tr>{posted_rows}</table>
+<table><tr><th>Party<th>Account<th class=num>Amount<th>Operation</tr>
+{posted_rows}</table>
 
 <h2>Trial balance</h2>
 <table>{tb_rows}</table>
@@ -271,13 +277,17 @@ def _run(text: str) -> pipeline.Draft:
         COMPANY, text.encode(), "text/plain", TypedTextExtractor(), accounts, index
     )
     d = pipeline.evaluate(d, accounts, history, index)
-    if d.decision.outcome is Outcome.VALID:
+    if d.outcome is Outcome.VALID:
         d = pipeline.post(d, TALLY)
-        log("post", f"posted {d.voucher.party} ₹{rupees(d.voucher.amount_paise)} to {d.voucher.debit_account}")
-    elif d.decision.outcome is Outcome.UNCLEAR:
+        log(
+            "post",
+            f"posted {d.voucher.party} ₹{rupees(d.voucher.amount_paise)} "
+            f"to {d.voucher.debit_account}",
+        )
+    elif d.outcome is Outcome.UNCLEAR:
         log("ask", f"asked about {d.voucher.party or 'unknown party'}")
     else:
-        log("block", f"refused: {d.decision.reason}")
+        log("block", f"refused: {d.reason}")
     DRAFTS[d.id] = d
     return d
 
@@ -295,7 +305,7 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(n).decode()
         return {k: v[0] for k, v in urllib.parse.parse_qs(raw).items()}
 
-    def log_message(self, *a) -> None:  # quiet
+    def log_message(self, format: str, *args: object) -> None:  # quiet
         pass
 
     def do_GET(self) -> None:
@@ -319,7 +329,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/answer":
             d = DRAFTS.get(form.get("draft", ""))
             if d is None:
-                self._send(render_home('<div class=warn>draft expired</div>'))
+                self._send(render_home("<div class=warn>draft expired</div>"))
                 return
             value = form.get("value", "")
             problem = form.get("problem", "which_account")
@@ -329,16 +339,17 @@ class Handler(BaseHTTPRequestHandler):
             index = MemoryIndex.from_vouchers(history)
 
             if value == Q.HANDOVER:
-                d.answers.extend(
-                    (f"gave_up_{i}", "") for i in range(Q.QUESTION_CAP)
-                )
+                d.answers.extend((f"gave_up_{i}", "") for i in range(Q.QUESTION_CAP))
                 log("saved", f"saved {d.voucher.party or 'entry'} for you to finish")
             elif value in (Q.YES,):
                 d.answers.append((problem, "yes"))
             elif value == Q.RETYPE:
                 log("retype", "asked to type it again")
-                self._send(render_home(
-                    '<div class=warn>Type it again with the right numbers.</div>'))
+                self._send(
+                    render_home(
+                        "<div class=warn>Type it again with the right numbers.</div>"
+                    )
+                )
                 return
             else:
                 d = pipeline.answer(d, value, problem_id=problem)
@@ -346,11 +357,11 @@ class Handler(BaseHTTPRequestHandler):
 
             d = pipeline.evaluate(d, accounts, history, index)
 
-            if d.decision.outcome is Outcome.VALID:
+            if d.outcome is Outcome.VALID:
                 d = pipeline.post(d, TALLY)
                 log("post", f"answered {d.voucher.party}, posted")
             else:
-                log("block", f"answer did not clear it: {d.decision.reason}")
+                log("block", f"answer did not clear it: {d.reason}")
             DRAFTS[d.id] = d
             self._send(page(render_decision(d) + '<p><a href="/">&larr; back</a></p>'))
             return

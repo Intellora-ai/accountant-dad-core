@@ -7,11 +7,12 @@ not a style choice.
 from __future__ import annotations
 
 import datetime
+from collections.abc import Callable
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 
-class Outcome(str, Enum):
+class Outcome(StrEnum):
     """The three outcomes an entry can have. Exhaustive and mutually exclusive."""
 
     NOT_VALID = "not_valid"
@@ -19,7 +20,7 @@ class Outcome(str, Enum):
     VALID = "valid"
 
 
-class MatchStatus(str, Enum):
+class MatchStatus(StrEnum):
     """What the memory index found. Never a guess."""
 
     MATCH = "match"
@@ -40,14 +41,16 @@ class MatchResult:
     accounts: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        expected = {
+        rules: dict[MatchStatus, Callable[[int], bool]] = {
             MatchStatus.MATCH: lambda n: n == 1,
             MatchStatus.CONFLICTED: lambda n: n >= 2,
             MatchStatus.NO_MATCH: lambda n: n == 0,
-        }[self.status]
+        }
+        expected = rules[self.status]
         if not expected(len(self.accounts)):
             raise ValueError(
-                f"{self.status.value} is inconsistent with {len(self.accounts)} account(s)"
+                f"{self.status.value} is inconsistent with "
+                f"{len(self.accounts)} account(s)"
             )
 
 

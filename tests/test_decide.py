@@ -45,7 +45,9 @@ FLAG = Flag(
     voucher_id="v1",
     detector="vendor_switch",
     severity=3,
-    reason="Sharma Traders posted to Purchases 40 times; this one goes to Sundry Expenses",
+    reason=(
+        "Sharma Traders posted to Purchases 40 times; this one goes to Sundry Expenses"
+    ),
 )
 
 
@@ -171,7 +173,7 @@ def test_decide_is_pure():
 def test_no_network_call_on_the_decision_path(monkeypatch):
     """#2.6 and #3.6 in spirit: this path never reaches out."""
 
-    def explode(*args, **kwargs):
+    def explode(*_args, **_kwargs):
         raise AssertionError("decision path attempted a network call")
 
     monkeypatch.setattr(socket, "socket", explode)

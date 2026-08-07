@@ -40,7 +40,7 @@ class ExtractedRecord:
     line_items: tuple[LineItem, ...] = ()
     raw_text: str = ""
     backend: str = "unknown"
-    per_field_source: dict[str, str] = field(default_factory=dict)
+    per_field_source: dict[str, str] = field(default_factory=dict[str, str])
 
     FIELDS = ("date", "party", "total_paise", "tax_paise")
 
@@ -58,13 +58,15 @@ class ExtractedRecord:
 
 @runtime_checkable
 class Extractor(Protocol):
-    def extract(self, data: bytes, mime: str) -> ExtractedRecord: ...
+    def extract(self, data: bytes, mime: str, /) -> ExtractedRecord: ...
 
 
 # ---- backends ---------------------------------------------------------------
 
 _AMOUNT = re.compile(r"(?:rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)", re.I)
-_GST_PCT = re.compile(r"(\d{1,2}(?:\.\d+)?)\s*%\s*gst|gst\s*@?\s*(\d{1,2}(?:\.\d+)?)\s*%", re.I)
+_GST_PCT = re.compile(
+    r"(\d{1,2}(?:\.\d+)?)\s*%\s*gst|gst\s*@?\s*(\d{1,2}(?:\.\d+)?)\s*%", re.I
+)
 # Party names keep "/" so the Indian "M/s Sharma Traders" form survives, and
 # stop at a lowercase word so "paid Sharma Traders 4200 for cement" does not
 # swallow "for cement".
@@ -74,7 +76,7 @@ _PARTY = re.compile(
 
 
 def _to_paise(text: str) -> int:
-    return int(round(float(text.replace(",", "")) * 100))
+    return round(float(text.replace(",", "")) * 100)
 
 
 class TypedTextExtractor:
@@ -85,7 +87,7 @@ class TypedTextExtractor:
 
     name = "typed_text"
 
-    def extract(self, data: bytes, mime: str) -> ExtractedRecord:
+    def extract(self, data: bytes, _mime: str) -> ExtractedRecord:
         text = data.decode("utf-8", errors="replace")
         src: dict[str, str] = {}
 
@@ -98,7 +100,7 @@ class TypedTextExtractor:
         if m and total is not None:
             pct = float(m.group(1) or m.group(2))
             # Amount typed is inclusive of GST: tax = total * pct / (100 + pct)
-            tax = int(round(total * pct / (100 + pct)))
+            tax = round(total * pct / (100 + pct))
         src["tax_paise"] = self.name if tax is not None else NOT_FOUND
 
         pm = _PARTY.search(text)
@@ -133,20 +135,29 @@ class StubExtractor:
         total_paise: int | None = None,
         tax_paise: int | None = None,
     ) -> None:
-        self._values = {
-            "date": date,
-            "party": party,
-            "total_paise": total_paise,
-            "tax_paise": tax_paise,
-        }
+        self.date = date
+        self.party = party
+        self.total_paise = total_paise
+        self.tax_paise = tax_paise
 
-    def extract(self, data: bytes, mime: str) -> ExtractedRecord:
+    def extract(self, data: bytes, _mime: str) -> ExtractedRecord:
+        # Named fields rather than a dict, so each keeps its own type. A dict
+        # collapses them into one union and the record can no longer be built
+        # without the type checker guessing.
+        supplied: dict[str, object] = {
+            "date": self.date,
+            "party": self.party,
+            "total_paise": self.total_paise,
+            "tax_paise": self.tax_paise,
+        }
         src = {
-            k: (self.name if v is not None else NOT_FOUND)
-            for k, v in self._values.items()
+            k: (self.name if v is not None else NOT_FOUND) for k, v in supplied.items()
         }
         return ExtractedRecord(
-            **self._values,
+            date=self.date,
+            party=self.party,
+            total_paise=self.total_paise,
+            tax_paise=self.tax_paise,
             raw_text=data.decode("utf-8", errors="replace"),
             backend=self.name,
             per_field_source=src,
@@ -162,7 +173,7 @@ class UnavailableExtractor:
     def __init__(self, reason: str = "backend unreachable") -> None:
         self.reason = reason
 
-    def extract(self, data: bytes, mime: str) -> ExtractedRecord:
+    def extract(self, _data: bytes, _mime: str) -> ExtractedRecord:
         return ExtractedRecord(
             date=None,
             party=None,
@@ -170,5 +181,7 @@ class UnavailableExtractor:
             tax_paise=None,
             raw_text="",
             backend=self.name,
-            per_field_source={f: f"{NOT_FOUND}: {self.reason}" for f in ExtractedRecord.FIELDS},
+            per_field_source=dict.fromkeys(
+                ExtractedRecord.FIELDS, f"{NOT_FOUND}: {self.reason}"
+            ),
         )

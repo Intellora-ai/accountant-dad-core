@@ -21,8 +21,11 @@ There is no user confirmation gate. Nothing here consults a model or the network
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import cast
 
+from accountant.memory.index import MemoryIndex
 from accountant.problems import Problem, find
+from accountant.questions import Question
 from accountant.schema import (
     CheckResult,
     Decision,
@@ -60,10 +63,14 @@ def decide_problems(problems: Sequence[Problem], asked: int = 0) -> Decision:
                 ),
             )
         nxt = answerable[0]
+        # Problem.__post_init__ refuses to construct an answerable problem
+        # without a question, so this is never None. Not an assert: python -O
+        # deletes asserts, so an assert is not a guarantee in shipped code.
+        question = cast(Question, nxt.question)
         return Decision(
             outcome=Outcome.UNCLEAR,
             reason=nxt.detail,
-            question_options=tuple(a.value for a in nxt.question.answers),
+            question_options=tuple(a.value for a in question.answers),
         )
 
     return Decision(
@@ -79,7 +86,7 @@ def decide(
     voucher: Voucher | None = None,
     accounts: Sequence[str] = (),
     history: Sequence[Voucher] = (),
-    index=None,
+    index: MemoryIndex | None = None,
     asked: int = 0,
 ) -> Decision:
     """Convenience wrapper: build the problems, then decide.

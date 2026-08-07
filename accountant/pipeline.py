@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import datetime
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 
 from accountant import checks, problems
@@ -23,6 +24,7 @@ from accountant.decide import decide_problems
 from accountant.detect import detectors
 from accountant.extract.adapter import ExtractedRecord, Extractor
 from accountant.memory.index import MemoryIndex
+from accountant.problems import Problem
 from accountant.schema import CheckResult, Decision, Flag, Outcome, Voucher
 from accountant.tallyio.client import TallyClient, new_operation_id
 
@@ -36,13 +38,27 @@ class Draft:
     voucher: Voucher
     record: ExtractedRecord
     operation_id: str
-    checks: list[CheckResult] = field(default_factory=list)
-    flags: list[Flag] = field(default_factory=list)
+    checks: list[CheckResult] = field(default_factory=list[CheckResult])
+    flags: list[Flag] = field(default_factory=list[Flag])
     dropped_flags: int = 0
-    problems: list = field(default_factory=list)
+    problems: list[Problem] = field(default_factory=list[Problem])
     decision: Decision | None = None
     posted_tally_id: str | None = None
-    answers: list[tuple[str, str]] = field(default_factory=list)
+    answers: list[tuple[str, str]] = field(default_factory=list[tuple[str, str]])
+
+    @property
+    def outcome(self) -> Outcome:
+        """The decided outcome. Raises if the draft was never evaluated."""
+        if self.decision is None:
+            raise ValueError("draft has not been evaluated")
+        return self.decision.outcome
+
+    @property
+    def reason(self) -> str:
+        """Why that outcome. Raises if the draft was never evaluated."""
+        if self.decision is None:
+            raise ValueError("draft has not been evaluated")
+        return self.decision.reason
 
     @property
     def provenance(self) -> dict[str, str]:
@@ -102,7 +118,7 @@ def evaluate(
     history: tuple[Voucher, ...],
     index: MemoryIndex,
     *,
-    detector_set=detectors.SLICE_4_DETECTORS,
+    detector_set: Sequence[detectors.Detector] = detectors.SLICE_4_DETECTORS,
     flag_cap: int | None = None,
 ) -> Draft:
     """Run checks, memory and detectors, then apply the decision order."""
@@ -153,9 +169,7 @@ def post(draft: Draft, client: TallyClient) -> Draft:
     if draft.decision is None:
         raise ValueError("draft has not been evaluated")
     if draft.decision.outcome is not Outcome.VALID:
-        raise ValueError(
-            f"refusing to post: outcome is {draft.decision.outcome.value}"
-        )
+        raise ValueError(f"refusing to post: outcome is {draft.decision.outcome.value}")
 
     result = client.write_voucher(draft.company, draft.voucher, draft.operation_id)
 
@@ -182,7 +196,7 @@ def run(
     extractor: Extractor,
     client: TallyClient,
     *,
-    detector_set=detectors.SLICE_4_DETECTORS,
+    detector_set: Sequence[detectors.Detector] = detectors.SLICE_4_DETECTORS,
     flag_cap: int | None = None,
     today: datetime.date | None = None,
 ) -> Draft:
@@ -191,9 +205,7 @@ def run(
     history = client.read_vouchers(company)
     index = MemoryIndex.from_vouchers(history)
 
-    draft = build_draft(
-        company, data, mime, extractor, accounts, index, today=today
-    )
+    draft = build_draft(company, data, mime, extractor, accounts, index, today=today)
     draft = evaluate(
         draft, accounts, history, index, detector_set=detector_set, flag_cap=flag_cap
     )

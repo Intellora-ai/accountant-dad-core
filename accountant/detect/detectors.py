@@ -7,17 +7,21 @@ the dismissal cost D and breaks N1.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
-from accountant.memory.index import MemoryIndex, normalise_vendor
+from accountant.memory.index import MemoryIndex
 from accountant.schema import Flag, Voucher
+
+# A detector takes the proposed voucher, the company's history and the memory
+# index, and returns flags. The uniform shape is what lets run() iterate them.
+Detector = Callable[[Voucher, Sequence[Voucher], MemoryIndex], list[Flag]]
 
 # Slice 4 builds only vendor_switch. The rest are defined here so the shapes are
 # settled, and are wired in during Slice 6.
 
 
 def vendor_switch(
-    proposed: Voucher, history: Sequence[Voucher], index: MemoryIndex
+    proposed: Voucher, _history: Sequence[Voucher], index: MemoryIndex
 ) -> list[Flag]:
     """The vendor is consistently posted to X, this one goes to Y."""
     seen = index.lookup(proposed.party)
@@ -60,7 +64,7 @@ def first_use(
 
 
 def magnitude(
-    proposed: Voucher, history: Sequence[Voucher], index: MemoryIndex
+    proposed: Voucher, history: Sequence[Voucher], _index: MemoryIndex
 ) -> list[Flag]:
     """The amount is far outside this account's own historical range.
 
@@ -88,7 +92,7 @@ def magnitude(
 
 
 def gst_anomaly(
-    proposed: Voucher, history: Sequence[Voucher], index: MemoryIndex
+    proposed: Voucher, history: Sequence[Voucher], _index: MemoryIndex
 ) -> list[Flag]:
     """GST claimed on an account that has never carried GST."""
     if not proposed.gst_paise:
@@ -112,15 +116,15 @@ def gst_anomaly(
     ]
 
 
-ALL_DETECTORS = (vendor_switch, first_use, magnitude, gst_anomaly)
-SLICE_4_DETECTORS = (vendor_switch,)
+ALL_DETECTORS: tuple[Detector, ...] = (vendor_switch, first_use, magnitude, gst_anomaly)
+SLICE_4_DETECTORS: tuple[Detector, ...] = (vendor_switch,)
 
 
 def run(
     proposed: Voucher,
     history: Sequence[Voucher],
     index: MemoryIndex,
-    detectors=SLICE_4_DETECTORS,
+    detectors: Sequence[Detector] = SLICE_4_DETECTORS,
     cap: int | None = None,
 ) -> tuple[list[Flag], int]:
     """Run detectors, rank by severity, apply the per-batch cap.

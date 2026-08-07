@@ -17,6 +17,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from accountant import questions as Q
+from accountant.memory.index import MemoryIndex
 from accountant.schema import CheckResult, Flag, MatchResult, MatchStatus, Voucher
 
 # Checks whose failure NO answer can fix. Everything else is a question.
@@ -44,9 +45,7 @@ def _usual_amount(history: Sequence[Voucher], account: str) -> int:
     return max(seen) if seen else 0
 
 
-def _from_check(
-    c: CheckResult, voucher: Voucher, accounts: Sequence[str]
-) -> Problem:
+def _from_check(c: CheckResult, voucher: Voucher, accounts: Sequence[str]) -> Problem:
     if c.name in UNANSWERABLE_CHECKS:
         return Problem(id=c.name, answerable=False, detail=c.detail)
 
@@ -69,7 +68,10 @@ def _from_check(
 
 
 def _from_flag(
-    f: Flag, voucher: Voucher, history: Sequence[Voucher], index
+    f: Flag,
+    voucher: Voucher,
+    history: Sequence[Voucher],
+    index: MemoryIndex | None,
 ) -> Problem:
     if f.detector == "vendor_switch":
         usual, times = "", 0
@@ -101,7 +103,7 @@ def find(
     flags: Sequence[Flag],
     accounts: Sequence[str],
     history: Sequence[Voucher] = (),
-    index=None,
+    index: MemoryIndex | None = None,
 ) -> list[Problem]:
     """Every distinct thing wrong with this entry, each with a stable id.
 
