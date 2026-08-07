@@ -6,7 +6,24 @@ requires-python = ">=3.12"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+# One tool per responsibility. Black, Flake8, isort, Pylint, mypy, Poetry, tox,
+# MutPy, Cosmic Ray and mutmut are deliberately absent - they overlap with
+# something already here or add runtime.
+dev = [
+    "pytest>=8.0",         # test runner
+    "pytest-xdist>=3.8",   # parallel tests
+    "pytest-testmon>=2.2", # changed-test selection, local and PR only
+    "pytest-gremlins>=1.9",# mutation testing
+    "ruff>=0.16",          # lint AND format - the only one of either
+    "pyright>=1.1.411",    # type checking - the only type checker
+    "coverage>=7.15",      # coverage measurement
+    "diff-cover>=10.4",    # changed-line coverage gate
+    "pip-audit>=2.10",     # dependency vulnerabilities
+    "bandit>=1.9",         # Python security scan
+    "zizmor>=1.29",        # GitHub Actions security lint
+    "build>=1.5",          # sdist/wheel
+    "twine>=7.0",          # packaging metadata validation
+]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -17,3 +34,50 @@ include = ["accountant*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# ---------------------------------------------------------------------------
+# ruff - lint and format. target-version is deliberately unset so ruff infers
+# it from requires-python above, rather than being a second place to keep in
+# sync.
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # import sorting (replaces isort)
+    "UP",       # pyupgrade
+    "B",        # bugbear - real bug patterns
+    "SIM",      # simplifiable code
+    "C4",       # comprehensions
+    "RUF",      # ruff's own rules
+    "S",        # flake8-bandit subset - security patterns at lint speed
+    "ARG",      # unused arguments
+    "PTH",      # pathlib over os.path
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests assert. S101 forbids assert. Tests are where assert belongs.
+"tests/*" = ["S101"]
+
+# ---------------------------------------------------------------------------
+# pyright - the only type checker
+# ---------------------------------------------------------------------------
+[tool.pyright]
+include = ["accountant", "tests", "ci"]
+typeCheckingMode = "strict"
+reportMissingImports = "error"
+
+# ---------------------------------------------------------------------------
+# coverage - branch coverage, no exclusions. fail_under is owner-set at 90.
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+branch = true
+source = ["accountant"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = false
