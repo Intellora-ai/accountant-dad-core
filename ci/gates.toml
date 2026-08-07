@@ -120,16 +120,16 @@ failure_behaviour = "block"
 note              = "Owner-set 90. Lines this PR touched, not the whole repo."
 
 [[gate]]
-name              = "changed-mutation"
+name              = "cached-mutation"
 command           = "pytest --gremlins --gremlin-parallel --gremlin-cache"
 threshold         = 90
 required          = true
 status            = "active"
 owner             = "tanveersidhu"
-job               = "pr-fast"
+job               = "mutation"
 artifact          = "coverage/gremlins/gremlins.json"
 failure_behaviour = "block"
-note              = "Changed files only, for fast feedback. The complete inventory runs in the merge queue."
+note              = "Moved off the pull-request path 2026-08-07 on owner instruction. Measured: mutation was 69 of the 100 seconds of a warm pr-fast run, while every other gate together took 18. A fresh runner has no gremlins cache, so it was re-running all 267 mutants each time rather than only what changed. It now runs in full.yml behind a persistent cache keyed on source and test content. The gate is moved, never removed: the 90 threshold and the complete-inventory accounting are unchanged."
 
 # ---------------------------------------------------------------------------
 # Layer 3 — merge queue and nightly. Expensive, authoritative.
