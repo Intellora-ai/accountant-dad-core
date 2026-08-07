@@ -1,0 +1,252 @@
+name: full
+
+# The authoritative, expensive verification. Never on the pull-request path.
+#
+# Five jobs run in parallel, so the wall clock is the slowest one rather than
+# the sum. ci-gate then reconciles them and is the only required merge-queue
+# check. It fails on failed, missing, cancelled AND skipped: a job that never
+# ran produces no evidence, and missing evidence must block the merge rather
+# than read as a pass.
+
+on:
+  merge_group:
+  schedule:
+    # Nightly, so a dependency advisory published after a merge is still caught.
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # See pr-fast.yml. Without this the mutation score silently under-reports.
+  COVERAGE_CORE: pytrace
+  FORCE_COLOR: "1"
+
+jobs:
+  full-tests:
+    name: full-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          enable-cache: true
+          cache-suffix: ${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          cache-dependency-glob: uv.lock
+      - name: sync dependencies from the lockfile
+        run: uv sync --extra dev --frozen
+      - name: full-tests
+        # The complete suite. No test may be deleted or skipped to make this
+        # faster, and no failure may be converted into a skip.
+        run: uv run pytest -n auto --junitxml=junit.xml -q
+      - name: full-coverage
+        # Owner-set 90, whole repository, branch coverage, no exclusions.
+        run: |
+          set -euo pipefail
+          uv run coverage run -m pytest -q
+          uv run coverage xml
+          uv run coverage report
+      - name: evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: full-tests-evidence
+          path: |
+            junit.xml
+            coverage.xml
+          if-no-files-found: warn
+          retention-days: 30
+
+  security:
+    name: security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          enable-cache: true
+          cache-suffix: ${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          cache-dependency-glob: uv.lock
+      - name: sync dependencies from the lockfile
+        run: uv sync --extra dev --frozen
+      - name: dependency-audit
+        # Audits the exported lockfile rather than the environment: this project
+        # is installed editable and is not on PyPI, so auditing the environment
+        # fails on our own package instead of on a dependency.
+        run: |
+          set -euo pipefail
+          uv export --format requirements-txt --no-emit-project --all-extras \
+            -q -o requirements-audit.txt
+          uv run pip-audit --strict --progress-spinner off \
+            -r requirements-audit.txt -f json -o pip-audit.json
+          uv run pip-audit --strict --progress-spinner off \
+            -r requirements-audit.txt
+      - name: security-scan
+        # Owner-set 2026-08-07: every severity blocks, LOW included. One
+        # invocation: the JSON is the artifact and the exit code is the gate.
+        # No `|| true` anywhere - a gate that cannot fail is not a gate.
+        run: >
+          uv run bandit -r accountant
+          --severity-level low --confidence-level low
+          -f json -o bandit.json
+      - name: evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: security-evidence
+          path: |
+            pip-audit.json
+            bandit.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  build:
+    name: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          enable-cache: true
+          cache-suffix: ${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          cache-dependency-glob: uv.lock
+      - name: sync dependencies from the lockfile
+        run: uv sync --extra dev --frozen
+      - name: package-build
+        run: uv run python -m build --outdir dist .
+      - name: package-metadata
+        # --strict, so a warning is a failure.
+        run: uv run twine check --strict dist/*
+      - name: evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: dist
+          path: dist
+          if-no-files-found: error
+          retention-days: 30
+
+  workflow-checks:
+    name: workflow-checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          enable-cache: true
+          cache-suffix: ${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          cache-dependency-glob: uv.lock
+      - name: sync dependencies from the lockfile
+        run: uv sync --extra dev --frozen
+      - name: workflow-lint
+        # actionlint is a Go binary and is not on PyPI, so it cannot come from
+        # uv. The action ships the pinned binary.
+        uses: rhysd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca  # v1.7.12
+      - name: workflow-security
+        run: uv run zizmor --persona=pedantic --format=plain .
+      - name: no-stub-jobs
+        # The same scanner the local guards run. Belt and braces: if a workflow
+        # is ever committed without running ./scripts/guards, this catches it.
+        run: uv run python ci/check_stubs.py
+      - name: evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: workflow-evidence
+          path: zizmor.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+  mutation:
+    name: mutation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          enable-cache: true
+          cache-suffix: ${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          cache-dependency-glob: uv.lock
+      - name: sync dependencies from the lockfile
+        run: uv sync --extra dev --frozen
+      - name: full-mutation
+        # The complete inventory. Never delete, skip, hide, merge or relabel a
+        # mutant to make this faster.
+        run: >
+          uv run pytest --gremlins --gremlin-parallel
+          --gremlin-targets=accountant --gremlin-report=json -q
+      - name: mutation-accounting
+        # Missing IDs = 0, duplicate IDs = 0, every mutant terminal, survivors
+        # reproducible, score >= 90. Incomplete results report FAIL_INCOMPLETE
+        # with score_percent = null, never a partial percentage.
+        run: uv run python ci/check_mutation.py
+      - name: evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: mutation-evidence
+          path: coverage/gremlins/gremlins.json
+          if-no-files-found: error
+          retention-days: 30
+
+  ci-gate:
+    name: ci-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # always(), so a job that failed or was skipped is still reconciled here
+    # instead of skipping the gate along with it.
+    if: ${{ always() }}
+    needs:
+      - full-tests
+      - security
+      - build
+      - workflow-checks
+      - mutation
+    steps:
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          enable-cache: true
+          cache-suffix: ${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          cache-dependency-glob: uv.lock
+      - name: ci-gate
+        # The expected job list comes from ci/gates.toml, not from a list typed
+        # into this file, so a gate cannot be added to the contract and then
+        # quietly left out of the aggregate.
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: uv run --no-project python ci/check_aggregate.py --needs "${NEEDS_JSON}"

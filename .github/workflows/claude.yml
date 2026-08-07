@@ -1,0 +1,58 @@
+name: claude
+
+# Advisory only. Claude may read failed checks, inspect artifacts and logs, find
+# the root cause, implement a focused fix, run the relevant tests and report what
+# changed. Claude may NOT decide that a failed gate passed, delete tests or
+# mutants, weaken a threshold, convert a failure into a skip, bypass ci-gate, or
+# merge its own changes. Deterministic tools decide whether a gate passes.
+#
+# This workflow is deliberately not a gate. It is listed in ci/gates.toml under
+# meta.non_gate_workflows so the gate-contract test knows it has no gate behind
+# it, rather than that fact being silently unexplained.
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: claude-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  claude:
+    name: claude
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # Two conditions, both required:
+    #   the comment asks for Claude, and
+    #   the author can already write to this repository.
+    # Without the second, anyone on the internet could spend the API key and
+    # drive a job with write permissions by leaving a comment on a public repo.
+    if: >
+      contains(github.event.comment.body, '@claude') &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'),
+               github.event.comment.author_association)
+    permissions:
+      contents: write       # push a fix to the branch it was asked about
+      pull-requests: write  # reply in the thread with what changed and why
+      issues: read          # read the issue it was asked about; never write
+    steps:
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: claude
+        uses: anthropics/claude-code-action@1623c36729ac1cd5895198cded705a287de7db79  # v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # The comment body is data, never a command. It reaches the action as
+          # an input, not through string interpolation into a shell script.
+          claude_args: |
+            --allowedTools "Bash(./scripts/guards),Bash(uv run pytest*),Bash(uv run ruff*),Bash(uv run pyright),Read,Edit,Write,Grep,Glob"

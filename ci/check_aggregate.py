@@ -33,10 +33,21 @@ NO_EVIDENCE = frozenset({"skipped", ""})
 
 
 def expected_jobs(aggregate_job: str) -> list[str]:
+    """Every active job this aggregate is responsible for.
+
+    Two are excluded, both for structural reasons rather than convenience:
+
+      the aggregate itself, which cannot depend on its own result;
+
+      the required pull-request check, which runs on the `pull_request`
+      trigger and is a required check in its own right. It is never one of
+      this job's dependencies, so demanding it here would fail every merge.
+    """
     with CONTRACT.open("rb") as fh:
         data = tomllib.load(fh)
     jobs = {g["job"] for g in data["gate"] if g["status"] == "active"}
     jobs.discard(aggregate_job)
+    jobs.discard(str(data["meta"]["required_pr_check"]))
     return sorted(jobs)
 
 

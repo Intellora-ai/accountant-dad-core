@@ -43,7 +43,19 @@ def gates() -> list[dict[str, Any]]:
 def workflow_text() -> str:
     if not WORKFLOWS.is_dir():
         return ""
-    return "\n".join(p.read_text() for p in sorted(WORKFLOWS.glob("*.yml")))
+    return "\n".join(p.read_text() for p in gate_workflows())
+
+
+def gate_workflows() -> list[Path]:
+    """Workflow files that are expected to carry gates.
+
+    ci/gates.toml lists any workflow that deliberately has none. The exclusion
+    is declared in the contract, never assumed here.
+    """
+    if not WORKFLOWS.is_dir():
+        return []
+    excluded = set(contract()["meta"].get("non_gate_workflows", []))
+    return [p for p in sorted(WORKFLOWS.glob("*.yml")) if p.name not in excluded]
 
 
 def workflow_job_names() -> set[str]:
@@ -52,7 +64,7 @@ def workflow_job_names() -> set[str]:
     A job id is a two-space-indented key directly under `jobs:`.
     """
     names: set[str] = set()
-    for path in sorted(WORKFLOWS.glob("*.yml")) if WORKFLOWS.is_dir() else []:
+    for path in gate_workflows():
         in_jobs = False
         for line in path.read_text().splitlines():
             if re.match(r"^jobs:\s*$", line):

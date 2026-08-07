@@ -16,6 +16,12 @@ repository        = "Intellora-ai/accountant-dad-core"
 required_pr_check = "pr-fast"
 required_mq_check = "ci-gate"
 
+# Workflows that deliberately have no gate behind them. Listed here, never
+# silently excluded. claude.yml is advisory: Claude may inspect failures and
+# propose fixes, but deterministic tools decide whether a gate passes, and
+# Claude may never be a required check nor merge its own changes.
+non_gate_workflows = ["claude.yml"]
+
 # Python 3.12+ defaults coverage to the sysmon core, which does not support
 # dynamic contexts. pytest-gremlins uses dynamic contexts to map tests to lines,
 # so on the default core the mapping is silently incomplete: mutants run against

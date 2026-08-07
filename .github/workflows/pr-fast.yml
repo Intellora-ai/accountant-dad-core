@@ -1,0 +1,142 @@
+name: pr-fast
+
+# The single required check for a pull request.
+#
+# One job, deliberately. Every separate hosted job pays GitHub's runner queue,
+# boot, checkout and dependency install again - roughly 35 seconds each. This
+# repository's whole test suite runs in 0.06s locally, so splitting the fast
+# path into per-tool jobs would cost far more in start-up than it saves in
+# parallelism. The expensive work lives in full.yml, off the pull-request path.
+#
+# There is no separate aggregate job here. pr-fast IS the required check, so an
+# aggregate would only wait on it and pay a second runner start-up for nothing.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Python 3.12+ defaults coverage to the sysmon core, which does not support
+  # dynamic contexts. pytest-gremlins maps tests to lines using dynamic
+  # contexts, so on the default core that mapping is silently incomplete:
+  # mutants run against as few as 1 test instead of 22, and the score reads
+  # 87.92% instead of 94.34%. Measured on this repository 2026-08-07.
+  COVERAGE_CORE: pytrace
+  FORCE_COLOR: "1"
+
+jobs:
+  pr-fast:
+    name: pr-fast
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # diff-cover compares against the base branch, so history must be here.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          enable-cache: true
+          # Never an unqualified key: a cache shared across operating systems or
+          # lockfiles can restore an incompatible dependency set.
+          cache-suffix: ${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          cache-dependency-glob: uv.lock
+
+      - name: sync dependencies from the lockfile
+        # --frozen fails if uv.lock does not match pyproject.toml, which is the
+        # `uv lock --check` gate.
+        run: uv sync --extra dev --frozen
+
+      - name: lint
+        run: uv run ruff check .
+
+      - name: format
+        run: uv run ruff format --check .
+
+      - name: typecheck
+        run: uv run pyright
+
+      - name: gate-contract
+        run: uv run pytest tests/test_gate_contract.py -q
+
+      - name: no-stub-jobs
+        run: uv run python ci/check_stubs.py
+
+      - name: security-scan
+        # Owner-set 2026-08-07: every severity blocks, LOW included. Target is
+        # accountant/ only - tests are not shipped and never run under -O.
+        run: >
+          uv run bandit -r accountant
+          --severity-level low --confidence-level low
+
+      - name: changed-tests
+        # Selection is an optimisation, never a reason a run can be green having
+        # tested nothing. A hosted runner starts with no testmon database, so in
+        # practice this runs the complete suite; the guard below proves that
+        # rather than assuming it.
+        run: |
+          set -euo pipefail
+          run_full() {
+            echo "::notice::running the complete suite"
+            uv run pytest -n auto --cov --cov-report=xml --junitxml=junit.xml -q
+          }
+          if [ -f .testmondata ]; then
+            uv run pytest --testmon -n auto --cov --cov-report=xml \
+              --junitxml=junit.xml -q
+          else
+            echo "no testmon database: selection would be a guess"
+            run_full
+          fi
+          # Read the count with a regex rather than an XML parser: stdlib XML
+          # parsers accept external entities, and a gate should not widen the
+          # attack surface it exists to protect.
+          ran=$(sed -n 's/.*<testsuite[^>]* tests="\([0-9]*\)".*/\1/p' \
+            junit.xml | head -1)
+          echo "tests executed: ${ran:-0}"
+          if [ "${ran:-0}" -lt 1 ]; then
+            echo "::error::zero tests ran - a green result here would mean nothing"
+            run_full
+          fi
+
+      - name: changed-coverage
+        # Owner-set 90, on the lines this pull request touched.
+        # base_ref reaches the shell through the environment, never through
+        # string interpolation into the script.
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          uv run diff-cover coverage.xml \
+            --compare-branch="origin/${BASE_REF}" \
+            --fail-under=90
+
+      - name: changed-mutation
+        # Changed files only, for fast feedback. The complete inventory runs in
+        # the merge queue, where it is allowed to be slow.
+        run: |
+          set -euo pipefail
+          uv run pytest --gremlins --gremlin-parallel --gremlin-cache \
+            --gremlin-targets=accountant --gremlin-report=json -q
+          uv run python ci/check_mutation.py
+
+      - name: evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: pr-fast-evidence
+          path: |
+            coverage.xml
+            junit.xml
+            coverage/gremlins/gremlins.json
+          if-no-files-found: warn
+          retention-days: 14
