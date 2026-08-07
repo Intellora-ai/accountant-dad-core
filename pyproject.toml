@@ -2,6 +2,7 @@
 name = "accountant-dad"
 version = "0.0.1"
 description = "A safe, reversible decision-and-posting layer in front of Tally."
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
 
