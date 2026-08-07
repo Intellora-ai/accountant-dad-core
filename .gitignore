@@ -1,0 +1,28 @@
+# Virtual environments
+.venv/
+venv/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Test and tool caches
+.pytest_cache/
+.testmondata*
+.gremlins_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Build artefacts
+dist/
+build/
+
+# Reports uploaded as CI artefacts, never committed
+reports/
+
+# macOS
+.DS_Store
