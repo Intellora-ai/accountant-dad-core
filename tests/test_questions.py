@@ -10,6 +10,9 @@ Every one of these is enforced here rather than trusted.
 from __future__ import annotations
 
 import datetime
+from collections.abc import Callable
+from dataclasses import replace
+from typing import Any
 
 import pytest
 
@@ -35,19 +38,21 @@ ACCOUNTS = (
 TODAY = datetime.date(2026, 8, 7)
 
 
-def a_voucher(**kw) -> Voucher:
-    base = {
-        "id": "d1",
-        "date": TODAY,
-        "party": "Sharma Traders",
-        "narration": "cement",
-        "debit_account": "Purchases",
-        "credit_account": "Cash",
-        "amount_paise": 420000,
-        "gst_paise": None,
-    }
-    base.update(kw)
-    return Voucher(**base)
+_BASE = Voucher(
+    id="d1",
+    date=TODAY,
+    party="Sharma Traders",
+    narration="cement",
+    debit_account="Purchases",
+    credit_account="Cash",
+    amount_paise=420000,
+    gst_paise=None,
+)
+
+
+def a_voucher(**kw: Any) -> Voucher:
+    """The default voucher, with any field overridden."""
+    return replace(_BASE, **kw)
 
 
 def past(party: str, account: str, amount: int = 380000, n: int = 1) -> list[Voucher]:
@@ -82,7 +87,7 @@ ALL_QUESTION_BUILDERS = [
 
 
 @pytest.mark.parametrize("build", ALL_QUESTION_BUILDERS)
-def test_no_question_contains_a_ledger_account_name(build):
+def test_no_question_contains_a_ledger_account_name(build: Callable[[], Q.Question]):
     """The rule that makes 'plain English' testable instead of a matter of taste."""
     q = build()
     leaked = q.mentions_any(ACCOUNTS)
@@ -90,14 +95,16 @@ def test_no_question_contains_a_ledger_account_name(build):
 
 
 @pytest.mark.parametrize("build", ALL_QUESTION_BUILDERS)
-def test_every_question_has_text_and_at_least_one_answer(build):
+def test_every_question_has_text_and_at_least_one_answer(
+    build: Callable[[], Q.Question],
+):
     q = build()
     assert q.text.strip()
     assert len(q.answers) >= 1
 
 
 @pytest.mark.parametrize("build", ALL_QUESTION_BUILDERS)
-def test_every_answer_label_is_plain_english(build):
+def test_every_answer_label_is_plain_english(build: Callable[[], Q.Question]):
     """Answer labels are read by the person too, so the same rule applies.
 
     "cash" is allowed - it is not jargon. "Purchases" is not.
@@ -295,6 +302,6 @@ def test_a_handed_over_entry_is_never_posted():
     )
     d.answers = [(f"p{i}", "x") for i in range(5)]
     d = pipeline.evaluate(d, ACCOUNTS, (), index)
-    assert d.decision.outcome is not Outcome.VALID
+    assert d.outcome is not Outcome.VALID
     with pytest.raises(ValueError):
         pipeline.post(d, t)

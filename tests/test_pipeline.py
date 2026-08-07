@@ -68,7 +68,7 @@ def test_known_vendor_posts_without_asking():
         t,
         today=TODAY,
     )
-    assert d.decision.outcome is Outcome.VALID
+    assert d.outcome is Outcome.VALID
     assert d.posted_tally_id is not None
     assert d.voucher.debit_account == "Purchases"
 
@@ -142,7 +142,7 @@ def test_unknown_vendor_is_unclear_and_does_not_post():
         t,
         today=TODAY,
     )
-    assert d.decision.outcome is Outcome.UNCLEAR
+    assert d.outcome is Outcome.UNCLEAR
     assert d.posted_tally_id is None
     assert len(t.list_our_vouchers(COMPANY)) == 0
 
@@ -160,9 +160,10 @@ def test_conflicted_vendor_asks_and_offers_only_accounts_seen_before():
         t,
         today=TODAY,
     )
-    assert d.decision.outcome is Outcome.UNCLEAR
+    assert d.outcome is Outcome.UNCLEAR
     # plus a "something else" escape so nobody gets stuck
-    assert set(d.decision.question_options) >= {"Purchases", "Repairs & Maintenance"}
+    options = set(d.decision.question_options if d.decision else ())
+    assert options >= {"Purchases", "Repairs & Maintenance"}
 
 
 def test_answering_then_re_evaluating_posts():
@@ -181,13 +182,13 @@ def test_answering_then_re_evaluating_posts():
         today=TODAY,
     )
     d = pipeline.evaluate(d, accounts, history, index)
-    assert d.decision.outcome is Outcome.UNCLEAR
+    assert d.outcome is Outcome.UNCLEAR
 
     d = pipeline.answer(d, "Purchases")
     index.record("Verma Cement", "Purchases")
     d = pipeline.evaluate(d, accounts, history, index)
 
-    assert d.decision.outcome is Outcome.VALID
+    assert d.outcome is Outcome.VALID
     d = pipeline.post(d, t)
     assert d.posted_tally_id is not None
 
@@ -213,8 +214,8 @@ def test_an_answer_is_not_permission_to_post():
     index.record("Verma Cement", "Not A Real Ledger")
     d = pipeline.evaluate(d, accounts, history, index)
 
-    assert d.decision.outcome is not Outcome.VALID
-    assert "Not A Real Ledger" in d.decision.reason
+    assert d.outcome is not Outcome.VALID
+    assert "Not A Real Ledger" in d.reason
 
 
 def test_answer_is_recorded_as_provenance():
@@ -231,7 +232,7 @@ def test_answer_is_recorded_as_provenance():
         today=TODAY,
     )
     d = pipeline.answer(d, "Purchases")
-    assert d.voucher.provenance["debit_account"] == "human_answer"
+    assert (d.voucher.provenance or {})["debit_account"] == "human_answer"
 
 
 # ---- the post gate lives server side ---------------------------------------
@@ -251,7 +252,7 @@ def test_posting_a_not_valid_draft_is_refused():
         today=TODAY,
     )
     d = pipeline.evaluate(d, accounts, (), index)
-    assert d.decision.outcome is not Outcome.VALID
+    assert d.outcome is not Outcome.VALID
     with pytest.raises(ValueError):
         pipeline.post(d, t)
 
@@ -293,9 +294,9 @@ def test_vendor_switch_asks_instead_of_posting_and_names_the_evidence():
     d = pipeline.answer(d, "Sundry Expenses")  # the accountant slipped
     d = pipeline.evaluate(d, accounts, tuple(hist), index)
 
-    assert d.decision.outcome is Outcome.UNCLEAR  # asks, never refuses
+    assert d.outcome is Outcome.UNCLEAR  # asks, never refuses
     assert d.posted_tally_id is None
-    assert "40 times" in d.decision.reason
+    assert "40 times" in d.reason
     q = pipeline.next_question(d)
     assert q is not None and q.problem_id == "vendor_switch"
 
@@ -309,7 +310,7 @@ def test_stub_extractor_drives_the_same_pipeline():
         date=TODAY, party="Sharma Traders", total_paise=420000, tax_paise=64068
     )
     d = pipeline.run(COMPANY, b"<pretend pdf>", "application/pdf", stub, t)
-    assert d.decision.outcome is Outcome.VALID
+    assert d.outcome is Outcome.VALID
     assert d.voucher.amount_paise == 420000
     assert d.record.backend == "stub"
 
@@ -324,7 +325,7 @@ def test_backend_outage_asks_the_person_to_type_instead():
         UnavailableExtractor("provider timed out"),
         t,
     )
-    assert d.decision.outcome is not Outcome.VALID
+    assert d.outcome is not Outcome.VALID
     assert d.posted_tally_id is None
     assert all("not_found" in v for v in d.provenance.values())
 
@@ -350,7 +351,7 @@ def test_swapping_the_backend_changes_no_pipeline_code():
         ),
         t2,
     )
-    assert a.decision.outcome is b.decision.outcome is Outcome.VALID
+    assert a.outcome is b.outcome is Outcome.VALID
 
 
 # ---- cold start is safe by construction ------------------------------------
@@ -367,7 +368,7 @@ def test_a_brand_new_company_never_posts_silently():
         d = pipeline.run(
             COMPANY, typed(text), "text/plain", TypedTextExtractor(), t, today=TODAY
         )
-        assert d.decision.outcome is Outcome.UNCLEAR
+        assert d.outcome is Outcome.UNCLEAR
     assert t.list_our_vouchers(COMPANY) == ()
 
 
@@ -386,7 +387,7 @@ def test_spelling_variants_of_one_vendor_are_the_same_vendor():
             t,
             today=TODAY,
         )
-        assert d.decision.outcome is Outcome.VALID, spelling
+        assert d.outcome is Outcome.VALID, spelling
 
 
 # ---- checks report a count -------------------------------------------------

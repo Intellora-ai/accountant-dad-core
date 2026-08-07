@@ -69,6 +69,10 @@ select = [
 include = ["accountant", "tests", "ci"]
 typeCheckingMode = "strict"
 reportMissingImports = "error"
+# Without these, pyright resolves nothing from the project environment, pytest
+# included, and every fixture and decorator silently degrades to Unknown.
+venvPath = "."
+venv = ".venv"
 
 # ---------------------------------------------------------------------------
 # coverage - branch coverage, no exclusions. fail_under is owner-set at 90.

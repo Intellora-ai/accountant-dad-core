@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import itertools
 import socket
+from typing import NoReturn, cast
 
 import pytest
 
@@ -131,7 +132,9 @@ def test_no_checks_and_a_match_still_posts():
         )
     ),
 )
-def test_outcomes_are_exhaustive_and_mutually_exclusive(checks, match, flags):
+def test_outcomes_are_exhaustive_and_mutually_exclusive(
+    checks: list[CheckResult], match: MatchResult, flags: list[Flag]
+):
     """Every input lands in exactly one of the three outcomes."""
     d = decide(checks, match, flags)
     assert d.outcome in set(Outcome)
@@ -160,20 +163,22 @@ def test_all_three_outcomes_are_reachable():
         )
     ),
 )
-def test_every_decision_states_a_reason(checks, match, flags):
+def test_every_decision_states_a_reason(
+    checks: list[CheckResult], match: MatchResult, flags: list[Flag]
+):
     """A decision nobody can explain is not usable by a reviewer."""
     assert decide(checks, match, flags).reason.strip()
 
 
 def test_decide_is_pure():
-    args = ([PASSING], MATCH, [])
-    assert decide(*args) == decide(*args)
+    checks, match, flags = [PASSING], MATCH, cast(list[Flag], [])
+    assert decide(checks, match, flags) == decide(checks, match, flags)
 
 
-def test_no_network_call_on_the_decision_path(monkeypatch):
+def test_no_network_call_on_the_decision_path(monkeypatch: pytest.MonkeyPatch):
     """#2.6 and #3.6 in spirit: this path never reaches out."""
 
-    def explode(*_args, **_kwargs):
+    def explode(*_args: object, **_kwargs: object) -> NoReturn:
         raise AssertionError("decision path attempted a network call")
 
     monkeypatch.setattr(socket, "socket", explode)

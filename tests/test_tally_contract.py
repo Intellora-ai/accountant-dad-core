@@ -56,15 +56,15 @@ def client() -> TallyClient:
 # ---- the interface itself ---------------------------------------------------
 
 
-def test_fake_satisfies_the_protocol(client):
+def test_fake_satisfies_the_protocol(client: TallyClient):
     assert isinstance(client, TallyClient)
 
 
-def test_reads_the_chart_of_accounts(client):
+def test_reads_the_chart_of_accounts(client: TallyClient):
     assert client.read_accounts(COMPANY) == ACCOUNTS
 
 
-def test_empty_company_has_no_vouchers_and_a_flat_trial_balance(client):
+def test_empty_company_has_no_vouchers_and_a_flat_trial_balance(client: TallyClient):
     assert client.read_vouchers(COMPANY) == ()
     assert client.trial_balance(COMPANY) == {}
 
@@ -72,23 +72,24 @@ def test_empty_company_has_no_vouchers_and_a_flat_trial_balance(client):
 # ---- C4: marker and operation ID -------------------------------------------
 
 
-def test_every_written_voucher_carries_the_marker(client):
+def test_every_written_voucher_carries_the_marker(client: TallyClient):
     op = new_operation_id()
     result = client.write_voucher(COMPANY, a_voucher(), op)
     assert marker_for(op) in result.narration
 
 
-def test_written_voucher_is_findable_by_operation_id_alone(client):
+def test_written_voucher_is_findable_by_operation_id_alone(client: TallyClient):
     op = new_operation_id()
     client.write_voucher(COMPANY, a_voucher(), op)
     assert client.read_by_operation_id(COMPANY, op) is not None
 
 
-def test_our_vouchers_are_distinguishable_from_the_users_own(client):
+def test_our_vouchers_are_distinguishable_from_the_users_own(client: TallyClient):
     """A voucher the accountant typed by hand is not ours and must never be
     swept up by bulk reverse."""
     theirs = a_voucher(narration="rent paid by hand")
-    client._co(COMPANY).vouchers.append(theirs)  # simulate a human-entered entry
+    assert isinstance(client, FakeTally)
+    client.seed_voucher(COMPANY, theirs)  # simulate a human-entered entry
 
     op = new_operation_id()
     client.write_voucher(COMPANY, a_voucher(), op)
@@ -116,14 +117,14 @@ def test_restamping_with_a_different_id_is_refused():
 # ---- C5: idempotency --------------------------------------------------------
 
 
-def test_duplicate_operation_id_is_rejected(client):
+def test_duplicate_operation_id_is_rejected(client: TallyClient):
     op = new_operation_id()
     client.write_voucher(COMPANY, a_voucher(), op)
     with pytest.raises(DuplicateOperation):
         client.write_voucher(COMPANY, a_voucher(), op)
 
 
-def test_a_rejected_retry_does_not_create_a_second_voucher(client):
+def test_a_rejected_retry_does_not_create_a_second_voucher(client: TallyClient):
     """The scenario: the write succeeded, the response was dropped, we retry."""
     op = new_operation_id()
     client.write_voucher(COMPANY, a_voucher(), op)
@@ -139,7 +140,7 @@ def test_a_rejected_retry_does_not_create_a_second_voucher(client):
 # ---- C6: read-back and exact reversal --------------------------------------
 
 
-def test_read_back_returns_what_was_written(client):
+def test_read_back_returns_what_was_written(client: TallyClient):
     op = new_operation_id()
     client.write_voucher(COMPANY, a_voucher(amount_paise=118000), op)
     got = client.read_by_operation_id(COMPANY, op)
@@ -149,11 +150,11 @@ def test_read_back_returns_what_was_written(client):
     assert got.tally_id is not None
 
 
-def test_read_back_of_an_unknown_operation_is_none(client):
+def test_read_back_of_an_unknown_operation_is_none(client: TallyClient):
     assert client.read_by_operation_id(COMPANY, "ad_never_written") is None
 
 
-def test_reverse_restores_the_exact_prior_trial_balance(client):
+def test_reverse_restores_the_exact_prior_trial_balance(client: TallyClient):
     before = client.trial_balance(COMPANY)
 
     op = new_operation_id()
@@ -164,7 +165,7 @@ def test_reverse_restores_the_exact_prior_trial_balance(client):
     assert client.trial_balance(COMPANY) == before
 
 
-def test_reverse_all_restores_the_exact_prior_trial_balance(client):
+def test_reverse_all_restores_the_exact_prior_trial_balance(client: TallyClient):
     """Bulk reverse over many vouchers, to the paise."""
     before = client.trial_balance(COMPANY)
 
@@ -178,13 +179,13 @@ def test_reverse_all_restores_the_exact_prior_trial_balance(client):
     assert client.trial_balance(COMPANY) == before
 
 
-def test_reverse_targets_the_exact_voucher_not_a_lookalike(client):
+def test_reverse_targets_the_exact_voucher_not_a_lookalike(client: TallyClient):
     """The defect C4 exists to prevent.
 
     Same landlord, same rent, same narration, twelve months running. Reversing
     "the 20000 rent entry" must not pick the wrong month.
     """
-    ops = []
+    ops: list[str] = []
     for _ in range(3):
         op = new_operation_id()
         client.write_voucher(
@@ -200,7 +201,9 @@ def test_reverse_targets_the_exact_voucher_not_a_lookalike(client):
     assert remaining == {ops[0], ops[2]}
 
 
-def test_reversing_an_unknown_operation_reports_false_and_changes_nothing(client):
+def test_reversing_an_unknown_operation_reports_false_and_changes_nothing(
+    client: TallyClient,
+):
     op = new_operation_id()
     client.write_voucher(COMPANY, a_voucher(), op)
     before = client.trial_balance(COMPANY)
@@ -209,7 +212,7 @@ def test_reversing_an_unknown_operation_reports_false_and_changes_nothing(client
     assert client.trial_balance(COMPANY) == before
 
 
-def test_reversing_twice_is_safe(client):
+def test_reversing_twice_is_safe(client: TallyClient):
     op = new_operation_id()
     client.write_voucher(COMPANY, a_voucher(), op)
     assert client.reverse_by_operation_id(COMPANY, op) is True
@@ -237,7 +240,7 @@ def test_a_refused_write_leaves_the_company_untouched():
 # ---- trial balance arithmetic ----------------------------------------------
 
 
-def test_trial_balance_is_in_paise_and_balances_to_zero(client):
+def test_trial_balance_is_in_paise_and_balances_to_zero(client: TallyClient):
     for i in range(4):
         client.write_voucher(
             COMPANY, a_voucher(amount_paise=333 * (i + 1)), new_operation_id()

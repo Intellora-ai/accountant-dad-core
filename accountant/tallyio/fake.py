@@ -52,6 +52,10 @@ class FakeTally:
             accounts=list(accounts), vouchers=list(vouchers), backed_up=backed_up
         )
 
+    def seed_voucher(self, company: str, voucher: Voucher) -> None:
+        """Place a voucher we did NOT write, as if the accountant typed it."""
+        self._co(company).vouchers.append(voucher)
+
     def _co(self, company: str) -> _Company:
         try:
             return self._companies[company]
