@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# Every gate, on your laptop, before you push.
+#
+# Your test suite runs in 0.06 seconds. GitHub needs about 35 seconds just to
+# wake a runner up. So the fast feedback loop is here, not there. GitHub's job
+# is to confirm, not to tell you things you could have known instantly.
+#
+#   ./scripts/guards          the fast gates (about a second)
+#   ./scripts/guards --full   everything, including mutation (about a minute)
+#
+# Exits non-zero on the first failure unless --keep-going is passed.
+
+set -uo pipefail
+cd "$(dirname "$0")/.."
+
+PY=".venv/bin"
+FULL=0
+KEEP_GOING=0
+FAILED=()
+
+for arg in "$@"; do
+  case "$arg" in
+    --full)       FULL=1 ;;
+    --keep-going) KEEP_GOING=1 ;;
+    -h|--help)    sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *)            echo "unknown option: $arg" >&2; exit 2 ;;
+  esac
+done
+
+if [ ! -x "$PY/python" ]; then
+  echo "no virtualenv at $PY - run: uv sync --extra dev" >&2
+  exit 2
+fi
+
+# Python 3.12+ defaults coverage to the sysmon core, which does not support
+# dynamic contexts. pytest-gremlins maps tests to lines with dynamic contexts,
+# so on the default core that mapping is silently incomplete and the mutation
+# score under-reports badly. Measured here 2026-08-07: 87.92% vs 94.34%.
+export COVERAGE_CORE=pytrace
+
+bold() { printf '\033[1m%s\033[0m\n' "$1"; }
+pass() { printf '  \033[32m✓\033[0m %-22s %s\n' "$1" "${2:-}"; }
+fail() { printf '  \033[31m✗\033[0m %-22s %s\n' "$1" "${2:-}"; }
+
+run() {
+  local name="$1"; shift
+  local out status
+  out=$("$@" 2>&1); status=$?
+  if [ $status -eq 0 ]; then
+    pass "$name"
+  else
+    fail "$name"
+    echo "$out" | sed 's/^/      /' | tail -30
+    FAILED+=("$name")
+    [ "$KEEP_GOING" -eq 1 ] || finish
+  fi
+}
+
+finish() {
+  echo
+  if [ ${#FAILED[@]} -eq 0 ]; then
+    bold "all guards passed"
+    exit 0
+  fi
+  bold "FAILED: ${FAILED[*]}"
+  exit 1
+}
+
+# ---- cheapest first, so the common failure is also the fastest --------------
+
+bold "fast guards"
+run "lockfile"        "$PY/uv" lock --check
+run "lint"            "$PY/ruff" check .
+run "format"          "$PY/ruff" format --check .
+run "typecheck"       "$PY/pyright"
+run "gate-contract"   "$PY/python" -m pytest tests/test_gate_contract.py -q
+run "no-stub-jobs"    "$PY/python" ci/check_stubs.py
+run "security-scan"   "$PY/bandit" -r accountant --severity-level low \
+                          --confidence-level low -q
+run "tests"           "$PY/python" -m pytest -q
+
+# ---- workflow linting, only when there are workflows to lint ---------------
+
+if [ -d .github/workflows ]; then
+  run "workflow-security" "$PY/zizmor" --persona=pedantic .
+  if command -v actionlint >/dev/null 2>&1; then
+    run "workflow-lint" actionlint
+  else
+    printf '  \033[33m!\033[0m %-22s %s\n' "workflow-lint" \
+      "actionlint not installed (Go binary, not pip): brew install actionlint"
+  fi
+fi
+
+run "whitespace"      git diff --check
+
+[ "$FULL" -eq 1 ] || finish
+
+# ---- the slow ones ---------------------------------------------------------
+
+echo
+bold "full guards"
+run "coverage"        "$PY/python" -c "
+import subprocess, sys
+subprocess.run(['$PY/coverage','run','-m','pytest','-q'],
+               check=True, stdout=subprocess.DEVNULL)
+sys.exit(subprocess.run(['$PY/coverage','report']).returncode)"
+run "full-mutation"   "$PY/python" -m pytest --gremlins --gremlin-parallel \
+                          --gremlin-targets=accountant --gremlin-report=json -q
+run "mutation-accounting" "$PY/python" ci/check_mutation.py
+run "package-build"   "$PY/python" -m build --outdir dist .
+run "package-metadata" "$PY/twine" check --strict dist/accountant_dad-0.0.1.tar.gz \
+                          dist/accountant_dad-0.0.1-py3-none-any.whl
+
+finish

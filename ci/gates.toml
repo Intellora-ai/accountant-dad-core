@@ -1,0 +1,274 @@
+# THE GATE CONTRACT — one source of truth.
+#
+# Every gate is declared here exactly once. tests/test_gate_contract.py fails on
+# duplicate names, duplicate commands, missing thresholds, missing owners, orphan
+# gates, gates with no real command, required checks absent from the workflows,
+# and workflow jobs absent from this file.
+#
+# No job may exist only as an unexplained YAML fragment.
+#
+# Thresholds are owner-set. They are not adjustable from here without the owner
+# saying so in words. `threshold = 0` on a pass/fail tool means "no findings
+# permitted"; it is not a score.
+
+[meta]
+repository        = "Intellora-ai/accountant-dad-core"
+required_pr_check = "pr-fast"
+required_mq_check = "ci-gate"
+
+# Python 3.12+ defaults coverage to the sysmon core, which does not support
+# dynamic contexts. pytest-gremlins uses dynamic contexts to map tests to lines,
+# so on the default core the mapping is silently incomplete: mutants run against
+# as few as 1 test instead of 22, and the score reads 87.92% instead of 94.34%.
+# Measured on this repository, 2026-08-07. Any job that measures coverage or
+# mutation must set this.
+coverage_core = "pytrace"
+
+# ---------------------------------------------------------------------------
+# Layer 2 — the single required pull-request job.
+# One hosted job, so GitHub's runner start-up is paid once rather than per gate.
+# ---------------------------------------------------------------------------
+
+[[gate]]
+name              = "lockfile"
+command           = "uv lock --check"
+threshold         = 0
+required          = true
+status            = "active"
+owner             = "tanveersidhu"
+job               = "pr-fast"
+artifact          = "none"
+failure_behaviour = "block"
+note              = "The lockfile must already match pyproject.toml. Zero drift."
+
+[[gate]]
+name              = "lint"
+command           = "ruff check ."
+threshold         = 0
+required          = true
+status            = "active"
+owner             = "tanveersidhu"
+job               = "pr-fast"
+artifact          = "none"
+failure_behaviour = "block"
+note              = "ruff is the only linter. Zero violations."
+
+[[gate]]
+name              = "format"
+command           = "ruff format --check ."
+threshold         = 0
+required          = true
+status            = "active"
+owner             = "tanveersidhu"
+job               = "pr-fast"
+artifact          = "none"
+failure_behaviour = "block"
+note              = "ruff is also the only formatter. Formatting is not a matter of opinion."
+
+[[gate]]
+name              = "typecheck"
+command           = "pyright"
+threshold         = 0
+required          = true
+status            = "active"
+owner             = "tanveersidhu"
+job               = "pr-fast"
+artifact          = "none"
+failure_behaviour = "block"
+note              = "Strict, over source AND tests. Owner-set 2026-08-07: 'strict, on everything'."
+
+[[gate]]
+name              = "gate-contract"
+command           = "pytest tests/test_gate_contract.py -q"
+threshold         = 0
+required          = true
+status            = "active"
+owner             = "tanveersidhu"
+job               = "pr-fast"
+artifact          = "none"
+failure_behaviour = "block"
+note              = "This file and the workflows must agree. A job with no gate, or a gate with no job, fails here."
+
+[[gate]]
+name              = "changed-tests"
+command           = "pytest --testmon -n auto --cov --cov-report=xml"
+threshold         = 0
+required          = true
+status            = "active"
+owner             = "tanveersidhu"
+job               = "pr-fast"
+artifact          = "coverage.xml"
+failure_behaviour = "block"
+note              = "Zero selected tests must never be green. Missing, stale or invalid testmon data forces the complete suite."
+
+[[gate]]
+name              = "changed-coverage"
+command           = "diff-cover coverage.xml --compare-branch=origin/main --fail-under=90"
+threshold         = 90
+required          = true
+status            = "active"
+owner             = "tanveersidhu"
+job               = "pr-fast"
+artifact          = "coverage.xml"
+failure_behaviour = "block"
+note              = "Owner-set 90. Lines this PR touched, not the whole repo."
+
+[[gate]]
+name              = "changed-mutation"
+command           = "pytest --gremlins --gremlin-parallel --gremlin-cache"
+threshold         = 90
+required          = true
+status            = "active"
+owner             = "tanveersidhu"
+job               = "pr-fast"
+artifact          = "coverage/gremlins/gremlins.json"
+failure_behaviour = "block"
+note              = "Changed files only, for fast feedback. The complete inventory runs in the merge queue."
+
+# ---------------------------------------------------------------------------
+# Layer 3 — merge queue and nightly. Expensive, authoritative.
+# ---------------------------------------------------------------------------
+
+[[gate]]
+name              = "full-tests"
+command           = "pytest -n auto"
+threshold         = 0
+required          = true
+status            = "active"
+owner             = "tanveersidhu"
+job               = "full-tests"
+artifact          = "junit.xml"
+failure_behaviour = "block"
+note              = "The complete suite. No test may be deleted or skipped to make this faster."
+
+[[gate]]
+name              = "full-coverage"
+command           = "coverage run -m pytest && coverage report"
+threshold         = 90
+required          = true
+status            = "active"
+owner             = "tanveersidhu"
+job               = "full-tests"
+artifact          = "coverage.xml"
+failure_behaviour = "block"
+note              = "Owner-set 90, whole repository, branch coverage, no exclusions."
+
+[[gate]]
+name              = "dependency-audit"
+command           = "pip-audit --strict --progress-spinner off -r requirements-audit.txt"
+threshold         = 0
+required          = true
+status            = "active"
+owner             = "tanveersidhu"
+job               = "security"
+artifact          = "pip-audit.json"
+failure_behaviour = "block"
+note              = "Audits the exported lockfile, not the environment: our own package is editable and not on PyPI."
+
+[[gate]]
+name              = "security-scan"
+command           = "bandit -r accountant --severity-level low --confidence-level low"
+threshold         = 0
+required          = true
+status            = "active"
+owner             = "tanveersidhu"
+job               = "security"
+artifact          = "bandit.json"
+failure_behaviour = "block"
+note              = "Owner-set 2026-08-07: every severity blocks, LOW included. Target is accountant/ only — tests are not shipped and never run under python -O. Any future production path outside accountant/ is added here explicitly, never by scanning the whole repository."
+
+[[gate]]
+name              = "package-build"
+command           = "python -m build"
+threshold         = 0
+required          = true
+status            = "active"
+owner             = "tanveersidhu"
+job               = "build"
+artifact          = "dist"
+failure_behaviour = "block"
+note              = "sdist and wheel must build."
+
+[[gate]]
+name              = "package-metadata"
+command           = "twine check --strict dist/*"
+threshold         = 0
+required          = true
+status            = "active"
+owner             = "tanveersidhu"
+job               = "build"
+artifact          = "dist"
+failure_behaviour = "block"
+note              = "--strict, so a warning is a failure."
+
+[[gate]]
+name              = "full-mutation"
+command           = "pytest --gremlins --gremlin-parallel --gremlin-report=json"
+threshold         = 90
+required          = true
+status            = "active"
+owner             = "tanveersidhu"
+job               = "mutation"
+artifact          = "coverage/gremlins/gremlins.json"
+failure_behaviour = "block"
+note              = "Owner-set 90. Complete inventory. Never delete, skip, hide, merge or relabel a mutant to make this faster."
+
+[[gate]]
+name              = "mutation-accounting"
+command           = "python ci/check_mutation.py"
+threshold         = 0
+required          = true
+status            = "active"
+owner             = "tanveersidhu"
+job               = "mutation"
+artifact          = "coverage/gremlins/gremlins.json"
+failure_behaviour = "block"
+note              = "Missing IDs = 0, duplicate IDs = 0, every mutant terminal, COVERAGE_CORE set. Incomplete results report FAIL_INCOMPLETE with score_percent = null, never a partial percentage."
+
+[[gate]]
+name              = "workflow-lint"
+command           = "actionlint"
+threshold         = 0
+required          = true
+status            = "active"
+owner             = "tanveersidhu"
+job               = "workflow-checks"
+artifact          = "none"
+failure_behaviour = "block"
+note              = "Workflow syntax, expressions and shell usage. actionlint is a Go binary, not a Python package."
+
+[[gate]]
+name              = "workflow-security"
+command           = "zizmor --persona=pedantic ."
+threshold         = 0
+required          = true
+status            = "active"
+owner             = "tanveersidhu"
+job               = "workflow-checks"
+artifact          = "zizmor.json"
+failure_behaviour = "block"
+note              = "Dangerous permissions, unpinned actions, unsafe triggers."
+
+[[gate]]
+name              = "no-stub-jobs"
+command           = "python ci/check_stubs.py"
+threshold         = 0
+required          = true
+status            = "active"
+owner             = "tanveersidhu"
+job               = "workflow-checks"
+artifact          = "none"
+failure_behaviour = "block"
+note              = "Blocks NOT IMPLEMENTED, TODO, placeholder, bare `exit 1` stubs, echo-only validation, empty jobs, missing commands, missing timeouts and unpinned third-party actions. This is the specific mechanism that prevents the previous repository's 13 permanently-red placeholder jobs."
+
+[[gate]]
+name              = "ci-gate"
+command           = "python ci/check_aggregate.py"
+threshold         = 0
+required          = true
+status            = "active"
+owner             = "tanveersidhu"
+job               = "ci-gate"
+artifact          = "none"
+failure_behaviour = "block"
+note              = "Fails if any expected job is failed, missing, cancelled, incomplete or below threshold. Missing evidence blocks the merge; it is not treated as a pass."
