@@ -13,12 +13,16 @@ name: pr-fast
 
 on:
   pull_request:
+  # The merge queue reruns this same required check against the temporary
+  # merge-group commit. One required check on both triggers, never two
+  # checks each waiting for the other.
+  merge_group:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: pr-fast-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 env:
@@ -109,25 +113,37 @@ jobs:
           fi
 
       - name: changed-coverage
-        # Owner-set 90, on the lines this pull request touched.
-        # base_ref reaches the shell through the environment, never through
+        # Owner-set 90, on the lines this change touched.
+        #
+        # github.base_ref is set on pull_request and EMPTY on merge_group, so it
+        # cannot be used alone: on a merge-queue run it would compare against
+        # "origin/" and compare nothing. Both forms are read here, and the
+        # repository default is the last resort.
+        #
+        # All three reach the shell through the environment, never through
         # string interpolation into the script.
         env:
-          BASE_REF: ${{ github.base_ref }}
+          PR_BASE: ${{ github.base_ref }}
+          MQ_BASE: ${{ github.event.merge_group.base_ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
+          base="${PR_BASE:-${MQ_BASE:-}}"
+          base="${base#refs/heads/}"
+          base="${base:-${DEFAULT_BRANCH}}"
+          echo "comparing against origin/${base}"
+          git rev-parse --verify "origin/${base}" >/dev/null
           uv run diff-cover coverage.xml \
-            --compare-branch="origin/${BASE_REF}" \
+            --compare-branch="origin/${base}" \
             --fail-under=90
 
-      - name: changed-mutation
-        # Changed files only, for fast feedback. The complete inventory runs in
-        # the merge queue, where it is allowed to be slow.
-        run: |
-          set -euo pipefail
-          uv run pytest --gremlins --gremlin-parallel --gremlin-cache \
-            --gremlin-targets=accountant --gremlin-report=json -q
-          uv run python ci/check_mutation.py
+      # Mutation testing is deliberately NOT here. Measured 2026-08-07: it was
+      # 69 of the 100 seconds of a warm pull-request run, while every other gate
+      # together took 18. A fresh runner has no gremlins cache, so "changed
+      # files only" was in fact re-running all 267 mutants every time. It now
+      # runs in full.yml with a persistent cache. The 90 percent threshold and
+      # the complete-inventory accounting are unchanged - authoritative, but not
+      # in the required pull-request path.
 
       - name: evidence
         if: ${{ !cancelled() }}
@@ -137,6 +153,5 @@ jobs:
           path: |
             coverage.xml
             junit.xml
-            coverage/gremlins/gremlins.json
           if-no-files-found: warn
           retention-days: 14

@@ -199,17 +199,39 @@ jobs:
           cache-dependency-glob: uv.lock
       - name: sync dependencies from the lockfile
         run: uv sync --extra dev --frozen
+      - name: restore the gremlins cache
+        # pytest-gremlins keys its cache on source content, test content and
+        # mutant id, so an unchanged mutant is reused rather than re-run. This
+        # is what fixes the fresh-machine problem; it is not file selection.
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: .gremlins_cache
+          key: >-
+            gremlins-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{
+            hashFiles('accountant/**/*.py', 'tests/**/*.py') }}
+          restore-keys: |
+            gremlins-${{ runner.os }}-${{ hashFiles('uv.lock') }}-
+            gremlins-${{ runner.os }}-
       - name: full-mutation
         # The complete inventory. Never delete, skip, hide, merge or relabel a
-        # mutant to make this faster.
+        # mutant to make this faster. The cache changes what is re-executed,
+        # never what is counted.
         run: >
-          uv run pytest --gremlins --gremlin-parallel
+          uv run pytest --gremlins --gremlin-parallel --gremlin-cache
           --gremlin-targets=accountant --gremlin-report=json -q
       - name: mutation-accounting
         # Missing IDs = 0, duplicate IDs = 0, every mutant terminal, survivors
         # reproducible, score >= 90. Incomplete results report FAIL_INCOMPLETE
         # with score_percent = null, never a partial percentage.
         run: uv run python ci/check_mutation.py
+      - name: save the gremlins cache
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: .gremlins_cache
+          key: >-
+            gremlins-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{
+            hashFiles('accountant/**/*.py', 'tests/**/*.py') }}
       - name: evidence
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
