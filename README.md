@@ -86,3 +86,5 @@ None yet.
 
 <!-- CI first measurement: this PR exists to make pr-fast report a real runtime. -->
 
+
+<!-- probe: testing whether the code_coverage ruleset rule blocks a PR. This branch is never merged. -->
