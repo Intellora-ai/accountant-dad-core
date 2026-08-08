@@ -3,12 +3,15 @@
 NOTHING IN THIS FILE HAS EVER RUN AGAINST A REAL TALLY.
 ====================================================================
 There is no TallyPrime instance on this machine and none has answered a single
-request from this code. Every XML shape below is a HYPOTHESIS derived from a
-prior project that also never ran against real Tally. The tests prove that this
-module is internally consistent, that it parses what it builds, and that it
-fails loudly rather than silently. They prove nothing about TallyPrime.
+request from this code. A Tally-experienced engineer has since reviewed the XML
+shapes below: that review CONFIRMED some of them and CHANGED others. A review is
+a second opinion, not a measurement. Nothing here has still ever run against a
+real Tally, and every status in `ASSUMPTIONS` below says which kind of claim it
+is.
 
-Read `ASSUMPTIONS` below before trusting any of it.
+The tests prove that this module is internally consistent, that it parses what
+it builds, and that it fails loudly rather than silently. They prove nothing
+about TallyPrime.
 
 Design, in the order the decisions matter:
 
@@ -25,44 +28,118 @@ Design, in the order the decisions matter:
     resolution is refused. Measured on CPython 3.14: the stdlib default parser
     expands internal entities happily, so this is not theatre.
 
-`operation ID is the only identity`
+`the narration marker is the identity, everything else is a locator`
     Every write carries `[ACCOUNTANT_DAD:<op_id>]` in its narration (via
-    `stamp`) and the same id in Tally's `REMOTEID`. Reads, duplicate detection
-    and reversal all match on that id and on nothing else. Never an amount,
-    never narration text.
+    `stamp`). That marker is this application's identity for the voucher, and
+    reads, duplicate detection and reversal match on it and on nothing else -
+    never an amount, never narration text.
+
+    `MASTERID`, `REMOTEID`, `GUID` and `VCHKEY` are LOCATORS: they say where a
+    voucher sits in one company file right now. `MASTERID` is company-local and
+    can change when a company is copied, merged or rebuilt, so it is never
+    treated as a portable id. Locators are preserved exactly as Tally sent them
+    and are used to aim a delete, never to decide what a voucher is.
+
+    A marker that matches two vouchers is an ambiguity, not a choice. The read
+    refuses, names the ambiguity, and no destructive action follows.
 
 `fail closed`
     No recorded backup, no write. A dropped response never becomes a second
-    voucher: writes are never retried, and every write is preceded by a read
-    and followed by a read-back. `read_by_operation_id` returning `None` after
-    a write means the write did not happen, whatever HTTP said.
+    voucher: writes are never retried, and every write is preceded by a read and
+    followed by a read-back. `read_by_operation_id` returning `None` after a
+    write means the write did not happen, whatever HTTP said.
 
-ASSUMPTIONS ABOUT TALLY THAT ONLY A LIVE INSTANCE CAN CONFIRM
--------------------------------------------------------------
-A1  Sign convention. A DEBIT is a NEGATIVE `<AMOUNT>` with
-    `ISDEEMEDPOSITIVE=Yes`. Our trial balance is debit-positive, so a Tally
-    amount is negated to become ours. Lives in `_flip_tally_sign` and nowhere
-    else. If this is backwards, every book this touches is backwards.
-A2  Envelope shapes. `Export`/`Collection` with a TDL `<COLLECTION>` block for
-    reads and `Import`/`Data` for writes, as in the prior project.
-A3  `<FETCH>` with comma-separated, dotted member paths is how nested ledger
-    entries are requested. TDL also accepts `<NATIVEMETHOD>`; which one a given
-    TallyPrime build honours for `AllLedgerEntries` is untested.
-A4  Response element names: `<COMPANY>`, `<LEDGER>`, `<VOUCHER>`,
-    `<ALLLEDGERENTRIES.LIST>`, `<CLOSINGBALANCE>`, and the import counters
-    `<CREATED>`, `<ALTERED>`, `<DELETED>`, `<IGNORED>`, `<ERRORS>`,
+FIRST-INTEGRATION TRAPS
+-----------------------
+Recorded because they shape the code below, not as folklore.
+
+  * A correct answer on port 9000 does not mean the right company is open.
+    Every company-scoped request names its company in `SVCURRENTCOMPANY`, and
+    `list_companies` is the cheapest way to see what Tally actually has open.
+  * Dependent masters must exist BEFORE an import - ledgers here, and stock
+    items and units for the inventory vouchers this connector does not write.
+    `write_voucher` checks both ledgers exist first and never lets Tally create
+    a master on the fly.
+  * Dates are `YYYYMMDD`. No separators, no locale.
+  * Import errors can be silent: HTTP 200 with counters that say nothing
+    happened. Every counter and every error element is read, an ambiguous
+    response is a failure, and a write is believed only after it is read back.
+  * A duplicate import needs an idempotency key checked BEFORE the create. Ours
+    is the narration marker, checked by a read on the way in.
+  * Tally may round to the company's currency decimal settings while we compare
+    exact integer paise. A read-back that differs only by rounding is still a
+    difference here and will surface as one rather than be absorbed.
+  * A voucher can change between the read and the delete when other people are
+    in the same company. The delete therefore carries locators from a read taken
+    immediately before it, and is verified by another read afterwards.
+
+ASSUMPTIONS ABOUT TALLY
+-----------------------
+Each one is either CONFIRMED BY REVIEW (an experienced Tally engineer says so),
+CHANGED BY REVIEW (the same engineer said the previous shape was wrong), or
+UNVERIFIED (nobody has checked). None of these mean "observed against a live
+instance". Nothing here has been.
+
+A1  CONFIRMED BY REVIEW. Sign convention. A DEBIT is a NEGATIVE `<AMOUNT>` with
+    `ISDEEMEDPOSITIVE=Yes`; a CREDIT is a POSITIVE `<AMOUNT>` with
+    `ISDEEMEDPOSITIVE=No`. Our trial balance is debit-positive, so a Tally
+    amount is negated to become ours. That negation lives in `_flip_tally_sign`
+    and nowhere else. Two guards run before anything is sent, in
+    `check_outgoing_legs`: a leg whose flag contradicts its sign is refused
+    rather than normalised, and the debits and the credits must total the same
+    integer paise. Tally rejects an unbalanced voucher; we never offer it one.
+A2  UNVERIFIED. Envelope shapes. `Export`/`Collection` with a TDL `<COLLECTION>`
+    block for reads and `Import`/`Data` for writes, as in the prior project.
+A3  CHANGED BY REVIEW. Reading nested ledger entries. Comma-separated dotted
+    member paths inside `<FETCH>` (`AllLedgerEntries.LedgerName`) are NOT
+    reliably honoured across builds. The nested members are therefore requested
+    as explicit `<NATIVEMETHOD>` entries - `ALLLEDGERENTRIES.LIST:LEDGERNAME`
+    and the same for `AMOUNT` and `ISDEEMEDPOSITIVE` - with the broad
+    `ALLLEDGERENTRIES.*` form available as an opt-in diagnostic.
+    Some builds export the collection as `LEDGERENTRIES.LIST` rather than
+    `ALLLEDGERENTRIES.LIST`. Both names are accepted on read; a single response
+    carrying both is an anomaly and raises rather than being mixed silently.
+    A voucher that comes back with ZERO ledger entries is an unreadable or
+    invalid export - never "a voucher with no legs" - and raises.
+    Still UNVERIFIED: which member names any particular build honours, and
+    whether `GUID` is fetchable on a Voucher collection.
+A4  UNVERIFIED. Response element names: `<COMPANY>`, `<LEDGER>`, `<VOUCHER>`,
+    `<ALLLEDGERENTRIES.LIST>`, `<CLOSINGBALANCE>`, and the import result
+    `<STATUS>`, `<CREATED>`, `<ALTERED>`, `<DELETED>`, `<IGNORED>`, `<ERRORS>`,
     `<EXCEPTIONS>`, `<LASTVCHID>`, `<LINEERROR>`.
-A5  `REMOTEID` is honoured as an external system key on create, and is
-    round-tripped back on export.
-A6  Deletion. `ACTION="Delete"` with `REMOTEID` and `MASTERID` deletes exactly
-    that voucher. Some builds want a `VCHKEY` instead. The delete is therefore
-    always verified by reading afterwards rather than believed.
-A7  `MASTERID` is present on exported vouchers and is a usable `tally_id`.
-A8  Closing balances may carry a trailing `Dr`/`Cr` suffix. When they do it is
-    treated as authoritative and A1 is not consulted.
-A9  Encoding: UTF-8 unless a UTF-16 BOM says otherwise.
-A10 Vouchers we write have exactly two ledger entries. Tally accepts a
-    two-legged Journal built this way.
+A5  CHANGED BY REVIEW. Identity. `REMOTEID` and `MASTERID` are locators, not
+    this application's identity. The narration marker is the identity (see the
+    design note above). `MASTERID` is COMPANY-LOCAL: it can change when a
+    company is copied, merged or rebuilt, so it is never treated as a portable
+    UUID. Any `GUID`, `REMOTEID` or `VCHKEY` Tally returns is preserved exactly
+    as a locator. Marker lookup enforces uniqueness: no match is "not found",
+    one match is a safe candidate, two or more refuses every destructive action
+    and raises, naming the ambiguity.
+    Still UNVERIFIED: whether `REMOTEID` is honoured as an external key on
+    create and round-tripped back on export.
+A6  CHANGED BY REVIEW. Deletion. `ACTION="Delete"` is supported, but
+    `REMOTEID` + `MASTERID` alone is not a guaranteed key across builds. The
+    delete therefore carries `DATE`, `VCHTYPE`, `MASTERID` and `REMOTEID`, every
+    one of them taken from a read performed immediately before the delete, plus
+    `GUID` and `VCHKEY` when that read supplied them. A `VCHKEY` is never
+    invented or reconstructed. `Delete` and `Cancel` are DIFFERENT operations -
+    `Cancel` leaves a cancelled voucher in place, keeping its number - and this
+    connector only ever sends `Delete`. The delete is still verified by reading
+    afterwards rather than believed.
+A7  UNVERIFIED that `MASTERID` is present on every exported voucher. CONFIRMED
+    BY REVIEW that when it is present it is company-local (A5). `Voucher.
+    tally_id` is a reference value that falls back to the voucher number; it is
+    NOT what a delete aims at.
+A8  UNVERIFIED. Closing balances may carry a trailing `Dr`/`Cr` suffix. When
+    they do it is treated as authoritative and A1 is not consulted.
+A9  UNVERIFIED. Encoding: UTF-8 unless a UTF-16 BOM says otherwise.
+A10 CONFIRMED BY REVIEW. A two-legged Journal is valid provided the voucher
+    carries `OBJVIEW="Accounting Voucher View"` and
+    `<PERSISTEDVIEW>Accounting Voucher View</PERSISTEDVIEW>`, the date is
+    `YYYYMMDD`, and both ledgers already exist. The first three are in
+    `build_voucher_create`; the fourth is checked by `write_voucher` before it
+    writes. No party bill allocations, no inventory allocations, no GST fields,
+    no invoice-only fields.
 """
 
 from __future__ import annotations
@@ -73,7 +150,7 @@ import re
 import threading
 import time
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Protocol
@@ -125,8 +202,10 @@ class TallyRejected(TallyError):
 class TallyDataError(TallyError):
     """Tally answered, the XML parsed, and the content breaks an invariant.
 
-    A two-legged voucher whose legs do not cancel, or one of our own marked
-    vouchers that no longer has two legs.
+    A two-legged voucher whose legs do not cancel, one of our own marked
+    vouchers that no longer has two legs, an export carrying a voucher with no
+    ledger entries at all, a response mixing two names for the same collection,
+    or one operation ID matching more than one voucher.
     """
 
 
@@ -308,14 +387,25 @@ def _name_of(node: ElementTree.Element) -> str | None:
     return _child_text(node, "NAME")
 
 
-def _counter(root: ElementTree.Element, tag: str) -> int:
+def _optional_counter(root: ElementTree.Element, tag: str) -> int | None:
+    """One import-result number, or None when Tally did not send the element.
+
+    Absent and zero are different answers, and `<STATUS>` in particular has to
+    tell them apart: a missing status is "this build does not send one", a
+    status of 0 is "this build says the import failed".
+    """
     value = _text_of(root.find(f".//{tag}"))
     if value is None:
-        return 0
+        return None
     try:
         return int(value)
     except ValueError as exc:
         raise TallyDataError(f"<{tag}> is not a number: {value!r}") from exc
+
+
+def _counter(root: ElementTree.Element, tag: str) -> int:
+    value = _optional_counter(root, tag)
+    return 0 if value is None else value
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +416,22 @@ COLLECTION_COMPANIES = "AD Companies"
 COLLECTION_LEDGERS = "AD Ledgers"
 COLLECTION_BALANCES = "AD Ledger Balances"
 COLLECTION_VOUCHERS = "AD Vouchers"
+
+# A3. Both names for the same nested collection. Accepted on read, never mixed.
+LEDGER_ENTRY_TAGS = ("ALLLEDGERENTRIES.LIST", "LEDGERENTRIES.LIST")
+
+# A3. Explicit native methods rather than dotted paths in <FETCH>, which are not
+# reliably honoured.
+LEDGER_ENTRY_METHODS = (
+    "ALLLEDGERENTRIES.LIST:LEDGERNAME",
+    "ALLLEDGERENTRIES.LIST:AMOUNT",
+    "ALLLEDGERENTRIES.LIST:ISDEEMEDPOSITIVE",
+)
+
+# The broad form. Kept for diagnosing a build that honours neither of the above,
+# and deliberately not the default: it asks Tally for everything under the
+# collection, which is a lot of XML to size-cap and nothing we parse.
+LEDGER_ENTRY_METHOD_BROAD = "ALLLEDGERENTRIES.*"
 
 
 _XML_ESCAPES = (
@@ -367,9 +473,18 @@ def _export_collection(
     company: str | None,
     tally_type: str,
     fetch: tuple[str, ...],
+    native_methods: tuple[str, ...] = (),
 ) -> str:
-    """One Export/Collection envelope. Assumptions A2 and A3."""
+    """One Export/Collection envelope. Assumptions A2 and A3.
+
+    `fetch` carries the flat members. `native_methods` carries anything nested,
+    one `<NATIVEMETHOD>` element each, because a dotted path inside `<FETCH>` is
+    not reliably honoured (A3).
+    """
     fetched = ", ".join(fetch)
+    methods = "".join(
+        f"<NATIVEMETHOD>{_escaped(method)}</NATIVEMETHOD>" for method in native_methods
+    )
     return (
         "<ENVELOPE>"
         "<HEADER>"
@@ -385,6 +500,7 @@ def _export_collection(
         'ISFIXED="No">'
         f"<TYPE>{_escaped(tally_type)}</TYPE>"
         f"<FETCH>{_escaped(fetched)}</FETCH>"
+        f"{methods}"
         "</COLLECTION>"
         "</TDLMESSAGE></TDL>"
         "</DESC></BODY>"
@@ -393,7 +509,11 @@ def _export_collection(
 
 
 def build_company_list_request() -> str:
-    """List the open companies. The cheapest proof the transport works."""
+    """List the open companies. The cheapest proof the transport works.
+
+    Also the cheapest proof of the first trap: port 9000 answering says nothing
+    about which company is open.
+    """
     return _export_collection(COLLECTION_COMPANIES, None, "Company", ("Name",))
 
 
@@ -409,8 +529,17 @@ def build_closing_balance_request(company: str) -> str:
     )
 
 
-def build_voucher_list_request(company: str) -> str:
-    """Posted history, with the ledger entries needed to read debit and credit."""
+def build_voucher_list_request(company: str, *, diagnostic: bool = False) -> str:
+    """Posted history, with the ledger entries needed to read debit and credit.
+
+    Assumption A3. The flat members go in `<FETCH>`; the ledger entries are
+    asked for as explicit `<NATIVEMETHOD>` entries. `diagnostic=True` adds the
+    broad `ALLLEDGERENTRIES.*` form, for the first conversation with a build
+    that honours neither.
+    """
+    methods = LEDGER_ENTRY_METHODS
+    if diagnostic:
+        methods = (*methods, LEDGER_ENTRY_METHOD_BROAD)
     return _export_collection(
         COLLECTION_VOUCHERS,
         company,
@@ -422,26 +551,77 @@ def build_voucher_list_request(company: str) -> str:
             "Narration",
             "MasterID",
             "RemoteID",
+            "GUID",
             "PartyLedgerName",
-            "AllLedgerEntries.LedgerName",
-            "AllLedgerEntries.Amount",
-            "AllLedgerEntries.IsDeemedPositive",
         ),
+        methods,
     )
 
 
-def _ledger_entry(ledger: str, amount_paise: int, is_debit: bool) -> str:
+@dataclass(frozen=True)
+class OutgoingLeg:
+    """One ledger entry on the way OUT, already in Tally's own convention.
+
+    `signed_paise` is what goes in `<AMOUNT>`: negative for a debit, positive
+    for a credit (A1). `is_deemed_positive` is what goes in
+    `<ISDEEMEDPOSITIVE>`. Keeping both explicit is what lets
+    `check_outgoing_legs` catch a pair that contradict each other.
+    """
+
+    ledger: str
+    signed_paise: int
+    is_deemed_positive: bool
+
+
+def check_outgoing_legs(legs: tuple[OutgoingLeg, ...], voucher_id: str) -> None:
+    """Assumption A1's two guards, both before anything reaches the wire.
+
+    A contradictory leg is refused, not normalised. Which half of the pair is
+    wrong - the flag or the sign - is not ours to guess, and guessing inverts a
+    statutory entry that then looks fine.
+
+    The legs must also balance to the exact paise. Tally rejects an unbalanced
+    voucher, so sending one is a round trip we already know the answer to.
+    """
+    for leg in legs:
+        if leg.is_deemed_positive and leg.signed_paise > 0:
+            raise ValueError(
+                f"refusing to write voucher {voucher_id!r}: the leg on "
+                f"{leg.ledger!r} is contradictory. ISDEEMEDPOSITIVE=Yes marks a "
+                f"debit, which A1 says carries a negative AMOUNT, but this leg "
+                f"carries {rupees_from_paise(leg.signed_paise)}."
+            )
+        if not leg.is_deemed_positive and leg.signed_paise < 0:
+            raise ValueError(
+                f"refusing to write voucher {voucher_id!r}: the leg on "
+                f"{leg.ledger!r} is contradictory. ISDEEMEDPOSITIVE=No marks a "
+                f"credit, which A1 says carries a positive AMOUNT, but this leg "
+                f"carries {rupees_from_paise(leg.signed_paise)}."
+            )
+
+    debits = sum(-leg.signed_paise for leg in legs if leg.is_deemed_positive)
+    credits = sum(leg.signed_paise for leg in legs if not leg.is_deemed_positive)
+    if debits != credits:
+        raise ValueError(
+            f"refusing to write voucher {voucher_id!r}: the debits total "
+            f"{debits} paise and the credits total {credits} paise. Tally "
+            "rejects an unbalanced voucher and so do we."
+        )
+
+
+def _ledger_entry(leg: OutgoingLeg) -> str:
     """The one place Tally's sign convention is written on the way out.
 
     Assumption A1. A voucher built with these reversed imports cleanly and is
-    wrong, which is the worst failure mode available.
+    wrong, which is the worst failure mode available - hence
+    `check_outgoing_legs` between here and the wire.
     """
-    signed = _flip_tally_sign(amount_paise) if is_debit else amount_paise
     return (
         "<ALLLEDGERENTRIES.LIST>"
-        f"<LEDGERNAME>{_escaped(ledger)}</LEDGERNAME>"
-        f"<ISDEEMEDPOSITIVE>{'Yes' if is_debit else 'No'}</ISDEEMEDPOSITIVE>"
-        f"<AMOUNT>{rupees_from_paise(signed)}</AMOUNT>"
+        f"<LEDGERNAME>{_escaped(leg.ledger)}</LEDGERNAME>"
+        f"<ISDEEMEDPOSITIVE>{'Yes' if leg.is_deemed_positive else 'No'}"
+        "</ISDEEMEDPOSITIVE>"
+        f"<AMOUNT>{rupees_from_paise(leg.signed_paise)}</AMOUNT>"
         "</ALLLEDGERENTRIES.LIST>"
     )
 
@@ -480,12 +660,18 @@ def build_voucher_create(
     operation_id: str,
     voucher_type: str,
 ) -> str:
-    """Import/Data envelope for one two-legged voucher.
+    """Import/Data envelope for one two-legged voucher. Assumptions A1 and A10.
 
-    The operation ID goes in two places: `REMOTEID`, which is Tally's slot for
-    an external system's key, and the marker inside the narration, which is
-    what `operation_id_in` reads back. The narration is the contract; REMOTEID
-    is the convenience.
+    A10's required fields are all here: `OBJVIEW="Accounting Voucher View"`,
+    `<PERSISTEDVIEW>Accounting Voucher View</PERSISTEDVIEW>`, and a `YYYYMMDD`
+    date. A10's fourth condition - both ledgers already exist - cannot be
+    checked from a string, so `RealTally.write_voucher` checks it with a read
+    before calling this.
+
+    The operation ID goes in two places: the marker inside the narration, which
+    is this application's identity for the voucher and what `operation_id_in`
+    reads back, and `REMOTEID`, which is a locator Tally may or may not
+    round-trip (A5). The narration is the contract; REMOTEID is a convenience.
     """
     _check_writable(voucher)
     if marker_for(operation_id) not in narration:
@@ -494,11 +680,21 @@ def build_voucher_create(
             f"{marker_for(operation_id)} marker in its narration"
         )
 
-    stamped_date = voucher.date.strftime("%Y%m%d")
-    legs = _ledger_entry(
-        voucher.debit_account, voucher.amount_paise, is_debit=True
-    ) + _ledger_entry(voucher.credit_account, voucher.amount_paise, is_debit=False)
+    legs = (
+        OutgoingLeg(
+            ledger=voucher.debit_account,
+            signed_paise=_flip_tally_sign(voucher.amount_paise),
+            is_deemed_positive=True,
+        ),
+        OutgoingLeg(
+            ledger=voucher.credit_account,
+            signed_paise=voucher.amount_paise,
+            is_deemed_positive=False,
+        ),
+    )
+    check_outgoing_legs(legs, voucher.id)
 
+    stamped_date = voucher.date.strftime("%Y%m%d")
     return (
         "<ENVELOPE>"
         "<HEADER>"
@@ -520,7 +716,7 @@ def build_voucher_create(
         f"<PARTYLEDGERNAME>{_escaped(voucher.party)}</PARTYLEDGERNAME>"
         f"<NARRATION>{_escaped(narration)}</NARRATION>"
         "<PERSISTEDVIEW>Accounting Voucher View</PERSISTEDVIEW>"
-        f"{legs}"
+        f"{''.join(_ledger_entry(leg) for leg in legs)}"
         "</VOUCHER>"
         "</TALLYMESSAGE>"
         "</DATA>"
@@ -529,24 +725,51 @@ def build_voucher_create(
     )
 
 
+# A6. Every one of these must come from the fresh read, and the delete is
+# refused without them rather than sent with a key we assembled ourselves.
+DELETE_REQUIRED_KEYS = ("VCHTYPE", "MASTERID", "REMOTEID")
+
+# Included when the fresh read supplied them. Never invented, never
+# reconstructed - a VCHKEY we built would aim at whatever it happened to match.
+DELETE_OPTIONAL_KEYS = ("GUID", "VCHKEY")
+
+
 def build_voucher_delete(
     company: str,
-    voucher: Voucher,
+    exported: ExportedVoucher,
     operation_id: str,
-    voucher_type: str,
 ) -> str:
     """Import/Data envelope that deletes exactly one voucher. Assumption A6.
 
-    Identified by REMOTEID and MASTERID, which are both the operation ID's
-    doing. Never by amount, never by narration text.
+    `exported` MUST come from a read taken immediately before this call. Every
+    value in the envelope - DATE, VCHTYPE, MASTERID, REMOTEID, and GUID or
+    VCHKEY when Tally sent them - is read off it. Nothing is cached, remembered
+    from an earlier call, or reconstructed: a voucher can change under a
+    concurrent user between one read and the next.
+
+    ACTION is `Delete`, which removes the voucher. `Cancel` is a DIFFERENT
+    operation: it leaves a cancelled voucher in place, keeping its number. This
+    connector never sends `Cancel`, and the two are not interchangeable.
+
+    Aimed by locators only. Never by amount, never by narration text.
     """
-    master_id = voucher.tally_id
-    if master_id is None:
+    keys = exported.locators
+    missing = [key for key in DELETE_REQUIRED_KEYS if not keys.get(key)]
+    if missing:
         raise TallyDataError(
-            f"cannot delete operation {operation_id!r}: Tally gave the voucher "
-            "no MASTERID to aim at"
+            f"cannot delete operation {operation_id!r}: the read taken just now "
+            f"supplied no {', '.join(missing)}. A6 needs DATE, VCHTYPE, MASTERID "
+            "and REMOTEID together, all from that read; a delete aimed with less "
+            "than that is a delete aimed at something we cannot name."
         )
-    stamped_date = voucher.date.strftime("%Y%m%d")
+
+    optional = "".join(
+        f"<{key}>{_escaped(keys[key])}</{key}>"
+        for key in DELETE_OPTIONAL_KEYS
+        if keys.get(key)
+    )
+    voucher_type = keys["VCHTYPE"]
+    stamped_date = exported.voucher.date.strftime("%Y%m%d")
     return (
         "<ENVELOPE>"
         "<HEADER>"
@@ -560,10 +783,11 @@ def build_voucher_delete(
         "<DATA>"
         '<TALLYMESSAGE xmlns:UDF="TallyUDF">'
         f'<VOUCHER VCHTYPE="{_escaped(voucher_type)}" ACTION="Delete" '
-        f'REMOTEID="{_escaped(operation_id)}">'
+        f'REMOTEID="{_escaped(keys["REMOTEID"])}">'
         f"<DATE>{stamped_date}</DATE>"
         f"<VOUCHERTYPENAME>{_escaped(voucher_type)}</VOUCHERTYPENAME>"
-        f"<MASTERID>{_escaped(master_id)}</MASTERID>"
+        f"<MASTERID>{_escaped(keys['MASTERID'])}</MASTERID>"
+        f"{optional}"
         "</VOUCHER>"
         "</TALLYMESSAGE>"
         "</DATA>"
@@ -579,7 +803,12 @@ def build_voucher_delete(
 
 @dataclass(frozen=True)
 class ImportResult:
-    """The counters Tally returns from an Import/Data request."""
+    """The result Tally returns from an Import/Data request.
+
+    `status` is `None` when the response carried no `<STATUS>` at all, which is
+    a different answer from a status of 0. Everything else defaults to 0 the way
+    a missing counter reads.
+    """
 
     created: int = 0
     altered: int = 0
@@ -587,35 +816,66 @@ class ImportResult:
     ignored: int = 0
     errors: int = 0
     exceptions: int = 0
+    status: int | None = None
     last_vch_id: str | None = None
     line_errors: tuple[str, ...] = ()
 
     @property
     def ok(self) -> bool:
+        """False for anything that is not an unambiguous success.
+
+        A `<STATUS>` other than 1 is a failure. A status Tally did not send is
+        not evidence either way, so it is left to the counters, which the
+        callers check: an import that created nothing, altered something, or
+        ignored our payload never counts as a success here.
+        """
+        if self.status is not None and self.status != 1:
+            return False
         return self.errors == 0 and self.exceptions == 0 and not self.line_errors
 
     def summary(self) -> str:
         return (
-            f"created={self.created} altered={self.altered} "
-            f"deleted={self.deleted} ignored={self.ignored} "
-            f"errors={self.errors} exceptions={self.exceptions} "
-            f"line_errors={list(self.line_errors)}"
+            f"status={self.status} created={self.created} "
+            f"altered={self.altered} deleted={self.deleted} "
+            f"ignored={self.ignored} errors={self.errors} "
+            f"exceptions={self.exceptions} line_errors={list(self.line_errors)}"
         )
+
+
+@dataclass(frozen=True)
+class ExportedVoucher:
+    """One voucher exactly as Tally exported it. Assumption A5.
+
+    `voucher` is the part this system can represent and reason about. `locators`
+    is what Tally sent alongside it - MASTERID, REMOTEID, GUID, VCHKEY - kept
+    exactly as received, plus VCHTYPE, which A6's delete needs from the same
+    read. None of it is identity: the narration marker inside `voucher` is.
+    """
+
+    voucher: Voucher
+    locators: Mapping[str, str]
 
 
 @dataclass(frozen=True)
 class VoucherPage:
     """What a voucher export gave us, and what it could not give us.
 
-    `skipped` counts vouchers with anything other than two ledger entries.
-    `Voucher` has one debit and one credit and cannot hold them. They are
-    counted rather than silently dropped, because "this company has 40
+    `skipped` counts vouchers with ledger entries we cannot represent - anything
+    other than exactly one debit and one credit. `Voucher` holds one of each.
+    They are counted rather than silently dropped, because "this company has 40
     vouchers" and "this company has 40 vouchers we can read" are different
     statements.
+
+    A voucher with NO ledger entries is not counted here at all: that is an
+    unreadable export and it raises (A3).
     """
 
-    vouchers: tuple[Voucher, ...] = ()
+    exported: tuple[ExportedVoucher, ...] = ()
     skipped: int = 0
+
+    @property
+    def vouchers(self) -> tuple[Voucher, ...]:
+        return tuple(item.voucher for item in self.exported)
 
 
 def parse_companies(
@@ -693,23 +953,58 @@ def _parse_leg(node: ElementTree.Element) -> _Leg | None:
 
     is_debit = flag.strip().lower() == "yes"
     if amount != 0 and (amount < 0) != is_debit:
-        # Assumption A1 disagrees with Tally. Say so instead of picking one:
-        # guessing here silently inverts a statutory entry.
+        # The same contradiction `check_outgoing_legs` refuses to send, arriving
+        # from the other direction. A1 says a debit is a negative amount with
+        # ISDEEMEDPOSITIVE=Yes and a credit a positive amount with No; this leg
+        # is neither, so it is refused rather than guessed at. Guessing here
+        # silently inverts a statutory entry.
         raise TallyDataError(
             f"ledger {ledger!r}: ISDEEMEDPOSITIVE={flag!r} does not agree with "
-            f"AMOUNT={raw_amount!r}. Assumption A1 about Tally's sign "
-            "convention is wrong; fix _flip_tally_sign before writing anything."
+            f"AMOUNT={raw_amount!r}, so this leg contradicts A1's sign "
+            "convention. Refusing to pick a side."
         )
     return _Leg(ledger=ledger, amount_paise=amount, is_debit=is_debit)
 
 
-def _voucher_from(node: ElementTree.Element) -> Voucher | None:
-    """One exported voucher, or None when it is not two-legged."""
-    legs = [
-        leg
-        for entry in node.iter("ALLLEDGERENTRIES.LIST")
-        if (leg := _parse_leg(entry))
-    ]
+def _exported_keys(node: ElementTree.Element) -> dict[str, str]:
+    """The locators Tally sent with one voucher, exactly as sent. A5 and A6.
+
+    Tally puts these on the element or in a child depending on the build and the
+    export, so both are read. VCHTYPE rides along because A6's delete needs the
+    voucher type from the same read as the rest of the key.
+    """
+    found: dict[str, str] = {}
+    voucher_type = node.get("VCHTYPE") or _child_text(node, "VOUCHERTYPENAME")
+    if voucher_type is not None:
+        found["VCHTYPE"] = voucher_type
+    for key in ("MASTERID", "REMOTEID", "GUID", "VCHKEY"):
+        value = node.get(key) or _child_text(node, key)
+        if value is not None:
+            found[key] = value
+    return found
+
+
+def _date_from_tally(raw: str) -> datetime.date:
+    return datetime.datetime.strptime(raw.strip(), "%Y%m%d").date()
+
+
+def _exported_from(node: ElementTree.Element) -> ExportedVoucher | None:
+    """One exported voucher, or None when it is not two-legged.
+
+    Raises when the export carried no ledger entries at all: that is a broken
+    read, not a voucher without legs (A3).
+    """
+    entries = [entry for tag in LEDGER_ENTRY_TAGS for entry in node.iter(tag)]
+    if not entries:
+        raise TallyDataError(
+            "an exported voucher carries no ledger entries at all. A voucher "
+            "cannot have no legs, so this is an unreadable or invalid export - "
+            "most likely the collection did not honour the request for the "
+            "ledger entries (A3). Refusing to read this page as if it were "
+            "voucher data."
+        )
+
+    legs = [leg for entry in entries if (leg := _parse_leg(entry)) is not None]
     debits = [leg for leg in legs if leg.is_debit]
     credits = [leg for leg in legs if not leg.is_debit]
     if len(legs) != 2 or len(debits) != 1 or len(credits) != 1:
@@ -731,16 +1026,14 @@ def _voucher_from(node: ElementTree.Element) -> Voucher | None:
     except ValueError as exc:
         raise TallyDataError(f"unreadable voucher date {raw_date!r}") from exc
 
-    remote_id = node.get("REMOTEID") or _child_text(node, "REMOTEID")
-    master_id = node.get("MASTERID") or _child_text(node, "MASTERID")
+    locators = _exported_keys(node)
     number = _child_text(node, "VOUCHERNUMBER")
-    narration = _child_text(node, "NARRATION") or ""
-
-    return Voucher(
-        id=remote_id or master_id or number or "",
+    master_id = locators.get("MASTERID")
+    voucher = Voucher(
+        id=locators.get("REMOTEID") or master_id or number or "",
         date=date,
         party=_child_text(node, "PARTYLEDGERNAME") or credit.ledger,
-        narration=narration,
+        narration=_child_text(node, "NARRATION") or "",
         debit_account=debit.ledger,
         credit_account=credit.ledger,
         amount_paise=abs(debit.amount_paise),
@@ -748,10 +1041,21 @@ def _voucher_from(node: ElementTree.Element) -> Voucher | None:
         tally_id=master_id or number,
         provenance=None,
     )
+    return ExportedVoucher(voucher=voucher, locators=locators)
 
 
-def _date_from_tally(raw: str) -> datetime.date:
-    return datetime.datetime.strptime(raw.strip(), "%Y%m%d").date()
+def _refuse_mixed_entry_tags(root: ElementTree.Element) -> None:
+    """A3. One build's name or the other's, never both in one response."""
+    present = [
+        tag for tag in LEDGER_ENTRY_TAGS if next(root.iter(tag), None) is not None
+    ]
+    if len(present) > 1:
+        names = " and ".join(f"<{tag}>" for tag in present)
+        raise TallyDataError(
+            f"this response carries {names}. A build exports the ledger entries "
+            "under one name or the other; a response using both is an anomaly, "
+            "and mixing them would silently read half a company's vouchers."
+        )
 
 
 def parse_vouchers(
@@ -764,12 +1068,13 @@ def parse_vouchers(
     over it can no longer be trusted.
     """
     root = parse_xml(payload, limit)
-    vouchers: list[Voucher] = []
+    _refuse_mixed_entry_tags(root)
+    exported: list[ExportedVoucher] = []
     skipped = 0
     for node in root.iter("VOUCHER"):
-        voucher = _voucher_from(node)
-        if voucher is not None:
-            vouchers.append(voucher)
+        item = _exported_from(node)
+        if item is not None:
+            exported.append(item)
             continue
         skipped += 1
         narration = _child_text(node, "NARRATION") or ""
@@ -780,7 +1085,7 @@ def parse_vouchers(
                 "debit and one credit. It was edited in Tally; reversal "
                 "arithmetic over it cannot be trusted."
             )
-    return VoucherPage(vouchers=tuple(vouchers), skipped=skipped)
+    return VoucherPage(exported=tuple(exported), skipped=skipped)
 
 
 def parse_import_response(
@@ -797,6 +1102,7 @@ def parse_import_response(
         ignored=_counter(root, "IGNORED"),
         errors=_counter(root, "ERRORS"),
         exceptions=_counter(root, "EXCEPTIONS"),
+        status=_optional_counter(root, "STATUS"),
         last_vch_id=_text_of(root.find(".//LASTVCHID")),
         line_errors=line_errors,
     )
@@ -820,6 +1126,9 @@ class TallyConfig:
     therefore allowed and is the caller's decision: the traffic is plain HTTP
     with no auth, so it must stay on a private, trusted network. `is_loopback`
     exists so a caller or a test can assert the tighter rule when it applies.
+
+    `voucher_type` is the type used on CREATE. A delete never reads it: A6 takes
+    the voucher type from the read that precedes it.
     """
 
     host: str = "localhost"
@@ -1015,15 +1324,22 @@ class HttpTransport:
 # ---------------------------------------------------------------------------
 
 
+def _locators_text(item: ExportedVoucher) -> str:
+    if not item.locators:
+        return "no locators"
+    return ", ".join(f"{key}={value}" for key, value in item.locators.items())
+
+
 class RealTally:
     """TallyClient over XML/HTTP. See the module docstring before trusting it.
 
-    Identity is the operation ID and nothing else. `read_by_operation_id`
-    matches the marker in the narration, exactly as `FakeTally` does, by
-    scanning the company's vouchers. A TDL filter would be faster; it would
-    also mean that a filter Tally silently does not honour reads as "this
-    operation was never written", which on the write path is a duplicate
-    voucher. Scanning cannot fail that way.
+    Identity is the narration marker and nothing else (A5).
+    `read_by_operation_id` matches that marker, exactly as `FakeTally` does, by
+    scanning the company's vouchers. A TDL filter would be faster; it would also
+    mean that a filter Tally silently does not honour reads as "this operation
+    was never written", which on the write path is a duplicate voucher. Scanning
+    cannot fail that way, and it is what lets two vouchers sharing one marker be
+    seen as the ambiguity they are instead of picked between.
     """
 
     def __init__(
@@ -1077,11 +1393,35 @@ class RealTally:
             self._limit,
         )
 
+    def _read_exported_by_operation_id(
+        self, company: str, operation_id: str
+    ) -> ExportedVoucher | None:
+        """A5. The marker must identify at most one voucher.
+
+        None means not found. One match is a safe candidate. Two or more is an
+        ambiguity, and every destructive action is refused rather than aimed at
+        a coin flip.
+        """
+        matches = [
+            item
+            for item in self.read_vouchers_page(company).exported
+            if operation_id_in(item.voucher.narration) == operation_id
+        ]
+        if not matches:
+            return None
+        if len(matches) > 1:
+            where = "; ".join(_locators_text(item) for item in matches)
+            raise TallyDataError(
+                f"operation {operation_id!r} matches {len(matches)} vouchers in "
+                f"{company!r} ({where}). The narration marker is this system's "
+                "identity and it has to be unique. Refusing to read one back or "
+                "delete any of them: a person has to decide which is real."
+            )
+        return matches[0]
+
     def read_by_operation_id(self, company: str, operation_id: str) -> Voucher | None:
-        for voucher in self.read_vouchers(company):
-            if operation_id_in(voucher.narration) == operation_id:
-                return voucher
-        return None
+        found = self._read_exported_by_operation_id(company, operation_id)
+        return None if found is None else found.voucher
 
     def list_our_vouchers(self, company: str) -> tuple[Voucher, ...]:
         return tuple(
@@ -1092,6 +1432,31 @@ class RealTally:
 
     # ---- writes ------------------------------------------------------------
 
+    def _check_ledgers_exist(
+        self, company: str, voucher: Voucher, operation_id: str
+    ) -> None:
+        """A10's fourth condition, and the second first-integration trap.
+
+        Tally does not create an accounting master on the fly for an imported
+        voucher: a ledger that does not exist makes the import fail, and it can
+        fail silently. Names are compared exactly, so a case difference is a
+        refusal rather than a guess.
+        """
+        accounts = self.read_accounts(company)
+        missing = tuple(
+            name
+            for name in (voucher.debit_account, voucher.credit_account)
+            if name not in accounts
+        )
+        if missing:
+            raise TallyDataError(
+                f"refusing to write operation {operation_id!r} to {company!r}: "
+                f"the ledger(s) {', '.join(repr(name) for name in missing)} do "
+                "not exist there. Tally will not create them for us, so the "
+                "import would be rejected or silently ignored. Create them in "
+                "Tally first."
+            )
+
     def write_voucher(
         self, company: str, voucher: Voucher, operation_id: str
     ) -> WriteResult:
@@ -1100,6 +1465,7 @@ class RealTally:
             raise CompanyNotBackedUp(
                 f"{company!r} has no recorded backup; refusing to write"
             )
+        self._check_ledgers_exist(company, voucher, operation_id)
         if self.read_by_operation_id(company, operation_id) is not None:
             raise DuplicateOperation(
                 f"operation {operation_id!r} was already written to {company!r}"
@@ -1127,6 +1493,12 @@ class RealTally:
                 f"Tally accepted operation {operation_id!r} and created "
                 f"nothing: {result.summary()}"
             )
+        if result.ignored:
+            raise TallyRejected(
+                f"Tally ignored {result.ignored} part(s) of operation "
+                f"{operation_id!r}. One voucher went out, so we cannot tell "
+                f"what was dropped: {result.summary()}"
+            )
 
         written = self.read_by_operation_id(company, operation_id)
         if written is None:
@@ -1146,19 +1518,20 @@ class RealTally:
         )
 
     def reverse_by_operation_id(self, company: str, operation_id: str) -> bool:
-        """Delete exactly the voucher carrying this operation ID.
+        """Delete exactly the voucher carrying this operation ID. A6.
 
         False means it was not there. True means it was there and is verifiably
         gone. Anything else raises: reversal is never reported as succeeding
         because Tally said so.
         """
-        existing = self.read_by_operation_id(company, operation_id)
-        if existing is None:
+        # This read IS the fresh read the delete is built from - taken here,
+        # immediately before the delete, and never carried in from a caller, a
+        # cache or an earlier call. Another user can move a voucher under us.
+        fresh = self._read_exported_by_operation_id(company, operation_id)
+        if fresh is None:
             return False
 
-        payload = build_voucher_delete(
-            company, existing, operation_id, self.config.voucher_type
-        )
+        payload = build_voucher_delete(company, fresh, operation_id)
         result = parse_import_response(
             self._transport.send(payload, retry=False), self._limit
         )
@@ -1166,6 +1539,11 @@ class RealTally:
             raise TallyRejected(
                 f"Tally refused to delete operation {operation_id!r}: "
                 f"{result.summary()}"
+            )
+        if result.deleted < 1:
+            raise TallyRejected(
+                f"Tally accepted the deletion of operation {operation_id!r} and "
+                f"deleted nothing: {result.summary()}"
             )
         if self.read_by_operation_id(company, operation_id) is not None:
             raise TallyRejected(

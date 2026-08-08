@@ -15,7 +15,9 @@ WHAT THEY DO NOT PROVE
     That any of it works against TallyPrime. `_TallySim` answers the envelopes
     `real.py` builds, in the shapes `real.py` expects, so it agrees with every
     assumption A1-A10 in that module by construction. A simulator that shares
-    your hypotheses cannot falsify them. Only a live instance can.
+    your hypotheses cannot falsify them. A review by an experienced engineer
+    changed several of those hypotheses; it did not run any of them. Only a live
+    instance can.
 
     Nothing here opens a socket except `test_post_bytes_talks_to_a_real_socket`,
     which talks to a one-shot loopback server to prove the opener works at all.
@@ -83,14 +85,16 @@ def import_response(
     ignored: int = 0,
     errors: int = 0,
     exceptions: int = 0,
+    status: int | None = None,
     last_vch_id: str | None = None,
     line_errors: Sequence[str] = (),
 ) -> str:
-    """The counters Tally is assumed to return from Import/Data (A4)."""
+    """The result Tally is assumed to return from Import/Data (A4)."""
+    head = f"<STATUS>{status}</STATUS>" if status is not None else ""
     last = f"<LASTVCHID>{_esc(last_vch_id)}</LASTVCHID>" if last_vch_id else ""
     lines = "".join(f"<LINEERROR>{_esc(t)}</LINEERROR>" for t in line_errors)
     return (
-        "<ENVELOPE><HEADER><VERSION>1</VERSION></HEADER>"
+        f"<ENVELOPE><HEADER><VERSION>1</VERSION>{head}</HEADER>"
         "<BODY><DATA><IMPORTRESULT>"
         f"<CREATED>{created}</CREATED>"
         f"<ALTERED>{altered}</ALTERED>"
@@ -254,12 +258,7 @@ class TallySim:
         co = self._company(company)
 
         if action == "Delete":
-            if self.swallow_deletes:
-                return import_response(deleted=1)
-            keep = [v for v in co.vouchers if v.remote_id != remote_id]
-            deleted = len(co.vouchers) - len(keep)
-            co.vouchers = keep
-            return import_response(deleted=deleted)
+            return self._delete(co, node, remote_id)
 
         assert action == "Create", f"unexpected voucher action {action!r}"
         debit, credit, amount = _legs_of(node)
@@ -279,7 +278,25 @@ class TallySim:
                 amount_paise=amount,
             )
         )
-        return import_response(created=1, last_vch_id=master_id)
+        return import_response(created=1, status=1, last_vch_id=master_id)
+
+    def _delete(self, co: SimCompany, node: ElementTree.Element, remote_id: str) -> str:
+        """A6: the delete has to arrive with the whole key, not part of it."""
+        assert node.get("VCHTYPE"), "A6: the delete must carry VCHTYPE"
+        assert remote_id, "A6: the delete must carry the REMOTEID from the read"
+        master_id = _required(node, "MASTERID")
+        assert re.fullmatch(r"\d{8}", _required(node, "DATE")), "A6: YYYYMMDD"
+
+        if self.swallow_deletes:
+            return import_response(deleted=1, status=1)
+        keep = [
+            v
+            for v in co.vouchers
+            if not (v.remote_id == remote_id and v.master_id == master_id)
+        ]
+        deleted = len(co.vouchers) - len(keep)
+        co.vouchers = keep
+        return import_response(deleted=deleted, status=1)
 
 
 def _required(node: ElementTree.Element, path: str) -> str:
@@ -625,6 +642,12 @@ def _parsed(envelope: str) -> ElementTree.Element:
     return real.parse_xml(envelope)
 
 
+def _native_methods(envelope: str) -> list[str]:
+    return [
+        (node.text or "").strip() for node in _parsed(envelope).iter("NATIVEMETHOD")
+    ]
+
+
 def test_the_company_list_request_is_an_export_collection() -> None:
     root = _parsed(real.build_company_list_request())
     assert _required(root, ".//TALLYREQUEST") == "Export"
@@ -652,13 +675,47 @@ def test_every_company_scoped_request_names_the_company(
     assert _required(root, ".//SVEXPORTFORMAT") == "$$SysName:XML"
 
 
-def test_the_voucher_request_asks_for_the_ledger_entries() -> None:
+@pytest.mark.parametrize(
+    "build",
+    [
+        real.build_company_list_request,
+        lambda: real.build_ledger_list_request(COMPANY),
+        lambda: real.build_closing_balance_request(COMPANY),
+    ],
+)
+def test_a_request_with_no_nested_members_carries_no_native_methods(
+    build: Callable[[], str],
+) -> None:
+    assert _native_methods(build()) == []
+
+
+def test_the_voucher_request_fetches_only_flat_members() -> None:
+    """Assumption A3, changed by review: a dotted path inside `<FETCH>` is not
+    reliably honoured, so none is sent."""
     fetched = _required(_parsed(real.build_voucher_list_request(COMPANY)), ".//FETCH")
-    for member in ("Narration", "RemoteID", "MasterID"):
+    for member in ("Date", "Narration", "RemoteID", "MasterID", "GUID"):
         assert member in fetched
-    assert "AllLedgerEntries.LedgerName" in fetched
-    assert "AllLedgerEntries.Amount" in fetched
-    assert "AllLedgerEntries.IsDeemedPositive" in fetched
+    assert "AllLedgerEntries." not in fetched
+
+
+def test_the_ledger_entries_are_asked_for_as_explicit_native_methods() -> None:
+    """Assumption A3. One `<NATIVEMETHOD>` per nested member, spelled out."""
+    assert _native_methods(real.build_voucher_list_request(COMPANY)) == [
+        "ALLLEDGERENTRIES.LIST:LEDGERNAME",
+        "ALLLEDGERENTRIES.LIST:AMOUNT",
+        "ALLLEDGERENTRIES.LIST:ISDEEMEDPOSITIVE",
+    ]
+
+
+def test_the_broad_diagnostic_form_is_opt_in_and_additive() -> None:
+    """`ALLLEDGERENTRIES.*` is for the first conversation with a build that
+    honours neither shape. It is never sent by default."""
+    default = _native_methods(real.build_voucher_list_request(COMPANY))
+    diagnostic = _native_methods(
+        real.build_voucher_list_request(COMPANY, diagnostic=True)
+    )
+    assert real.LEDGER_ENTRY_METHOD_BROAD not in default
+    assert diagnostic == [*default, "ALLLEDGERENTRIES.*"]
 
 
 def test_awkward_company_names_survive_escaping() -> None:
@@ -692,6 +749,38 @@ def test_the_create_envelope_is_an_import_carrying_the_operation_id() -> None:
     assert voucher_node.get("REMOTEID") == "ad_test"
     assert marker_for("ad_test") in _required(root, ".//NARRATION")
     assert _required(root, ".//DATE") == "20260807"
+
+
+def test_the_create_envelope_carries_a10s_required_fields() -> None:
+    """Assumption A10, confirmed by review: a two-legged Journal is valid only
+    with the accounting voucher view declared both ways, and a YYYYMMDD date."""
+    root = _create_envelope()
+    node = root.find(".//VOUCHER")
+    assert node is not None
+    assert node.get("OBJVIEW") == "Accounting Voucher View"
+    assert _required(root, ".//PERSISTEDVIEW") == "Accounting Voucher View"
+    assert re.fullmatch(r"\d{8}", _required(root, ".//DATE"))
+    assert _required(root, ".//VOUCHERTYPENAME") == "Journal"
+
+
+def test_the_create_envelope_carries_no_invoice_or_tax_only_fields() -> None:
+    """A10 again, from the other side: nothing was added while adding the
+    required fields."""
+    envelope = real.build_voucher_create(
+        COMPANY,
+        contract.a_voucher(),
+        stamp("cement bags", "ad_test"),
+        "ad_test",
+        "Journal",
+    )
+    for forbidden in (
+        "BILLALLOCATIONS.LIST",
+        "INVENTORYALLOCATIONS.LIST",
+        "ALLINVENTORYENTRIES.LIST",
+        "GSTREGISTRATION",
+        "RATEOFINVOICETAX",
+    ):
+        assert forbidden not in envelope
 
 
 def test_the_create_envelope_encodes_tallys_sign_convention() -> None:
@@ -777,32 +866,152 @@ def test_a_gst_voucher_is_refused_rather_than_silently_stripped() -> None:
         _create_envelope(voucher)
 
 
-def test_the_delete_envelope_aims_at_the_operation_id_and_master_id() -> None:
-    voucher = contract.a_voucher()
-    stored = Voucher(
-        id=voucher.id,
-        date=voucher.date,
-        party=voucher.party,
-        narration=stamp(voucher.narration, "ad_9"),
-        debit_account=voucher.debit_account,
-        credit_account=voucher.credit_account,
-        amount_paise=voucher.amount_paise,
-        tally_id="M42",
+# ===========================================================================
+# A1's two guards, both in front of the wire
+# ===========================================================================
+
+
+def _leg(ledger: str, signed_paise: int, deemed_positive: bool) -> real.OutgoingLeg:
+    return real.OutgoingLeg(
+        ledger=ledger, signed_paise=signed_paise, is_deemed_positive=deemed_positive
     )
-    root = _parsed(real.build_voucher_delete(COMPANY, stored, "ad_9", "Journal"))
+
+
+def test_a_balanced_pair_of_legs_passes_the_guard() -> None:
+    real.check_outgoing_legs(
+        (_leg("Purchases", -118000, True), _leg("Cash", 118000, False)), "v1"
+    )
+
+
+def test_a_debit_leg_with_a_positive_amount_is_refused_not_normalised() -> None:
+    """ISDEEMEDPOSITIVE=Yes with a positive AMOUNT. Which half is wrong is not
+    ours to decide, and picking one silently inverts a statutory entry."""
+    with pytest.raises(ValueError, match=r"Purchases.*contradictory"):
+        real.check_outgoing_legs(
+            (_leg("Purchases", 118000, True), _leg("Cash", 118000, False)), "v1"
+        )
+
+
+def test_a_credit_leg_with_a_negative_amount_is_refused_not_normalised() -> None:
+    with pytest.raises(ValueError, match=r"Cash.*contradictory"):
+        real.check_outgoing_legs(
+            (_leg("Purchases", -118000, True), _leg("Cash", -118000, False)), "v1"
+        )
+
+
+def test_a_zero_leg_contradicts_nothing() -> None:
+    """Zero is neither positive nor negative, so neither guard fires on it. The
+    balance guard is what catches it."""
+    with pytest.raises(ValueError, match="unbalanced"):
+        real.check_outgoing_legs(
+            (_leg("Purchases", 0, True), _leg("Cash", 118000, False)), "v1"
+        )
+
+
+def test_legs_that_do_not_balance_to_the_paise_never_reach_the_wire() -> None:
+    with pytest.raises(ValueError, match="117999 paise"):
+        real.check_outgoing_legs(
+            (_leg("Purchases", -118000, True), _leg("Cash", 117999, False)), "v1"
+        )
+
+
+def _no_flip(paise: int) -> int:
+    """`_flip_tally_sign` with A1's negation taken out."""
+    return paise
+
+
+def test_the_guard_stands_between_the_builder_and_the_wire(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The point of the guard: if A1's single negation were ever inverted, the
+    envelope would be built and then refused, not built and sent."""
+    monkeypatch.setattr(real, "_flip_tally_sign", _no_flip)
+    with pytest.raises(ValueError, match="contradictory"):
+        _create_envelope()
+
+
+# ===========================================================================
+# A6: the delete key comes from a read taken immediately before
+# ===========================================================================
+
+FULL_LOCATORS = {
+    "VCHTYPE": "Journal",
+    "MASTERID": "M42",
+    "REMOTEID": "ad_9",
+}
+
+
+def _exported(
+    locators: dict[str, str] | None = None,
+    *,
+    narration: str = "cement bags [ACCOUNTANT_DAD:ad_9]",
+) -> real.ExportedVoucher:
+    base = contract.a_voucher()
+    return real.ExportedVoucher(
+        voucher=Voucher(
+            id=base.id,
+            date=base.date,
+            party=base.party,
+            narration=narration,
+            debit_account=base.debit_account,
+            credit_account=base.credit_account,
+            amount_paise=base.amount_paise,
+            tally_id="M42",
+        ),
+        locators=dict(FULL_LOCATORS) if locators is None else locators,
+    )
+
+
+def test_the_delete_envelope_carries_the_whole_key_from_the_fresh_read() -> None:
+    root = _parsed(real.build_voucher_delete(COMPANY, _exported(), "ad_9"))
     node = root.find(".//VOUCHER")
     assert node is not None
-    assert node.get("ACTION") == "Delete"
+    assert node.get("VCHTYPE") == "Journal"
     assert node.get("REMOTEID") == "ad_9"
     assert _required(root, ".//MASTERID") == "M42"
+    assert _required(root, ".//DATE") == "20260807"
+    assert _required(root, ".//VOUCHERTYPENAME") == "Journal"
     # Never the amount, never the narration text.
     assert root.find(".//AMOUNT") is None
     assert root.find(".//NARRATION") is None
 
 
-def test_a_voucher_with_no_master_id_cannot_be_deleted_blindly() -> None:
-    with pytest.raises(real.TallyDataError, match="MASTERID"):
-        real.build_voucher_delete(COMPANY, contract.a_voucher(), "ad_9", "Journal")
+def test_we_send_delete_and_never_cancel() -> None:
+    """`Delete` removes the voucher. `Cancel` leaves a cancelled voucher in
+    place, keeping its number. They are not interchangeable and reversal means
+    the first one."""
+    envelope = real.build_voucher_delete(COMPANY, _exported(), "ad_9")
+    node = _parsed(envelope).find(".//VOUCHER")
+    assert node is not None
+    assert node.get("ACTION") == "Delete"
+    assert "Cancel" not in envelope
+
+
+def test_a_guid_or_vchkey_the_read_supplied_is_passed_through_untouched() -> None:
+    locators = {**FULL_LOCATORS, "GUID": "9f-1a-2b", "VCHKEY": "0005c8d0:0000006c"}
+    root = _parsed(real.build_voucher_delete(COMPANY, _exported(locators), "ad_9"))
+    assert _required(root, ".//GUID") == "9f-1a-2b"
+    assert _required(root, ".//VCHKEY") == "0005c8d0:0000006c"
+
+
+def test_a_vchkey_is_never_invented_when_the_read_did_not_supply_one() -> None:
+    root = _parsed(real.build_voucher_delete(COMPANY, _exported(), "ad_9"))
+    assert root.find(".//VCHKEY") is None
+    assert root.find(".//GUID") is None
+
+
+@pytest.mark.parametrize("dropped", ["VCHTYPE", "MASTERID", "REMOTEID"])
+def test_a_delete_missing_any_part_of_the_key_is_refused(dropped: str) -> None:
+    locators = {k: v for k, v in FULL_LOCATORS.items() if k != dropped}
+    with pytest.raises(real.TallyDataError, match=dropped):
+        real.build_voucher_delete(COMPANY, _exported(locators), "ad_9")
+
+
+def test_a_voucher_that_did_not_come_from_a_read_cannot_be_deleted() -> None:
+    """No locators at all means nothing was read; a delete built from that would
+    be aimed at whatever the values happened to match."""
+    with pytest.raises(real.TallyDataError, match="the read taken just now"):
+        real.build_voucher_delete(COMPANY, _exported({}), "ad_9")
 
 
 # ===========================================================================
@@ -876,7 +1085,7 @@ def _voucher_payload(*bodies: str) -> str:
 
 
 TWO_LEGGED = (
-    '<VOUCHER REMOTEID="ad_7" MASTERID="M11">'
+    '<VOUCHER REMOTEID="ad_7" MASTERID="M11" VCHTYPE="Journal">'
     "<DATE>20260807</DATE>"
     "<VOUCHERNUMBER>7</VOUCHERNUMBER>"
     "<PARTYLEDGERNAME>Sharma Traders</PARTYLEDGERNAME>"
@@ -889,6 +1098,9 @@ TWO_LEGGED = (
     "</ALLLEDGERENTRIES.LIST>"
     "</VOUCHER>"
 )
+
+# A3: the same voucher from a build that names the collection the other way.
+SHORT_TAG = TWO_LEGGED.replace("ALLLEDGERENTRIES.LIST", "LEDGERENTRIES.LIST")
 
 
 def test_a_two_legged_voucher_becomes_the_frozen_type() -> None:
@@ -910,6 +1122,73 @@ def test_a_two_legged_voucher_becomes_the_frozen_type() -> None:
         voucher.amount_paise = 1  # type: ignore[misc]
 
 
+def test_the_other_builds_collection_name_is_read_the_same_way() -> None:
+    """Assumption A3: some builds export `LEDGERENTRIES.LIST`. Reading only one
+    name would report a whole company as unreadable."""
+    page = real.parse_vouchers(_voucher_payload(SHORT_TAG))
+    assert page.skipped == 0
+    assert page.vouchers[0].debit_account == "Purchases"
+    assert page.vouchers[0].credit_account == "Cash"
+
+
+def test_a_response_using_both_collection_names_is_an_anomaly() -> None:
+    """One build uses one name. A response with both is not something to merge
+    quietly - half a company's vouchers would silently go the wrong way."""
+    with pytest.raises(real.TallyDataError, match="anomaly"):
+        real.parse_vouchers(_voucher_payload(TWO_LEGGED, SHORT_TAG))
+
+
+def test_a_voucher_with_no_ledger_entries_at_all_is_an_unreadable_export() -> None:
+    """A voucher cannot have no legs. Zero entries means the export did not
+    carry them (A3), which is a broken read, not an empty voucher."""
+    body = (
+        '<VOUCHER MASTERID="M9" VCHTYPE="Journal"><DATE>20260807</DATE>'
+        "<NARRATION>n</NARRATION></VOUCHER>"
+    )
+    with pytest.raises(real.TallyDataError, match="no ledger entries"):
+        real.parse_vouchers(_voucher_payload(body))
+
+
+def test_the_locators_tally_sent_are_preserved_exactly() -> None:
+    """A5. Locators are kept as received; none of them is the identity."""
+    body = TWO_LEGGED.replace(
+        '<VOUCHER REMOTEID="ad_7"',
+        '<VOUCHER GUID="9f-1a-2b" VCHKEY="0005c8d0:0000006c" REMOTEID="ad_7"',
+    )
+    page = real.parse_vouchers(_voucher_payload(body))
+    assert dict(page.exported[0].locators) == {
+        "VCHTYPE": "Journal",
+        "MASTERID": "M11",
+        "REMOTEID": "ad_7",
+        "GUID": "9f-1a-2b",
+        "VCHKEY": "0005c8d0:0000006c",
+    }
+
+
+def test_locators_are_read_from_child_elements_too() -> None:
+    """Tally puts these on the element or in a child depending on the build."""
+    body = (
+        "<VOUCHER><DATE>20260807</DATE><NARRATION>n</NARRATION>"
+        "<VOUCHERTYPENAME>Payment</VOUCHERTYPENAME>"
+        "<MASTERID>M77</MASTERID><REMOTEID>ad_77</REMOTEID>"
+        "<GUID>g-77</GUID><VCHKEY>k-77</VCHKEY>"
+        "<ALLLEDGERENTRIES.LIST><LEDGERNAME>Purchases</LEDGERNAME>"
+        "<ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE><AMOUNT>-10.00</AMOUNT>"
+        "</ALLLEDGERENTRIES.LIST>"
+        "<ALLLEDGERENTRIES.LIST><LEDGERNAME>Cash</LEDGERNAME>"
+        "<ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE><AMOUNT>10.00</AMOUNT>"
+        "</ALLLEDGERENTRIES.LIST></VOUCHER>"
+    )
+    page = real.parse_vouchers(_voucher_payload(body))
+    assert dict(page.exported[0].locators) == {
+        "VCHTYPE": "Payment",
+        "MASTERID": "M77",
+        "REMOTEID": "ad_77",
+        "GUID": "g-77",
+        "VCHKEY": "k-77",
+    }
+
+
 def test_a_voucher_without_isdeemedpositive_falls_back_to_the_amount_sign() -> None:
     body = (
         '<VOUCHER MASTERID="M2"><DATE>20260807</DATE>'
@@ -923,6 +1202,7 @@ def test_a_voucher_without_isdeemedpositive_falls_back_to_the_amount_sign() -> N
     assert page.vouchers[0].debit_account == "Purchases"
     assert page.vouchers[0].party == "Cash"
     assert page.vouchers[0].id == "M2"
+    assert dict(page.exported[0].locators) == {"MASTERID": "M2"}
 
 
 def _unflagged_legs(*legs: tuple[str, str]) -> str:
@@ -962,7 +1242,8 @@ def test_a_zero_amount_leg_is_a_credit_not_a_debit() -> None:
 
 
 def test_a_leg_whose_flag_fights_its_sign_raises_instead_of_guessing() -> None:
-    """If assumption A1 is backwards this is what a real Tally would trip."""
+    """The mirror of `check_outgoing_legs`, on the way in. A1 is confirmed, so a
+    leg that breaks it is a broken leg, not a reason to re-derive A1."""
     body = (
         '<VOUCHER MASTERID="M3"><DATE>20260807</DATE><NARRATION>n</NARRATION>'
         "<ALLLEDGERENTRIES.LIST><LEDGERNAME>Purchases</LEDGERNAME>"
@@ -1071,16 +1352,38 @@ def test_an_import_with_errors_is_not_ok() -> None:
     assert "ledger not found" in result.summary()
 
 
+def test_a_status_of_one_is_a_success() -> None:
+    result = real.parse_import_response(import_response(created=1, status=1))
+    assert result.status == 1
+    assert result.ok is True
+    assert "status=1" in result.summary()
+
+
+def test_a_status_that_is_not_one_is_a_failure_however_clean_the_counters() -> None:
+    """The silent failure this exists for: every counter says fine, the status
+    says no."""
+    result = real.parse_import_response(import_response(created=1, status=0))
+    assert result.ok is False
+    assert "status=0" in result.summary()
+
+
+def test_a_response_with_no_status_is_judged_on_its_counters() -> None:
+    """Absent and zero are different answers. A build that sends no STATUS is
+    not thereby failing."""
+    result = real.parse_import_response(import_response(created=1))
+    assert result.status is None
+    assert result.ok is True
+
+
 def test_a_missing_counter_reads_as_zero() -> None:
     payload = "<ENVELOPE><IMPORTRESULT><CREATED>1</CREATED></IMPORTRESULT></ENVELOPE>"
     assert real.parse_import_response(payload) == real.ImportResult(created=1)
 
 
-def test_a_counter_that_is_not_a_number_raises() -> None:
-    payload = (
-        "<ENVELOPE><IMPORTRESULT><CREATED>lots</CREATED></IMPORTRESULT></ENVELOPE>"
-    )
-    with pytest.raises(real.TallyDataError, match="CREATED"):
+@pytest.mark.parametrize("tag", ["CREATED", "STATUS"])
+def test_a_counter_that_is_not_a_number_raises(tag: str) -> None:
+    payload = f"<ENVELOPE><IMPORTRESULT><{tag}>lots</{tag}></IMPORTRESULT></ENVELOPE>"
+    with pytest.raises(real.TallyDataError, match=tag):
         real.parse_import_response(payload)
 
 
@@ -1302,8 +1605,8 @@ def test_reads_go_out_with_retry_and_writes_do_not(sim: TallySim) -> None:
         transport=sim, backups=real.RecordedBackups(frozenset({COMPANY}))
     )
     client.write_voucher(COMPANY, contract.a_voucher(), new_operation_id())
-    # duplicate-check read, the write, the read-back.
-    assert sim.retry_flags == [True, False, True]
+    # ledger check, duplicate-check read, the write, the read-back.
+    assert sim.retry_flags == [True, True, False, True]
 
 
 def test_the_default_client_refuses_every_write(sim: TallySim) -> None:
@@ -1351,9 +1654,67 @@ def test_the_skipped_count_is_visible_to_a_caller_who_asks(sim: TallySim) -> Non
     assert page.skipped == 1
 
 
+# ---- A10: the ledgers have to be there first -------------------------------
+
+
+def _voucher_against(debit: str, credit: str) -> Voucher:
+    return Voucher(
+        id="draft-1",
+        date=datetime.date(2026, 8, 7),
+        party="Sharma Traders",
+        narration="cement bags",
+        debit_account=debit,
+        credit_account=credit,
+        amount_paise=118000,
+    )
+
+
+@pytest.mark.parametrize(
+    ("debit", "credit", "named"),
+    [
+        ("Nowhere Ledger", "Cash", "'Nowhere Ledger'"),
+        ("Purchases", "Missing Bank", "'Missing Bank'"),
+        ("purchases", "Cash", "'purchases'"),
+    ],
+)
+def test_a_write_against_a_ledger_that_does_not_exist_is_refused(
+    sim: TallySim, debit: str, credit: str, named: str
+) -> None:
+    """A10's fourth condition and the second first-integration trap: Tally does
+    not create the master for us, and the import can fail silently. The name is
+    compared exactly, so a case difference is a refusal, not a guess."""
+    client = real.RealTally(
+        transport=sim, backups=real.RecordedBackups(frozenset({COMPANY}))
+    )
+    with pytest.raises(real.TallyDataError, match=named):
+        client.write_voucher(COMPANY, _voucher_against(debit, credit), "ad_1")
+    assert client.read_vouchers(COMPANY) == ()
+
+
+def test_the_ledger_check_happens_before_the_import(sim: TallySim) -> None:
+    client = real.RealTally(
+        transport=sim, backups=real.RecordedBackups(frozenset({COMPANY}))
+    )
+    with pytest.raises(real.TallyDataError):
+        client.write_voucher(COMPANY, _voucher_against("Nope", "Cash"), "ad_1")
+    assert all("Import" not in payload for payload in sim.sent)
+
+
+LEDGERS = (
+    "<ENVELOPE><COLLECTION>"
+    '<LEDGER NAME="Purchases"/><LEDGER NAME="Cash"/>'
+    "</COLLECTION></ENVELOPE>"
+)
+
+
 def _client_with(replies: Sequence[str | Exception]) -> real.RealTally:
+    """A client on canned replies, with the chart of accounts prepended.
+
+    Every write reads the ledger list first (A10). None of these tests is about
+    that read, so it is supplied here rather than in each of them.
+    """
     return real.RealTally(
-        transport=ScriptedTransport(replies),
+        transport=ScriptedTransport([LEDGERS, *replies]),
         backups=real.RecordedBackups(frozenset({COMPANY})),
     )
 
@@ -1369,10 +1730,25 @@ def test_a_rejected_write_raises_rather_than_reporting_a_tally_id() -> None:
         client.write_voucher(COMPANY, contract.a_voucher(), "ad_1")
 
 
+def test_a_write_whose_status_says_no_is_a_failure() -> None:
+    """Counters all clean, `<STATUS>` says the import failed. The status wins."""
+    client = _client_with([EMPTY_VOUCHERS, import_response(created=1, status=0)])
+    with pytest.raises(real.TallyRejected, match="rejected operation"):
+        client.write_voucher(COMPANY, contract.a_voucher(), "ad_1")
+
+
 def test_a_write_that_created_nothing_is_a_failure_not_a_success() -> None:
     """Zero errors and zero vouchers is Tally silently ignoring the payload."""
     client = _client_with([EMPTY_VOUCHERS, import_response(ignored=1)])
     with pytest.raises(real.TallyRejected, match="and created nothing"):
+        client.write_voucher(COMPANY, contract.a_voucher(), "ad_1")
+
+
+def test_a_write_that_created_one_and_ignored_something_is_ambiguous() -> None:
+    """One voucher went out. If Tally both created and ignored, we cannot say
+    what it dropped, so this is not reported as a success."""
+    client = _client_with([EMPTY_VOUCHERS, import_response(created=1, ignored=1)])
+    with pytest.raises(real.TallyRejected, match="ignored 1 part"):
         client.write_voucher(COMPANY, contract.a_voucher(), "ad_1")
 
 
@@ -1414,6 +1790,93 @@ def test_the_last_vch_id_is_used_when_the_read_back_has_no_master_id() -> None:
     assert result.tally_id == "7"  # the voucher number, preferred over LASTVCHID
 
 
+# ---- A5: one marker, at most one voucher -----------------------------------
+
+
+def _two_with_one_marker() -> str:
+    return _voucher_payload(
+        TWO_LEGGED, TWO_LEGGED.replace('MASTERID="M11"', 'MASTERID="M12"')
+    )
+
+
+def _client_reading(payload: str) -> real.RealTally:
+    return real.RealTally(
+        transport=ScriptedTransport([payload] * 4),
+        backups=real.RecordedBackups(frozenset({COMPANY})),
+    )
+
+
+def test_one_marker_on_two_vouchers_is_an_ambiguity_not_a_choice() -> None:
+    """A5. Two matches means somebody duplicated one of our entries. Picking
+    either one is a coin flip with statutory consequences."""
+    client = _client_reading(_two_with_one_marker())
+    with pytest.raises(real.TallyDataError, match="matches 2 vouchers"):
+        client.read_by_operation_id(COMPANY, "ad_7")
+
+
+def test_an_ambiguous_marker_names_the_locators_it_could_not_choose_between() -> None:
+    client = _client_reading(_two_with_one_marker())
+    with pytest.raises(real.TallyDataError, match=r"MASTERID=M11.*MASTERID=M12"):
+        client.read_by_operation_id(COMPANY, "ad_7")
+
+
+def test_an_ambiguous_marker_with_nothing_to_name_says_so() -> None:
+    """A duplicate that arrived with no locators at all still has to be
+    reported, and the message has to admit it has nothing to point at."""
+    bare = (
+        "<VOUCHER><DATE>20260807</DATE>"
+        "<NARRATION>rent [ACCOUNTANT_DAD:ad_7]</NARRATION>"
+        "<ALLLEDGERENTRIES.LIST><LEDGERNAME>Purchases</LEDGERNAME>"
+        "<ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE><AMOUNT>-10.00</AMOUNT>"
+        "</ALLLEDGERENTRIES.LIST>"
+        "<ALLLEDGERENTRIES.LIST><LEDGERNAME>Cash</LEDGERNAME>"
+        "<ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE><AMOUNT>10.00</AMOUNT>"
+        "</ALLLEDGERENTRIES.LIST></VOUCHER>"
+    )
+    client = _client_reading(_voucher_payload(bare, bare))
+    with pytest.raises(real.TallyDataError, match="no locators; no locators"):
+        client.read_by_operation_id(COMPANY, "ad_7")
+
+
+def test_an_ambiguous_marker_refuses_the_delete_too() -> None:
+    """The whole point of the rule: no destructive action on an ambiguity."""
+    client = _client_reading(_two_with_one_marker())
+    with pytest.raises(real.TallyDataError, match="matches 2 vouchers"):
+        client.reverse_by_operation_id(COMPANY, "ad_7")
+
+
+def test_an_ambiguous_marker_refuses_the_write_too() -> None:
+    """The duplicate check reads by marker, so a write into an ambiguous company
+    stops there rather than adding a third."""
+    client = real.RealTally(
+        transport=ScriptedTransport([LEDGERS, _two_with_one_marker()]),
+        backups=real.RecordedBackups(frozenset({COMPANY})),
+    )
+    with pytest.raises(real.TallyDataError, match="matches 2 vouchers"):
+        client.write_voucher(COMPANY, contract.a_voucher(), "ad_7")
+
+
+# ---- A6: the delete, end to end --------------------------------------------
+
+
+def test_the_delete_that_goes_out_carries_the_read_back_locators(
+    sim: TallySim, client: TallyClient
+) -> None:
+    """A6, end to end: MASTERID and VCHTYPE on the wire came from the read taken
+    a moment earlier, not from our config or from the write we did before."""
+    op = new_operation_id()
+    client.write_voucher(COMPANY, contract.a_voucher(), op)
+    assert client.reverse_by_operation_id(COMPANY, op) is True
+
+    deletes = [p for p in sim.sent if 'ACTION="Delete"' in p]
+    assert len(deletes) == 1
+    node = _parsed(deletes[0]).find(".//VOUCHER")
+    assert node is not None
+    assert node.get("VCHTYPE") == "Journal"
+    assert node.get("REMOTEID") == op
+    assert _required(_parsed(deletes[0]), ".//MASTERID") == "M1"
+
+
 def test_a_deletion_tally_refuses_raises(sim: TallySim) -> None:
     client = real.RealTally(
         transport=sim, backups=real.RecordedBackups(frozenset({COMPANY}))
@@ -1423,6 +1886,20 @@ def test_a_deletion_tally_refuses_raises(sim: TallySim) -> None:
 
     sim.import_override = import_response(errors=1, line_errors=["cannot delete"])
     with pytest.raises(real.TallyRejected, match="refused to delete"):
+        client.reverse_by_operation_id(COMPANY, op)
+
+
+def test_a_deletion_that_deleted_nothing_is_a_failure(sim: TallySim) -> None:
+    """Zero errors, zero deletions. That is Tally ignoring the payload, not
+    agreeing with it."""
+    client = real.RealTally(
+        transport=sim, backups=real.RecordedBackups(frozenset({COMPANY}))
+    )
+    op = new_operation_id()
+    client.write_voucher(COMPANY, contract.a_voucher(), op)
+
+    sim.import_override = import_response(deleted=0, status=1)
+    with pytest.raises(real.TallyRejected, match="deleted nothing"):
         client.reverse_by_operation_id(COMPANY, op)
 
 
