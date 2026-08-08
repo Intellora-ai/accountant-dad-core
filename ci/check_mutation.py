@@ -126,6 +126,31 @@ def main() -> int:
             incomplete=True,
         )
 
+    # The mapping must be COMPLETE, not merely present. A mutant with no tests
+    # selected was never really challenged: nothing ran against it, so
+    # "survived" says nothing about the test suite.
+    #
+    # This is the concrete shape of the sysmon failure. pytest-gremlins switches
+    # coverage context once per mutant; on a core that honours only the first
+    # switch, later mutants map to too few tests or none at all. Isolated
+    # 2026-08-08: three switches, sysmon recorded one, pytrace recorded three.
+    unmapped = [m for m in results if not m.get("selected_tests")]
+    if unmapped:
+        sample = ", ".join(
+            f"{m.get('file_path', '?').split('/')[-1]}:{m.get('line_number', '?')}"
+            for m in unmapped[:5]
+        )
+        fail(
+            f"{len(unmapped)} of {len(results)} mutants had NO tests selected "
+            f"(e.g. {sample}). The test-to-line mapping is incomplete, so the "
+            "score is not evidence. Check COVERAGE_CORE and see "
+            "tests/test_mutation_environment.py.",
+            incomplete=True,
+        )
+
+    thin = min(len(m.get("selected_tests", [])) for m in results)
+    print(f"fewest tests selected for any mutant: {thin}")
+
     raw = summary.get("percentage")
     if not isinstance(raw, int | float):
         fail(f"summary has no numeric percentage: {raw!r}", incomplete=True)
