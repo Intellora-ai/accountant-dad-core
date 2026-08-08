@@ -1,0 +1,47 @@
+Department Family,Entity,Date,Expense type,Expense area,Supplier,Voucher Number,Amount,Publication Description
+HM Treasury,DMO,04-Nov-25,Stock Exchange Listing - AME,Risk Management Unit,London Stock Exchange,350096,"32,767.13",Listing fees
+HM Treasury,DMO,04-Nov-25,Stock Exchange Listing - AME,Risk Management Unit,London Stock Exchange,350096,"163,835.63",Listing fees
+HM Treasury,GIAA,04-Nov-25,Contracted Audit Staff for Operations (Rec),NS&I,Ernst & Young LLP,350115,"3,260.00",Professional Services 
+HM Treasury,GIAA,04-Nov-25,Contracted Audit Staff for Operations (Rec),NS&I,Ernst & Young LLP,350115,"4,661.53",Professional Services 
+HM Treasury,GIAA,04-Nov-25,Contracted Audit Staff for Operations (Rec),NS&I,Ernst & Young LLP,350115,"8,435.00",Professional Services 
+HM Treasury,GIAA,06-Nov-25,Hotel Accommodation - Overseas,GIAA,Corporate Travel Management North,350169,1774.34,Accommodation Costs
+HM Treasury,GIAA,06-Nov-25,Hotel Accommodation - UK,GIAA,Corporate Travel Management North,350169,9909.37,Accommodation Costs
+HM Treasury,GIAA,06-Nov-25,Overseas air travel - all classes,GIAA,Corporate Travel Management North,350169,270.1,Travel costs
+HM Treasury,GIAA,14-Nov-25,Contracted Audit Staff for Operations (Rec),Ministry of Defence,Deloitte LLP,350312,"1,305.42",Professional Services 
+HM Treasury,GIAA,14-Nov-25,Contracted Audit Staff for Operations (Rec),Ministry of Defence,Deloitte LLP,350312,"3,625.96",Professional Services 
+HM Treasury,GIAA,14-Nov-25,Contracted Audit Staff for Operations (Rec),Ministry of Defence,Deloitte LLP,350312,"3,780.19",Professional Services 
+HM Treasury,GIAA,25-Nov-25,Contracted Audit Staff for Operations (Rec),Travel and Subsistence,RSM Risk Assurance Services LLP,352222,"62,770.80",Professional Services 
+HM Treasury,GIAA,27-Nov-25,Rent,Central Services,Government Property Agency,352287,"15,992.46",Accommodation Costs
+HM Treasury,GIAA,27-Nov-25,Rent,Central Services,Government Property Agency,352287,"79,962.32",Accommodation Costs
+HM Treasury,GIAA,27-Nov-25,Rent,Central Services,Government Property Agency,352286,"127,589.57",Accommodation Costs
+HM Treasury,HMT,04-Nov-25,Corp. Subscriptions  and Other Information Services,Software Licensing & Support,Phoenix Software Ltd,349015,"4,436.38",IT costs
+HM Treasury,HMT,04-Nov-25,Corp. Subscriptions  and Other Information Services,Software Licensing & Support,Phoenix Software Ltd,349015,"22,181.91",IT costs
+HM Treasury,HMT,04-Nov-25,Legal Services,TLA staff costs,Government Legal Department ,349777,"29,000.00",Professional Services 
+HM Treasury,HMT,04-Nov-25,IT Software Services & Maintenance Non VAT Recoverable,New Tower Services,Phoenix Software Ltd,349949,"7,875.53",IT costs
+HM Treasury,HMT,04-Nov-25,IT Software services and maintenance  Rec,New Tower Services,Little Fish (UK) Ltd,350092,"59,121.56",IT costs
+HM Treasury,HMT,04-Nov-25,Legal Services,TLA staff costs,Government Legal Department ,349775,"3,400,000.00",Staff Costs
+HM Treasury,HMT,05-Nov-25,Professional Services,Finance Performance & Improvement Rechargeable Costs,KPMG LLP,349749,"124,927.44",Professional Services 
+HM Treasury,HMT,06-Nov-25,DMO - Banking Costs,EFA Team,Bank of England (3),350156,"53,103.17",Banking Costs
+HM Treasury,HMT,06-Nov-25,IT Software services and maintenance  Rec,New Tower Services,Centerprise International Ltd,350089,"94,135.14",IT costs
+HM Treasury,HMT,11-Nov-25,IT Software services and maintenance  Rec,New Tower Services,Centerprise International Ltd,349825,"57,751.97",IT costs
+HM Treasury,HMT,12-Nov-25,IT Software Services & Maintenance Non VAT Recoverable,Finance Analytics & Control & Technology,Softcat PLC,350104,"13,524.44",IT costs
+HM Treasury,HMT,12-Nov-25,IT Software Services & Maintenance Non VAT Recoverable,Finance Analytics & Control & Technology,Softcat PLC,350104,"67,622.20",IT costs
+HM Treasury,HMT,14-Nov-25,Research Costs - Recoverable,Communications,Johnson and Lubbock Partners Limited,350305,"24,740.00",Research Costs
+HM Treasury,HMT,14-Nov-25,Archives & Storage,Knowledge & Information Management,FCDO Services,350293,"92,261.30",IT costs
+HM Treasury,HMT,17-Nov-25,IT Software Services & Maintenance Non VAT Recoverable,Finance Analytics & Control & Technology,Softcat PLC,350330,"5,263.97",IT costs
+HM Treasury,HMT,17-Nov-25,Archives & Storage,Knowledge & Information Management,FCDO Services,349770,"104,910.49",IT costs
+HM Treasury,HMT,18-Nov-25,Internal Training,Government Finance Academy,KPMG LLP (CSL),350187,"32,662.51",Training and Development costs
+HM Treasury,HMT,18-Nov-25,Mortgage Guarantee Scheme Admin Costs (AME),Help to Buy Operations,National Savings and Investments,350118,"603,470.05",Management Fees
+HM Treasury,HMT,19-Nov-25,IT Software Services & Maintenance Non VAT Recoverable,"Function, Insight and Professions",Comaea UK Limited,350065,"9,000.00",IT costs
+HM Treasury,HMT,19-Nov-25,IT Software Services & Maintenance Non VAT Recoverable,"Function, Insight and Professions",Comaea UK Limited,350065,"45,000.00",IT costs
+HM Treasury,HMT,19-Nov-25,Recruitment Expenses,HR Central Services,Cabinet Office,348660,"62,353.00",Recruitment related costs
+HM Treasury,HMT,19-Nov-25,Telecoms equipment Inc. Mobiles under £5k,New Tower Services,EE Ltd,349126,"24,583.00",IT costs
+HM Treasury,HMT,19-Nov-25,Telecoms equipment Inc. Mobiles under £5k,New Tower Services,EE Ltd,349126,"122,915.00",IT costs
+HM Treasury,HMT,19-Nov-25,Legal Services,Other Cases,Government Legal Department ,351225,"182,774.30",Legal related costs
+HM Treasury,HMT,19-Nov-25,HTB ISA bonus prepayment,Help to Buy ISA,National Savings and Investments,351244,"7,000,000.00",Help to Buy costs
+HM Treasury,HMT,20-Nov-25,Recruitment Expenses,HR Central Services,Cabinet Office,351262,"36,638.56",Staff Costs
+HM Treasury,HMT,21-Nov-25,IT Software services and maintenance  Rec,TBS Projects,Centerprise International Ltd,351247,"41,581.76",IT costs
+HM Treasury,HMT,21-Nov-25,IT Software Services & Maintenance Non VAT Recoverable,Finance Analytics & Control & Technology,Little Fish (UK) Ltd,348950,"13,333.32",IT costs
+HM Treasury,HMT,21-Nov-25,IT Software Services & Maintenance Non VAT Recoverable,Finance Analytics & Control & Technology,Little Fish (UK) Ltd,350102,"13,333.32",IT costs
+HM Treasury,HMT,21-Nov-25,Consultancy ,Finance Performance & Improvement Rechargeable Costs,KPMG LLP,350229,"94,658.89",Professional Services 
+HM Treasury,HMT,25-Nov-25,Recruitment Expenses,HR Central Services,Cabinet Office,351302,"28,438.22",Recruitment related costs

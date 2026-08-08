@@ -3,10 +3,17 @@
 **This is the build blueprint.** It tells an engineer how the system is
 structured and how to finish it, without reading the project history.
 
-**It is not the project record.** History, evidence, run IDs, progress, risks and
-the decision log live in [`PROJECT_STATE.md`](./PROJECT_STATE.md). If you need to
-know *what happened* or *what is verified today*, read that. If you need to know
-*how the system works*, read this.
+**It is not the project record.** History, evidence, run IDs, progress, risks,
+measurements and the decision log live in
+[`PROJECT_STATE.md`](./PROJECT_STATE.md). What is currently costing more than it
+should, and the smallest guard for each class of defect, lives in
+[`BOTTLENECKS.md`](./BOTTLENECKS.md). If you need to know *what happened* or
+*what is verified today*, read those. If you need to know *how the system works*,
+read this.
+
+**This file contains no status, no run IDs, no measurements and no history.**
+Where a design rule exists *because* of a measurement, the rule is stated here
+and the number is linked, never copied.
 
 Packages are marked **present** or **absent** from the repository, which is the
 authority. A planned package appears in the target architecture but is never
@@ -82,10 +89,10 @@ lives in `pyproject.toml`; version history and CI evidence live in
 | Choice | Architectural consequence |
 |---|---|
 | **Python** | the whole product; pinned to **3.14** via `.python-version` |
-| **Runtime dependencies: `[]`** | the app installs and runs with a stdlib Python and nothing else. No supply chain at runtime. |
+| **Runtime dependencies: `[]`** | the app installs and runs with a stdlib Python and nothing else. No supply chain at runtime. `pyproject.toml` declares `dependencies = []` and names **no web framework**. |
 | **`accountant/web/app.py` — stdlib `http.server`** | **no framework is present.** No npm, no build step, no bundler. Introducing a framework is **not part of this architecture** unless separately approved. |
-| **TallyPrime / Tally.ERP 9 over HTTP/XML on `localhost:9000`** | Tally is Windows-only and exposes no public or cloud API. This single fact forces the app to run locally. |
-| **Windows VM on macOS (UTM)** | the development and first-slice environment. `localhost` on the host and `localhost` in the VM are different machines. |
+| **TallyPrime / Tally.ERP 9 over HTTP/XML, host and port configurable** | Tally is Windows-only and exposes no public or cloud API. This forces the app to run on a machine that can reach the Tally host. |
+| **Windows VM on macOS (UTM)** | the development and first-slice environment. **`localhost` on the host and `localhost` in the VM are different machines** — the guest is reached over the VM's private bridge network, not over loopback. `TallyConfig` therefore takes a **host and a port** and does not assume `localhost:9000`. `TallyConfig.is_loopback` exists so a caller or a test can assert the tighter rule where it does apply. Plain HTTP with no authentication must stay on a private, trusted network. |
 | **SQLite** | our data only, single file, no server to run alongside the app |
 | **Integer paise, never float** | currency is exact. `amount_paise: int`. A reversal that must restore a trial balance *exactly* cannot tolerate binary floating point. |
 | **`pytest-gremlins`** | mutation testing needs `COVERAGE_CORE=pytrace`; on the default `sysmon` core the test-to-line mapping is silently incomplete. Every coverage and mutation job sets it. |
@@ -130,13 +137,13 @@ ActionLog     frozen           ts, action, voucher_id, detail
 Hallucinate definition measurable: **a field with no source is a hallucination by
 definition.**
 
-### 4.2 Tally connector — `accountant/tallyio/` · **present (boundary + fake), absent (real)**
+### 4.2 Tally connector — `accountant/tallyio/` · **present**
 
 | File | Existence | Implementation |
 |---|---|---|
 | `client.py` | **present** | `TallyClient` Protocol, 8 methods; `new_operation_id`, `marker_for`, `stamp`, `operation_id_in`; `DuplicateOperation`, `CompanyNotBackedUp`; `WriteResult` |
 | `fake.py` | **present** | in-memory Tally implementing all 8 methods |
-| `real.py` | **absent — does not exist yet** | XML over HTTP to `localhost:9000`. **Phase 2.** |
+| `real.py` | **present** | `RealTally`, all 8 methods. XML over HTTP, host and port configurable via `TallyConfig`. Stdlib only. |
 
 **The interface — the single most important contract in the system:**
 
@@ -157,18 +164,37 @@ list_our_vouchers(company)                    -> tuple[Voucher, ...]
 | **Outputs** | `Voucher`, `WriteResult`, trial balance dict, booleans |
 | **State** | none of ours — Tally holds it |
 | **Depends on** | `schema.py` only |
-| **Forbidden** | letting XML, HTTP or port 9000 leak outside this package. Writing an unmarked voucher. Reversing by amount or by narration text. |
+| **Forbidden** | letting XML, HTTP or the Tally port leak outside this package. Writing an unmarked voucher. Reversing by amount or by narration text. |
 | **Failure** | `CompanyNotBackedUp` before any write · `DuplicateOperation` on a repeated operation ID · `read_by_operation_id` returning `None` means the write did not happen, whatever HTTP said |
 | **Tests** | `tests/test_tally_contract.py` — client-agnostic by construction, 15 tests behind a `client` fixture |
 
-**Loopback only.** Port 9000 has no auth model beyond network reachability, so
-the connector binds loopback and nothing else. A test asserts no external
-interface is used.
+**Private network only.** The Tally port has no auth model beyond network
+reachability. Where Tally and the app share a machine, the connector binds
+loopback and a test asserts no external interface is used. Where Tally runs in a
+VM, the host is on the VM's private bridge and the same rule applies to that
+network: plain HTTP, no auth, never routable.
 
 **Why this boundary exists (correction C3):** without it, XML handling leaks into
 memory, detectors and the web app, and the connector cannot be stubbed. With it,
 the entire system is testable against `FakeTally`, and `real.py` drops in with no
 change anywhere else.
+
+#### What Tally's wire format forces on this package
+
+These are design constraints, not preferences. Each is contained inside
+`accountant/tallyio/` so nothing else has to know about it. The evidence that
+established each one is in
+[`PROJECT_STATE.md` §21](./PROJECT_STATE.md#21-tally--first-real-evidence).
+
+| Constraint | Consequence for the design |
+|---|---|
+| **Tally can emit XML that is not valid XML.** It writes numeric character references to characters XML 1.0 forbids. | `sanitise()` strips illegal numeric character references **before** the bare-ampersand pass. Order matters: escaping first would rewrite the illegal reference into a well-formed one and turn an unparseable document into a **parseable lie**. |
+| **Every response carries a `<CMPINFO>` header whose children are counts**, one of which is literally named `VOUCHER`. | Voucher parsing is scoped to **`BODY/DATA`**. Nothing in this package may find a record by scanning the whole document for a tag name. |
+| **A voucher is named for Alter/Cancel/Delete by a `TAGNAME`/`TAGVALUE` attribute pair** — a TDL method name and its value — **not by child tags.** | The delete envelope carries the pair as attributes. Child-tag identity is forbidden here; it is silently ignored by Tally, which is worse than an error. |
+| **`REMOTEID` is a sync-lineage field, not a handle.** Tally stamps it on export, but a locally-imported voucher has no remote-index entry. | `MASTERID`, `REMOTEID`, `GUID` and `VCHKEY` are treated as **locators** — preserved exactly as received, never used as this application's identity. The narration marker `[ACCOUNTANT_DAD:<op_id>]` is the identity, and reads, duplicate detection and reversal match on it and on nothing else. |
+| **The same field uses two date formats.** The `DATE` **attribute** is `dd-MMM-yyyy`; the `DATE` **child tag** is `yyyyMMdd`. | Both are produced by this package and by nothing else. A caller never formats a Tally date. |
+| **`trial_balance()` returns derived heads alongside posted ledgers.** A derived closing figure is not a posting. | The trial balance is a **before/after equality check**, never a sum-to-zero assertion. Any future code that needs the sum must first exclude or tag derived heads — see [`BOTTLENECKS.md` A4](./BOTTLENECKS.md#a4--trial_balance-includes-a-derived-figure). |
+| **A Tally licence tier can restrict which voucher dates are accepted.** | The connector surfaces the refusal; it never rewrites a date to make a write succeed. |
 
 ### 4.3 Memory index — `accountant/memory/index.py` · **present**
 
@@ -180,12 +206,53 @@ change anywhere else.
 | **Outputs** | `MatchResult` — `MATCH` with one account, `CONFLICTED` with several, or `NO_MATCH` |
 | **State** | SQLite, ours |
 | **Depends on** | `schema.py`, and the connector for its input |
-| **Forbidden** | **any model call. Any network call except through the connector. Any guess.** A vendor seen with two accounts returns `CONFLICTED`, never a pick. |
+| **Forbidden** | **any model call. Any network call except through the connector. Any guess.** A vendor seen with two accounts returns `CONFLICTED`, never a pick. **Any index built from more than one company.** |
 | **Failure** | unseen vendor → `NO_MATCH`, which becomes a question, never a fallback account |
 | **Tests** | model-free and network-free asserted by test |
 
 **It cannot hallucinate by construction**, and it handles the repeat bulk of
 entries. Spelling variants collapse through `normalise_vendor`.
+
+#### Two invariants, both load-bearing
+
+**1. Memory is COMPANY-LOCAL ONLY. Every customer is a permanent cold start.**
+
+Vendor→account mappings do **not** transfer between organisations. This was
+measured against real published data, not assumed — the numbers are in
+[`PROJECT_STATE.md` §22](./PROJECT_STATE.md#22-product-quality--first-measurements-on-real-data).
+The architectural consequences:
+
+```
+no index is ever built from more than one company's history
+no mapping learned at one customer is shipped to another
+a pooled or shared model across customers is NOT part of this architecture
+```
+
+This removes work rather than adding it. It also means `memory/` is the only
+component that can carry the repeat bulk of a real book, because nothing can be
+pre-trained for a new customer.
+
+**2. An EXISTING company must have its own Tally history bootstrapped before the
+first proposal is shown.**
+
+Because every customer is a cold start, an empty index for a company that has
+years of posted history is a **PRODUCT FAILURE, not a neutral state.** The system
+would ask about vendors the company has posted to hundreds of times, and the
+person would correctly conclude it knows nothing.
+
+```
+bootstrap  = read_vouchers(company) -> MemoryIndex.from_vouchers(...)
+             BEFORE the first proposal for an existing company
+
+Forbidden  showing a proposal for an existing company from an empty index
+Failure    an existing company with an empty index is reported as a
+           bootstrap failure, never treated as a new company
+```
+
+The distinction between "new company, legitimately empty" and "existing company,
+wrongly empty" is what the invariant turns on, and it is observable: an existing
+company has vouchers the connector can read. Its tests are in the MVP completion
+checklist, §11.
 
 ### 4.4 Detectors — `accountant/detect/detectors.py` · **present**
 
@@ -199,6 +266,30 @@ entries. Spelling variants collapse through `normalise_vendor`.
 `ALL_DETECTORS` holds four. `SLICE_4_DETECTORS` holds `vendor_switch` alone — the
 architecture deliberately ships one detector into the real review screen before
 wiring the rest.
+
+**The limit of this design, stated plainly.** All four detectors answer one
+question: *is this entry a **change** from this company's own history?* They
+therefore **cannot see a standing practice**. An account that has always been the
+wrong one never changes, so nothing fires. This is a property of the design, not
+a bug in any detector.
+
+```
+detects      a change from history
+cannot detect  a consistent, long-standing wrong treatment
+```
+
+**These four detectors do not broadly cover real accounting errors.** How many of
+the error types auditors actually publish they do cover is a **measured number**
+and lives in [`PROJECT_STATE.md` §22](./PROJECT_STATE.md#22-product-quality--first-measurements-on-real-data);
+the gap and its proof work are tracked in
+[`BOTTLENECKS.md` A1](./BOTTLENECKS.md#a1--detectors-cover-2-of-12-published-real-error-types).
+Any claim of coverage in this architecture is limited to the sentence above.
+
+**Adding a detector is not the default response to an uncovered error type.**
+`accountant/taxonomy/` produces one `Proposal` per uncovered type; a proposal is
+a hypothesis. A detector enters `ALL_DETECTORS` only when the error type it
+targets has been shown to occur, and when the detector's own false-alarm cost has
+been measured — see §4.11.
 
 **Every `Flag` must carry:** detector name · voucher id · severity · concrete
 evidence · the plain-language question · the allowed answers.
@@ -309,17 +400,129 @@ the connector needs localhost access to Tally.
 **Forbidden:** multi-user, login, accounts, cloud hosting, mobile, styling beyond
 legibility.
 
-### 4.9 Planned packages — **absent, not started**
+### 4.9 Synthetic generator and error injector — `accountant/generate/` · **present**
 
-These appear in the target architecture. **None exists in the repository.**
+Phase 9, child #1. Produces a book with known answers, so a detector's catch
+rate can be measured against something rather than asserted.
+
+| File | Existence | Implementation |
+|---|---|---|
+| `book.py` | **present** | `generate_book(seed=, months=)` → `Book`. A fictional Nagpur building-materials trader: 15 vendors, 12 posted accounts, 3 accounts in the chart deliberately never posted to, monthly / quarterly / annual items, seasonal irregular purchases, per-vendor spelling noise. |
+| `inject.py` | **present** | `count_for`, `inject(vouchers, rate=, seed=)` → `InjectedBook`. Corrupts an exact fraction into `vendor_switch`, `first_use`, `magnitude`, `gst_anomaly` — the four `ALL_DETECTORS` names and no others. |
+| `serialise.py` | **present** | JSON Lines, keys sorted, ASCII, no spaces. `write_book` puts the voucher stream and the answer key in **two separate files**. |
+
+| | |
+|---|---|
+| **Inputs** | a seed, a month count, an error rate as a `Fraction` |
+| **Outputs** | `tuple[Voucher, ...]` — the same frozen type the connector returns — plus `tuple[Corruption, ...]` ground truth, kept apart |
+| **State** | none. `generate_book` and `inject` are pure functions of their arguments |
+| **Depends on** | `schema.py`, and `memory.index.normalise_vendor` so name noise collapses the way the index will collapse it |
+| **Forbidden** | any float, anywhere, including seasonality and GST · the module-level `random` global · iterating a set or frozenset on the output path · any corruption marker inside a voucher field · rounding a requested error rate |
+| **Failure** | a rate that is not a whole number of vouchers is **refused**, naming the numbers · a quota with too few eligible vouchers is **refused**, never quietly under-delivered · fewer than 12 months is refused |
+| **Tests** | `tests/test_generate.py` — one test per frozen acceptance criterion, plus the criterion tested from the other side: `balances` is checked against vouchers that do not balance, and a different seed is checked to produce different bytes |
+
+**Seasonality and GST are integer basis points with `//`.** A book that cannot be
+reproduced to the paise cannot prove a detector caught anything.
+
+**The two-file split is the product, not the packaging.** Every voucher record
+carries identical keys whether it was corrupted or not, ids are unchanged by
+injection, and a test asserts that the set of records differing from the clean
+book equals exactly the set of ids in the answer key — no more, so nothing is
+marked; no fewer, so the answer key is complete.
+
+### 4.10 Scoring harness — `accountant/score/` · **present**
+
+Phase 9, child #4. Runs the evaluation pipeline over a generated book plus its
+ground truth and reports the three owner-set targets, each as an explicit
+`PASS` or `FAIL`.
+
+| File | Existence | Implementation |
+|---|---|---|
+| `book.py` | **present** | `Book`, `GroundTruth`, `InjectedError` — the evaluation input, ground truth kept separate from the voucher stream |
+| `harness.py` | **present** | `score(...)` → `ScoreReport`; `N1_MAX_FALSE_ALARMS_PER_100`, `N2_MAX_REVIEW_PERCENT`, `N3_MIN_CATCH_PERCENT`; `EntryResult`, `ErrorTypeCatch`, `MetricResult`, `Status` |
+| `report.py` | **present** | `render` — the report, including the pair of timings that produced it |
+
+| | |
+|---|---|
+| **Inputs** | a `Book`, its `GroundTruth`, and **R** and **D** — seconds to read one entry and seconds to dismiss one flagged entry |
+| **Outputs** | `ScoreReport` — N1, N2, N3, each `PASS` or `FAIL` |
+| **State** | none |
+| **Depends on** | `schema.py`, `detect/`, `generate/` |
+| **Forbidden** | **any write to Tally** — this package evaluates and counts · a **default** for R or D; both are self-timed inputs, and inventing them would turn a stopwatch reading into a fake measurement · inventing an N4, which the frozen plan does not define · **tuning a threshold so a metric passes** |
+| **Failure** | a target that is not met is reported `FAIL`, never softened, never annotated away |
+| **Tests** | `tests/test_score.py` |
+
+**The N3 caveat is printed in every report this package produces:** constructed
+errors matched to purpose-built detectors should score near 100%. N3 is a
+**build-correctness check**, not evidence of product value.
+
+**Current values are status, not design** —
+[`PROJECT_STATE.md` §22](./PROJECT_STATE.md#22-product-quality--first-measurements-on-real-data).
+
+### 4.11 Real error taxonomy — `accountant/taxonomy/` · **present**
+
+Phase 9, child #7. Answers the question the four detectors were written without:
+*what do auditors actually find?* It needs no real error data to do it, because
+auditors publish the taxonomy.
+
+| File | Existence | Implementation |
+|---|---|---|
+| `sources.py` | **present** | `Source` — each published document with a **URL and a retrieval date**. **An entry without both does not load.** |
+| `findings.py` | **present** | one `Finding` per audit paragraph, each assigned to one `ErrorType`. Amounts are **integer paise**; `paise_from_crore` does the conversion. |
+| `coverage.py` | **present** | every `ErrorType` mapped to a detector name **read from `ALL_DETECTORS`**, or to `UNCOVERED`; one `Proposal` per uncovered type; `detectors_targeting_no_error_type()` for the reverse direction |
+| `report.py` | **present** | the table, and `uncovered_count()` as a **single number** |
+
+| | |
+|---|---|
+| **Outputs** | the coverage table · `uncovered_count()` · the set of detectors that target no published error type |
+| **Depends on** | `detect.detectors.ALL_DETECTORS` — the detector names are **read, never restated**, so the table cannot drift from the code |
+| **Forbidden** | **any estimate of how often an error type occurs.** The published record does not support such a number, and an invented one would quietly become the argument for keeping or dropping a detector. · a source with no URL or no retrieval date · a hand-written detector name |
+| **Failure** | an unmapped `ErrorType` is `UNCOVERED` and counted, never omitted |
+| **Tests** | `tests/test_taxonomy.py` |
+
+**This package is a mirror, not a roadmap.** It reports the gap. It does not
+decide that the gap must be closed, and a `Proposal` never becomes a requirement
+on its own.
+
+### 4.12 Public-data ingest — `accountant/ingest/` · **present**
+
+Phase 9, child #5 and child #8. UK central-government spend data, used for one
+purpose: to answer, for free, whether account mappings transfer between
+organisations.
+
+| File | Existence | Implementation |
+|---|---|---|
+| `sources.py` | **present** | the published departmental sources |
+| `fetch.py` | **present** | `check_url` / `read_url` / `fetch_source` behind a one-method `Opener` Protocol. **https only, gov.uk hosts only, size-capped, refused before the URL is opened.** |
+| `spend.py` | **present** | the loader. Header alias tables, integer-paise amount parsing, `Narrative` → narration and `Expense Type` → debit account |
+| `crossorg.py` | **present** | `split` each department's own rows in published order, then measure **every ordered pair**. Refuses a cross-organisation claim built on fewer than `MIN_PAIRS` departments. |
+| `report.py` | **present** | the per-pair table, with the gap as a single number per pair |
+| `fixtures/` | **present** | **real published department files**, committed |
+
+| | |
+|---|---|
+| **Forbidden** | **any float for money** — the decimal digits are parsed as integers · a URL that is not https on a gov.uk host · a cross-organisation claim from fewer than the minimum number of pairs · **an invented fixture** — a fixture that this project wrote cannot contain somebody else's typo, and the typos are the point |
+| **Failure** | a present-but-**empty** column is **reported**, never silently treated as absent · an unrecognised header is named, never guessed |
+| **Tests** | `tests/test_ingest.py`, against the committed real fixtures |
+
+**Published government data is not schema-stable**, and the loader is built for
+that rather than around it: the narration column appears under six different
+names across departments, one of them carrying a misspelling and a trailing space
+that are in the publisher's own file, and one department publishes its amount
+column under a header that is a currency symbol. The specific shapes are recorded
+in [`PROJECT_STATE.md` §22](./PROJECT_STATE.md#22-product-quality--first-measurements-on-real-data).
+
+**What this package proved is in §4.3 as an invariant**: mappings do not
+transfer, so memory is company-local and every customer is a permanent cold
+start.
+
+### 4.13 Planned packages — **absent, not started**
+
+**Verified absent from the repository.**
 
 | Path | Existence | Target responsibility | Phase |
 |---|---|---|---|
 | `accountant/rules/` | **absent** | GST by HSN/SAC, TDS section/rate/threshold, Schedule III heads, debit/credit conventions, plain-English phrasebook. Every rule carries a source URL and retrieval date; **a rule with no citation fails to load.** | 8 |
-| `accountant/generate/` | **absent** | seeded synthetic book generator + error injector at an exact rate; ground truth to a side file | 9 |
-| `accountant/score/` | **absent** | scoring harness reporting N1, N2, N3 as explicit PASS or FAIL | 9 |
-| `accountant/ingest/` | **absent** | UK central-government spend loader — `Narrative` → narration, `Expense Type` → account | 9 |
-| `accountant/taxonomy/` | **absent** | real misclassification types from published CAG audit reports; coverage table mapping each to a detector or to `UNCOVERED` | 9 |
 
 ---
 
@@ -449,6 +652,12 @@ flowchart TD
 **Reversal targets the operation ID. Never an amount, never narration text.** Two
 vouchers with the same amount and narration are normal in real books.
 
+**The comparison is equality of the same trial balance before and after — not a
+sum.** Tally returns derived closing figures alongside posted ledgers, and a
+derived figure is not a posting, so the dict does not sum to zero and was never
+required to. Equality is the stronger check anyway: it catches a change in any
+head, including one this software did not touch.
+
 ### 5.8 CI — fast path, full path, aggregate
 
 ```mermaid
@@ -495,6 +704,7 @@ detect that scheduler failing.
 ```
 one typed entry
  → one Tally company read
+ → memory bootstrapped from THAT company's own history   (§4.3, invariant 2)
  → exact vendor lookup
  → Valid / Unclear / Not valid decision
  → one plain-language question on no-match
@@ -503,6 +713,10 @@ one typed entry
  → action-log record
  → reversal
 ```
+
+**The bootstrap step is not optional and is not an optimisation.** For an
+existing company it is the difference between a system that knows the company's
+own vendors and one that asks about every single one. See §4.3.
 
 **The first product milestone, stated as one sentence:**
 
@@ -521,7 +735,12 @@ Claude auto-fix · the external nightly scheduler.
 Each phase: **entry** (what must already hold) · **build** · **exit** (the
 observable that ends it). A phase is not done until its exit observable is seen.
 
-### Phase 0 — repository and safety · COMPLETE
+**Which phase the project is in, and which exits have been seen, is status. It
+lives in [`PROJECT_STATE.md` §7](./PROJECT_STATE.md#7-architecture--see-architecturemd)
+and §8, and appears nowhere in this file.** The phases below define the work and
+the order; they never claim progress.
+
+### Phase 0 — repository and safety
 
 - **Entry:** nothing.
 - **Build:** identity preflight; record the old repo's `pushed_at` and head SHA;
@@ -529,7 +748,7 @@ observable that ends it). A phase is not done until its exit observable is seen.
 - **Exit:** the new repo exists **and** the old repo's `pushed_at` and head SHA
   are byte-identical to the recorded baseline.
 
-### Phase 1 — CI foundation · COMPLETE
+### Phase 1 — CI foundation
 
 - **Entry:** Phase 0.
 - **Build, in this order — the order is the point:**
@@ -548,14 +767,16 @@ branch protection                  only AFTER a run publishes the exact names
 - **Exit:** the gates block; deliberate failures fail; a red PR is refused; a
   direct push to `main` is refused.
 
-### Phase 2 — the Tally spine · **BLOCKED**
+### Phase 2 — the Tally spine
 
-- **Entry:** TallyPrime running in the Windows VM, HTTP server on, port 9000
-  reachable. **The only owner-blocked entry criterion in the whole build.**
+- **Entry:** TallyPrime running and its HTTP server reachable from the machine
+  the app runs on. **Owner-supplied: the Tally installation and its licence
+  tier.** A licence tier that restricts voucher dates restricts which of this
+  phase's exit tests can run at all.
 - **Build:** `accountant/tallyio/real.py`, implementing the same 8-method Protocol.
 
 ```
-transport   HTTP POST to http://localhost:9000, timeout, bounded retry
+transport   HTTP POST to the configured host and port, timeout, bounded retry
 request     <ENVELOPE><HEADER><TALLYREQUEST>Export</TALLYREQUEST>
               <TYPE>Collection</TYPE><ID>…</ID></HEADER>
               <BODY><DESC><TDL><TDLMESSAGE><COLLECTION …>
@@ -580,15 +801,38 @@ response    parsed into the SAME frozen types FakeTally returns
   real client; **all 15 client-fixture tests pass.** Nothing outside
   `accountant/tallyio/` changes.
 
+**The exit has four outcomes, not two.** A licence tier that restricts voucher
+dates can refuse the fixture's date while the connector itself is correct, so
+"the tests did not pass" and "the connector is wrong" must be different answers:
+
+```
+CONTRACT_PASS        all 15 pass against the real client, fixture unmodified
+CONTRACT_FAIL        a test failed. The connector is wrong.
+ENVIRONMENT_LIMITED  the environment refused the fixture, not the connector
+NOT_RUN              no real client was reachable
+```
+
+`ENVIRONMENT_LIMITED` must never be reported as `CONTRACT_PASS`, and a control
+date that the environment *does* accept never stands in for the fixture's own
+date — a substitute that passes proves the mechanism, not the contract.
+
+**The fixture date is part of the acceptance criteria, not an implementation
+detail.** Editing it to suit an environment changes what the phase means, so it
+is an owner decision and never a repair. Current licence mode, the measured
+date behaviour and the standing owner decision are status, and live in
+[`PROJECT_STATE.md` §24](./PROJECT_STATE.md).
+
 ### Phase 3 — the typed vertical slice
 
 - **Entry:** Phase 2 exit.
-- **Build:** one typed-entry form; one draft screen; exact vendor lookup; one
-  validity decision; Valid-only write; one action-log row carrying outcome **and**
-  reason; read-back verification.
+- **Build:** **memory bootstrapped from the company's own posted history before
+  the first proposal** (§4.3, invariant 2); one typed-entry form; one draft
+  screen; exact vendor lookup; one validity decision; Valid-only write; one
+  action-log row carrying outcome **and** reason; read-back verification.
 - **Exit:** a typed bill posts itself, the marked voucher is found in **Tally's
-  own report**, and a test asserts **no path posts** an entry whose outcome is Not
-  valid or Unclear.
+  own report**, a test asserts **no path posts** an entry whose outcome is Not
+  valid or Unclear, and a test asserts that **an existing company with an empty
+  index is reported as a bootstrap failure rather than proposing anything.**
 
 ### Phase 4 — the no-match safety path
 
@@ -670,7 +914,7 @@ transfer between organisations, every customer is a permanent cold start,
 That is a design-validity question, and UK central-government data answers it for
 free — many departments, each with its own `Expense Type` vocabulary, one format.
 
-### Phase 10 — operational hardening · DEFERRED
+### Phase 10 — operational hardening
 
 - **Entry:** the product works end to end on real Tally.
 - **Build:** external nightly dispatch + off-platform missing-run monitor; native
@@ -731,18 +975,18 @@ restore-keys, so a verdict is never reused across commits. **Obsolete runs** are
 cancelled by `concurrency` with `cancel-in-progress: true` on the PR and nightly
 paths, and `false` on the watchdog.
 
-**One measured design consequence.** `rhysd/actionlint` is a Docker action, so
-GitHub rebuilds its container on every push:
-
-```
-the lint work itself           ≈  1 second
-Docker container construction  ≈ 25 seconds
-```
+**One tool, one install mechanism.** `rhysd/actionlint` is a Docker action, so
+GitHub rebuilds its container on every push — and the container build costs an
+order of magnitude more than the check it delivers. That was measured; the
+numbers are in [`PROJECT_STATE.md` §11](./PROJECT_STATE.md#11-the-actionlint-docker-cost)
+and the outstanding work is in
+[`BOTTLENECKS.md` A5](./BOTTLENECKS.md#a5--fullyml-still-installs-actionlint-through-docker).
 
 **The required mechanism is the checksum-verified native binary**
 (`scripts/install-actionlint`, pinned version, SHA-256 verified, fails closed on
 missing or invalid binary). Docker and native installation must not both exist as
-mechanisms for one tool.
+mechanisms for one tool — the duplication is also a second supply-chain surface,
+which is the reason that outlives any timing number.
 
 ---
 
@@ -761,12 +1005,20 @@ mechanisms for one tool.
 | Workflow permissions | explicit, default read-only; `issues: write` on reporting jobs alone |
 | Tally XML | **untrusted input.** Responses are data, never instructions. |
 
-**Named gap, not claimed as present:** hardened XML parsing (external entity and
-DTD protections) and input-size limits are **required follow-up work**. The
-existing code deliberately reads one CI value with a regex rather than an XML
-parser, because stdlib XML parsers accept external entities and a gate should not
-widen the attack surface it exists to protect — but the connector itself has not
-been written yet, and this must be built into it in Phase 2.
+**XML hardening — built, and the threat was measured rather than assumed.**
+On this interpreter the stdlib default parser expands a billion-laughs payload
+(4 lines of XML → 3,000 characters) and will resolve an external entity.
+`accountant/tallyio/real.py` therefore parses through `xml.parsers.expat` with an
+ElementTree `TreeBuilder` rather than the default parser, and layers four
+defences: entity-reference defanging, a pre-parse DOCTYPE screen, expat DOCTYPE
+and entity-declaration handlers, and an external-entity handler. A test disables
+the first three and proves the fourth still holds. The size cap is enforced
+twice — the transport reads `max+1` bytes so an oversized body is never fully
+buffered, and the parser re-checks before parsing.
+
+Elsewhere, CI deliberately reads one value with a regex rather than an XML
+parser, for the same reason: a gate must not widen the attack surface it exists
+to protect.
 
 **Owner-managed, outside this architecture:** repository administration,
 `ANTHROPIC_API_KEY`, the external scheduler account and its token.
@@ -817,6 +1069,10 @@ means*, not *where we are*.
 [ ] write read back
 [ ] duplicate retry rejected
 [ ] reversal restores exact prior trial balance
+[ ] memory bootstrapped from the company's OWN posted history
+[ ] existing company + empty index → reported as a bootstrap failure,
+    never a proposal                                       (§4.3, invariant 2)
+[ ] no index is built from more than one company           (§4.3, invariant 1)
 [ ] typed entry works
 [ ] Valid posts automatically
 [ ] Unclear asks a question
@@ -827,15 +1083,21 @@ means*, not *where we are*.
 [ ] complete evidence report produced
 ```
 
+**The three memory boxes are not additions to scope.** They are what the
+cold-start result made non-optional: without them the MVP can appear to work on a
+new empty company and fail on every real one.
+
 ---
 
-## 12. The next action
+## 12. Where the current work is
 
-**Install UTM, then Windows on ARM, then TallyPrime, then switch on Tally's HTTP
-server.**
+**Not here.** The next action is status, and it moves. It lives in
+[`PROJECT_STATE.md` §19](./PROJECT_STATE.md#19-a-to-z-next-action-plan), with the
+ranked list of what is currently costing more than it should in
+[`BOTTLENECKS.md`](./BOTTLENECKS.md).
 
-Owner-only. It is the entry criterion for Phase 2, and phases 3 through 8 sit
-behind it. Until one request returns one real company name, the codebase and the
-CI guard something that has never touched reality.
-
-**Not more CI infrastructure.** Phase 1 is complete and Phase 10 is deferred.
+This file answers *how the system is built and what it forbids*. It is the wrong
+place to look for what to do today, and a "next action" written here goes stale
+the moment it is done — which is exactly how the drift recorded in
+[`PROJECT_STATE.md` §23](./PROJECT_STATE.md#23-documentation-drift-corrected)
+happened.

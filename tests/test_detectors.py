@@ -19,10 +19,11 @@ from collections.abc import Callable
 
 import pytest
 
-from accountant import problems
+from accountant import checks, problems
+from accountant.decide import decide_problems
 from accountant.detect import detectors
 from accountant.memory.index import MemoryIndex
-from accountant.schema import Flag, MatchResult, MatchStatus, Voucher
+from accountant.schema import Flag, MatchResult, MatchStatus, Outcome, Voucher
 
 TODAY = datetime.date(2026, 8, 7)
 ACCOUNTS = ("Purchases", "Rent", "Repairs & Maintenance", "Cash", "Bank")
@@ -64,6 +65,64 @@ def index_of(hist: tuple[Voucher, ...]) -> MemoryIndex:
     return MemoryIndex.from_vouchers(hist)
 
 
+# ---- vendor_switch: "consistently" is now enforced --------------------------
+
+
+def test_vendor_switch_is_silent_after_a_single_prior_posting():
+    """The measured false alarm this threshold exists to remove.
+
+    "Consistently posted to X" after ONE posting was a claim the evidence did
+    not support, and on real published ledgers it was most of N1.
+    """
+    hist = history("Purchases", n=1)
+    assert detectors.MIN_POSTINGS_FOR_A_PRACTICE == 2
+    assert detectors.vendor_switch(v(account="Rent"), hist, index_of(hist)) == []
+
+
+def test_vendor_switch_speaks_from_the_second_posting_onwards():
+    hist = history("Purchases", n=2)
+    flags = detectors.vendor_switch(v(account="Rent"), hist, index_of(hist))
+    assert [f.detector for f in flags] == ["vendor_switch"]
+    assert "2 times" in flags[0].reason
+
+
+def test_vendor_switch_is_silent_on_the_account_the_party_always_uses():
+    hist = history("Purchases", n=5)
+    assert detectors.vendor_switch(v(account="Purchases"), hist, index_of(hist)) == []
+
+
+def test_vendor_switch_is_silent_on_a_party_it_has_never_seen():
+    hist = history("Purchases", n=5)
+    proposed = v(account="Rent", party="Gupta Hardware")
+    assert detectors.vendor_switch(proposed, hist, index_of(hist)) == []
+
+
+def test_vendor_switch_threshold_is_a_parameter_a_calibration_run_can_move():
+    hist = history("Purchases", n=1)
+    loose = detectors.vendor_switch(
+        v(account="Rent"), hist, index_of(hist), min_postings=1
+    )
+    assert [f.detector for f in loose] == ["vendor_switch"]
+    tight = detectors.vendor_switch(
+        v(account="Rent"), hist, index_of(hist), min_postings=9
+    )
+    assert tight == []
+
+
+def test_a_configured_copy_of_a_detector_keeps_its_own_name():
+    """Reports name detectors by __name__, so a tuned copy must not rename one."""
+    hist = history("Purchases", n=1)
+    at_one = detectors.vendor_switch_at(1)
+    assert detectors.name_of(at_one) == "vendor_switch"
+    assert [f.detector for f in at_one(v(account="Rent"), hist, index_of(hist))] == [
+        "vendor_switch"
+    ]
+    bare = history("Purchases", amount=380000)
+    at_two = detectors.magnitude_at(2, 100)
+    assert detectors.name_of(at_two) == "magnitude"
+    assert len(at_two(v(amount=380001), bare, index_of(bare))) == 1
+
+
 # ---- first_use --------------------------------------------------------------
 
 
@@ -88,26 +147,42 @@ def test_first_use_reason_names_the_account_and_how_much_history_it_checked():
 # ---- magnitude --------------------------------------------------------------
 
 
-def test_magnitude_fires_above_the_accounts_own_historical_maximum():
+def test_magnitude_fires_far_above_the_accounts_own_historical_maximum():
     hist = history("Purchases", amount=380000)
     flags = detectors.magnitude(v(amount=200_000_000), hist, index_of(hist))
     assert [f.detector for f in flags] == ["magnitude"]
 
 
-def test_magnitude_is_silent_exactly_at_the_historical_maximum():
-    """The bound is the account's own maximum, inclusive. Equal is not surprising."""
+def test_magnitude_is_silent_exactly_at_the_calibrated_margin():
+    """The bound is the maximum times the calibrated margin, inclusive.
+
+    Exactly at the margin is not "far outside" the range, so it is silent.
+    """
     hist = history("Purchases", amount=380000)
-    assert detectors.magnitude(v(amount=380000), hist, index_of(hist)) == []
+    at_margin = 380000 * detectors.MAGNITUDE_OVER_PERCENT // detectors.PERCENT
+    assert detectors.magnitude(v(amount=at_margin), hist, index_of(hist)) == []
 
 
-def test_magnitude_is_silent_one_paise_below_the_maximum():
+def test_magnitude_is_silent_one_paise_below_the_calibrated_margin():
     hist = history("Purchases", amount=380000)
-    assert detectors.magnitude(v(amount=379999), hist, index_of(hist)) == []
+    at_margin = 380000 * detectors.MAGNITUDE_OVER_PERCENT // detectors.PERCENT
+    assert detectors.magnitude(v(amount=at_margin - 1), hist, index_of(hist)) == []
 
 
-def test_magnitude_fires_one_paise_above_the_maximum():
+def test_magnitude_fires_one_paise_above_the_calibrated_margin():
     hist = history("Purchases", amount=380000)
-    assert len(detectors.magnitude(v(amount=380001), hist, index_of(hist))) == 1
+    at_margin = 380000 * detectors.MAGNITUDE_OVER_PERCENT // detectors.PERCENT
+    assert len(detectors.magnitude(v(amount=at_margin + 1), hist, index_of(hist))) == 1
+
+
+def test_magnitude_is_silent_just_over_the_bare_maximum():
+    """The measured false alarm this margin exists to remove.
+
+    One paise over an account's own maximum used to fire. On real published
+    ledgers a new maximum is an ordinary event, and it was most of N1.
+    """
+    hist = history("Purchases", amount=380000)
+    assert detectors.magnitude(v(amount=380001), hist, index_of(hist)) == []
 
 
 def test_magnitude_says_nothing_when_the_account_has_no_history():
@@ -116,12 +191,38 @@ def test_magnitude_says_nothing_when_the_account_has_no_history():
     assert detectors.magnitude(v(account="Purchases"), hist, index_of(hist)) == []
 
 
-def test_magnitude_reason_states_both_numbers_and_the_sample_size():
+def test_magnitude_says_nothing_from_a_single_observation():
+    """One point is not a range: it has no top for an amount to be outside of."""
+    hist = history("Purchases", amount=380000, n=1)
+    assert detectors.MIN_OBSERVATIONS_FOR_A_RANGE == 2
+    assert detectors.magnitude(v(amount=200_000_000), hist, index_of(hist)) == []
+
+
+def test_magnitude_speaks_from_the_second_observation_onwards():
+    hist = history("Purchases", amount=380000, n=2)
+    assert len(detectors.magnitude(v(amount=200_000_000), hist, index_of(hist))) == 1
+
+
+def test_magnitude_thresholds_are_parameters_a_calibration_run_can_move():
+    """The numbers are calibrated, so they must be reachable from outside."""
+    hist = history("Purchases", amount=380000, n=3)
+    loose = detectors.magnitude(
+        v(amount=380001), hist, index_of(hist), min_observations=2, over_percent=100
+    )
+    assert [f.detector for f in loose] == ["magnitude"]
+    tight = detectors.magnitude(
+        v(amount=380001), hist, index_of(hist), min_observations=9, over_percent=100
+    )
+    assert tight == []
+
+
+def test_magnitude_reason_states_both_numbers_the_sample_size_and_the_margin():
     hist = history("Purchases", amount=380000, n=4)
     reason = detectors.magnitude(v(amount=200_000_000), hist, index_of(hist))[0].reason
     assert "200000000" in reason
     assert "380000" in reason
     assert "4" in reason
+    assert str(detectors.MAGNITUDE_OVER_PERCENT) in reason
 
 
 # ---- gst_anomaly ------------------------------------------------------------
@@ -166,7 +267,7 @@ def _fire_first_use(h: tuple[Voucher, ...]) -> list[Flag]:
 
 
 def _fire_magnitude(h: tuple[Voucher, ...]) -> list[Flag]:
-    return detectors.magnitude(v(amount=9_000_000), h, index_of(h))
+    return detectors.magnitude(v(amount=200_000_000), h, index_of(h))
 
 
 def _fire_gst_anomaly(h: tuple[Voucher, ...]) -> list[Flag]:
@@ -243,9 +344,106 @@ def test_all_four_detectors_can_run_together():
         hist,
         index_of(hist),
         detectors=detectors.ALL_DETECTORS,
+        dedupe=False,
     )
     assert dropped == 0
     assert "first_use" in {f.detector for f in flags}
+    assert "vendor_switch" in {f.detector for f in flags}
+
+
+# ---- one alert per underlying problem (duplicate suppression) ---------------
+
+
+def test_two_detectors_reading_the_same_field_are_one_underlying_problem():
+    """vendor_switch and first_use both read the account. One wrong account,
+    one problem, one question - not two."""
+    assert detectors.concern_of("vendor_switch") == detectors.concern_of("first_use")
+    assert detectors.concern_of("magnitude") != detectors.concern_of("first_use")
+    assert detectors.concern_of("gst_anomaly") != detectors.concern_of("magnitude")
+
+
+def test_an_unrecognised_detector_gets_a_concern_of_its_own():
+    """Two unknown detectors must never silence each other."""
+    mine = detectors.concern_of("from_the_future")
+    yours = detectors.concern_of("or_the_past")
+    assert mine != yours
+    assert "from_the_future" in detectors.concern_of("from_the_future")
+
+
+def test_duplicate_alerts_collapse_to_one_and_keep_every_reason():
+    hist = history("Purchases", gst=None, n=3)
+    proposed = v(account="Rent", amount=200_000_000, gst=64068)
+    raw, _ = detectors.run(
+        proposed, hist, index_of(hist), detectors.ALL_DETECTORS, dedupe=False
+    )
+    kept, _ = detectors.run(proposed, hist, index_of(hist), detectors.ALL_DETECTORS)
+
+    assert {f.detector for f in raw} == {"vendor_switch", "first_use"}
+    assert [f.detector for f in kept] == ["vendor_switch"]
+    # Suppression removes the second ALERT, never one word of the evidence.
+    for f in raw:
+        assert f.reason in kept[0].reason
+
+
+def test_grouping_reports_the_duplicates_it_folded():
+    hist = history("Purchases", gst=None, n=3)
+    raw, _ = detectors.run(
+        v(account="Rent", amount=200_000_000, gst=64068),
+        hist,
+        index_of(hist),
+        detectors.ALL_DETECTORS,
+        dedupe=False,
+    )
+    (alert,) = detectors.group_by_concern(raw)
+    assert alert.lead.detector == "vendor_switch"
+    assert [f.detector for f in alert.corroborating] == ["first_use"]
+    assert alert.duplicates == 1
+    assert [f.detector for f in alert.flags] == ["vendor_switch", "first_use"]
+
+
+def test_grouping_leaves_a_lone_flag_exactly_as_it_was():
+    hist = history("Purchases", gst=None, n=3)
+    raw, _ = detectors.run(
+        v(gst=64068), hist, index_of(hist), (detectors.gst_anomaly,), dedupe=False
+    )
+    (alert,) = detectors.group_by_concern(raw)
+    assert alert.corroborating == ()
+    assert alert.duplicates == 0
+    kept, _ = detectors.run(
+        v(gst=64068), hist, index_of(hist), (detectors.gst_anomaly,)
+    )
+    assert kept == raw
+
+
+def test_grouping_nothing_produces_nothing():
+    assert detectors.group_by_concern([]) == ()
+
+
+# ---- which detectors run, and which do not ---------------------------------
+
+
+def test_the_active_set_and_the_withdrawn_set_account_for_every_detector():
+    """Nothing may leave ALL_DETECTORS silently."""
+    everything = {detectors.name_of(d) for d in detectors.ALL_DETECTORS}
+    active = {detectors.name_of(d) for d in detectors.ACTIVE_DETECTORS}
+    withdrawn = {w.detector for w in detectors.WITHDRAWN}
+    assert active | withdrawn == everything
+    assert not active & withdrawn
+
+
+def test_every_withdrawn_detector_states_a_reason_and_still_exists():
+    assert detectors.WITHDRAWN
+    by_name = {detectors.name_of(d): d for d in detectors.ALL_DETECTORS}
+    for w in detectors.WITHDRAWN:
+        assert w.detector in by_name, "a withdrawn detector must not be deleted"
+        assert w.because.strip()
+
+
+def test_a_withdrawn_detector_still_fires_when_it_is_asked_to():
+    """Withdrawn is off by default, not broken and not silenced."""
+    hist = history("Purchases", n=3)
+    flags = detectors.first_use(v(account="Rent"), hist, index_of(hist))
+    assert [f.detector for f in flags] == ["first_use"]
 
 
 def test_the_queue_is_ordered_by_severity_then_deterministically():
@@ -262,17 +460,24 @@ def test_the_queue_is_ordered_by_severity_then_deterministically():
 
 
 def test_the_cap_drops_nothing_silently():
-    """#3.6 - overflow is reported as a count, never quietly discarded."""
+    """#3.6 - overflow is reported as a count, never quietly discarded.
+
+    Two DISTINCT concerns, so the cap bites on real alerts rather than on
+    duplicates that suppression would have folded anyway.
+    """
     hist = history("Purchases", gst=None)
-    proposed = v(account="Rent", amount=200_000_000, gst=64068)
-    uncapped, _ = detectors.run(
+    proposed = v(account="Purchases", amount=200_000_000, gst=64068)
+    uncapped, none_dropped = detectors.run(
         proposed, hist, index_of(hist), detectors=detectors.ALL_DETECTORS
     )
+    assert {f.detector for f in uncapped} == {"magnitude", "gst_anomaly"}
+    assert none_dropped == 0
+
     capped, dropped = detectors.run(
         proposed, hist, index_of(hist), detectors=detectors.ALL_DETECTORS, cap=1
     )
     assert len(capped) == 1
-    assert dropped == len(uncapped) - 1
+    assert dropped == len(uncapped) - 1 == 1
 
 
 def test_running_no_detectors_produces_nothing_and_drops_nothing():
@@ -295,3 +500,93 @@ def test_no_detector_makes_a_network_call(monkeypatch: pytest.MonkeyPatch):
         index_of(hist),
         detectors=detectors.ALL_DETECTORS,
     )
+
+
+# ---- what a detector firing MEANS (#3.3, restated as a guard) ---------------
+
+
+def test_a_fired_detector_asks_and_never_refuses():
+    """A detector firing means "this needs attention", not "this is wrong".
+
+    Every flag from a detector `problems.py` knows becomes an ANSWERABLE
+    problem, and an answerable problem is UNCLEAR: ask, record, re-evaluate.
+    Not-valid is reserved for problems no answer could fix, and a detector
+    never produces one.
+    """
+    hist = history("Purchases", gst=None, n=3)
+    proposed = v(account="Rent", amount=200_000_000, gst=64068)
+    flags, _ = detectors.run(
+        proposed, hist, index_of(hist), detectors=detectors.ALL_DETECTORS
+    )
+    assert flags
+
+    found = problems.find(
+        proposed,
+        checks.run(proposed, ACCOUNTS),
+        index_of(hist).lookup(proposed.party),
+        flags,
+        ACCOUNTS,
+        hist,
+        index_of(hist),
+    )
+    assert all(p.answerable for p in found), "a detector must never refuse an entry"
+    decision = decide_problems(found)
+    assert decision.outcome is Outcome.UNCLEAR
+    assert decision.outcome is not Outcome.NOT_VALID
+    assert decision.post is False
+
+
+def test_a_detector_firing_is_never_permission_to_post():
+    """The other direction: a flag cannot make an entry Valid either."""
+    hist = history("Purchases", n=3)
+    proposed = v(account="Rent")
+    flags, _ = detectors.run(
+        proposed, hist, index_of(hist), detectors=detectors.ALL_DETECTORS
+    )
+    found = problems.find(
+        proposed,
+        checks.run(proposed, ACCOUNTS),
+        index_of(hist).lookup(proposed.party),
+        flags,
+        ACCOUNTS,
+        hist,
+        index_of(hist),
+    )
+    assert decide_problems(found).outcome is not Outcome.VALID
+
+
+def test_an_unusual_but_valid_entry_is_asked_about_rather_than_rejected():
+    """The rule the role correction exists to protect.
+
+    An entry this company simply has not seen before is unusual, not wrong.
+    It must produce a question, and the person's answer is new information -
+    the entry re-enters the decision order and can still come out any way.
+    """
+    hist = history("Purchases", n=6)
+    unusual = v(account="Rent", amount=200_000_000)
+    flags, _ = detectors.run(
+        unusual, hist, index_of(hist), detectors=detectors.ALL_DETECTORS
+    )
+    found = problems.find(
+        unusual,
+        checks.run(unusual, ACCOUNTS),
+        index_of(hist).lookup(unusual.party),
+        flags,
+        ACCOUNTS,
+        hist,
+        index_of(hist),
+    )
+    decision = decide_problems(found)
+    assert decision.outcome is Outcome.UNCLEAR
+    assert decision.question_options, "unclear must come with something to answer"
+
+
+def test_a_folded_duplicate_alert_still_carries_checkable_evidence():
+    """Suppression must not produce a flag nobody can act on."""
+    hist = history("Purchases", n=3)
+    (flag,), _ = detectors.run(
+        v(account="Rent"), hist, index_of(hist), detectors=detectors.ALL_DETECTORS
+    )
+    assert flag.reason.strip()
+    assert any(ch.isdigit() for ch in flag.reason)
+    assert "also" in flag.reason  # the corroborating detector's evidence, kept

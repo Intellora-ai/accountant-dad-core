@@ -25,6 +25,9 @@ from http.server import HTTPServer
 
 import pytest
 
+from accountant.memory.bootstrap import bootstrap
+from accountant.memory.identity import normalise_company
+from accountant.memory.store import MemoryStore
 from accountant.web import app
 
 
@@ -34,14 +37,32 @@ def server() -> Iterator[str]:
 
     Port 0 lets the OS choose, so tests never collide with a dev instance or
     with each other.
+
+    The memory store is opened INSIDE the serving thread. SQLite gives a
+    connection to the thread that opened it and to no other; in production
+    `app.serve()` runs the server on the thread that imported the module, so
+    there is only ever one. Here the server needs its own thread so the test can
+    make requests, which means the store has to be opened there too. That is a
+    fixture detail, not a change of behaviour: memory is still bootstrapped
+    exactly once, from this company's own Tally, before a single request is
+    served.
     """
     app.TALLY = app.seed()
     app.DRAFTS.clear()
     app.EVENTS.clear()
 
     httpd = HTTPServer(("127.0.0.1", 0), app.Handler)
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    ready = threading.Event()
+
+    def serve() -> None:
+        app.MEMORY_STORE = MemoryStore(":memory:")
+        app.MEMORY = bootstrap(app.TALLY, app.COMPANY, app.MEMORY_STORE)
+        ready.set()
+        httpd.serve_forever()
+
+    thread = threading.Thread(target=serve, daemon=True)
     thread.start()
+    assert ready.wait(timeout=5), "the server thread never bootstrapped memory"
     try:
         yield f"http://127.0.0.1:{httpd.server_address[1]}"
     finally:
@@ -90,6 +111,49 @@ def test_an_unknown_path_serves_the_home_page_rather_than_an_error(server: str):
     """Every GET lands somewhere usable. There is no dead end and no 500."""
     body = get(server, "/no-such-page")
     assert "<form" in body
+
+
+# ---- the app reads the books before it answers anything ---------------------
+
+
+def test_the_app_bootstraps_this_companys_memory_before_serving(server: str):
+    """Not "an index exists" — a successful bootstrap of THIS company.
+
+    Ready is the gate. Without it every lookup is MEMORY_NOT_READY and nothing
+    may be proposed, so a page that answers at all is a page whose books were
+    read.
+    """
+    get(server)
+    assert app.MEMORY.ready is True
+    assert app.MEMORY.identity.key == normalise_company(app.COMPANY)
+    assert app.MEMORY.report.counts.vouchers == len(
+        app.TALLY.read_vouchers(app.COMPANY)
+    )
+
+
+def test_an_answer_is_stored_under_the_vendor_key_not_the_typed_spelling(server: str):
+    """The correction is a row in this company's memory, not a process variable.
+
+    Proved through the app's own surface: a DIFFERENT spelling of the same
+    supplier posts straight through afterwards, which only happens if the answer
+    was written against the normalised vendor key inside this company's scope.
+    """
+    asked = post(server, "/entry", text="paid Gupta Hardware 1500 for tools")
+    post(
+        server,
+        "/answer",
+        draft=draft_id(asked),
+        value="Purchases",
+        problem="which_account",
+    )
+
+    again = post(
+        server, "/entry", text="paid M/s Gupta Hardware Pvt Ltd 1600 for tools"
+    )
+    assert "posted" in again.lower()
+    written = app.TALLY.list_our_vouchers(app.COMPANY)[-1]
+    assert written.debit_account == "Purchases"
+    assert written.amount_paise == 160000
 
 
 # ---- #14.1 / #14.5: a known vendor posts straight through -------------------

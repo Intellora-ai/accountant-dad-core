@@ -23,7 +23,8 @@ from accountant import checks, problems
 from accountant.decide import decide_problems
 from accountant.detect import detectors
 from accountant.extract.adapter import ExtractedRecord, Extractor
-from accountant.memory.index import MemoryIndex
+from accountant.memory.company import CompanyMemory, propose_account
+from accountant.memory.identity import normalise_company
 from accountant.problems import Problem
 from accountant.schema import CheckResult, Decision, Flag, Outcome, Voucher
 from accountant.tallyio.client import TallyClient, new_operation_id
@@ -78,18 +79,39 @@ def build_draft(
     mime: str,
     extractor: Extractor,
     accounts: tuple[str, ...],
-    index: MemoryIndex,
+    memory: CompanyMemory,
     *,
     today: datetime.date | None = None,
 ) -> Draft:
-    """Extract, then propose an account from memory. Never guesses an account."""
+    """Extract, then propose an account from THIS COMPANY'S OWN memory.
+
+    `memory` is company-scoped and carries its own identity. That identity is
+    checked against `company` here, so a caller cannot hand company A's memory
+    to a draft being built for company B - the one mistake that would make
+    every isolation guarantee in `accountant/memory/` decorative.
+
+    Measured, `accountant/ingest/crossorg.py`, 16,011 real rows over 30 ordered
+    department pairs: within-organisation account prediction reaches 53.08%,
+    cross-organisation is 0.00% on 29 of the 30. A mapping borrowed from
+    another company is not a weaker answer, it is a wrong one.
+
+    `propose_account` RAISES `MemoryNotReady` when this company has had no
+    successful bootstrap. That is deliberate and is not caught here: "we have
+    not read your books yet" must never arrive at the decision as "no match",
+    because no-match asks the person a question and not-ready means we are not
+    entitled to ask one yet.
+    """
+    expected = normalise_company(company)
+    if memory.identity.key != expected:
+        raise ValueError(
+            f"memory for company {memory.identity.name!r} was passed to a "
+            f"draft for {company!r}; company-scoped memory is never shared"
+        )
+
     record = extractor.extract(data, mime)
 
-    proposed_debit = ""
-    if record.party:
-        m = index.lookup(record.party)
-        if m.status.value == "match":
-            proposed_debit = m.accounts[0]
+    proposed_debit = propose_account(memory, record.party) if record.party else None
+    proposed_debit = proposed_debit or ""
 
     voucher = Voucher(
         id=f"draft-{uuid.uuid4().hex[:8]}",
@@ -116,17 +138,34 @@ def evaluate(
     draft: Draft,
     accounts: tuple[str, ...],
     history: tuple[Voucher, ...],
-    index: MemoryIndex,
+    memory: CompanyMemory,
     *,
     detector_set: Sequence[detectors.Detector] = detectors.SLICE_4_DETECTORS,
     flag_cap: int | None = None,
 ) -> Draft:
-    """Run checks, memory and detectors, then apply the decision order."""
+    """Run checks, memory and detectors, then apply the decision order.
+
+    The detectors read history through THIS COMPANY'S index and no other.
+    `memory.index()` is derived from the scoped store, so a detector cannot
+    reach a vendor mapping that belongs to somebody else's books.
+
+    `as_match_result()` RAISES on MEMORY_NOT_READY rather than converting it to
+    NO_MATCH. Those two look alike and mean opposite things: no-match means ask
+    the person, not-ready means we have not read their books and have no
+    standing to ask anything yet.
+    """
+    if memory.identity.key != normalise_company(draft.company):
+        raise ValueError(
+            f"memory for company {memory.identity.name!r} was passed to a "
+            f"draft for {draft.company!r}; company-scoped memory is never shared"
+        )
+
+    index = memory.index()
     draft.checks = checks.run(draft.voucher, accounts)
     draft.flags, draft.dropped_flags = detectors.run(
         draft.voucher, history, index, detectors=detector_set, cap=flag_cap
     )
-    match = index.lookup(draft.voucher.party)
+    match = memory.lookup(draft.voucher.party).as_match_result()
     draft.problems = problems.find(
         draft.voucher, draft.checks, match, draft.flags, accounts, history, index
     )
@@ -195,19 +234,34 @@ def run(
     mime: str,
     extractor: Extractor,
     client: TallyClient,
+    memory: CompanyMemory,
     *,
     detector_set: Sequence[detectors.Detector] = detectors.SLICE_4_DETECTORS,
     flag_cap: int | None = None,
     today: datetime.date | None = None,
 ) -> Draft:
-    """One entry, all the way through. Posts if Valid, stops otherwise."""
+    """One entry, all the way through. Posts if Valid, stops otherwise.
+
+    `memory` is REQUIRED and must already be bootstrapped from this company's
+    own Tally. It used to be built here as
+    `MemoryIndex.from_vouchers(client.read_vouchers(company))`, which was the
+    product failure: an index rebuilt from scratch on every call, carrying no
+    company key, no bootstrap record, and no way to express
+    MEMORY_NOT_READY. An existing customer whose history had not been read
+    looked exactly like a customer with no history, and the difference between
+    those two is the difference between asking a question and guessing.
+
+    Bootstrap it with `accountant.memory.bootstrap.bootstrap(client, company,
+    store)` - or `resume(store, company)` when it was done earlier - and pass
+    the result in. A caller that cannot produce one has not read the person's
+    books, and must not be proposing accounts.
+    """
     accounts = client.read_accounts(company)
     history = client.read_vouchers(company)
-    index = MemoryIndex.from_vouchers(history)
 
-    draft = build_draft(company, data, mime, extractor, accounts, index, today=today)
+    draft = build_draft(company, data, mime, extractor, accounts, memory, today=today)
     draft = evaluate(
-        draft, accounts, history, index, detector_set=detector_set, flag_cap=flag_cap
+        draft, accounts, history, memory, detector_set=detector_set, flag_cap=flag_cap
     )
 
     if draft.decision and draft.decision.outcome is Outcome.VALID:

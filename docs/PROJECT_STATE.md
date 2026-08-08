@@ -6,9 +6,10 @@
 |---|---|
 | **Purpose** | The project's operational memory. What was decided, what is built, what is verified, what remains, why. One file. No other progress document exists. |
 | **Repository** | `Intellora-ai/accountant-dad-core` — public — owner type **User** — created `2026-08-07T11:38:55Z` — VERIFIED (GitHub API) |
-| **Branch / commit** | `main` @ **`4cc290f`** — "A6: run workflow-lint and workflow-security on the pull-request path (#12)" — 11 commits — working tree clean — VERIFIED (`git rev-parse`, `git status --porcelain` → empty) |
+| **Branch / commit** | `main` @ **`f7bf5d9`** — "feat: Phase 9 proof track - synthetic books and the scoring harness" — **16 commits** — VERIFIED (`git rev-parse`, `git log`). **Working tree is NOT clean**: `accountant/tallyio/real.py` and `tests/test_real_tally.py` modified; `accountant/ingest/`, `accountant/taxonomy/`, `tests/test_ingest.py`, `tests/test_taxonomy.py` untracked. Work is in flight in other sessions. |
 | **Updated** | 2026-08-08 |
-| **Last verified state** | 2026-08-08, after nightly runs `31237228028` and `31238866032` |
+| **Last verified state** | 2026-08-08. CI evidence is from nightly runs `31237228028` and `31238866032`. **The newest evidence is §21 (first real Tally), §22 (first product-quality measurements) and §23 (documentation drift corrected)** — those three sections supersede any older statement in this file that contradicts them. |
+| **Companion documents** | [`ARCHITECTURE.md`](./ARCHITECTURE.md) — the design. [`BOTTLENECKS.md`](./BOTTLENECKS.md) — what currently costs more than it should, with the smallest guard per class of defect. |
 | **Who may update** | The owner, or Claude on the owner's instruction. |
 
 **Every label in this file means something exact:**
@@ -119,9 +120,10 @@ re-enters the decision order and can still come out Not valid.
 |---|---|---|
 | Unique `operation_id` generated **before** posting, attached to draft, decision, narration, action log and reversal request | correction C5 | VERIFIED in code — `accountant/tallyio/client.py:31` `new_operation_id()` |
 | Accountant Dad marker on every written voucher — `[ACCOUNTANT_DAD:<op>]` | correction C4 | VERIFIED — `client.py:27-56`, asserted by contract test |
-| A duplicate `operation_id` cannot create a second voucher | C5 | VERIFIED against the fake; UNVERIFIED against real Tally |
-| Every write is read back from Tally, not trusted from an HTTP 200 | C6 | VERIFIED against the fake; UNVERIFIED against real Tally |
-| Reversal tested against the **exact prior trial balance**, in paise | #6.5 | VERIFIED against the fake; UNVERIFIED against real Tally |
+| A duplicate `operation_id` cannot create a second voucher | C5 | VERIFIED against the fake; **still UNVERIFIED against real Tally** — the contract test that proves it is licence-blocked (§21) |
+| Every write is read back from Tally, not trusted from an HTTP 200 | C6 | **VERIFIED against real Tally** (§21) |
+| Reversal tested against the **exact prior trial balance**, in paise | #6.5 | **VERIFIED against real Tally** — exact restore `True`, voucher gone `True` (§21) |
+| **Memory must be bootstrapped from an existing company's own Tally history before the first proposal is shown** | measured cross-organisation result, §22 | **PRODUCT INVARIANT — NOT YET ENFORCED.** An empty memory for an existing company is a **product failure**, not a neutral state. Design rule in [`ARCHITECTURE.md` §4.3](./ARCHITECTURE.md#43-memory-index--accountantmemoryindexpy--present); exit criteria in [`ARCHITECTURE.md` §11](./ARCHITECTURE.md#11-mvp-completion-checklist) |
 | Refuses to write to a company with no recorded backup | #6.7 | VERIFIED — `CompanyNotBackedUp` in `client.py:66` |
 | **No automatic fallback account.** Not Suspense, not Sundry Expenses, not anything | OWNER DECISION | VERIFIED — no fallback exists in `accountant/decide.py` |
 | Every output field carries provenance | Hallucinate definition | VERIFIED — `Voucher.provenance` in `accountant/schema.py` |
@@ -187,18 +189,33 @@ not evidence of product value.
 document owns components, interfaces, data flows, the technology choices that
 affect the design, and the phase-by-phase build plan with entry and exit criteria.
 
-This section keeps only the two facts that are *status*, not design:
+This section keeps only the facts that are *status*, not design:
 
 | | |
 |---|---|
-| **Current phase** | **Phase 2 — the Tally spine** |
-| **Blocked on** | TallyPrime running in a Windows VM with its HTTP server on |
+| **Current phase** | **Phase 2 — the Tally spine — ENVIRONMENT-LIMITED, not fully complete** (§21, §24) |
+| **Blocked on** | a **non-Educational TallyPrime licence**. Educational mode rejects voucher dates outside the 1st, 2nd and 31st, so the 15 client-fixture tests in `tests/test_tally_contract.py` — which post on `2026-08-07` — cannot run unmodified. This is the Phase 2 **exit** criterion, and it is the only owner-blocked item left. |
+| **Owner decision, 2026-08-08** | **Option 2 — Educational-mode exception.** No licence is to be purchased, activated, bypassed or simulated. See §24. |
+| **No longer blocked on** | the Windows VM. TallyPrime is installed and answering. The earlier "Windows VM + TallyPrime — NOT INSTALLED — the single blocker" is **superseded** (§17, §21). |
 
-Phases 0 and 1 are complete. Phases 3–9 have not started. Phase 10 is deferred.
-Per-area evidence is in §8; the ordered next actions are in §19.
+Phases 0 and 1 are complete. Phase 2's build is done and proven end to end
+against a real Tally (§21); its formal exit is licence-blocked. Phases 3–8 have
+not started. **Phase 9 has been built and measured** — `generate/`, `score/`,
+`taxonomy/` and `ingest/` all exist, and its numbers are in §22, which is the
+uncomfortable part of this document. Phase 10 is deferred.
+
+Per-area evidence is in §8; the ordered next actions are in §19; the ranked list
+of what is currently costing more than it should is in
+[`BOTTLENECKS.md`](./BOTTLENECKS.md).
 
 <details>
-<summary>Original section 7, kept for reference until the next update</summary>
+<summary>Original section 7 — SUPERSEDED 2026-08-08, kept only as a record of what was believed then</summary>
+
+**Do not read the ticks below as current.** They were accurate at commit
+`4cc290f` and are wrong now: steps 7, 13, 14, 15, 16 and 17 have all since been
+built or measured. The current per-area state is §8; the current ordered work is
+§19. This block is kept because deleting it would erase what the project believed
+before Tally answered, and that belief is itself evidence.
 
 ### Architecture and A-to-Z build order
 
@@ -278,23 +295,26 @@ proved it. Evidence cross-references §9 (gates), §10 (runs), §16 (security).
 |---|---|---|---|
 | Repository identity | **VERIFIED** | GitHub API — §1 | none |
 | Old repo untouched | **VERIFIED** | `pushed_at 2026-08-06T19:55:12Z`, head `924d0e0` — unchanged from baseline | re-check at each milestone |
-| Source inventory | **VERIFIED** | 2,049 lines, 18 files (`accountant/`) | — |
-| Test inventory | **VERIFIED** | 2,206 lines, 8 test files, 242 tests | — |
-| Branch / SHA | **VERIFIED** | `main` `4cc290f`, clean | — |
+| Source inventory | **VERIFIED** | 7,658 lines, 38 files (`accountant/`, including untracked `ingest/` and `taxonomy/`) — measured 2026-08-08 | — |
+| Test inventory | **VERIFIED** | 7,050 lines, 14 test files; **682 tests collected** (`pytest --collect-only -q`, includes `ci/test_protection.py`) | — |
+| Branch / SHA | **VERIFIED** | `main` `f7bf5d9`, 16 commits, **working tree not clean** — §1 | — |
 | Tally connector — Protocol | **VERIFIED** | `accountant/tallyio/client.py`, 8 methods | — |
-| Tally connector — real impl | **NOT STARTED** | `grep -rn 'xml\|9000\|urllib.request' accountant/` → nothing | write `accountant/tallyio/real.py` |
-| Tally read | **UNVERIFIED** | fake only | needs M0 (§19) |
-| Tally write | **UNVERIFIED** | fake only | needs M0 |
-| Idempotency (C5) | **UNVERIFIED on real Tally** | passes against fake | contract test vs real |
-| Read-back (C6) | **UNVERIFIED on real Tally** | passes against fake | contract test vs real |
-| Reversal (#6.5) | **UNVERIFIED on real Tally** | passes against fake | contract test vs real |
-| Memory index #2 | **CODE EXISTS, NOT AUDITED** | `accountant/memory/index.py`, 115 lines | audit vs #2.1–#2.7 |
-| Detectors #3 | **CODE EXISTS, NOT AUDITED** | `accountant/detect/detectors.py`, 143 lines | audit vs #3.1–#3.8 |
-| Rules corpus #9 | **NOT STARTED** | no `accountant/rules/` directory | build |
-| Extraction adapter #15 | **STUB ONLY** | `accountant/extract/adapter.py`, 187 lines, `TypedTextExtractor` | connect a backend |
-| Web app #14 | **CODE EXISTS, FAKE-BACKED** | `accountant/web/app.py`, 385 lines. Line 3: *"Runs against FakeTally. NOTHING here touches real Tally"* | swap client at M2 |
-| Synthetic generator #1 | **NOT STARTED** | no `accountant/generate/` | build |
-| Scoring harness #4 | **NOT STARTED** | no `accountant/score/` | build |
+| Tally connector — real impl | **BUILT AND RUN AGAINST REAL TALLY** | `accountant/tallyio/real.py`, 63.5 KB. First real read HTTP 200, 1,594 bytes, 65 ms (§21). *The earlier evidence line "`grep … → nothing`" was drift and is superseded.* | fix `trial_balance()` derived head — [`BOTTLENECKS.md` A4](./BOTTLENECKS.md#a4--trial_balance-includes-a-derived-figure) |
+| Tally read | **VERIFIED on real Tally** | companies, chart of accounts, vouchers, trial balance — all read (§21) | — |
+| Tally write | **VERIFIED on real Tally** | Rs 5,000 posted, trial balance moved by exactly that amount (§21) | — |
+| Idempotency (C5) | **UNVERIFIED on real Tally** | passes against fake; the contract test that proves it is licence-blocked (§21) | needs a non-Educational licence |
+| Read-back (C6) | **VERIFIED on real Tally** | `read_by_operation_id()` returned the written voucher, then `None` after reversal (§21) | — |
+| Reversal (#6.5) | **VERIFIED on real Tally** | `reverse_by_operation_id()` → `True`; trial balance restored to the exact prior paise (§21) | — |
+| Memory index #2 | **CODE EXISTS, NOT AUDITED** | `accountant/memory/index.py` | audit vs #2.1–#2.7. **Company-local only; every customer is a permanent cold start** (§22) |
+| Detectors #3 | **BUILT — MEASURED AGAINST THE PUBLISHED RECORD, AND THEY MISS MOST OF IT** | `accountant/detect/detectors.py`, 4 detectors. **2 of 12** published real error types covered; **10 UNCOVERED** (§22) | proof work per uncovered type — [`BOTTLENECKS.md` A1](./BOTTLENECKS.md#a1--detectors-cover-2-of-12-published-real-error-types) |
+| Rules corpus #9 | **NOT STARTED** | **VERIFIED absent** — `ls accountant/rules` → no such directory, 2026-08-08 | build |
+| Extraction adapter #15 | **STUB ONLY** | `accountant/extract/adapter.py`, `TypedTextExtractor` | connect a backend |
+| Web app #14 | **CODE EXISTS, FAKE-BACKED** | `accountant/web/app.py`, 385 lines, imports `FakeTally`. **Stdlib `http.server` only** — VERIFIED, and `pyproject.toml` still has `dependencies = []` with no web framework anywhere | swap client at M2 |
+| Synthetic generator #1 | **BUILT, TEST-VERIFIED** | `accountant/generate/` — `book.py`, `inject.py`, `serialise.py`. `tests/test_generate.py`, 60 tests, one per acceptance criterion. Branch coverage 100%, 131/131 mutants killed, local run 2026-08-08 | — |
+| Scoring harness #4 | **BUILT — AND N1 IS FAILING** | `accountant/score/` — `book.py`, `harness.py`, `report.py`. **N1 = 27.59 false alarms per 100 clean entries against a target of ≤ 10. FAIL by 2.8x** (§22) | [`BOTTLENECKS.md` A2](./BOTTLENECKS.md#a2--n1-fails-by-28x) |
+| Real error taxonomy #7 | **BUILT — untracked in git** | `accountant/taxonomy/` — `sources.py`, `findings.py`, `coverage.py`, `report.py`. 5 sources, 12 error types, `uncovered_count() == 10` | commit it |
+| UK government ingest #5 | **BUILT — untracked in git** | `accountant/ingest/` — `sources.py`, `fetch.py`, `spend.py`, `crossorg.py`, `report.py`, plus 7 real department fixtures | commit it |
+| Cross-organisation test #8 | **MEASURED — the answer is 0%** | 16,011 rows, 30 department pairs; within-department best 53.08%, cross-department 0.00% on 29 of 30 (§22) | none — the question is answered |
 | CI contract | **VERIFIED** | `ci/gates.toml`, 20 gates; `ci/gate_names.lock`; 18 contract tests pass | none |
 | Local guard | **VERIFIED** | `scripts/guards` 169 lines, 12 checks, staged mode 0.08s; hook at `.git/hooks/pre-commit` rejected a bad commit | none |
 | `pr-fast` | **VERIFIED** | run `31236026164`, 26s, all steps success | none |
@@ -955,22 +975,27 @@ scope of the guarantee, and it is what the six refusals above demonstrate.
 
 | Risk / question | Status | Evidence | Owner action |
 |---|---|---|---|
-| Tally local HTTP has no auth model beyond network reachability | **KNOWN, structural** | Tally developer docs; recorded in child #6 | none — bind loopback only, stated openly |
+| Tally local HTTP has no auth model beyond network reachability | **KNOWN, structural — and now WIDER than loopback** | Tally runs in a Windows 11 ARM64 VM, so the Mac reaches it at `192.168.64.2:9000` over `bridge100`. **macOS `localhost` and guest `localhost` are different machines**, which is exactly why `TallyConfig` takes host and port. The traffic is plain HTTP with no auth and must stay on a private, trusted network. | none — `TallyConfig.is_loopback` exists so a caller or test can assert the tighter rule where it applies |
 | Backup enforcement before writing | **VERIFIED against fake** | `CompanyNotBackedUp`, `client.py:66` | prove against real Tally |
-| TallyPrime vs Tally.ERP 9 compatibility | **UNVERIFIED** | #6.8 requires both, or the unsupported version named in the error | decided at M2 against whatever is installed |
+| TallyPrime vs Tally.ERP 9 compatibility | **PARTLY RESOLVED** | TallyPrime **Release 7.0, Series A Release 7.0.0, Build 27974** is what answered (§21). Tally.ERP 9 remains UNVERIFIED. | decide whether ERP 9 is in scope at all |
+| **Educational-mode voucher-date restriction** | **MEASURED — the current blocker** | `2026-08-07` REJECTED, `2026-08-31` ACCEPTED. `tests/test_tally_contract.py:39` posts on `2026-08-07`, so the 15 client-fixture tests cannot run unmodified. Educational mode does **not** block deletion — that theory was tested and disproven. | **buy a non-Educational licence** — [`BOTTLENECKS.md` A3](./BOTTLENECKS.md#a3--educational-mode-date-restriction-blocks-the-15-contract-tests) |
+| **`trial_balance()` includes a derived figure** | **MEASURED, OPEN** | `Profit & Loss A/c` is Tally's derived closing figure, not a posting, so the raw sum is not zero. The two real ledgers cancel exactly. Reversal is unaffected — it compares the same dict before and after. | [`BOTTLENECKS.md` A4](./BOTTLENECKS.md#a4--trial_balance-includes-a-derived-figure) |
+| **Detector coverage of real error types** | **MEASURED — 10 of 12 UNCOVERED** | §22 | proof work per uncovered type, [`BOTTLENECKS.md` A1](./BOTTLENECKS.md#a1--detectors-cover-2-of-12-published-real-error-types) |
+| **N1 false-alarm rate** | **MEASURED — FAILING** | 27.59 per 100 against a target of ≤ 10 (§22) | [`BOTTLENECKS.md` A2](./BOTTLENECKS.md#a2--n1-fails-by-28x) |
 | Third-party extraction quality | **UNVERIFIED** | no backend connected; stub only | the 95/100 bar (S2) decides which backend qualifies |
 | Ruleset protection | **VERIFIED** | 6 refusals, 9/9 audit | none |
 | Nightly scheduling | **VERIFIED working, delay documented** | runs `31237228028`, `31238866032` | external dispatch DEFERRED (§12) |
 | External scheduler credentials | **OWNER-LEVEL, not configured** | Claude's token is `Actions: read` → 403 | create account + scoped token |
 | actionlint installation | **VERIFIED in `pr-fast`; Docker duplication remains in `full.yml`** | §11 | give a yes for the `full.yml` edit, or leave it |
-| Python 3.14 compatibility of xdist / testmon / gremlins | **VERIFIED by running** | 242 tests, 267 mutants, all green on 3.14 | none |
+| Python 3.14 compatibility of xdist / testmon / gremlins | **VERIFIED by running** | 242 tests, 267 mutants, all green on 3.14 — **measured at commit `4cc290f`**; the suite is now 682 collected and has not been re-measured on CI | re-measure once `ingest/` and `taxonomy/` are committed |
 | Mutation ID stability | **VERIFIED** | 267 mutants, 267 unique IDs, 0 missing, 0 duplicate, across runs | none |
 | Bandit LOW/LOW noise | **VERIFIED clean** | `security-scan` green in both `pr-fast` and nightly | none |
 | Code Quality eligibility | **VERIFIED unavailable** | `owner.type == "User"` (§13) | none |
-| **Windows VM + TallyPrime** | **NOT INSTALLED — the single blocker** | `UTM.dmg` 238 MB in `~/Downloads`, not installed. No Windows ISO, no Tally installer found by `find` or `mdfind` | **install UTM → Windows on ARM → TallyPrime → enable its HTTP server** |
+| **Windows VM + TallyPrime** | **RESOLVED — superseded** | TallyPrime 7.0 is installed in a Windows 11 ARM64 VM under UTM and answered a real request (§21). The earlier "NOT INSTALLED — the single blocker" line is no longer true. | none |
+| Windows guest-agent visibility | **UNDERSTOOD** | `utmctl exec` / `utmctl file push\|pull` run the agent as **SYSTEM in SESSION 0**, so any GUI it launches is **invisible on the owner's desktop** while still reporting success. A scheduled task with `/IT` is what runs something the owner can see. | none — [`BOTTLENECKS.md` A7](./BOTTLENECKS.md#a7--windows-guest-agent-work-is-invisible-in-session-0) |
 | First paying customer | **NOT IDENTIFIED** | frozen plan, open item 4 | owner |
-| Real error frequency | **UNRESOLVED** | needs real books; no number invented | owner |
-| Cross-organisation generalisation | **UNVERIFIED** | child #8 not started; UK central-government data is the free test | build #5 then #8 |
+| Real error frequency | **UNRESOLVED** | needs real books; no number invented. `accountant/taxonomy` deliberately never estimates how often an error type occurs — the published record does not support such a number. | owner |
+| Cross-organisation generalisation | **MEASURED — mappings do NOT transfer** | 16,011 real UK government rows, 30 department pairs; within-department best 53.08%, cross-department **0.00% on 29 of 30** (§22) | none — the design question is answered. Every customer is a permanent cold start; a pooled model is wasted effort. |
 | Quality decay | **DEFERRED** | §14 | revisit only on a trigger |
 
 ---
@@ -1005,6 +1030,23 @@ scope of the guarantee, and it is what the six refusals above demonstrate.
 | failed nightly → one deduplicated issue | one issue, reused | **PASSED** — issues #5–#9, all closed by the reporter |
 | missing nightly run → external alert | alert fires | **NOT BUILT — DEFERRED** (§12). The in-repo watchdog exists and passed, but cannot cover the case where GitHub drops the schedule that runs it. |
 
+### Real Tally — added 2026-08-08, evidence in §21
+
+| Deliberate action | Expected | State |
+|---|---|---|
+| one request reaches Tally from macOS | any response | **PASSED** — HTTP 200, 1,594 bytes, 65 ms, `192.168.64.2:9000` |
+| read the chart of accounts | parses | **PASSED** — after the illegal-character-reference fix (`&#4;`) |
+| read an empty company | zero vouchers, not an error | **PASSED** — after scoping voucher parsing to `BODY/DATA` |
+| write one marked voucher | trial balance moves by exactly the amount | **PASSED** — `AD Test Expense` 168456 → 668456 paise |
+| read it back by operation ID | the same voucher | **PASSED** |
+| reverse it | `True` | **PASSED** |
+| read back after reversal | `None` | **PASSED** |
+| trial balance after reversal | exact prior value, in paise | **PASSED** — 668456 → 168456. **EXACT RESTORE True, VOUCHER GONE True.** |
+| post the same operation ID again → no second voucher | `DuplicateOperation` | **NOT RUN** — licence-blocked (§21) |
+| 15 client-fixture tests against the real client | all pass | **NOT RUN** — licence-blocked (§21). **Phase 2's exit criterion.** |
+| post a voucher dated outside the 1st/2nd/31st | Educational mode refuses | **PASSED as a measurement** — `2026-08-07` REJECTED, `2026-08-31` ACCEPTED. Not yet a live negative test in the suite. |
+| trial balance sums to zero | zero | **FAILED — and correctly so.** `Profit & Loss A/c` is a derived figure, not a posting. The two real ledgers cancel exactly. [`BOTTLENECKS.md` A4](./BOTTLENECKS.md#a4--trial_balance-includes-a-derived-figure) |
+
 ---
 
 ## 19. A-to-Z next-action plan
@@ -1021,32 +1063,44 @@ Strict order. Each step is worthless until the one before it holds.
 
  ─── the real work starts here ───
 
- 7  M0  install UTM → Windows on ARM → TallyPrime → enable its HTTP server
-        OWNER ONLY. Everything below waits on this.
- 8  M1  connect to a real Tally test company, read-only
- 9      one request returns one real company name  ← the whole transport proven at once
-10      read the chart of accounts and one voucher
-11  M2  write accountant/tallyio/real.py implementing the same 8-method Protocol
-        reuse the XML envelope shapes from ~/a c d/backend/app/tally/xml_build.py
-        nothing outside accountant/tallyio/ changes — that is what C3 exists for
-12      build the minimal memory lookup against real history
-13      make one validity decision on a real entry
-14      write ONE marked voucher into a real test company
-15      read it back by operation ID
-16      post the same operation ID again → prove NO second voucher
-17      reverse it
-18      prove the trial balance returns to its exact prior value, in paise
+ 7  M0  install UTM → Windows on ARM → TallyPrime → enable its HTTP server   ✅ DONE (§21)
+ 8  M1  connect to a real Tally test company, read-only                      ✅ DONE
+ 9      one request returns one real company name                            ✅ DONE
+10      read the chart of accounts and one voucher                           ✅ DONE
+11  M2  write accountant/tallyio/real.py implementing the same 8-method Protocol  ✅ DONE
+12      build the minimal memory lookup against real history                 ⬜
+13      make one validity decision on a real entry                           ⬜
+14      write ONE marked voucher into a real test company                    ✅ DONE
+15      read it back by operation ID                                         ✅ DONE
+16      post the same operation ID again → prove NO second voucher           ⬜ licence-blocked
+17      reverse it                                                           ✅ DONE
+18      prove the trial balance returns to its exact prior value, in paise    ✅ DONE
 19  M3  point tests/test_tally_contract.py's client fixture at the real client
         all 15 client-fixture tests pass → "works on real Tally" is satisfied
-20  M4  the frontend — shape is an open owner decision (§20)
-21  M5  widen through Slices 2-6 to the full frozen acceptance criteria
-22      run all product acceptance criteria (S1-S7, N1-N3, N5)
-23      revisit deferred risks only when their triggers fire
+        ⬜ BLOCKED — Educational mode rejects the 2026-08-07 test date
+
+ ─── the current ordered work ───
+
+20      OWNER: buy a non-Educational TallyPrime licence → unblocks 16 and 19
+21      commit accountant/ingest/ and accountant/taxonomy/ — both are untracked
+22      decide what trial_balance() does with derived heads (BOTTLENECKS A4)
+23      attribute N1 = 27.59 per detector BEFORE changing any detector (BOTTLENECKS A2)
+24      bootstrap memory from an existing company's own Tally history
+        an empty memory for an existing company is a PRODUCT FAILURE (§22)
+25  M4  the frontend — shape is an open owner decision (§20)
+26  M5  widen through Slices 2-6 to the full frozen acceptance criteria
+27      revisit deferred risks only when their triggers fire
 ```
 
-**Why this order:** steps 2–4 are polish on a system that already blocks
-correctly. Step 7 is the only thing standing between 2,049 lines of code and the
-first real voucher. Anything that delays step 7 delays the entire product.
+**Why this order changed.** Step 7 is done. Tally is no longer the bottleneck —
+it works end to end through the connector (§21). **The bottleneck moved twice in
+one day:** first to a licence (steps 16 and 19), and then, more importantly, to
+the product itself. §22 says the four detectors miss 10 of the 12 error types
+auditors actually publish, and that N1 fails its target by 2.8x. Proving the
+connector against 15 more tests does not move either number.
+
+The full ranked list, with the smallest guard per class of defect, is in
+[`BOTTLENECKS.md`](./BOTTLENECKS.md).
 
 ---
 
@@ -1054,12 +1108,17 @@ first real voucher. Anything that delays step 7 delays the entire product.
 
 ### What is definitely working
 
+**All CI numbers below were measured at commit `4cc290f`. The repository is now
+at `f7bf5d9` with 682 tests collected and two packages still untracked, so they
+have NOT been re-measured.** The 20 gates themselves are unchanged — VERIFIED,
+`ci/gates.toml`, 2026-08-08.
+
 ```
 20 CI gates, all active, all blocking — proven by 8 deliberate failures
 branch protection — 6 tamper attempts refused, 9/9 drift audit
 pr-fast 26-31s · pr-full 113s · ci-gate 8s · full cycle ~152s
 nightly full.yml and watchdog.yml — both fired on schedule and passed
-242 tests · 95% coverage · 99.63% mutation, 1 survivor of 267
+242 tests · 95% coverage · 99.63% mutation, 1 survivor of 267   ← at 4cc290f
 zero runtime dependencies · Python pinned to 3.14
 the deduplicated self-closing nightly issue reporter
 ```
@@ -1085,16 +1144,38 @@ all 20 gates have now executed on GitHub at least once
 merge refusal, admin-force refusal, direct-push refusal, ruleset-write refusal
 ```
 
+### What is proven on real Tally — added 2026-08-08
+
+```
+read: companies, chart of accounts, vouchers, trial balance
+write: one marked voucher, trial balance moved by exactly the amount
+read-back by operation ID
+reversal: exact restore to the prior paise, voucher gone
+```
+
+Detail and exact numbers in §21.
+
 ### What is still unverified
 
 ```
-EVERYTHING involving real Tally:
-  read, write, idempotency, read-back, reversal, trial-balance restoration
+idempotency on real Tally — the duplicate-operation-ID test is licence-blocked
+the 15 client-fixture tests against the real client — licence-blocked
+Tally.ERP 9 — only TallyPrime 7.0 has answered
 children #2, #3, #14, #15 against their own written acceptance criteria
-S1-S7 and N1-N3 — no product measurement has been taken
+S1-S7 — no product measurement has been taken
+N2 and N3 — not yet measured on real data
 the third-party extraction backend — none is connected
 cache hit/miss as a recorded number from a specific run
 ```
+
+### What is measured and FAILING — added 2026-08-08
+
+```
+N1 = 27.59 false alarms per 100 clean entries, target <= 10.  FAIL by 2.8x.
+detector coverage of published real error types: 2 of 12.  10 UNCOVERED.
+```
+
+**These are the two numbers that matter most in this document.** Detail in §22.
 
 ### What is intentionally deferred
 
@@ -1110,10 +1191,332 @@ the frontend's final shape                   §19 step 20 — owner deferred it
 
 ### The next highest-value action
 
-**Install UTM, then Windows on ARM, then TallyPrime, then switch on Tally's HTTP
-server.** It is the only owner-blocked step, and every remaining product
-milestone sits behind it. Until one real request returns one real company name,
-2,049 lines of code and 20 CI gates are guarding something that has never touched
-reality.
+**Superseded 2026-08-08.** The old answer — install UTM, Windows, TallyPrime — is
+**done** (§21). One real request returned one real company name, a voucher was
+written, read back and reversed to the exact prior paise.
+
+**The new answer is uncomfortable and should not be softened.** The product's
+four detectors were measured against what auditors actually publish, and they
+cover **2 of 12** error types. `first_use`, `magnitude` and `gst_anomaly` map to
+**nothing** in the published record, because all four detectors only catch
+**changes from history** and real audit errors are **standing practices**. N1
+fails its target by 2.8x. Those two numbers, not the connector, decide whether
+this product is worth finishing.
+
+The owner-blocked item is now a **non-Educational TallyPrime licence** (§21),
+which unblocks the last two Phase 2 exit tests. It does not move either number
+above.
 
 **The existence of this document does not mean the project is complete.**
+
+---
+
+## 21. Tally — first real evidence
+
+**All of this was measured on 2026-08-08. It is the first time any of this code
+has touched a real Tally.**
+
+### The environment
+
+```
+TallyPrime Release 7.0, Series A Release 7.0.0, Build 27974
+EDUCATIONAL mode
+Windows 11 ARM64, in a VM under UTM on macOS
+```
+
+**The network fact that `TallyConfig` exists for:**
+
+```
+Tally, from macOS      192.168.64.2:9000
+the Mac, on bridge100  192.168.64.1
+```
+
+macOS `localhost` and guest `localhost` are **different machines**. This is
+exactly why `TallyConfig` takes a host and a port rather than assuming
+`localhost:9000` — see [`ARCHITECTURE.md` §3](./ARCHITECTURE.md#3-technology-choices-that-affect-the-design).
+The traffic is plain HTTP with no authentication, so it must stay on a private,
+trusted network.
+
+**First real read:** HTTP **200**, **1,594 bytes**, **65 ms**.
+
+### Three bugs, all found by real data, all fixed
+
+Full entries, with the guard chosen per class of defect, are in
+[`BOTTLENECKS.md` Part B](./BOTTLENECKS.md#part-b--resolved). Summary:
+
+| # | What real Tally did | Why it broke us | Fix |
+|---|---|---|---|
+| 1 | emitted **invalid XML** — `<PARENT TYPE="String">&#4; Primary</PARENT>`, a reference to U+0004, which XML 1.0 forbids | one reserved ledger name (`Profit & Loss A/c`) made the **whole chart of accounts** unparseable | strip illegal numeric character references in `sanitise()`, before the bare-ampersand pass. Guard: unit test. |
+| 2 | every response carries `<CMPINFO>…<VOUCHER>0</VOUCHER>` — a **count** | scanning the whole document for `VOUCHER` picked up that counter, so an **empty** company looked like a **corrupt export** | scope voucher parsing to `BODY/DATA`. Guard: the test fixture now emits the real `CMPINFO` shape, so it reproduces the failure. |
+| 3 | rejected **seven** different delete shapes | Tally identifies a voucher for Alter/Cancel/Delete by a **`TAGNAME`/`TAGVALUE` attribute pair** (a TDL method name and its value), **not by child tags**. `REMOTEID` is a **sync-lineage** field: stamped on export so it looks like a handle, but a locally-imported voucher has no remote-index entry. | the working envelope, below. Guard: unit test plus the end-to-end proof. |
+
+**The seven failures, recorded because the error messages are misleading:**
+
+```
+without REMOTEID                             Cannot delete unnamed object: VOUCHER!
+with REMOTEID                                Voucher does not exist!
+ACTION="Alter" + <ISDELETED>Yes</ISDELETED>  silently ignored
+                                             altered=0  deleted=0  errors=0
+```
+
+The third is the dangerous one: Tally reported success and did nothing.
+
+**The envelope that works:**
+
+```xml
+<VOUCHER DATE="2-Apr-2026" TAGNAME="Master ID" TAGVALUE="3"
+         ACTION="Delete" VCHTYPE="Journal"></VOUCHER>
+```
+
+**Two date formats in one document.** The `DATE` **attribute** is `dd-MMM-yyyy`.
+The `DATE` **child tag** is `yyyyMMdd`. Getting this wrong is silent.
+
+Official sources, both fetched 2026-08-08:
+- <https://help.tallysolutions.com/article/DeveloperReference/integration-capabilities/case_study_1.htm>
+- <https://help.tallysolutions.com/article/DeveloperReference/faq/6191.html>
+
+### Proven end to end, through the connector
+
+```
+trial balance BEFORE        {'AD Test Expense': 168456, ...}
+write Rs 5,000
+trial balance AFTER         {'AD Test Expense': 668456, ...}
+reverse_by_operation_id()   True
+read_by_operation_id()      None
+trial balance RESTORED      {'AD Test Expense': 168456, ...}
+
+EXACT RESTORE  True
+VOUCHER GONE   True
+```
+
+This is the sentence in [`ARCHITECTURE.md` §6](./ARCHITECTURE.md#6-mvp-definition)
+— *"one marked voucher appears in Tally, the voucher is read back, and reversal
+restores the exact prior trial balance"* — observed rather than asserted.
+
+### Still open
+
+**`trial_balance()` includes `Profit & Loss A/c`.** That is Tally's **derived
+closing figure, not a posting**, so the raw sum of the returned dict is not zero.
+The two real ledgers cancel exactly. Reversal is unaffected, because it compares
+the same dict before and after — equality, not a sum.
+[`BOTTLENECKS.md` A4](./BOTTLENECKS.md#a4--trial_balance-includes-a-derived-figure).
+
+### Owner-blocked
+
+**Educational mode rejects voucher dates outside the 1st, 2nd and 31st.**
+Measured: `2026-08-07` **REJECTED**, `2026-08-31` **ACCEPTED**. The 15
+client-fixture tests in `tests/test_tally_contract.py` post on `2026-08-07`
+(line 39), so they **cannot run unmodified**. A non-Educational licence is
+required.
+
+**Educational mode does NOT block deletion.** That theory was tested and
+disproven, so it never blocked the reversal work.
+
+Rewriting the test dates to fit the restriction is rejected: it would make the
+suite green on a configuration nobody intends to ship on, and would delete the
+only evidence that the restriction exists.
+[`BOTTLENECKS.md` A3](./BOTTLENECKS.md#a3--educational-mode-date-restriction-blocks-the-15-contract-tests).
+
+### The Windows guest-agent channel
+
+```
+utmctl exec              run a command in the guest
+utmctl file push|pull    move files in and out
+```
+
+**The agent runs as SYSTEM in SESSION 0**, so any GUI it launches is **invisible
+on the owner's desktop** while the call still returns success. A scheduled task
+created with **`/IT`** is what runs something the owner can actually see. The
+exit code is the one signal that cannot detect this.
+
+---
+
+## 22. Product quality — first measurements on real data
+
+**Measured 2026-08-08. These are the first product numbers this project has ever
+had, and they are worse than the targets. They are recorded exactly as measured.**
+
+### The detectors cover 2 of 12 published real error types
+
+```
+published real error types                12
+covered by current detectors               2
+UNCOVERED                                 10
+```
+
+Covered: `capital_expenditure_as_revenue`, `revenue_expenditure_as_capital`.
+
+**`first_use`, `magnitude` and `gst_anomaly` map to NOTHING in the published
+record.** `taxonomy.detectors_targeting_no_error_type()` returns all three.
+
+**Why, in one sentence:** real audit errors are **standing practices**, and all
+four detectors only catch **changes from history**. A wrong head used
+consistently for years never changes, so nothing fires.
+
+The ten uncovered types are **explicit backlog and proof work**, not shipped
+capability:
+
+```
+balance_under_wrong_balance_sheet_head      object_head_incompatible_with_major_head
+expenditure_exceeds_sanctioned_provision    parked_in_suspense_head
+expenditure_netted_against_receipt          receipt_classified_as_wrong_type
+expense_under_wrong_statement_head          related_party_not_identified
+tax_credit_claimed_where_not_admissible     wrong_expense_head_within_same_section
+```
+
+`accountant/taxonomy` holds one `Proposal` per uncovered type. **A proposal is a
+hypothesis, not a requirement** — do not write ten detectors off that table.
+`accountant/taxonomy` also deliberately never estimates **how often** an error
+type occurs: the published record does not support such a number, and an invented
+one would quietly become the argument for keeping or dropping a detector.
+
+[`BOTTLENECKS.md` A1](./BOTTLENECKS.md#a1--detectors-cover-2-of-12-published-real-error-types).
+
+### N1 = 27.59 — FAILING
+
+```
+N1  false alarms per 100 clean entries   27.59
+    target                               <= 10
+    verdict                              FAIL by 2.8x
+```
+
+**The first N1 ever measured on real data.** Every earlier N1 statement in this
+project was an unmeasured target.
+
+`accountant/score/harness.py` reports it as an explicit `PASS` or `FAIL`.
+**Do not tune a threshold to make it pass** — that moves the measurement, not the
+product. [`BOTTLENECKS.md` A2](./BOTTLENECKS.md#a2--n1-fails-by-28x).
+
+### Cross-organisation transfer: 0.00%
+
+```
+real UK central-government rows          16,011
+department pairs                             30
+within-department, best                  53.08%
+cross-department                          0.00%  on 29 of the 30 pairs
+```
+
+**Vendor→account mappings do not generalise.** This is an **answer**, not a
+defect, and it removes work rather than adding it:
+
+```
+memory is COMPANY-LOCAL ONLY
+every customer is a PERMANENT COLD START
+a pooled model across customers is WASTED EFFORT
+```
+
+**The product invariant this creates.** Because every customer is a cold start,
+an **existing** company must have its **own Tally history bootstrapped before the
+first proposal is shown**. An empty memory for an existing company is a **PRODUCT
+FAILURE**, not a neutral state — the system would ask about vendors the company
+has posted to for years. Stated as a design rule in
+[`ARCHITECTURE.md` §4.3](./ARCHITECTURE.md#43-memory-index--accountantmemoryindexpy--present)
+and carried into the MVP completion checklist in
+[`ARCHITECTURE.md` §11](./ARCHITECTURE.md#11-mvp-completion-checklist).
+
+### UK central government is not schema-stable either
+
+The narration column alone appears as:
+
+```
+Narrative                            Publication Description
+Description                          Invoice Cost Centre Description
+Item Text                            PO Catergory Description
+```
+
+**That misspelling and that trailing space are both in Defra's published file.**
+DfT publishes its amount column as the literal header `" £ "`. **DBT publishes
+its narration column and leaves all 199 cells EMPTY** — a present-but-empty
+column, which is why the loader reports it rather than treating it as absent.
+
+Handled in `accountant/ingest/spend.py`, tested against seven real department
+fixtures. [`BOTTLENECKS.md` B5](./BOTTLENECKS.md#b5--uk-central-government-is-not-schema-stable).
+
+---
+
+## 23. Documentation drift corrected
+
+Found and fixed 2026-08-08. Each row was verified against the repository before
+being written, not carried over from a prior claim.
+
+| Claim in the docs | Repository, verified 2026-08-08 | Action |
+|---|---|---|
+| `PROJECT_STATE.md` §1: `main @ 4cc290f`, 11 commits, clean | `f7bf5d9`, **16 commits**, working tree **not clean** | corrected, §1 |
+| `PROJECT_STATE.md` §8: real Tally connector **NOT STARTED**, evidence `grep … → nothing` | `accountant/tallyio/real.py`, **63.5 KB**, has run against a real Tally | corrected, §8 + §21 |
+| `PROJECT_STATE.md` §8: scoring harness #4 **NOT STARTED**, "no `accountant/score/`" | `accountant/score/` **PRESENT** — `__init__.py`, `book.py`, `harness.py`, `report.py` | corrected, §8 |
+| `PROJECT_STATE.md` §8: source inventory 2,049 lines / 18 files; tests 2,206 lines / 8 files / 242 tests | **7,658 lines / 38 files**; tests **7,050 lines / 14 files / 682 collected** | corrected, §8 |
+| `ARCHITECTURE.md` §4.10: `accountant/score/` **absent** | **PRESENT** | moved to §4.11, marked present |
+| `ARCHITECTURE.md` §4.10: `accountant/ingest/` **absent** | **PRESENT** — `sources.py`, `fetch.py`, `spend.py`, `crossorg.py`, `report.py`, 7 fixtures. Untracked in git. | moved to §4.12, marked present |
+| `ARCHITECTURE.md` §4.10: `accountant/taxonomy/` **absent** | **PRESENT** — `sources.py`, `findings.py`, `coverage.py`, `report.py`. Untracked in git. | moved to §4.13, marked present |
+| `ARCHITECTURE.md` §4.10: `accountant/rules/` **absent** | **STILL ABSENT** — `ls accountant/rules` → no such directory | left as absent, correctly |
+| `ARCHITECTURE.md` §4.2: `real.py` "has never run against a real Tally", A1–A10 hypotheses | it has run; three hypotheses were disproven by real data | status removed from `ARCHITECTURE.md`, evidence recorded in §21 |
+| `ARCHITECTURE.md` §3: Tally "on `localhost:9000`" | Tally is at **`192.168.64.2:9000`**; `TallyConfig` takes host and port | corrected |
+| `ARCHITECTURE.md` §4.4: four detectors presented without any coverage limit | **2 of 12** published error types covered | limit stated in `ARCHITECTURE.md` as a design consequence; the count lives here, §22 |
+| `ARCHITECTURE.md` §8: actionlint timings 1s / 25s stated inline | measurements do not belong in the blueprint | moved to `PROJECT_STATE.md` §11, linked from `ARCHITECTURE.md` |
+| `ARCHITECTURE.md` §7 and §12: phase status COMPLETE / BLOCKED / DEFERRED, and a "next action" | status does not belong in the blueprint | removed, replaced with links to §7 and §19 here |
+
+**Confirmed unchanged, re-verified rather than assumed:**
+
+```
+ci/gates.toml                20 gates            unchanged
+pyproject.toml               dependencies = []   unchanged, no web framework anywhere
+accountant/web/app.py        stdlib http.server  unchanged
+.python-version              3.14                unchanged
+.github/workflows/full.yml   Docker actionlint   STILL PRESENT, line 169 - deferred, not done
+```
+
+**Not built, and deliberately so.** The general fix for this class of drift is a
+**consistency check** over the `present` / `absent` markers in
+`ARCHITECTURE.md` §4. It does not exist.
+[`BOTTLENECKS.md` A8](./BOTTLENECKS.md#a8--documentation-drift-is-unchecked)
+records it as an open item — **not** as a new gate, and **not** as a blocking
+rule.
+
+---
+
+## 24. Tally licensing — OWNER DECISION, 2026-08-08
+
+**Option 2 selected: Educational-mode exception.**
+
+```
+Tally licensing status: Educational mode only.
+Phase 2 status:         ENVIRONMENT-LIMITED, not fully complete.
+Genuine owner blocker:  A legitimate non-Educational Tally licence is unavailable.
+Unchanged fixture:      2026-08-07.
+Limitation:             Educational mode cannot validate the original 2026-08-07
+                        contract because its date restrictions reject that fixture.
+Evidence status:        All other Phase 2 work is closed. The original 15-test
+                        contract suite remains blocked by environment licensing.
+                        Do not report Phase 2 as complete.
+```
+
+**Standing instructions attached to this decision.** Do not purchase, activate,
+bypass or simulate a non-Educational licence. Do not edit `2026-08-07`. Do not
+convert `ENVIRONMENT_LIMITED` into `PASS`. Do not use the accepted control date
+`2026-08-31` to claim the original fixture passed.
+
+### The measurement that forces it
+
+| voucher date | result | evidence |
+|---|---|---|
+| `2026-08-07` — the contract fixture | **REJECTED** | `TallyRejected … exceptions=1 line_errors=["Voucher dat…"]` |
+| `2026-08-31` — control | **ACCEPTED** | written, then reversed and cleaned up |
+| deletion / reversal | **WORKS** | `deleted=1 errors=0`, `VOUCHER GONE: True` |
+
+The control matters: it isolates the cause. Writing works, deleting works, and
+only the date is refused — so this is an **environment** limit, not an XML,
+connector or parser defect. §21 carries the rest of the live evidence.
+
+### How substitute evidence must be labelled
+
+Anything run around the restriction is a `mechanism test`, `mock test` or
+`Educational-mode test`. **Never** `full live-contract proof`. A copy of the
+fixture on an allowed day is a compatibility test and says so in its name. No
+substitute dataset may be used to claim GST or accounting validation.
+
+### What would close it
+
+A legitimate non-Educational licence, then the original unmodified
+`tests/test_tally_contract.py` run against `RealTally` with all 15
+client-fixture tests passing. Nothing else closes it, and no amount of local
+green changes that.
