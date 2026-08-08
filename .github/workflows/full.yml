@@ -217,7 +217,7 @@ jobs:
         # mutant to make this faster. The cache changes what is re-executed,
         # never what is counted.
         run: >
-          uv run pytest --gremlins --gremlin-parallel --gremlin-cache
+          uv run pytest --gremlins --gremlin-parallel
           --gremlin-targets=accountant --gremlin-report=json -q
       - name: mutation-accounting
         # Missing IDs = 0, duplicate IDs = 0, every mutant terminal, survivors

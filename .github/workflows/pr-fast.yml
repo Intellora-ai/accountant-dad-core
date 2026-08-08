@@ -290,9 +290,22 @@ jobs:
             echo "gremlins cache size    $(du -sh .gremlins_cache 2>/dev/null | cut -f1 || echo 0)"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # NOTE 2026-08-08: --gremlin-cache is deliberately NOT passed.
+      #
+      # A cached pytest-gremlins verdict carries no selected_tests, because the
+      # mutant was not re-executed. ci/check_mutation.py requires every mutant
+      # to name the tests it was scored against - that check is what catches a
+      # broken test-to-line mapping, the 87.92-versus-94.34 failure. With the
+      # cache on, every cached mutant looks identical to a mutant nothing ran
+      # against, and the run reports FAIL_INCOMPLETE. Observed twice.
+      #
+      # Owner rule: "mutation-result cache: only if proven correct." It is not
+      # proven correct, so it is not on the authoritative path. The restore and
+      # save steps are kept, not deleted, so re-enabling is a one-flag change
+      # once a cached verdict can carry its own mapping evidence.
       - name: full-mutation
         run: >
-          uv run pytest --gremlins --gremlin-parallel --gremlin-cache
+          uv run pytest --gremlins --gremlin-parallel
           --gremlin-targets=accountant --gremlin-report=json -q
 
       - name: mutation-accounting
