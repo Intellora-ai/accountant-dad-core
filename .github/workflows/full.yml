@@ -206,12 +206,12 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: .gremlins_cache
+          # Commit-specific and core-specific, no restore-keys. A verdict
+          # computed for one commit is never reused for another, and one
+          # computed on a broken coverage core is never reused on a good one.
           key: >-
-            gremlins-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{
-            hashFiles('accountant/**/*.py', 'tests/**/*.py') }}
-          restore-keys: |
-            gremlins-${{ runner.os }}-${{ hashFiles('uv.lock') }}-
-            gremlins-${{ runner.os }}-
+            gremlins-${{ runner.os }}-${{ env.COVERAGE_CORE }}-${{
+            hashFiles('uv.lock') }}-${{ github.sha }}
       - name: full-mutation
         # The complete inventory. Never delete, skip, hide, merge or relabel a
         # mutant to make this faster. The cache changes what is re-executed,
@@ -230,8 +230,8 @@ jobs:
         with:
           path: .gremlins_cache
           key: >-
-            gremlins-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{
-            hashFiles('accountant/**/*.py', 'tests/**/*.py') }}
+            gremlins-${{ runner.os }}-${{ env.COVERAGE_CORE }}-${{
+            hashFiles('uv.lock') }}-${{ github.sha }}
       - name: evidence
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1

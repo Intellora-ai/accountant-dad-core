@@ -252,12 +252,23 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: .gremlins_cache
+          # The commit SHA is IN the key and there are NO restore-keys, so a
+          # verdict computed for one commit can never be reused for another.
+          # Owner rule: "Never reuse mutation or security evidence for a
+          # different commit or merge candidate."
+          #
+          # Measured 2026-08-08: with a looser key the cache restored the
+          # previous commit's verdicts, all 267 mutants came back with no tests
+          # selected, and ci/check_mutation.py correctly reported
+          # FAIL_INCOMPLETE. The cache was reusing evidence across commits,
+          # which is exactly what the rule forbids.
+          #
+          # COVERAGE_CORE is in the key too: a verdict computed on a core where
+          # the test-to-line mapping is broken must never be reused on one
+          # where it works.
           key: >-
-            gremlins-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{
-            hashFiles('accountant/**/*.py', 'tests/**/*.py') }}
-          restore-keys: |
-            gremlins-${{ runner.os }}-${{ hashFiles('uv.lock') }}-
-            gremlins-${{ runner.os }}-
+            gremlins-${{ runner.os }}-${{ env.COVERAGE_CORE }}-${{
+            hashFiles('uv.lock') }}-${{ github.sha }}
 
       - name: cache telemetry
         # Proves the cache is used, rather than merely configured. A cache
@@ -287,8 +298,8 @@ jobs:
         with:
           path: .gremlins_cache
           key: >-
-            gremlins-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{
-            hashFiles('accountant/**/*.py', 'tests/**/*.py') }}
+            gremlins-${{ runner.os }}-${{ env.COVERAGE_CORE }}-${{
+            hashFiles('uv.lock') }}-${{ github.sha }}
 
       - name: evidence
         if: ${{ always() }}
