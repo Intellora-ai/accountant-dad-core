@@ -97,3 +97,6 @@ ALL_CHECKS = (
 def run(voucher: Voucher, accounts: Sequence[str]) -> list[CheckResult]:
     """Every applicable check, always all of them, so the count is reportable."""
     return [c(voucher, accounts) for c in ALL_CHECKS]
+
+# deliberate breakage: proving a red ci-gate blocks the merge
+import os  # noqa
