@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 ROOT = Path(__file__).resolve().parent.parent
 CONTRACT = ROOT / "ci" / "gates.toml"
@@ -110,7 +110,7 @@ def test_every_gate_has_every_required_field():
         "required",
         "status",
         "owner",
-        "job",
+        "jobs",
         "artifact",
         "failure_behaviour",
     )
@@ -181,13 +181,25 @@ def test_the_coverage_core_is_pinned():
 # ---- the contract and the workflows agree -----------------------------------
 
 
-def test_every_gate_names_a_job_that_exists():
+def test_every_gate_names_at_least_one_job():
+    """`jobs` is a non-empty list of unique names. A gate that runs nowhere is
+    a gate in name only."""
+    for g in gates():
+        raw = g["jobs"]
+        assert isinstance(raw, list), f"gate {g['name']!r} has jobs={raw!r}, not a list"
+        js: list[str] = [str(j) for j in cast(list[Any], raw)]
+        assert js, f"gate {g['name']!r} runs in no job at all"
+        assert len(js) == len(set(js)), f"gate {g['name']!r} lists a job twice: {js}"
+
+
+def test_every_gate_names_jobs_that_exist():
     if not WORKFLOWS.is_dir():
         return  # workflows not written yet; the next test covers the other side
     jobs = workflow_job_names()
     for g in gates():
-        assert g["job"] in jobs, (
-            f"gate {g['name']!r} points at job {g['job']!r}, which no workflow defines"
+        unknown = [j for j in g["jobs"] if j not in jobs]
+        assert not unknown, (
+            f"gate {g['name']!r} points at {unknown}, which no workflow defines"
         )
 
 
@@ -195,17 +207,19 @@ def test_every_workflow_job_is_declared_in_the_contract():
     """No job may exist only as an unexplained YAML fragment."""
     if not WORKFLOWS.is_dir():
         return
-    declared = {g["job"] for g in gates()}
+    declared = {j for g in gates() for j in g["jobs"]}
+    excused = set(contract()["meta"].get("non_gate_jobs", []))
     for job in workflow_job_names():
-        assert job in declared, (
-            f"workflow job {job!r} has no gate behind it in ci/gates.toml"
+        assert job in declared or job in excused, (
+            f"workflow job {job!r} has no gate behind it in ci/gates.toml, "
+            "and is not declared in meta.non_gate_jobs"
         )
 
 
 def test_the_required_check_names_are_exactly_what_github_will_publish():
     """GitHub matches required status checks as exact strings."""
     meta = contract()["meta"]
-    jobs = {g["job"] for g in gates()}
+    jobs = {j for g in gates() for j in g["jobs"]}
     assert meta["required_pr_check"] in jobs
     assert meta["required_mq_check"] in jobs
 
@@ -220,3 +234,48 @@ def test_every_command_in_the_contract_appears_in_a_workflow():
         assert head in text, (
             f"gate {g['name']!r} runs {head!r}, which appears in no workflow"
         )
+
+
+# ---- the migration guard ----------------------------------------------------
+
+
+def test_the_gate_name_set_matches_the_lock_file():
+    """The schema changed from `job` to `jobs`. This proves nothing else did.
+
+    ci/gate_names.lock holds the gate-name set as it stood before the change.
+    Any gate added, removed, renamed or duplicated fails here until the lock
+    file is updated deliberately, in the same commit, with a stated reason.
+    """
+    lock = ROOT / "ci" / "gate_names.lock"
+    assert lock.is_file(), "ci/gate_names.lock is missing; the migration guard is gone"
+    locked = sorted(
+        line.strip()
+        for line in lock.read_text().splitlines()
+        if line.strip() and not line.startswith("#")
+    )
+    current = sorted(g["name"] for g in gates())
+
+    added = sorted(set(current) - set(locked))
+    removed = sorted(set(locked) - set(current))
+    assert not removed, (
+        f"gate(s) REMOVED: {removed}. The number of gates may only go up. "
+        "A diff that shortens this list is a violation regardless of reason."
+    )
+    assert not added, (
+        f"gate(s) added without updating ci/gate_names.lock: {added}. "
+        "Adding a gate is allowed; adding one silently is not."
+    )
+    assert current == locked
+
+
+def test_the_gate_count_has_not_gone_down():
+    lock = ROOT / "ci" / "gate_names.lock"
+    locked = [
+        line.strip()
+        for line in lock.read_text().splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+    assert len(gates()) >= len(locked), (
+        f"{len(gates())} gates now, {len(locked)} in the lock file. "
+        "The count may only go up."
+    )

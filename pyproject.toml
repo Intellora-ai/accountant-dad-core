@@ -23,6 +23,7 @@ dev = [
     "pip-audit>=2.10",     # dependency vulnerabilities
     "bandit>=1.9",         # Python security scan
     "zizmor>=1.29",        # GitHub Actions security lint
+    "prek>=0.4",           # installs the commit hook
     "build>=1.5",          # sdist/wheel
     "twine>=7.0",          # packaging metadata validation
 ]
@@ -35,7 +36,7 @@ build-backend = "setuptools.build_meta"
 include = ["accountant*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "ci"]
 
 # ---------------------------------------------------------------------------
 # ruff - lint and format. target-version is deliberately unset so ruff infers
@@ -61,8 +62,11 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Tests assert. S101 forbids assert. Tests are where assert belongs.
+# Tests assert. S101 forbids assert. Tests are where assert belongs, wherever
+# they live - ci/test_protection.py is a test that happens to sit next to the
+# scripts it guards.
 "tests/*" = ["S101"]
+"ci/test_*.py" = ["S101"]
 
 # ---------------------------------------------------------------------------
 # pyright - the only type checker

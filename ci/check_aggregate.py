@@ -32,23 +32,44 @@ EXPLICIT_FAILURE = frozenset({"failure", "cancelled", "timed_out"})
 NO_EVIDENCE = frozenset({"skipped", ""})
 
 
-def expected_jobs(aggregate_job: str) -> list[str]:
-    """Every active job this aggregate is responsible for.
+# Which jobs must have reported, per phase. Read from the contract rather than
+# typed here, so a gate added to a job cannot be quietly left out of the gate.
+PHASES = {
+    # Every push. Cheap gates only.
+    "fast": {"pr-fast"},
+    # Before merge. Everything, including mutation, full coverage, security
+    # and build. A green fast phase alone is never enough.
+    "full": {"pr-fast", "pr-full"},
+    # The scheduled and manual authoritative run.
+    "nightly": {"full-tests", "security", "build", "workflow-checks", "mutation"},
+}
 
-    Two are excluded, both for structural reasons rather than convenience:
 
-      the aggregate itself, which cannot depend on its own result;
+def expected_jobs(aggregate_job: str, phase: str) -> list[str]:
+    """Every job this aggregate is responsible for, for this phase.
 
-      the required pull-request check, which runs on the `pull_request`
-      trigger and is a required check in its own right. It is never one of
-      this job's dependencies, so demanding it here would fail every merge.
+    The aggregate itself is excluded: it cannot depend on its own result.
+
+    Jobs are cross-checked against the contract, so a phase can only name jobs
+    that gates actually declare. A typo here would otherwise silently shrink
+    what the aggregate demands.
     """
     with CONTRACT.open("rb") as fh:
         data = tomllib.load(fh)
-    jobs = {g["job"] for g in data["gate"] if g["status"] == "active"}
-    jobs.discard(aggregate_job)
-    jobs.discard(str(data["meta"]["required_pr_check"]))
-    return sorted(jobs)
+    declared = {j for g in data["gate"] if g["status"] == "active" for j in g["jobs"]}
+
+    wanted = PHASES.get(phase)
+    if wanted is None:
+        raise SystemExit(f"unknown phase {phase!r}, expected one of {sorted(PHASES)}")
+
+    unknown = wanted - declared
+    if unknown:
+        raise SystemExit(
+            f"phase {phase!r} names job(s) {sorted(unknown)} that no gate declares "
+            "in ci/gates.toml"
+        )
+
+    return sorted(wanted - {aggregate_job})
 
 
 def main() -> int:
@@ -59,6 +80,12 @@ def main() -> int:
         help="the GitHub `needs` context as JSON, i.e. ${{ toJSON(needs) }}",
     )
     ap.add_argument("--self", default="ci-gate", help="this job's own name")
+    ap.add_argument(
+        "--phase",
+        default="fast",
+        choices=sorted(PHASES),
+        help="which set of jobs must have reported",
+    )
     args = ap.parse_args()
 
     try:
@@ -67,7 +94,7 @@ def main() -> int:
         print(f"FAIL - the needs context is not valid JSON: {exc}", file=sys.stderr)
         return 1
 
-    expected = expected_jobs(args.self)
+    expected = expected_jobs(args.self, args.phase)
     verdicts: list[tuple[str, str, str]] = []
     ok = True
 
@@ -92,7 +119,13 @@ def main() -> int:
             verdicts.append((job, "UNKNOWN", result))
             ok = False
 
-    unexpected = sorted(set(needs) - set(expected))
+    # In the fast phase pr-full is deliberately skipped, so its presence in
+    # `needs` is expected and is NOT a stray job.
+    every_phase_job: set[str] = set()
+    for jobs in PHASES.values():
+        every_phase_job |= jobs
+    known: set[str] = set(expected) | {str(args.self)} | every_phase_job
+    unexpected = sorted(set(needs) - known)
 
     width = max((len(j) for j, _, _ in verdicts), default=10)
     for job, verdict, detail in verdicts:
@@ -111,7 +144,10 @@ def main() -> int:
         print("\nci-gate: FAIL")
         return 1
 
-    print(f"\nci-gate: PASS - {len(expected)} job(s), all reported success")
+    print(
+        f"\nci-gate: PASS - phase {args.phase!r}, "
+        f"{len(expected)} job(s), all reported success"
+    )
     return 0
 
 

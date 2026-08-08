@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# One command to get this repository ready to work in.
+#
+#   ./scripts/setup
+#
+# Installs dependencies from the lockfile, fetches the pinned actionlint, and
+# installs the commit hook. Says plainly when something did not install rather
+# than leaving you believing it did.
+
+set -uo pipefail
+cd "$(dirname "$0")/.."
+
+PY=".venv/bin"
+problems=0
+
+step() { printf '\n\033[1m%s\033[0m\n' "$1"; }
+ok()   { printf '  \033[32m✓\033[0m %s\n' "$1"; }
+bad()  { printf '  \033[31m✗\033[0m %s\n' "$1"; problems=$((problems + 1)); }
+
+step "dependencies"
+if command -v uv >/dev/null 2>&1; then
+  UV=uv
+elif [ -x "$PY/uv" ]; then
+  UV="$PY/uv"
+else
+  bad "uv is not installed - see https://docs.astral.sh/uv/getting-started/"
+  UV=""
+fi
+
+if [ -n "$UV" ]; then
+  if $UV sync --extra dev --frozen; then
+    ok "dependencies installed from uv.lock"
+  else
+    bad "uv sync failed"
+  fi
+fi
+
+step "actionlint"
+if ./scripts/install-actionlint; then
+  ok "actionlint ready"
+else
+  bad "actionlint not installed - ./scripts/guards will FAIL on workflow changes"
+fi
+
+step "commit hook"
+if [ ! -x "$PY/prek" ]; then
+  bad "prek is missing - run: $UV sync --extra dev --frozen"
+elif "$PY/prek" install >/dev/null 2>&1 && [ -f .git/hooks/pre-commit ]; then
+  ok "commit hook installed at .git/hooks/pre-commit"
+else
+  bad "prek install did not create .git/hooks/pre-commit"
+fi
+
+step "result"
+if [ "$problems" -eq 0 ]; then
+  cat <<'EOF'
+  Ready.
+
+  The commit hook runs ./scripts/guards --staged on every commit.
+
+  IT IS AN ACCELERATOR, NOT A GATE. Everything it checks, CI checks again and
+  blocks on. Skipping it with --no-verify weakens nothing; it only means you
+  find out slower.
+
+    ./scripts/guards          the fast gates
+    ./scripts/guards --full   everything, including mutation
+EOF
+  exit 0
+fi
+
+cat <<EOF
+  ${problems} thing(s) did not install.
+
+  LOCAL PROTECTION IS NOT FULLY INSTALLED. Fix the lines marked above before
+  relying on the commit hook. CI still blocks the merge either way.
+EOF
+exit 1

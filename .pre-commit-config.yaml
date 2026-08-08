@@ -1,0 +1,25 @@
+# The commit hook.
+#
+# THIS IS AN ACCELERATOR, NOT A GATE.
+#
+# Every check here runs again in CI, which is what actually blocks the merge.
+# `git commit --no-verify` therefore weakens nothing - it only means you find
+# out slower. Nothing reaches main because this hook was skipped.
+#
+# Install:  ./scripts/setup
+#
+# Staged mode is kept to a couple of seconds on purpose. A hook slow enough to
+# be worth bypassing is a hook that gets bypassed.
+
+fail_fast: true
+
+repos:
+  - repo: local
+    hooks:
+      - id: guards-staged
+        name: guards (staged files) - accelerator, not a gate
+        entry: ./scripts/guards --staged
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]

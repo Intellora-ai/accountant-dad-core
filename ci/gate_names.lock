@@ -1,0 +1,30 @@
+# The gate-name set, locked.
+#
+# tests/test_gate_contract.py asserts ci/gates.toml matches this file
+# exactly. Any gate added, removed or renamed fails the build until this
+# file is deliberately updated in the same commit, with a reason.
+#
+# Standing rule: the number of gates may only go UP. A commit that shortens
+# this list is a violation regardless of reason.
+#
+# locked at 20 gates, 2026-08-08
+cached-mutation
+changed-coverage
+changed-tests
+ci-gate
+dependency-audit
+format
+full-coverage
+full-mutation
+full-tests
+gate-contract
+lint
+lockfile
+mutation-accounting
+no-stub-jobs
+package-build
+package-metadata
+security-scan
+typecheck
+workflow-lint
+workflow-security

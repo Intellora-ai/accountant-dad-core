@@ -206,18 +206,18 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: .gremlins_cache
+          # Commit-specific and core-specific, no restore-keys. A verdict
+          # computed for one commit is never reused for another, and one
+          # computed on a broken coverage core is never reused on a good one.
           key: >-
-            gremlins-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{
-            hashFiles('accountant/**/*.py', 'tests/**/*.py') }}
-          restore-keys: |
-            gremlins-${{ runner.os }}-${{ hashFiles('uv.lock') }}-
-            gremlins-${{ runner.os }}-
+            gremlins-${{ runner.os }}-${{ env.COVERAGE_CORE }}-${{
+            hashFiles('uv.lock') }}-${{ github.sha }}
       - name: full-mutation
         # The complete inventory. Never delete, skip, hide, merge or relabel a
         # mutant to make this faster. The cache changes what is re-executed,
         # never what is counted.
         run: >
-          uv run pytest --gremlins --gremlin-parallel --gremlin-cache
+          uv run pytest --gremlins --gremlin-parallel
           --gremlin-targets=accountant --gremlin-report=json -q
       - name: mutation-accounting
         # Missing IDs = 0, duplicate IDs = 0, every mutant terminal, survivors
@@ -230,8 +230,8 @@ jobs:
         with:
           path: .gremlins_cache
           key: >-
-            gremlins-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{
-            hashFiles('accountant/**/*.py', 'tests/**/*.py') }}
+            gremlins-${{ runner.os }}-${{ env.COVERAGE_CORE }}-${{
+            hashFiles('uv.lock') }}-${{ github.sha }}
       - name: evidence
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -271,4 +271,63 @@ jobs:
         # quietly left out of the aggregate.
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
-        run: uv run --no-project python ci/check_aggregate.py --needs "${NEEDS_JSON}"
+        run: |
+          uv run --no-project python ci/check_aggregate.py \
+            --needs "${NEEDS_JSON}" --phase nightly
+
+  # ---------------------------------------------------------------------------
+  # A red nightly nobody is told about is not a control, it is a colour on a
+  # page nobody visits. This turns it into one deduplicated, self-closing issue.
+  #
+  # `issues: write` exists on THIS job and nowhere else in the repository.
+  # ---------------------------------------------------------------------------
+  nightly-report:
+    name: nightly-report
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    if: ${{ always() && github.event_name == 'schedule' }}
+    needs: [full-tests, security, build, workflow-checks, mutation, ci-gate]
+    permissions:
+      contents: read   # read ci/gates.toml and the reporting scripts
+      issues: write    # open, update and close the one failure issue
+    steps:
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          enable-cache: true
+          cache-suffix: ${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          cache-dependency-glob: uv.lock
+
+      - name: report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          RUN_ID: ${{ github.run_id }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          failed=$(printf '%s' "${NEEDS_JSON}" | uv run --no-project python -c "
+          import json, sys
+          needs = json.load(sys.stdin)
+          print(','.join(
+              name for name, info in needs.items()
+              if info.get('result') != 'success'
+          ))
+          ")
+          status=$([ -n "${failed}" ] && echo failure || echo success)
+          echo "nightly outcome: ${status}  failed jobs: ${failed:-none}"
+          uv run --no-project python ci/report_nightly.py \
+            --status "${status}" --run-id "${RUN_ID}" \
+            --sha "${SHA}" --jobs "${failed}"
+
+      - name: runtime statistics
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --no-project python ci/report_runtimes.py \
+            | tee -a "$GITHUB_STEP_SUMMARY"

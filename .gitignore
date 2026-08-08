@@ -29,3 +29,6 @@ reports/
 
 # Mutation and coverage reports
 coverage/
+
+# Pinned tools fetched by scripts/install-actionlint
+.tools/
