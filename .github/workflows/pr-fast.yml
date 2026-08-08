@@ -80,6 +80,21 @@ jobs:
       - name: no-stub-jobs
         run: uv run python ci/check_stubs.py
 
+      - name: install actionlint
+        # NOT the rhysd/actionlint action. It is a Docker action, so GitHub
+        # rebuilds its container on every push: measured 2026-08-08, 25s of
+        # container build for a check that takes 1s. This installer downloads
+        # the pinned v1.7.12 release binary and verifies its SHA-256 - 3.5s
+        # cold locally. It fails closed on unknown platform, failed download
+        # or checksum mismatch. It never falls back to latest or to a warning.
+        run: ./scripts/install-actionlint
+
+      - name: workflow-lint
+        run: ./.tools/actionlint -color
+
+      - name: workflow-security
+        run: uv run zizmor --persona=pedantic --format=plain .
+
       - name: security-scan
         # Owner-set 2026-08-07: every severity blocks, LOW included. Target is
         # accountant/ only - tests are not shipped and never run under -O.
