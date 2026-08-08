@@ -120,20 +120,34 @@ def test_the_required_core_emits_no_context_warning():
 def test_the_canary_can_fail():
     """A test that cannot fail is not a test.
 
-    Proves this canary distinguishes a working mapping from a broken one, by
-    running the identical probe on the core that is known to break it. If this
-    ever starts passing, the check has stopped detecting anything and the
-    mutation score must not be trusted until it is re-derived.
+    Proves the canary distinguishes a working mapping from a broken one, by
+    running the identical probe on the core known to break it.
+
+    The sysmon core only exhibits the fault on interpreters where coverage
+    actually USES it. On Python 3.12 coverage silently falls back to a core
+    that does support dynamic contexts, so the probe comes back complete and
+    there is nothing to discriminate against. Measured 2026-08-08: broken on
+    local 3.14, not reproducible on the 3.12.3 GitHub runner.
+
+    Where the fault does not reproduce this skips LOUDLY rather than passing
+    quietly. A green tick that checked nothing is the exact dishonesty these
+    gates exist to prevent.
     """
     broken = _probe("sysmon")
+    warned = any("dynamic context" in w.lower() for w in broken["warnings"])
+
+    if not warned and broken["contexts"] == sorted(CONTEXTS):
+        pytest.skip(
+            f"the sysmon fault does not reproduce on {sys.version.split()[0]}: "
+            "coverage fell back to a core that supports dynamic contexts, so "
+            "there is nothing here to discriminate against. The positive "
+            "canary above still proves the mapping works on this interpreter."
+        )
+
     assert broken["contexts"] != sorted(CONTEXTS), (
-        "the sysmon core recorded every context switch, so this canary no "
-        "longer distinguishes a working mapping from a broken one. Re-derive "
-        "the check before trusting any mutation score."
-    )
-    assert any("dynamic context" in w.lower() for w in broken["warnings"]), (
-        "the sysmon core stopped warning about dynamic contexts; the signal "
-        "this canary relies on has changed."
+        "the sysmon core warned about dynamic contexts yet recorded every "
+        "switch. The warning and the behaviour disagree; re-derive this check "
+        "before trusting any mutation score."
     )
 
 
