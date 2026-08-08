@@ -16,7 +16,7 @@ on:
     # `labeled` matters: applying `ready-to-merge` is what starts the full
     # phase. `synchronize` matters just as much - a new commit must rerun
     # everything, so evidence is never carried across commits.
-    types: [opened, reopened, synchronize, labeled, unlabeled]
+    types: [opened, reopened, synchronize, labeled, unlabeled, ready_for_review, converted_to_draft]
   # The merge queue reruns this same required check against the temporary
   # merge-group commit. One required check on both triggers, never two
   # checks each waiting for the other.
@@ -201,8 +201,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs: pr-fast
+    # Draft means still iterating: fast checks only, so a push costs seconds.
+    # Ready for review, or the ready-to-merge label, means the change is being
+    # put forward: everything runs, against the same merge commit. A later push
+    # to a ready pull request reruns both, so evidence is never carried across
+    # commits.
     if: >
       github.event_name == 'merge_group' ||
+      github.event.pull_request.draft == false ||
       contains(github.event.pull_request.labels.*.name, 'ready-to-merge')
     steps:
       - name: checkout
@@ -346,6 +352,7 @@ jobs:
           NEEDS_JSON: ${{ toJSON(needs) }}
           LABELLED: >-
             ${{ github.event_name == 'merge_group' ||
+                github.event.pull_request.draft == false ||
                 contains(github.event.pull_request.labels.*.name,
                          'ready-to-merge') }}
         run: |
