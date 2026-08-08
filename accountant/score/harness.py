@@ -1,8 +1,21 @@
-"""Score one book: run the pipeline over it, count, and judge N1, N2 and N3.
+"""Score one book: evaluate every entry, count, and judge N1, N2 and N3.
 
     N1  false alarms per 100 clean entries      <= 10
     N2  review time as a fraction of read-all   <= 10%
     N3  catch rate per injected error type      >= 90%
+
+N1 IS REPORTED FOUR WAYS, because one number cannot be acted on:
+
+    overall              false alarms per 100 clean entries
+    per detector         which detector produced each one, in `per_detector`
+    duplicates apart     `duplicate_flags` against `distinct_problems`, so an
+                         entry two detectors agree about is one problem
+    per error type       catch rate for each type in `per_type`
+
+The thresholds those detectors run at were chosen by
+`accountant/score/calibration.py` on one set of clean books and measured on a
+separate held-out set. `ScoreReport.withdrawn` names every detector that did
+not run and why, so a narrower detector set is always a stated fact.
 
 N3 CAVEAT, recorded in the frozen plan: constructed errors matched to
 purpose-built detectors should score near 100%. It is a build-correctness check,
@@ -29,6 +42,14 @@ N3, so those report FAIL with the reason stated rather than a vacuous PASS.
 Every reported number is an integer. Percentages are carried in hundredths of a
 percent, so no float ever touches a result, and PASS/FAIL is decided by exact
 integer comparison rather than by the rounded number that gets printed.
+
+WHY THIS DOES NOT CALL `accountant/pipeline.py`
+-----------------------------------------------
+The four steps in `_evaluate_one` - checks, detectors, problems, decision -
+are the decision path itself, and are the same four the pipeline runs. They
+are composed here rather than reached through the pipeline so that a scoring
+number measures the detectors, and does not move when the pipeline's draft
+type, its extraction adapter or its company scoping change around them.
 """
 
 from __future__ import annotations
@@ -38,9 +59,9 @@ from dataclasses import dataclass
 from enum import StrEnum
 from fractions import Fraction
 
-from accountant import pipeline
+from accountant import checks, problems
+from accountant.decide import decide_problems
 from accountant.detect import detectors
-from accountant.extract.adapter import ExtractedRecord
 from accountant.memory.index import MemoryIndex
 from accountant.schema import Outcome, Voucher
 from accountant.score.book import Book
@@ -52,10 +73,6 @@ N3_MIN_CATCH_PERCENT = 90
 
 # A percentage carried to two decimal places as a whole number: 9000 is 90.00%.
 PERCENT_SCALE = 10_000
-
-# The book already holds the values a reader would have produced, so provenance
-# names the book rather than pretending a document was read.
-BACKEND = "generated_book"
 
 
 class Status(StrEnum):
@@ -71,8 +88,8 @@ class Status(StrEnum):
     MISSED = "FAIL"
 
 
-def _rate(numerator: int, denominator: int, scale: int) -> int:
-    """numerator / denominator * scale, rounded half up, in integers only."""
+def scaled_rate(numerator: int, denominator: int, scale: int) -> int:
+    """numerator over denominator, times scale, rounded half up, in integers."""
     return (numerator * scale * 2 + denominator) // (denominator * 2)
 
 
@@ -95,16 +112,64 @@ class MetricResult:
 
 @dataclass(frozen=True)
 class EntryResult:
-    """What the pipeline did with one entry."""
+    """What the pipeline did with one entry.
+
+    `flags` are the alerts a person would see: one per distinct underlying
+    problem, duplicates already folded in. `fired` names **every** detector
+    that fired, folded ones included, because a detector whose alert was
+    merged still produced that alert and must still be charged for it.
+    """
 
     voucher_id: str
     error_type: str | None
     flags: tuple[str, ...]
     outcome: Outcome
+    fired: tuple[str, ...] = ()
+    duplicate_flags: int = 0
 
     @property
     def flagged(self) -> bool:
         return bool(self.flags)
+
+    @property
+    def distinct_problems(self) -> int:
+        return len(self.flags)
+
+
+@dataclass(frozen=True)
+class DetectorAlarms:
+    """One detector's own share of the false alarms, and of the catches.
+
+    This is the answer to "which detector produced this false alarm". A
+    detector that fired on an entry is counted here even when its alert was
+    merged into another detector's, so suppression can never flatter it.
+    """
+
+    detector: str
+    false_alarms: int
+    clean_entries: int
+    caught: int
+    injected_entries: int
+
+    @property
+    def measured(self) -> bool:
+        return self.clean_entries > 0
+
+    @property
+    def false_alarms_per_100_hundredths(self) -> int | None:
+        """False alarms per 100 clean entries, in hundredths. None if unmeasured."""
+        if not self.measured:
+            return None
+        return scaled_rate(self.false_alarms, self.clean_entries, PERCENT_SCALE)
+
+    @property
+    def within_target(self) -> bool:
+        """Measured, and inside the whole N1 target on its own."""
+        return (
+            self.measured
+            and self.false_alarms * 100
+            <= N1_MAX_FALSE_ALARMS_PER_100 * self.clean_entries
+        )
 
 
 @dataclass(frozen=True)
@@ -125,7 +190,7 @@ class ErrorTypeCatch:
 
     @property
     def rate_hundredths(self) -> int:
-        return _rate(self.caught, self.injected, PERCENT_SCALE)
+        return scaled_rate(self.caught, self.injected, PERCENT_SCALE)
 
     @property
     def passes(self) -> bool:
@@ -152,13 +217,28 @@ class ScoreReport:
     n1: MetricResult
     n2: MetricResult
     n3: MetricResult
+    per_detector: tuple[DetectorAlarms, ...] = ()
+    duplicate_flags: int = 0
+    distinct_problems: int = 0
+    withdrawn: tuple[detectors.Withdrawn, ...] = ()
+
+    @property
+    def worst_detector(self) -> DetectorAlarms | None:
+        """The detector responsible for most of N1, or None if none fired.
+
+        Named so a FAIL can never be reported without saying whose it is.
+        """
+        firing = [d for d in self.per_detector if d.false_alarms > 0]
+        if not firing:
+            return None
+        return max(firing, key=lambda d: (d.false_alarms, d.detector))
 
     @property
     def overall_catch_hundredths(self) -> int | None:
         """Catch rate over every injected error, or None on a clean book."""
         if self.injected_entries == 0:
             return None
-        return _rate(self.caught, self.injected_entries, PERCENT_SCALE)
+        return scaled_rate(self.caught, self.injected_entries, PERCENT_SCALE)
 
     @property
     def metrics(self) -> tuple[MetricResult, ...]:
@@ -181,39 +261,68 @@ def _evaluate_one(
     detector_set: Sequence[detectors.Detector],
     error_type: str | None,
 ) -> EntryResult:
-    """Run the real evaluation path over one entry. Nothing is ever written."""
-    draft = pipeline.Draft(
-        id=entry.id,
-        company=book.company,
-        voucher=entry,
-        # The record restates the entry, so the draft's provenance matches the
-        # voucher it carries rather than claiming a document was read.
-        record=ExtractedRecord(
-            date=entry.date,
-            party=entry.party,
-            total_paise=entry.amount_paise,
-            tax_paise=entry.gst_paise,
-            raw_text=entry.narration,
-            backend=BACKEND,
-            per_field_source=dict.fromkeys(ExtractedRecord.FIELDS, BACKEND),
-        ),
-        # Scoring never calls pipeline.post, so this identifier never leaves
-        # this process. It is named so that it could not be mistaken for one.
-        operation_id=f"score-only-{entry.id}",
-    )
-    draft = pipeline.evaluate(
-        draft,
+    """Run the evaluation over one entry. Nothing is ever written.
+
+    The four steps below are the decision path itself - the same checks, the
+    same detectors, the same problems, the same decision order the web app
+    reaches through `accountant/pipeline.py`. They are composed here rather
+    than called through the pipeline so that scoring measures the DETECTORS,
+    and does not move when the pipeline's wiring, its draft type or its
+    company-scoping change around them.
+    """
+    passed = checks.run(entry, book.accounts)
+    flags, _ = detectors.run(entry, book.history, index, detector_set)
+    # The same detectors, run again without duplicate suppression, so a
+    # detector whose alert was folded into another is still charged for it.
+    # Both calls are pure functions of the same inputs, so the two views can
+    # never disagree about what fired.
+    raw, _ = detectors.run(entry, book.history, index, detector_set, dedupe=False)
+    found = problems.find(
+        entry,
+        passed,
+        index.lookup(entry.party),
+        flags,
         book.accounts,
         book.history,
         index,
-        detector_set=detector_set,
     )
     return EntryResult(
         voucher_id=entry.id,
         error_type=error_type,
-        flags=tuple(f.detector for f in draft.flags),
-        outcome=draft.outcome,
+        flags=tuple(f.detector for f in flags),
+        outcome=decide_problems(found).outcome,
+        fired=tuple(sorted({f.detector for f in raw})),
+        duplicate_flags=len(raw) - len(flags),
     )
+
+
+def _per_detector(
+    results: Sequence[EntryResult], detector_set: Sequence[detectors.Detector]
+) -> tuple[DetectorAlarms, ...]:
+    """Every detector that ran, with its own false alarms and its own catches.
+
+    A detector that never fired is listed with a count of nought rather than
+    left out, because a report that only names the noisy ones hides which
+    detectors are earning nothing.
+    """
+    clean = sum(1 for r in results if r.error_type is None)
+    injected = len(results) - clean
+    rows: list[DetectorAlarms] = []
+    for name in _detector_names(detector_set):
+        rows.append(
+            DetectorAlarms(
+                detector=name,
+                false_alarms=sum(
+                    1 for r in results if r.error_type is None and name in r.fired
+                ),
+                clean_entries=clean,
+                caught=sum(
+                    1 for r in results if r.error_type is not None and name in r.fired
+                ),
+                injected_entries=injected,
+            )
+        )
+    return tuple(rows)
 
 
 def _per_type(results: Sequence[EntryResult]) -> tuple[ErrorTypeCatch, ...]:
@@ -232,7 +341,25 @@ def _per_type(results: Sequence[EntryResult]) -> tuple[ErrorTypeCatch, ...]:
     )
 
 
-def _n1(false_alarms: int, clean: int) -> MetricResult:
+def _blamed(per_detector: Sequence[DetectorAlarms]) -> str:
+    """Which detector produced the most false alarms, in words.
+
+    A false-alarm number with no name attached cannot be acted on, so N1 never
+    reports one without saying whose it is.
+    """
+    firing = [d for d in per_detector if d.false_alarms > 0]
+    if not firing:
+        return "no detector fired on a clean entry"
+    worst = max(firing, key=lambda d: (d.false_alarms, d.detector))
+    return (
+        f"most of them from {worst.detector} "
+        f"({worst.false_alarms} of {worst.clean_entries} clean entries)"
+    )
+
+
+def _n1(
+    false_alarms: int, clean: int, per_detector: Sequence[DetectorAlarms] = ()
+) -> MetricResult:
     requirement = "false alarms per 100 clean entries"
     target = f"<= {N1_MAX_FALSE_ALARMS_PER_100}"
     unit = "per 100 clean entries"
@@ -251,11 +378,14 @@ def _n1(false_alarms: int, clean: int) -> MetricResult:
         requirement=requirement,
         target=target,
         unit=unit,
-        measured_hundredths=_rate(false_alarms, clean, PERCENT_SCALE),
+        measured_hundredths=scaled_rate(false_alarms, clean, PERCENT_SCALE),
         status=Status.MET
         if false_alarms * 100 <= N1_MAX_FALSE_ALARMS_PER_100 * clean
         else Status.MISSED,
-        detail=(f"{false_alarms} of {clean} clean entries carried at least one flag"),
+        detail=(
+            f"{false_alarms} of {clean} clean entries carried at least one flag; "
+            f"{_blamed(per_detector)}"
+        ),
     )
 
 
@@ -282,7 +412,7 @@ def _n2(
         requirement=requirement,
         target=target,
         unit=unit,
-        measured_hundredths=_rate(review, read_all, PERCENT_SCALE),
+        measured_hundredths=scaled_rate(review, read_all, PERCENT_SCALE),
         status=Status.MET
         if review * 100 <= N2_MAX_REVIEW_PERCENT * read_all
         else Status.MISSED,
@@ -327,13 +457,17 @@ def score(
     *,
     read_seconds: int,
     dismiss_seconds: int,
-    detector_set: Sequence[detectors.Detector] = detectors.ALL_DETECTORS,
+    detector_set: Sequence[detectors.Detector] = detectors.ACTIVE_DETECTORS,
 ) -> ScoreReport:
     """Score one book. Same book in, identical numbers out, every time.
 
     `read_seconds` is R and `dismiss_seconds` is D. Both are self-timed inputs
     with no defaults, because nobody has supplied those numbers and a default
     would be an invented measurement. Both are whole seconds, at least 1.
+
+    The default detector set is `ACTIVE_DETECTORS`, not every detector that
+    exists. Every report names both the detectors that ran and the ones that
+    were withdrawn, so a narrower set can never look like the whole of them.
     """
     if read_seconds < 1:
         raise ValueError(
@@ -360,6 +494,8 @@ def score(
     caught = sum(1 for r in results if r.error_type is not None and r.flagged)
     flagged = sum(1 for r in results if r.flagged)
     per_type = _per_type(results)
+    per_detector = _per_detector(results, detector_set)
+    ran = set(_detector_names(detector_set))
 
     return ScoreReport(
         seed=book.truth.seed,
@@ -375,7 +511,21 @@ def score(
         caught=caught,
         per_type=per_type,
         entries=results,
-        n1=_n1(false_alarms, clean),
+        n1=_n1(false_alarms, clean, per_detector),
         n2=_n2(flagged, len(results), read_seconds, dismiss_seconds),
         n3=_n3(per_type),
+        per_detector=per_detector,
+        duplicate_flags=sum(r.duplicate_flags for r in results),
+        distinct_problems=sum(r.distinct_problems for r in results),
+        # Every detector that exists and did not run, with the reason. A
+        # narrower detector set is a fact about the run, never a silence.
+        withdrawn=tuple(w for w in detectors.WITHDRAWN if w.detector not in ran)
+        + tuple(
+            detectors.Withdrawn(
+                detector=name,
+                because="not in the detector set this run was given",
+            )
+            for name in _detector_names(detectors.ALL_DETECTORS)
+            if name not in ran and name not in {w.detector for w in detectors.WITHDRAWN}
+        ),
     )

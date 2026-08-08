@@ -18,7 +18,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from accountant import pipeline
 from accountant import questions as Q
 from accountant.extract.adapter import TypedTextExtractor
-from accountant.memory.index import MemoryIndex
+from accountant.memory.bootstrap import bootstrap
+from accountant.memory.store import MemoryStore
 from accountant.schema import Outcome, Voucher
 from accountant.tallyio.client import operation_id_in
 from accountant.tallyio.fake import FakeTally
@@ -74,6 +75,22 @@ def seed() -> FakeTally:
 TALLY = seed()
 DRAFTS: dict[str, pipeline.Draft] = {}
 EVENTS: list[tuple[str, str]] = []
+
+# Memory is bootstrapped ONCE, from this company's own Tally, and reused.
+#
+# It used to be `MemoryIndex.from_vouchers(history)` rebuilt inside every
+# request handler. That was the product failure in miniature: no company key,
+# so nothing stopped one company's history answering another's question; no
+# persistence, so an answer the person gave was forgotten by the next request;
+# and no bootstrap record, so "we have not read your books yet" was
+# indistinguishable from "your books say nothing about this vendor". The first
+# asks a question; the second must not.
+#
+# An in-memory SQLite store is right for this demo server because the seeded
+# FakeTally is itself rebuilt on every start; a real deployment passes a file
+# path so the index survives a restart.
+MEMORY_STORE = MemoryStore(":memory:")
+MEMORY = bootstrap(TALLY, COMPANY, MEMORY_STORE)
 
 
 def log(kind: str, msg: str) -> None:
@@ -272,11 +289,10 @@ def render_home(banner: str = "") -> bytes:
 def _run(text: str) -> pipeline.Draft:
     accounts = TALLY.read_accounts(COMPANY)
     history = TALLY.read_vouchers(COMPANY)
-    index = MemoryIndex.from_vouchers(history)
     d = pipeline.build_draft(
-        COMPANY, text.encode(), "text/plain", TypedTextExtractor(), accounts, index
+        COMPANY, text.encode(), "text/plain", TypedTextExtractor(), accounts, MEMORY
     )
-    d = pipeline.evaluate(d, accounts, history, index)
+    d = pipeline.evaluate(d, accounts, history, MEMORY)
     if d.outcome is Outcome.VALID:
         d = pipeline.post(d, TALLY)
         log(
@@ -336,7 +352,6 @@ class Handler(BaseHTTPRequestHandler):
 
             accounts = TALLY.read_accounts(COMPANY)
             history = TALLY.read_vouchers(COMPANY)
-            index = MemoryIndex.from_vouchers(history)
 
             if value == Q.HANDOVER:
                 d.answers.extend((f"gave_up_{i}", "") for i in range(Q.QUESTION_CAP))
@@ -353,9 +368,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
             else:
                 d = pipeline.answer(d, value, problem_id=problem)
-                index.record(d.voucher.party, value)  # learn it
+                # The correction is recorded against THIS company and no other,
+                # and it is evidence, not an override: a vendor with genuinely
+                # contradictory history stays CONFLICTED and keeps asking.
+                MEMORY.record_correction(d.voucher.party, value)
 
-            d = pipeline.evaluate(d, accounts, history, index)
+            d = pipeline.evaluate(d, accounts, history, MEMORY)
 
             if d.outcome is Outcome.VALID:
                 d = pipeline.post(d, TALLY)

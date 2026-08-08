@@ -13,7 +13,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 
 from accountant.schema import MatchResult, MatchStatus, Voucher
-from accountant.tallyio.client import operation_id_in
+from accountant.tallyio.client import marker_for, operation_id_in
 
 # Common Indian company-name noise. Stripped so "Sharma Traders Pvt Ltd",
 # "M/s Sharma Traders" and "SHARMA TRADERS." collapse to one key.
@@ -35,6 +35,7 @@ _SUFFIXES = (
 _PREFIXES = ("m/s", "ms.", "messrs")
 _PUNCT = re.compile(r"[^\w\s&]")
 _SPACE = re.compile(r"\s+")
+_DIGITS = re.compile(r"\d+")
 
 
 def normalise_vendor(name: str) -> str:
@@ -56,6 +57,24 @@ def normalise_vendor(name: str) -> str:
                 s = s[: -(len(suf) + 1)].strip()
                 changed = True
     return _SPACE.sub("_", s)
+
+
+def normalise_phrase(narration: str) -> str:
+    """Collapse a narration to one exact-match phrase key.
+
+    Our own marker goes first, then every number: an invoice number is not a
+    phrase, and leaving it in would make every narration unique and the phrase
+    history worthless.
+
+    Exact match only. Anything cleverer — stemming, similarity, a threshold —
+    would be a guess, and nothing in this package guesses.
+    """
+    s = narration
+    op = operation_id_in(s)
+    if op is not None:
+        s = s.replace(marker_for(op), " ")
+    s = _PUNCT.sub(" ", _DIGITS.sub(" ", s.casefold()))
+    return _SPACE.sub("_", s.strip())
 
 
 class MemoryIndex:

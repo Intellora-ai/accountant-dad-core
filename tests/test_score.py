@@ -26,11 +26,13 @@ import pytest
 
 import accountant.score as score_pkg
 from accountant.detect import detectors
+from accountant.detect.detectors import name_of
 from accountant.schema import Outcome, Voucher
+from accountant.score import calibration as cal
 from accountant.score import harness
 from accountant.score.book import Book, GroundTruth, InjectedError
 from accountant.score.harness import ErrorTypeCatch, ScoreReport, Status, score
-from accountant.score.report import render
+from accountant.score.report import render, render_calibration
 
 COMPANY = "Score Co"
 ACCOUNTS = ("Purchases", "Materials", "Utilities", "Repairs", "Bank", "Cash")
@@ -93,11 +95,13 @@ def clean(i: int) -> Voucher:
 
 
 def noisy(i: int) -> Voucher:
-    """Clean, but larger than this account has ever seen: magnitude fires.
+    """Clean, but far larger than this account has ever seen: magnitude fires.
 
-    Nothing is wrong with it. That is exactly what a false alarm is.
+    Nothing is wrong with it. That is exactly what a false alarm is. The amount
+    clears the calibrated margin, which is what "far larger" now means.
     """
-    return _entry(f"noisy-{i}", "Sharma Traders", "Purchases", amount=400_000)
+    over = 300_000 * detectors.MAGNITUDE_OVER_PERCENT // detectors.PERCENT
+    return _entry(f"noisy-{i}", "Sharma Traders", "Purchases", amount=over + 1)
 
 
 def caught(i: int) -> Voucher:
@@ -172,14 +176,25 @@ def test_a_clean_entry_raises_no_flag_and_would_post() -> None:
 
 
 def test_each_injected_shape_fires_the_detector_it_was_built_for() -> None:
-    r = scored(
-        [
-            (caught(0), "wrong_account"),
-            (gst_error(0), "phantom_gst"),
-            (new_account(0), "unused_account"),
-        ]
+    """Judged against every detector that exists, not only the active set.
+
+    `first_use` is withdrawn by default, so it is asked for explicitly here:
+    the fixture is checking that each shape still fires its own detector, not
+    which detectors run by default.
+    """
+    r = score(
+        make_book(
+            [
+                (caught(0), "wrong_account"),
+                (gst_error(0), "phantom_gst"),
+                (new_account(0), "unused_account"),
+            ]
+        ),
+        read_seconds=R,
+        dismiss_seconds=D,
+        detector_set=detectors.ALL_DETECTORS,
     )
-    fired = {e.voucher_id: e.flags for e in r.entries}
+    fired = {e.voucher_id: e.fired for e in r.entries}
     assert fired["caught-0"] == ("vendor_switch",)
     assert fired["gst-0"] == ("gst_anomaly",)
     assert fired["new-0"] == ("first_use",)
@@ -228,14 +243,19 @@ def test_a_zero_error_book_fails_n3_rather_than_passing_on_no_evidence() -> None
 
 
 def test_an_injected_book_reports_catch_rate_per_error_type() -> None:
-    r = scored(
-        [
-            (caught(0), "wrong_account"),
-            (caught(1), "wrong_account"),
-            (missed(0), "wrong_account"),
-            (gst_error(0), "phantom_gst"),
-            (new_account(0), "unused_account"),
-        ]
+    r = score(
+        make_book(
+            [
+                (caught(0), "wrong_account"),
+                (caught(1), "wrong_account"),
+                (missed(0), "wrong_account"),
+                (gst_error(0), "phantom_gst"),
+                (new_account(0), "unused_account"),
+            ]
+        ),
+        read_seconds=R,
+        dismiss_seconds=D,
+        detector_set=detectors.ALL_DETECTORS,
     )
     rows = {t.error_type: (t.caught, t.injected) for t in r.per_type}
     assert rows == {
@@ -243,6 +263,27 @@ def test_an_injected_book_reports_catch_rate_per_error_type() -> None:
         "phantom_gst": (1, 1),
         "unused_account": (1, 1),
     }
+
+
+def test_withdrawing_a_detector_costs_catch_rate_and_the_report_says_so() -> None:
+    """The price of the N1 work, stated rather than glossed over.
+
+    `unused_account` was caught only by `first_use`. With `first_use`
+    withdrawn it is missed, N3 fails for that type, and the report names the
+    withdrawn detector and why.
+    """
+    entries: list[tuple[Voucher, str | None]] = [
+        (caught(0), "wrong_account"),
+        (new_account(0), "unused_account"),
+    ]
+    r = scored(entries)
+    rows = {t.error_type: (t.caught, t.injected) for t in r.per_type}
+    assert rows == {"wrong_account": (1, 1), "unused_account": (0, 1)}
+    assert r.n3.status is Status.MISSED
+
+    text = render(r)
+    assert "Detectors that did NOT run" in text
+    assert "first_use" in text
 
 
 def test_per_type_rows_are_ordered_by_error_type_name() -> None:
@@ -541,14 +582,45 @@ def test_the_report_says_r_and_d_are_self_timed_not_a_measurement() -> None:
 
 def test_the_report_names_every_detector_that_ran() -> None:
     r = scored([(clean(0), None)])
-    assert set(r.detectors) == {
-        "vendor_switch",
-        "first_use",
-        "magnitude",
-        "gst_anomaly",
-    }
+    assert set(r.detectors) == {name_of(d) for d in detectors.ACTIVE_DETECTORS}
     for name in r.detectors:
         assert name in render(r)
+
+
+def test_the_report_names_every_detector_that_did_not_run_and_why() -> None:
+    """A narrower detector set is a fact about the run, never a silence."""
+    r = scored([(clean(0), None)])
+    ran = set(r.detectors)
+    absent = {name_of(d) for d in detectors.ALL_DETECTORS} - ran
+    assert absent, "this test is meaningless if every detector runs"
+    assert {w.detector for w in r.withdrawn} == absent
+    text = render(r)
+    for w in r.withdrawn:
+        assert w.detector in text
+        assert w.because.split(".")[0][:30] in text
+
+
+def test_a_detector_left_out_by_the_caller_is_reported_as_left_out() -> None:
+    r = score(
+        make_book([(clean(0), None)]),
+        read_seconds=R,
+        dismiss_seconds=D,
+        detector_set=detectors.SLICE_4_DETECTORS,
+    )
+    withdrawn = {w.detector: w.because for w in r.withdrawn}
+    assert set(withdrawn) == {"first_use", "magnitude", "gst_anomaly"}
+    assert "detector set this run was given" in withdrawn["magnitude"]
+
+
+def test_running_every_detector_reports_nothing_withdrawn() -> None:
+    r = score(
+        make_book([(clean(0), None)]),
+        read_seconds=R,
+        dismiss_seconds=D,
+        detector_set=detectors.ALL_DETECTORS,
+    )
+    assert r.withdrawn == ()
+    assert "Every detector that exists ran" in render(r)
 
 
 # ---- R and D are parameters, never constants -------------------------------
@@ -714,6 +786,7 @@ def test_the_package_has_source_to_inspect() -> None:
     assert {name for name, _ in _sources()} == {
         "__init__.py",
         "book.py",
+        "calibration.py",
         "harness.py",
         "report.py",
     }
@@ -769,3 +842,285 @@ def test_every_reported_number_is_an_integer() -> None:
 
 def test_the_report_ends_with_a_newline() -> None:
     assert render(scored([(clean(0), None)])).endswith("\n")
+
+
+# ---- calibration: choose on one clean set, measure on another ---------------
+
+
+def a_book(name: str, entries: Sequence[tuple[Voucher, str | None]]) -> Book:
+    """One named book, so a split has something to sort by."""
+    return Book(
+        company=name,
+        accounts=ACCOUNTS,
+        history=HISTORY,
+        entries=tuple(v for v, _ in entries),
+        truth=GroundTruth(
+            seed=1,
+            error_rate_per_10_000=0,
+            injected=tuple(
+                InjectedError(voucher_id=v.id, error_type=t)
+                for v, t in entries
+                if t is not None
+            ),
+        ),
+    )
+
+
+def test_a_measurement_counts_one_entry_once_however_many_detectors_fire() -> None:
+    book = a_book("A", [(clean(0), None), (noisy(0), None)])
+    m = cal.measure([book], detectors.ACTIVE_DETECTORS)
+    assert (m.flagged, m.clean) == (1, 2)
+    assert m.measured is True
+    assert m.per_100_hundredths == 5000  # 50.00 per 100
+    assert m.within(50) is True
+    assert m.within(49) is False
+
+
+def test_a_measurement_skips_the_injected_entries() -> None:
+    """N1 is about clean entries. An injected one is not a false alarm."""
+    book = a_book("A", [(caught(0), "wrong_account"), (clean(0), None)])
+    m = cal.measure([book], detectors.ACTIVE_DETECTORS)
+    assert (m.flagged, m.clean) == (0, 1)
+
+
+def test_a_measurement_over_nothing_is_not_measured_and_is_not_a_pass() -> None:
+    m = cal.measure([], detectors.ACTIVE_DETECTORS)
+    assert m.measured is False
+    assert m.per_100_hundredths is None
+    assert m.within(harness.N1_MAX_FALSE_ALARMS_PER_100) is False
+
+
+def test_running_no_detectors_finds_nothing_and_says_so_truthfully() -> None:
+    book = a_book("A", [(noisy(0), None)])
+    assert cal.measure([book], []) == cal.CleanMeasurement(flagged=0, clean=1)
+
+
+@pytest.mark.parametrize(
+    ("flagged", "clean", "message"),
+    [(0, -1, "is not a count"), (2, 1, "flagged of"), (-1, 3, "flagged of")],
+)
+def test_an_impossible_measurement_is_refused(
+    flagged: int, clean: int, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        cal.CleanMeasurement(flagged=flagged, clean=clean)
+
+
+def test_a_grid_with_no_settings_is_refused() -> None:
+    with pytest.raises(ValueError, match="offered no settings"):
+        cal.Grid(detector="vendor_switch", settings=())
+
+
+def test_a_detector_cannot_be_kept_at_no_setting() -> None:
+    nothing = cal.CleanMeasurement(flagged=0, clean=0)
+    with pytest.raises(ValueError, match="kept at no setting"):
+        cal.DetectorChoice(
+            detector="vendor_switch",
+            setting=None,
+            kept=True,
+            calibration=nothing,
+            held_out=nothing,
+            detail="d",
+        )
+
+
+def test_the_split_sorts_by_company_and_alternates() -> None:
+    given = [a_book(name, []) for name in ("D", "B", "A", "C")]
+    first, second = cal.split(given)
+    assert [b.company for b in first] == ["A", "C"]
+    assert [b.company for b in second] == ["B", "D"]
+
+
+def _calibrated(
+    for_calibration: Sequence[Book], held_out: Sequence[Book], target: int
+) -> cal.Calibration:
+    return cal.calibrate(for_calibration, held_out, target_per_100=target)
+
+
+def deafening(i: int) -> Voucher:
+    """Past every point on the magnitude grid, so no setting can fit it."""
+    return _entry(f"deafening-{i}", "Sharma Traders", "Purchases", amount=300_000 * 100)
+
+
+def test_calibration_keeps_the_most_sensitive_setting_that_fits() -> None:
+    """A mildly noisy book forces the threshold up rather than off.
+
+    Two entries just over three times the account's own maximum, in a book of
+    ten. Every grid point up to and including 300 percent flags both, which is
+    20 per 100 and outside the target; 500 percent flags neither. The search
+    stops at the first point that fits, so 500 is what is kept.
+    """
+    book = a_book(
+        "A", [(noisy(i), None) for i in range(2)] + [(clean(i), None) for i in range(8)]
+    )
+    result = _calibrated([book], [book], target=10)
+
+    chosen = {c.detector: c.setting for c in result.choices if c.kept}
+    assert chosen["magnitude"] == "min_observations=2,over_percent=500"
+    assert "magnitude" in result.kept
+
+
+def test_calibration_withdraws_a_detector_no_setting_can_quieten() -> None:
+    loud = a_book("A", [(deafening(i), None) for i in range(4)] + [(clean(0), None)])
+    result = _calibrated([loud], [loud], target=10)
+
+    chosen = {c.detector: c.setting for c in result.choices}
+    assert chosen["magnitude"] is None  # nothing on its grid could fit here
+    assert "magnitude" in result.withdrawn
+    assert "vendor_switch" in result.kept
+
+
+def test_calibration_reports_both_numbers_for_a_withdrawn_detector() -> None:
+    loud = a_book("A", [(deafening(i), None) for i in range(4)] + [(clean(0), None)])
+    quiet_book = a_book("B", [(clean(i), None) for i in range(5)])
+    result = _calibrated([loud], [quiet_book], target=10)
+
+    (magnitude,) = [c for c in result.choices if c.detector == "magnitude"]
+    assert magnitude.kept is False
+    assert magnitude.calibration.per_100_hundredths == 8000  # 4 of 5
+    assert magnitude.held_out.per_100_hundredths == 0
+    assert "no setting on its grid" in magnitude.detail
+
+
+def test_a_detector_that_never_fired_is_not_reported_as_quiet() -> None:
+    """Nought is what these books triggered, not evidence of anything else."""
+    quiet = a_book("A", [(clean(i), None) for i in range(5)])
+    result = _calibrated([quiet], [quiet], target=10)
+    for choice in result.choices:
+        assert choice.kept is True
+        assert "not evidence that it is quiet" in choice.detail
+
+
+def test_a_detector_that_did_fire_reports_the_plain_detail() -> None:
+    mixed = a_book("A", [(noisy(0), None)] + [(clean(i), None) for i in range(19)])
+    result = _calibrated([mixed], [mixed], target=10)
+    (magnitude,) = [c for c in result.choices if c.detector == "magnitude"]
+    assert magnitude.kept is True
+    assert magnitude.detail.startswith("kept at min_observations=")
+    assert "not evidence that it is quiet" not in magnitude.detail
+
+
+def test_a_calibration_records_which_books_were_which() -> None:
+    first = a_book("A", [(clean(0), None)])
+    second = a_book("B", [(clean(1), None)])
+    result = _calibrated([first], [second], target=10)
+    assert result.calibration_books == ("A",)
+    assert result.held_out_books == ("B",)
+    assert result.target_per_100 == 10
+    assert result.held_out_within_target is True
+
+
+def test_a_held_out_set_above_the_target_reports_fail() -> None:
+    """A truthful FAIL, printed as one. Nothing here is allowed to round it."""
+    quiet = a_book("A", [(clean(i), None) for i in range(20)])
+    loud = a_book("B", [(deafening(i), None) for i in range(4)] + [(clean(0), None)])
+    result = _calibrated([quiet], [loud], target=10)
+
+    assert result.held_out.per_100_hundredths == 8000  # 80.00 per 100
+    assert result.held_out_within_target is False
+    assert "Held-out verdict: FAIL" in render_calibration(result)
+
+
+def test_the_calibration_report_prints_every_row_and_ends_with_a_newline() -> None:
+    quiet = a_book("A", [(clean(0), None)])
+    empty = a_book("B", [])
+    text = render_calibration(_calibrated([quiet], [empty], target=10))
+    for name in ("vendor_switch", "first_use", "magnitude", "gst_anomaly"):
+        assert name in text
+    assert "KEPT" in text
+    assert "not measured - no clean entries" in text
+    assert text.endswith("\n")
+
+
+def test_a_calibration_over_nothing_keeps_nothing_rather_than_passing() -> None:
+    """Fails closed. Nothing measured is not evidence that a detector is fine."""
+    result = _calibrated([], [], target=10)
+    assert result.calibration.measured is False
+    assert result.held_out.measured is False
+    assert result.held_out_within_target is False
+    assert result.kept == ()
+    assert set(result.withdrawn) == {name_of(d) for d in detectors.ALL_DETECTORS}
+
+
+# ---- per-detector false alarms, duplicates, and who is to blame -------------
+
+
+def test_the_report_charges_each_detector_for_its_own_false_alarms() -> None:
+    entries: list[tuple[Voucher, str | None]] = [(clean(i), None) for i in range(9)]
+    entries.append((noisy(0), None))
+    r = scored(entries)
+
+    rows = {d.detector: d for d in r.per_detector}
+    assert set(rows) == set(r.detectors)
+    assert rows["magnitude"].false_alarms == 1
+    assert rows["magnitude"].clean_entries == 10
+    assert rows["magnitude"].false_alarms_per_100_hundredths == 1000
+    assert rows["magnitude"].within_target is True
+    assert rows["vendor_switch"].false_alarms == 0
+
+
+def test_a_detector_that_never_fires_is_listed_rather_than_left_out() -> None:
+    r = scored([(clean(0), None)])
+    assert {d.detector for d in r.per_detector} == set(r.detectors)
+    for d in r.per_detector:
+        assert d.false_alarms == 0
+    assert r.worst_detector is None
+    assert "no detector fired on a clean entry" in r.n1.detail
+
+
+def test_n1_names_the_detector_responsible_for_most_of_it() -> None:
+    entries: list[tuple[Voucher, str | None]] = [(clean(i), None) for i in range(8)]
+    entries.extend([(noisy(0), None), (noisy(1), None)])
+    r = scored(entries)
+    worst = r.worst_detector
+    assert worst is not None
+    assert worst.detector == "magnitude"
+    assert "most of them from magnitude" in r.n1.detail
+    assert "magnitude" in render(r)
+
+
+def test_a_detector_row_with_no_clean_entries_is_not_measured() -> None:
+    r = scored([(caught(0), "wrong_account")])
+    rows = {d.detector: d for d in r.per_detector}
+    assert rows["vendor_switch"].measured is False
+    assert rows["vendor_switch"].false_alarms_per_100_hundredths is None
+    assert rows["vendor_switch"].within_target is False
+    assert rows["vendor_switch"].caught == 1
+    assert "not measured - this book has no clean entry" in render(r)
+
+
+def test_duplicate_alerts_are_counted_apart_from_distinct_problems() -> None:
+    """One entry, two detectors, one underlying problem, one alert."""
+    both = _entry("both-0", "Sharma Traders", "Bank")
+    r = score(
+        make_book([(both, "wrong_account")]),
+        read_seconds=R,
+        dismiss_seconds=D,
+        detector_set=detectors.ALL_DETECTORS,
+    )
+    (entry,) = r.entries
+    assert entry.fired == ("first_use", "vendor_switch")
+    assert entry.flags == ("vendor_switch",)
+    assert entry.duplicate_flags == 1
+    assert entry.distinct_problems == 1
+    assert r.duplicate_flags == 1
+    assert r.distinct_problems == 1
+
+    text = render(r)
+    assert "distinct problems" in text
+    assert "duplicate flags folded in" in text
+
+
+def test_a_folded_duplicate_still_charges_the_detector_that_raised_it() -> None:
+    """Suppression removes an alert. It must not remove a detector's bill."""
+    both = _entry("both-0", "Sharma Traders", "Bank")
+    r = score(
+        make_book([(both, None)]),
+        read_seconds=R,
+        dismiss_seconds=D,
+        detector_set=detectors.ALL_DETECTORS,
+    )
+    rows = {d.detector: d.false_alarms for d in r.per_detector}
+    assert rows["vendor_switch"] == 1
+    assert rows["first_use"] == 1  # folded into the alert above, still charged
+    assert r.false_alarms == 1  # but only ONE false alarm, because one entry

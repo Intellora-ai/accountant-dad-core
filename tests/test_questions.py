@@ -21,7 +21,10 @@ from accountant import questions as Q
 from accountant.decide import decide_problems
 from accountant.detect import detectors
 from accountant.extract.adapter import TypedTextExtractor
+from accountant.memory.bootstrap import bootstrap
+from accountant.memory.company import CompanyMemory
 from accountant.memory.index import MemoryIndex
+from accountant.memory.store import MemoryStore
 from accountant.schema import MatchResult, MatchStatus, Outcome, Voucher
 from accountant.tallyio.fake import FakeTally
 
@@ -68,6 +71,17 @@ def past(party: str, account: str, amount: int = 380000, n: int = 1) -> list[Vou
         )
         for i in range(n)
     ]
+
+
+def a_company(history: tuple[Voucher, ...] = ()) -> tuple[FakeTally, CompanyMemory]:
+    """A company in Tally, and the memory read out of it.
+
+    The pipeline takes company-scoped memory and nothing else, so a test that
+    drives the pipeline has to bootstrap one the same way the app does.
+    """
+    t = FakeTally()
+    t.add_company(COMPANY, accounts=ACCOUNTS, vouchers=history, backed_up=True)
+    return t, bootstrap(t, COMPANY, MemoryStore(":memory:"))
 
 
 # ---- S7: no ledger names in questions --------------------------------------
@@ -240,25 +254,23 @@ def test_problem_ids_are_unique_within_one_entry():
 
 
 def test_a_problem_already_answered_is_never_asked_again():
-    t = FakeTally()
-    t.add_company(COMPANY, accounts=ACCOUNTS, backed_up=True)
-    index = MemoryIndex()
+    _, memory = a_company()
     d = pipeline.build_draft(
         COMPANY,
         b"paid Verma Cement 900 bags",
         "text/plain",
         TypedTextExtractor(),
         ACCOUNTS,
-        index,
+        memory,
         today=TODAY,
     )
-    d = pipeline.evaluate(d, ACCOUNTS, (), index)
+    d = pipeline.evaluate(d, ACCOUNTS, (), memory)
     first = pipeline.next_question(d)
     assert first is not None
 
     d = pipeline.answer(d, "Purchases", problem_id=first.problem_id)
-    index.record("Verma Cement", "Purchases")
-    d = pipeline.evaluate(d, ACCOUNTS, (), index)
+    memory.record_correction("Verma Cement", "Purchases")
+    d = pipeline.evaluate(d, ACCOUNTS, (), memory)
 
     again = pipeline.next_question(d)
     assert again is None or again.problem_id != first.problem_id
@@ -288,20 +300,18 @@ def test_after_five_questions_the_entry_is_handed_over():
 
 
 def test_a_handed_over_entry_is_never_posted():
-    t = FakeTally()
-    t.add_company(COMPANY, accounts=ACCOUNTS, backed_up=True)
-    index = MemoryIndex()
+    t, memory = a_company()
     d = pipeline.build_draft(
         COMPANY,
         b"paid Verma Cement 900 bags",
         "text/plain",
         TypedTextExtractor(),
         ACCOUNTS,
-        index,
+        memory,
         today=TODAY,
     )
     d.answers = [(f"p{i}", "x") for i in range(5)]
-    d = pipeline.evaluate(d, ACCOUNTS, (), index)
+    d = pipeline.evaluate(d, ACCOUNTS, (), memory)
     assert d.outcome is not Outcome.VALID
     with pytest.raises(ValueError):
         pipeline.post(d, t)

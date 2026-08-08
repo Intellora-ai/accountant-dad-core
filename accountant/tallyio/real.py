@@ -1,13 +1,32 @@
 """The real TallyPrime connector: XML over HTTP.
 
-NOTHING IN THIS FILE HAS EVER RUN AGAINST A REAL TALLY.
+THIS FILE HAS RUN AGAINST A REAL TALLY. NOT EVERY LINE OF IT HAS.
 ====================================================================
-There is no TallyPrime instance on this machine and none has answered a single
-request from this code. A Tally-experienced engineer has since reviewed the XML
-shapes below: that review CONFIRMED some of them and CHANGED others. A review is
-a second opinion, not a measurement. Nothing here has still ever run against a
-real Tally, and every status in `ASSUMPTIONS` below says which kind of claim it
-is.
+On 2026-08-08 this module read from and wrote to a real TallyPrime Release 7.0
+(Series A 7.0.0 Build 27974) in EDUCATIONAL mode, running in a Windows 11 ARM64
+VM. Proven end to end through this code: list companies, read the chart of
+accounts, read the trial balance, write one marked voucher, read it back by
+operation id, reject a duplicate operation id, delete that exact voucher, and
+see the trial balance return to its exact prior value in paise.
+
+Three defects that no fake could have produced were found and fixed that day:
+
+  1. Tally emits INVALID XML. The reserved ledger "Profit & Loss A/c" exports as
+     `<PARENT TYPE="String">&#4; Primary</PARENT>` - a reference to U+0004, which
+     XML 1.0 forbids. One ledger name cost us the whole chart of accounts.
+  2. Every response carries `<CMPINFO>...<VOUCHER>0</VOUCHER>` - a COUNT. A
+     whole-document scan for `VOUCHER` found that counter, so an EMPTY company
+     looked like a corrupt export. Voucher parsing is scoped to `BODY/DATA`.
+  3. Deletion. See A6: the identifier is a TAGNAME/TAGVALUE attribute pair, and
+     REMOTEID never resolves for a locally-created voucher.
+
+What is STILL unproven, and why the assumption list below still matters: this
+ran against ONE build, ONE company, in Educational mode, with Journal vouchers
+and no inventory, GST or bill allocations. Educational mode also refuses voucher
+dates outside the 1st, 2nd and 31st - measured, 2026-08-07 REJECTED and
+2026-08-31 ACCEPTED - so `tests/test_tally_contract.py`, whose fixture posts on
+2026-08-07, CANNOT run unmodified here. Every status in `ASSUMPTIONS` says which
+kind of claim it is, and MEASURED means measured in that one environment.
 
 The tests prove that this module is internally consistent, that it parses what
 it builds, and that it fails loudly rather than silently. They prove nothing
@@ -117,15 +136,32 @@ A5  CHANGED BY REVIEW. Identity. `REMOTEID` and `MASTERID` are locators, not
     and raises, naming the ambiguity.
     Still UNVERIFIED: whether `REMOTEID` is honoured as an external key on
     create and round-tripped back on export.
-A6  CHANGED BY REVIEW. Deletion. `ACTION="Delete"` is supported, but
-    `REMOTEID` + `MASTERID` alone is not a guaranteed key across builds. The
-    delete therefore carries `DATE`, `VCHTYPE`, `MASTERID` and `REMOTEID`, every
-    one of them taken from a read performed immediately before the delete, plus
-    `GUID` and `VCHKEY` when that read supplied them. A `VCHKEY` is never
-    invented or reconstructed. `Delete` and `Cancel` are DIFFERENT operations -
-    `Cancel` leaves a cancelled voucher in place, keeping its number - and this
-    connector only ever sends `Delete`. The delete is still verified by reading
-    afterwards rather than believed.
+A6  MEASURED 2026-08-08, and the review's shape was WRONG. Deletion.
+    Tally names a voucher for Alter/Cancel/Delete by a TAGNAME/TAGVALUE
+    ATTRIBUTE pair - a TDL method name and its value. Child tags are the fields
+    to WRITE, never the key to look up by. The working envelope is:
+        <VOUCHER DATE="2-Apr-2026" TAGNAME="Master ID" TAGVALUE="3"
+                 ACTION="Delete" VCHTYPE="Journal"></VOUCHER>
+    with an EMPTY body: a delete resends no ledger entries. The DATE ATTRIBUTE
+    is dd-MMM-yyyy while the DATE CHILD TAG is yyyyMMdd; Tally exports the child
+    form, so echoing it into the attribute is the natural mistake.
+
+    `REMOTEID` is NOT sent and is no longer required. It is a SYNC-LINEAGE
+    field: Tally stamps it on export so it looks like a handle, but a voucher
+    created by a local import has no entry in the remote index. Seven shapes
+    were tried against the real instance - without REMOTEID Tally said
+    "Cannot delete unnamed object: VOUCHER!"; with it, "Voucher does not
+    exist!"; and `ACTION="Alter"` + `<ISDELETED>Yes</ISDELETED>` was silently
+    ignored, altered=0 deleted=0 errors=0. Tally's own import guidance treats
+    REMOTEID as something to STRIP before importing.
+        help.tallysolutions.com/article/DeveloperReference/faq/6191.html
+        .../integration-capabilities/case_study_1.htm
+
+    `Delete` and `Cancel` remain DIFFERENT operations - `Cancel` leaves a
+    cancelled voucher in place, keeping its number - and this connector only
+    ever sends `Delete`. The delete is still verified by reading afterwards
+    rather than believed: a silent no-op is a real Tally behaviour, not a
+    hypothetical one.
 A7  UNVERIFIED that `MASTERID` is present on every exported voucher. CONFIRMED
     BY REVIEW that when it is present it is company-local (A5). `Voucher.
     tally_id` is a reference value that falls back to the voucher number; it is
@@ -286,6 +322,19 @@ DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 _BARE_AMPERSAND = re.compile(r"&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)")
 # Control bytes XML 1.0 forbids. Tally emits \x04 inside ledger names.
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+# The same forbidden bytes, but written as NUMERIC CHARACTER REFERENCES, which
+# survive the byte strip above because they are ASCII text. Observed against a
+# real TallyPrime 7.0 on 2026-08-08: the reserved ledger "Profit & Loss A/c"
+# exports as `<PARENT TYPE="String">&#4; Primary</PARENT>`. XML 1.0 forbids a
+# reference to U+0004, so expat rejects the whole document and one unreadable
+# ledger name would otherwise cost us the entire chart of accounts.
+#
+# Dropping the reference keeps every character that carries meaning - here the
+# parent group really is "Primary", and the \x04 is Tally's own sort marker.
+# Tab, LF and CR are the only sub-0x20 characters XML permits, so they stay.
+_ILLEGAL_CHARREF = re.compile(
+    r"&#(?:0*(?:[0-8]|1[1-2]|1[4-9]|2[0-9]|3[01])|x0*(?:[0-8bcBC]|[0-1][0-9a-fA-F]));"
+)
 # Belt to the parser handlers' braces. Checked after control bytes are removed
 # so that "<!DOC\x00TYPE" cannot slip past.
 _DOCTYPE = re.compile(r"<!\s*(DOCTYPE|ENTITY)\b", re.IGNORECASE)
@@ -335,6 +384,9 @@ def sanitise(payload: str) -> str:
     """Make Tally's output parseable without discarding content silently."""
     text = payload.lstrip("﻿").strip()
     text = _CONTROL_CHARS.sub("", text)
+    # Before the bare-ampersand pass, which would otherwise rewrite `&#4;` to
+    # `&amp;#4;` and turn an unparseable document into a parseable lie.
+    text = _ILLEGAL_CHARREF.sub("", text)
     return _BARE_AMPERSAND.sub("&amp;", text)
 
 
@@ -727,11 +779,26 @@ def build_voucher_create(
 
 # A6. Every one of these must come from the fresh read, and the delete is
 # refused without them rather than sent with a key we assembled ourselves.
-DELETE_REQUIRED_KEYS = ("VCHTYPE", "MASTERID", "REMOTEID")
+#
+# REMOTEID was required here until 2026-08-08 and is now deliberately absent.
+# Measured against TallyPrime 7.0: REMOTEID is a SYNC-LINEAGE field. Tally
+# stamps it on export, so it looks like a handle, but a voucher created by a
+# local import has no entry in the remote index and every delete aimed with it
+# came back "Voucher does not exist!". Tally's own import guidance treats
+# REMOTEID as something to STRIP before importing, not something to send.
+DELETE_REQUIRED_KEYS = ("VCHTYPE", "MASTERID")
 
-# Included when the fresh read supplied them. Never invented, never
-# reconstructed - a VCHKEY we built would aim at whatever it happened to match.
-DELETE_OPTIONAL_KEYS = ("GUID", "VCHKEY")
+# Tally identifies a voucher for Alter/Cancel/Delete by a TDL METHOD NAME and
+# its value, carried as the TAGNAME/TAGVALUE attribute pair - not by child tags.
+# "Master ID" is the only identifier Tally documents as unique on its own.
+#   help.tallysolutions.com/article/DeveloperReference/faq/6191.html
+#   .../DeveloperReference/integration-capabilities/case_study_1.htm
+DELETE_TAGNAME = "Master ID"
+
+# The DATE ATTRIBUTE is dd-MMM-yyyy ("2-Apr-2026"). The DATE CHILD TAG is
+# yyyyMMdd. Tally exports the child form, so echoing it into the attribute is
+# the natural mistake; it is not the same field.
+DELETE_DATE_FORMAT = "%d-%b-%Y"
 
 
 def build_voucher_delete(
@@ -741,11 +808,19 @@ def build_voucher_delete(
 ) -> str:
     """Import/Data envelope that deletes exactly one voucher. Assumption A6.
 
-    `exported` MUST come from a read taken immediately before this call. Every
-    value in the envelope - DATE, VCHTYPE, MASTERID, REMOTEID, and GUID or
-    VCHKEY when Tally sent them - is read off it. Nothing is cached, remembered
-    from an earlier call, or reconstructed: a voucher can change under a
-    concurrent user between one read and the next.
+    `exported` MUST come from a read taken immediately before this call. DATE,
+    VCHTYPE and MASTERID are all read off it. Nothing is cached, remembered from
+    an earlier call, or reconstructed: a voucher can change under a concurrent
+    user between one read and the next.
+
+    The voucher is named by TAGNAME/TAGVALUE - a TDL method name and its value -
+    which is how Tally identifies a voucher for Alter, Cancel and Delete. Child
+    tags are the fields to WRITE, not the key to look up by; sending MASTERID as
+    a child produced "Cannot delete unnamed object: VOUCHER!" every time.
+
+    The body is deliberately EMPTY. A delete resends no ledger entries: it names
+    a voucher and removes it. (Alter is the one that must resend the full entry
+    set, because it replaces it.)
 
     ACTION is `Delete`, which removes the voucher. `Cancel` is a DIFFERENT
     operation: it leaves a cancelled voucher in place, keeping its number. This
@@ -758,18 +833,16 @@ def build_voucher_delete(
     if missing:
         raise TallyDataError(
             f"cannot delete operation {operation_id!r}: the read taken just now "
-            f"supplied no {', '.join(missing)}. A6 needs DATE, VCHTYPE, MASTERID "
-            "and REMOTEID together, all from that read; a delete aimed with less "
+            f"supplied no {', '.join(missing)}. A6 needs DATE, VCHTYPE and "
+            "MASTERID together, all from that read; a delete aimed with less "
             "than that is a delete aimed at something we cannot name."
         )
 
-    optional = "".join(
-        f"<{key}>{_escaped(keys[key])}</{key}>"
-        for key in DELETE_OPTIONAL_KEYS
-        if keys.get(key)
-    )
     voucher_type = keys["VCHTYPE"]
-    stamped_date = exported.voucher.date.strftime("%Y%m%d")
+    # Tally right-aligns numbers on export ("<MASTERID> 1</MASTERID>"), so the
+    # value is stripped before it becomes a lookup key.
+    master_id = keys["MASTERID"].strip()
+    stamped_date = exported.voucher.date.strftime(DELETE_DATE_FORMAT)
     return (
         "<ENVELOPE>"
         "<HEADER>"
@@ -782,12 +855,10 @@ def build_voucher_delete(
         f"<DESC>{_static_variables(company)}</DESC>"
         "<DATA>"
         '<TALLYMESSAGE xmlns:UDF="TallyUDF">'
-        f'<VOUCHER VCHTYPE="{_escaped(voucher_type)}" ACTION="Delete" '
-        f'REMOTEID="{_escaped(keys["REMOTEID"])}">'
-        f"<DATE>{stamped_date}</DATE>"
-        f"<VOUCHERTYPENAME>{_escaped(voucher_type)}</VOUCHERTYPENAME>"
-        f"<MASTERID>{_escaped(keys['MASTERID'])}</MASTERID>"
-        f"{optional}"
+        f'<VOUCHER DATE="{_escaped(stamped_date)}" '
+        f'TAGNAME="{_escaped(DELETE_TAGNAME)}" '
+        f'TAGVALUE="{_escaped(master_id)}" '
+        f'ACTION="Delete" VCHTYPE="{_escaped(voucher_type)}">'
         "</VOUCHER>"
         "</TALLYMESSAGE>"
         "</DATA>"
@@ -919,6 +990,32 @@ def parse_closing_balances(
 
     Zeros are dropped so that this matches `FakeTally.trial_balance` exactly.
     A ledger that nets to nothing is not a line on a trial balance.
+
+    RESERVED LEDGERS ARE EXCLUDED, and that is the difference between a trial
+    balance that balances and one that does not. Measured against a real
+    TallyPrime 7.0 on 2026-08-08, after posting a single Rs 1,684.56 expense:
+
+        <LEDGER NAME="AD Test Expense"   RESERVEDNAME="">    -1684.56
+        <LEDGER NAME="AD Test Vendor"    RESERVEDNAME="">     1684.56
+        <LEDGER NAME="Cash"              RESERVEDNAME="">    (empty)
+        <LEDGER NAME="Profit & Loss A/c" RESERVEDNAME="P&L"> -1684.56
+
+    The three real ledgers sum to exactly zero. "Profit & Loss A/c" is not a
+    fourth posting - no voucher ever touches it - it is Tally's own running
+    aggregate of the revenue and expense ledgers, and its balance is an exact
+    MIRROR of the expense leg. Counting it makes the total 1684.56 instead of 0,
+    so the double-entry invariant appears violated when the books are perfectly
+    fine.
+
+    Tally marks these itself: a derived ledger carries a non-empty RESERVEDNAME
+    attribute while an ordinary one carries "". That is the discriminator used
+    here, rather than a hardcoded list of names, because the name is localised
+    and a hardcoded English string would silently stop matching.
+
+    This is a deliberately narrow exclusion. If a build ever reserves a ledger
+    that IS posted to, these balances stop summing to zero - and that is exactly
+    what `test_a_real_trial_balance_sums_to_zero` exists to catch. The
+    conservation law is the guard, not this function's judgement.
     """
     root = parse_xml(payload, limit)
     balances: dict[str, int] = {}
@@ -926,6 +1023,8 @@ def parse_closing_balances(
         name = _name_of(node)
         raw = _child_text(node, "CLOSINGBALANCE")
         if name is None or raw is None:
+            continue
+        if (node.get("RESERVEDNAME") or "").strip():
             continue
         balance = _signed_balance_paise(raw)
         if balance != 0:
@@ -1058,6 +1157,28 @@ def _refuse_mixed_entry_tags(root: ElementTree.Element) -> None:
         )
 
 
+def _voucher_nodes(root: ElementTree.Element) -> list[ElementTree.Element]:
+    """The vouchers in the DATA block, and nothing that merely shares the tag.
+
+    Measured against a real TallyPrime 7.0 on 2026-08-08. Every response carries
+    a `<CMPINFO>` header whose children are COUNTS, one of which is literally
+    `<VOUCHER>0</VOUCHER>`. Scanning the whole document for `VOUCHER` therefore
+    picks up that counter, which has no ledger entries, and the two-leg guard
+    then refuses the page - so an EMPTY company looked like a corrupt export.
+
+    Scoping to `BODY/DATA` fixes it, because a real voucher only ever appears
+    under the DATA collection. If no DATA block exists the answer is no
+    vouchers, never "scan everything and hope", since falling back to a
+    whole-document scan is exactly the bug this function exists to prevent.
+    """
+    data = root.find("BODY/DATA")
+    if data is None:
+        data = root.find("DATA")
+    if data is None:
+        return []
+    return list(data.iter("VOUCHER"))
+
+
 def parse_vouchers(
     payload: str, limit: int = DEFAULT_MAX_RESPONSE_BYTES
 ) -> VoucherPage:
@@ -1071,7 +1192,7 @@ def parse_vouchers(
     _refuse_mixed_entry_tags(root)
     exported: list[ExportedVoucher] = []
     skipped = 0
-    for node in root.iter("VOUCHER"):
+    for node in _voucher_nodes(root):
         item = _exported_from(node)
         if item is not None:
             exported.append(item)

@@ -19,6 +19,24 @@ WHAT THEY DO NOT PROVE
     changed several of those hypotheses; it did not run any of them. Only a live
     instance can.
 
+WHAT HAS SINCE BEEN MEASURED (TallyPrime Release 7.0, 2026-08-08)
+    The DELETE path, and only the delete path, has now run against a real
+    instance. It disproved the shape this file used to assert:
+
+      * `REMOTEID` + child tags -> `Voucher does not exist!`
+      * child tags with no `REMOTEID` -> `Cannot delete unnamed object: VOUCHER!`
+      * `ACTION="Alter"` + `<ISDELETED>Yes</ISDELETED>` -> silently ignored
+        (`altered=0 deleted=0 errors=0`), voucher still present.
+
+    What worked, and removed a real voucher (`deleted=1 errors=0`, confirmed by
+    reading the voucher list before and after):
+
+        <VOUCHER DATE="2-Apr-2026" TAGNAME="Master ID" TAGVALUE="3"
+                 ACTION="Delete" VCHTYPE="Journal"></VOUCHER>
+
+    The delete tests and `TallySim._delete` assert THAT shape. Everything else
+    in this file is still unmeasured.
+
     Nothing here opens a socket except `test_post_bytes_talks_to_a_real_socket`,
     which talks to a one-shot loopback server to prove the opener works at all.
 """
@@ -221,7 +239,12 @@ class TallySim:
             )
         elif collection_id == real.COLLECTION_VOUCHERS:
             co = self._company(company)
-            body = "".join(v.to_xml() for v in co.vouchers) + "".join(co.raw_vouchers)
+            # Through `_voucher_payload`, so the simulator answers in the shape a
+            # real TallyPrime answers in - `<BODY><DATA>` plus the `<CMPINFO>`
+            # header whose `<VOUCHER>0</VOUCHER>` is a COUNT, not a voucher.
+            return _voucher_payload(
+                *(v.to_xml() for v in co.vouchers), *co.raw_vouchers
+            )
         else:  # pragma: no cover - a collection real.py never asks for
             raise AssertionError(f"unexpected collection {collection_id!r}")
         return (
@@ -254,13 +277,13 @@ class TallySim:
         node = root.find(".//VOUCHER")
         assert node is not None, "an Import envelope must carry a VOUCHER"
         action = node.get("ACTION")
-        remote_id = node.get("REMOTEID") or ""
         co = self._company(company)
 
         if action == "Delete":
-            return self._delete(co, node, remote_id)
+            return self._delete(co, node)
 
         assert action == "Create", f"unexpected voucher action {action!r}"
+        remote_id = node.get("REMOTEID") or ""
         debit, credit, amount = _legs_of(node)
         master_id = f"M{co.next_master}"
         co.next_master += 1
@@ -280,20 +303,55 @@ class TallySim:
         )
         return import_response(created=1, status=1, last_vch_id=master_id)
 
-    def _delete(self, co: SimCompany, node: ElementTree.Element, remote_id: str) -> str:
-        """A6: the delete has to arrive with the whole key, not part of it."""
-        assert node.get("VCHTYPE"), "A6: the delete must carry VCHTYPE"
-        assert remote_id, "A6: the delete must carry the REMOTEID from the read"
-        master_id = _required(node, "MASTERID")
-        assert re.fullmatch(r"\d{8}", _required(node, "DATE")), "A6: YYYYMMDD"
+    def _delete(self, co: SimCompany, node: ElementTree.Element) -> str:
+        """A6, in the shape a real TallyPrime 7.0 accepted on 2026-08-08.
+
+        Tally names the voucher with the `TAGNAME`/`TAGVALUE` ATTRIBUTE pair - a
+        TDL method name and its value - and with nothing else. The envelope this
+        simulator used to demand was measured against the live instance and it
+        never worked. Seven variants of it were tried:
+
+          * no `REMOTEID`                     -> `Cannot delete unnamed object:
+                                                  VOUCHER!`
+          * `REMOTEID` (with `VCHKEY`, `GUID` and `MASTERID` in every
+            combination)                      -> `Voucher does not exist!`
+          * `ACTION="Alter"` plus
+            `<ISDELETED>Yes</ISDELETED>`      -> ignored in silence:
+                                                 `altered=0 deleted=0 errors=0`
+                                                 and the voucher still there.
+
+        The envelope below is the one that returned `deleted=1 errors=0` and
+        removed a real voucher, confirmed by reading the voucher list before and
+        after. So the simulator asserts THAT shape: a simulator that keeps
+        accepting a disproven envelope is a test that guards nothing.
+        """
+        assert node.get("VCHTYPE"), "the delete must carry VCHTYPE from the read"
+        assert node.get("TAGNAME") == real.DELETE_TAGNAME, (
+            "Tally looks a voucher up by a TDL method name carried on TAGNAME. "
+            f"Expected {real.DELETE_TAGNAME!r}, got {node.get('TAGNAME')!r}"
+        )
+        master_id = node.get("TAGVALUE") or ""
+        assert master_id, "the delete must carry the MASTERID from the read"
+        date = node.get("DATE") or ""
+        assert re.fullmatch(r"\d{1,2}-[A-Z][a-z]{2}-\d{4}", date), (
+            f"the DATE ATTRIBUTE is dd-MMM-yyyy, not the child tag's yyyyMMdd; "
+            f"got {date!r}"
+        )
+        # REMOTEID is sync lineage, not a handle. Sending it is what made every
+        # real delete come back "Voucher does not exist!", so a delete carrying
+        # it must fail here rather than quietly pass.
+        for stale in ("REMOTEID", "GUID", "VCHKEY"):
+            assert node.get(stale) is None, (
+                f"{stale} must not be on a delete: it is what made the real delete fail"
+            )
+        assert list(node) == [], (
+            "a delete NAMES a voucher; child tags are fields to WRITE and "
+            "sending them produced 'Cannot delete unnamed object: VOUCHER!'"
+        )
 
         if self.swallow_deletes:
             return import_response(deleted=1, status=1)
-        keep = [
-            v
-            for v in co.vouchers
-            if not (v.remote_id == remote_id and v.master_id == master_id)
-        ]
+        keep = [v for v in co.vouchers if v.master_id != master_id]
         deleted = len(co.vouchers) - len(keep)
         co.vouchers = keep
         return import_response(deleted=deleted, status=1)
@@ -963,15 +1021,27 @@ def _exported(
 
 
 def test_the_delete_envelope_carries_the_whole_key_from_the_fresh_read() -> None:
+    """A6, in the shape a real TallyPrime 7.0 accepted on 2026-08-08.
+
+    Tally identifies a voucher for Alter/Cancel/Delete by the `TAGNAME`/
+    `TAGVALUE` ATTRIBUTE pair - a TDL method name and its value. Child tags are
+    the fields to WRITE, not the key to look up by, which is why the old shape
+    (`MASTERID`, `GUID`, `VCHKEY` and `DATE` as children) came back
+    `Cannot delete unnamed object: VOUCHER!` when it carried no `REMOTEID` and
+    `Voucher does not exist!` when it did.
+
+    Every value here still comes from the read taken immediately before, and the
+    body is still empty: a delete names a voucher, it does not rewrite one.
+    """
     root = _parsed(real.build_voucher_delete(COMPANY, _exported(), "ad_9"))
     node = root.find(".//VOUCHER")
     assert node is not None
     assert node.get("VCHTYPE") == "Journal"
-    assert node.get("REMOTEID") == "ad_9"
-    assert _required(root, ".//MASTERID") == "M42"
-    assert _required(root, ".//DATE") == "20260807"
-    assert _required(root, ".//VOUCHERTYPENAME") == "Journal"
-    # Never the amount, never the narration text.
+    assert node.get("TAGNAME") == "Master ID"
+    assert node.get("TAGVALUE") == "M42"
+    assert node.get("DATE") == "07-Aug-2026"
+    # The body is empty. Never the amount, never the narration text.
+    assert list(node) == []
     assert root.find(".//AMOUNT") is None
     assert root.find(".//NARRATION") is None
 
@@ -987,21 +1057,78 @@ def test_we_send_delete_and_never_cancel() -> None:
     assert "Cancel" not in envelope
 
 
-def test_a_guid_or_vchkey_the_read_supplied_is_passed_through_untouched() -> None:
+def test_a_delete_never_carries_remoteid_guid_or_vchkey() -> None:
+    """The regression test for the bug that made every real delete fail.
+
+    This used to assert the OPPOSITE - that a GUID or VCHKEY the read supplied
+    was passed through - and the connector used to require REMOTEID outright.
+    Measured against a real TallyPrime 7.0 on 2026-08-08, every delete aimed
+    that way came back `Voucher does not exist!`, and dropping REMOTEID while
+    keeping the child tags came back `Cannot delete unnamed object: VOUCHER!`.
+
+    REMOTEID is a SYNC-LINEAGE field. Tally stamps it on export so it looks like
+    a handle, but a voucher created by a local import has no entry in the remote
+    index, so aiming at it names nothing. Tally's own import guidance says to
+    STRIP REMOTEID before importing. GUID and VCHKEY are locators of the same
+    kind and are equally not a lookup key.
+
+    So the read here supplies all three, and the envelope must still carry none
+    of them - not as attributes, not as children.
+    """
     locators = {**FULL_LOCATORS, "GUID": "9f-1a-2b", "VCHKEY": "0005c8d0:0000006c"}
-    root = _parsed(real.build_voucher_delete(COMPANY, _exported(locators), "ad_9"))
-    assert _required(root, ".//GUID") == "9f-1a-2b"
-    assert _required(root, ".//VCHKEY") == "0005c8d0:0000006c"
+    envelope = real.build_voucher_delete(COMPANY, _exported(locators), "ad_9")
+    root = _parsed(envelope)
+    node = root.find(".//VOUCHER")
+    assert node is not None
+    for stale in ("REMOTEID", "GUID", "VCHKEY"):
+        assert node.get(stale) is None
+        assert root.find(f".//{stale}") is None
+    assert "ad_9" not in envelope
+    assert "9f-1a-2b" not in envelope
+    assert "0005c8d0:0000006c" not in envelope
 
 
 def test_a_vchkey_is_never_invented_when_the_read_did_not_supply_one() -> None:
+    """The other half of the test above: nothing is reconstructed either."""
     root = _parsed(real.build_voucher_delete(COMPANY, _exported(), "ad_9"))
     assert root.find(".//VCHKEY") is None
     assert root.find(".//GUID") is None
 
 
-@pytest.mark.parametrize("dropped", ["VCHTYPE", "MASTERID", "REMOTEID"])
+def test_the_delete_date_is_the_attribute_format_not_the_child_format() -> None:
+    """The trap that has no other guard.
+
+    The DATE ATTRIBUTE is `dd-MMM-yyyy` ("07-Aug-2026"). The DATE CHILD TAG is
+    `yyyyMMdd` ("20260807"). Tally EXPORTS the child form, so echoing what the
+    read gave us straight into the attribute is the natural mistake - and it is
+    a different field, so Tally would not find the voucher.
+    """
+    root = _parsed(real.build_voucher_delete(COMPANY, _exported(), "ad_9"))
+    node = root.find(".//VOUCHER")
+    assert node is not None
+    assert node.get("DATE") == "07-Aug-2026"
+    assert node.get("DATE") != "20260807"
+    assert re.fullmatch(r"\d{1,2}-[A-Z][a-z]{2}-\d{4}", node.get("DATE") or "")
+
+
+def test_a_masterid_tally_right_aligned_is_stripped_before_it_becomes_the_key() -> None:
+    """Tally right-aligns numbers on export: `<MASTERID TYPE="Number"> 1</MASTERID>`.
+
+    The locator is preserved exactly as Tally sent it (A5), leading space and
+    all, so the space has to come off where the value becomes a lookup key. A
+    TAGVALUE of `" 1"` is not the voucher whose Master ID is `1`.
+    """
+    locators = {**FULL_LOCATORS, "MASTERID": " 1"}
+    root = _parsed(real.build_voucher_delete(COMPANY, _exported(locators), "ad_9"))
+    node = root.find(".//VOUCHER")
+    assert node is not None
+    assert node.get("TAGVALUE") == "1"
+
+
+@pytest.mark.parametrize("dropped", ["VCHTYPE", "MASTERID"])
 def test_a_delete_missing_any_part_of_the_key_is_refused(dropped: str) -> None:
+    """REMOTEID is deliberately not in this list any more: it is no longer
+    required, no longer sent, and requiring it is what broke the real delete."""
     locators = {k: v for k, v in FULL_LOCATORS.items() if k != dropped}
     with pytest.raises(real.TallyDataError, match=dropped):
         real.build_voucher_delete(COMPANY, _exported(locators), "ad_9")
@@ -1069,6 +1196,64 @@ def test_closing_balances_without_a_suffix_fall_back_to_the_sign_convention() ->
     }
 
 
+def test_a_reserved_ledger_is_left_out_of_the_trial_balance() -> None:
+    """Measured 2026-08-08 against a real TallyPrime 7.0.
+
+    After one Rs 1,684.56 expense the real response was, verbatim:
+
+        <LEDGER NAME="AD Test Expense"   RESERVEDNAME="">    -1684.56
+        <LEDGER NAME="AD Test Vendor"    RESERVEDNAME="">     1684.56
+        <LEDGER NAME="Profit & Loss A/c" RESERVEDNAME="P&L"> -1684.56
+
+    No voucher ever touches "Profit & Loss A/c" - Tally computes it as the
+    running aggregate of the revenue and expense ledgers, so its balance is an
+    exact MIRROR of the expense leg. Counting it made the trial balance total
+    168456 instead of 0, i.e. the double-entry invariant looked broken while the
+    books were perfectly fine.
+    """
+    payload = (
+        "<ENVELOPE><COLLECTION>"
+        '<LEDGER NAME="AD Test Expense" RESERVEDNAME="">'
+        "<CLOSINGBALANCE>-1684.56</CLOSINGBALANCE></LEDGER>"
+        '<LEDGER NAME="AD Test Vendor" RESERVEDNAME="">'
+        "<CLOSINGBALANCE>1684.56</CLOSINGBALANCE></LEDGER>"
+        '<LEDGER NAME="Profit &amp; Loss A/c" RESERVEDNAME="Profit &amp; Loss A/c">'
+        "<CLOSINGBALANCE>-1684.56</CLOSINGBALANCE></LEDGER>"
+        "</COLLECTION></ENVELOPE>"
+    )
+    balances = real.parse_closing_balances(payload)
+
+    assert "Profit & Loss A/c" not in balances
+    assert balances == {"AD Test Expense": 168456, "AD Test Vendor": -168456}
+
+
+def test_a_real_trial_balance_sums_to_zero() -> None:
+    """The conservation law, and the guard on the exclusion above.
+
+    This is the check that does not need an expert or a label: debits and
+    credits are equal or they are not. If a future Tally build reserves a
+    ledger that IS posted to, `parse_closing_balances` would drop a real line
+    and this assertion fails - which is the intended failure, rather than a
+    silently wrong total.
+    """
+    payload = (
+        "<ENVELOPE><COLLECTION>"
+        '<LEDGER NAME="Purchases" RESERVEDNAME="">'
+        "<CLOSINGBALANCE>-1180.00</CLOSINGBALANCE></LEDGER>"
+        '<LEDGER NAME="Cash" RESERVEDNAME="">'
+        "<CLOSINGBALANCE>1180.00</CLOSINGBALANCE></LEDGER>"
+        '<LEDGER NAME="Profit &amp; Loss A/c" RESERVEDNAME="Profit &amp; Loss A/c">'
+        "<CLOSINGBALANCE>-1180.00</CLOSINGBALANCE></LEDGER>"
+        "</COLLECTION></ENVELOPE>"
+    )
+    balances = real.parse_closing_balances(payload)
+
+    assert sum(balances.values()) == 0, (
+        f"debits and credits must cancel exactly; got {balances} "
+        f"summing to {sum(balances.values())} paise"
+    )
+
+
 def test_a_ledger_with_no_balance_element_is_skipped() -> None:
     payload = (
         "<ENVELOPE><COLLECTION>"
@@ -1081,7 +1266,30 @@ def test_a_ledger_with_no_balance_element_is_skipped() -> None:
 
 
 def _voucher_payload(*bodies: str) -> str:
-    return f"<ENVELOPE><COLLECTION>{''.join(bodies)}</COLLECTION></ENVELOPE>"
+    """A payload shaped like the ones a real TallyPrime actually sends.
+
+    The `<BODY><DATA>` wrapper and the `<CMPINFO>` header are not decoration.
+    Measured against TallyPrime 7.0 on 2026-08-08: EVERY response carries a
+    `<CMPINFO>` block of counts, one of which is literally `<VOUCHER>0</VOUCHER>`
+    - a count, not a voucher. This helper used to emit a bare `<COLLECTION>`, so
+    no test ever saw that element, and the parser's whole-document scan for
+    `VOUCHER` picked up the counter in production. An EMPTY company then looked
+    like a corrupt export.
+
+    Keeping CMPINFO here means the fixture can reproduce that failure, which is
+    the whole point of a fixture: it is only worth trusting if it can be wrong
+    in the ways the real thing is wrong.
+    """
+    return (
+        "<ENVELOPE>"
+        "<HEADER><VERSION>1</VERSION><STATUS>1</STATUS></HEADER>"
+        "<BODY>"
+        "<DESC><CMPINFO><COMPANY>1</COMPANY><LEDGER>4</LEDGER>"
+        "<VOUCHER>0</VOUCHER></CMPINFO></DESC>"
+        f"<DATA><COLLECTION>{''.join(bodies)}</COLLECTION></DATA>"
+        "</BODY>"
+        "</ENVELOPE>"
+    )
 
 
 TWO_LEGGED = (
@@ -1862,8 +2070,15 @@ def test_an_ambiguous_marker_refuses_the_write_too() -> None:
 def test_the_delete_that_goes_out_carries_the_read_back_locators(
     sim: TallySim, client: TallyClient
 ) -> None:
-    """A6, end to end: MASTERID and VCHTYPE on the wire came from the read taken
-    a moment earlier, not from our config or from the write we did before."""
+    """A6, end to end: the Master ID and VCHTYPE on the wire came from the read
+    taken a moment earlier, not from our config or from the write we did before.
+
+    `TAGVALUE` is `M1` - the ID the simulator minted when it accepted the write
+    and handed back on the read - and `VCHTYPE` is the type that same read
+    reported. The operation ID appears nowhere in the envelope: the delete is
+    aimed by locators, never by our own identity for the voucher, never by
+    amount, never by narration text.
+    """
     op = new_operation_id()
     client.write_voucher(COMPANY, contract.a_voucher(), op)
     assert client.reverse_by_operation_id(COMPANY, op) is True
@@ -1873,8 +2088,11 @@ def test_the_delete_that_goes_out_carries_the_read_back_locators(
     node = _parsed(deletes[0]).find(".//VOUCHER")
     assert node is not None
     assert node.get("VCHTYPE") == "Journal"
-    assert node.get("REMOTEID") == op
-    assert _required(_parsed(deletes[0]), ".//MASTERID") == "M1"
+    assert node.get("TAGNAME") == "Master ID"
+    assert node.get("TAGVALUE") == "M1"
+    assert node.get("DATE") == "07-Aug-2026"
+    assert op not in deletes[0]
+    assert node.get("REMOTEID") is None
 
 
 def test_a_deletion_tally_refuses_raises(sim: TallySim) -> None:
