@@ -32,7 +32,7 @@ from accountant.extract.adapter import (
 )
 from accountant.memory.bootstrap import bootstrap
 from accountant.memory.company import CompanyMemory
-from accountant.memory.store import MemoryStore
+from accountant.memory.store import BootstrapStatus, MemoryStore
 from accountant.schema import Outcome, Voucher
 from accountant.tallyio.fake import FakeTally
 
@@ -399,10 +399,17 @@ def test_a_brand_new_company_never_posts_silently():
     company's history was read and found empty, which is a fact about their
     books. `tests/test_pipeline_isolation.py` covers the other one, where the
     fact is about us.
+
+    That distinction was prose here before it was a state. Since 2026-08-09 it
+    has a name: EMPTY_SOURCE — read honestly, askable, never proposes. This
+    line asserted `ready is True` until then, which claimed we had learned
+    something from books that were empty.
     """
     t = tally([])
     memory = memory_for(t)
-    assert memory.ready is True
+    assert memory.report.status is BootstrapStatus.EMPTY_SOURCE
+    assert memory.ready is False
+    assert memory.report.askable is True
     for text in (
         "paid Sharma Traders 4200 cement",
         "paid Verma Cement 900 bags",

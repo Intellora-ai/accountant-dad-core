@@ -18,6 +18,7 @@ import datetime
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
+from typing import Protocol
 
 from accountant import checks, problems
 from accountant.decide import decide_problems
@@ -26,8 +27,19 @@ from accountant.extract.adapter import ExtractedRecord, Extractor
 from accountant.memory.company import CompanyMemory, propose_account
 from accountant.memory.identity import normalise_company
 from accountant.problems import Problem
-from accountant.schema import CheckResult, Decision, Flag, Outcome, Voucher
+from accountant.schema import ActionLog, CheckResult, Decision, Flag, Outcome, Voucher
 from accountant.tallyio.client import TallyClient, new_operation_id
+
+
+class ActionLogSink(Protocol):
+    """Somewhere durable to append a decision.
+
+    A Protocol rather than `MemoryStore` so the pipeline does not depend on
+    SQLite. `accountant/memory/store.py` satisfies it today; anything that can
+    append and never mutate would.
+    """
+
+    def record_action(self, entry: ActionLog) -> None: ...
 
 
 @dataclass
@@ -239,6 +251,8 @@ def run(
     detector_set: Sequence[detectors.Detector] = detectors.SLICE_4_DETECTORS,
     flag_cap: int | None = None,
     today: datetime.date | None = None,
+    log: ActionLogSink | None = None,
+    run_id: str = "",
 ) -> Draft:
     """One entry, all the way through. Posts if Valid, stops otherwise.
 
@@ -266,5 +280,56 @@ def run(
 
     if draft.decision and draft.decision.outcome is Outcome.VALID:
         draft = post(draft, client)
+        record_decision(log, draft, memory, client, "posted", run_id)
+    else:
+        record_decision(log, draft, memory, client, "blocked", run_id)
 
     return draft
+
+
+def record_decision(
+    log: ActionLogSink | None,
+    draft: Draft,
+    memory: CompanyMemory,
+    client: TallyClient,
+    action: str,
+    run_id: str,
+) -> None:
+    """One durable row per decision, written HERE rather than by a caller.
+
+    Public because the web app does not go through `run` - it builds a draft,
+    shows it, asks a question, and re-evaluates across several HTTP requests.
+    It therefore reaches the same decisions by a different route, and must
+    produce the same rows. Sharing this function is what keeps the two paths
+    from drifting into two different definitions of what a decision is.
+
+    The web app used to keep its own forty-row list, which meant the audit
+    trail existed only while somebody had a browser open and vanished on
+    restart. A decision is made here, so the record of it belongs here: every
+    caller of `run` gets the same trail without having to remember to write
+    one.
+
+    The reason comes from the decision itself on EVERY path, including the
+    posted one. "Why did you refuse" is the obvious question; "why did you
+    post" is the one asked six months later by somebody looking at the voucher
+    in their books.
+    """
+    if log is None or draft.decision is None:
+        return
+
+    log.record_action(
+        ActionLog(
+            ts=datetime.datetime.now(datetime.UTC),
+            action=action,
+            company_key=memory.identity.key,
+            outcome=draft.decision.outcome.value,
+            reason=draft.decision.reason,
+            run_id=run_id,
+            backend=type(client).__name__,
+            operation_id=draft.operation_id,
+            voucher_id=draft.posted_tally_id or "",
+            vendor_id=draft.voucher.party,
+            detail=f"{draft.voucher.debit_account or '(none proposed)'} "
+            f"{draft.voucher.amount_paise} paise",
+        )
+    )

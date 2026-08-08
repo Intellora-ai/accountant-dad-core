@@ -186,7 +186,7 @@ class CompanyMemory:
     def lookup(self, vendor: str) -> CompanyMatch:
         """This company's own vendor history. Never anybody else's."""
         subject = normalise_vendor(vendor)
-        if not self._report.ready:
+        if not self._report.askable:
             return self._not_ready(subject)
         return _resolve(
             self.identity.key,
@@ -197,7 +197,7 @@ class CompanyMemory:
     def lookup_phrase(self, narration: str) -> CompanyMatch:
         """This company's own narration history. Exact match on the key only."""
         subject = normalise_phrase(narration)
-        if not self._report.ready:
+        if not self._report.askable:
             return self._not_ready(subject)
         return _resolve(
             self.identity.key,
@@ -206,7 +206,7 @@ class CompanyMemory:
         )
 
     def _require_ready(self, doing: str) -> None:
-        if not self._report.ready:
+        if not self._report.askable:
             raise MemoryNotReady(
                 f"refusing to {doing} for {self.identity.name!r}: "
                 f"{self._report.status.value} — {self._report.detail}"
