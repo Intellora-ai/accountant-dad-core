@@ -181,7 +181,26 @@ not evidence of product value.
 
 ---
 
-## 7. Architecture and A-to-Z build order
+## 7. Architecture — see ARCHITECTURE.md
+
+**The design lives in [`ARCHITECTURE.md`](./ARCHITECTURE.md), not here.** That
+document owns components, interfaces, data flows, the technology choices that
+affect the design, and the phase-by-phase build plan with entry and exit criteria.
+
+This section keeps only the two facts that are *status*, not design:
+
+| | |
+|---|---|
+| **Current phase** | **Phase 2 — the Tally spine** |
+| **Blocked on** | TallyPrime running in a Windows VM with its HTTP server on |
+
+Phases 0 and 1 are complete. Phases 3–9 have not started. Phase 10 is deferred.
+Per-area evidence is in §8; the ordered next actions are in §19.
+
+<details>
+<summary>Original section 7, kept for reference until the next update</summary>
+
+### Architecture and A-to-Z build order
 
 ```
    person
