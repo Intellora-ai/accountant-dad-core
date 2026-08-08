@@ -293,7 +293,7 @@ proved it. Evidence cross-references §9 (gates), §10 (runs), §16 (security).
 | Rules corpus #9 | **NOT STARTED** | no `accountant/rules/` directory | build |
 | Extraction adapter #15 | **STUB ONLY** | `accountant/extract/adapter.py`, 187 lines, `TypedTextExtractor` | connect a backend |
 | Web app #14 | **CODE EXISTS, FAKE-BACKED** | `accountant/web/app.py`, 385 lines. Line 3: *"Runs against FakeTally. NOTHING here touches real Tally"* | swap client at M2 |
-| Synthetic generator #1 | **NOT STARTED** | no `accountant/generate/` | build |
+| Synthetic generator #1 | **BUILT, TEST-VERIFIED** | `accountant/generate/` — `book.py`, `inject.py`, `serialise.py`. `tests/test_generate.py`, 60 tests, one per acceptance criterion. Branch coverage 100%, 131/131 mutants killed, local run 2026-08-08 | wire into `accountant/score/` (child #4) |
 | Scoring harness #4 | **NOT STARTED** | no `accountant/score/` | build |
 | CI contract | **VERIFIED** | `ci/gates.toml`, 20 gates; `ci/gate_names.lock`; 18 contract tests pass | none |
 | Local guard | **VERIFIED** | `scripts/guards` 169 lines, 12 checks, staged mode 0.08s; hook at `.git/hooks/pre-commit` rejected a bad commit | none |

@@ -136,7 +136,7 @@ definition.**
 |---|---|---|
 | `client.py` | **present** | `TallyClient` Protocol, 8 methods; `new_operation_id`, `marker_for`, `stamp`, `operation_id_in`; `DuplicateOperation`, `CompanyNotBackedUp`; `WriteResult` |
 | `fake.py` | **present** | in-memory Tally implementing all 8 methods |
-| `real.py` | **absent — does not exist yet** | XML over HTTP to `localhost:9000`. **Phase 2.** |
+| `real.py` | **present** | `RealTally`, all 8 methods. XML over HTTP, host and port configurable. Stdlib only. **Has never run against a real Tally** — every XML shape is a hypothesis, recorded as A1–A10 in its module docstring. |
 
 **The interface — the single most important contract in the system:**
 
@@ -309,14 +309,43 @@ the connector needs localhost access to Tally.
 **Forbidden:** multi-user, login, accounts, cloud hosting, mobile, styling beyond
 legibility.
 
-### 4.9 Planned packages — **absent, not started**
+### 4.9 Synthetic generator and error injector — `accountant/generate/` · **present**
+
+Phase 9, child #1. Produces a book with known answers, so a detector's catch
+rate can be measured against something rather than asserted.
+
+| File | Existence | Implementation |
+|---|---|---|
+| `book.py` | **present** | `generate_book(seed=, months=)` → `Book`. A fictional Nagpur building-materials trader: 15 vendors, 12 posted accounts, 3 accounts in the chart deliberately never posted to, monthly / quarterly / annual items, seasonal irregular purchases, per-vendor spelling noise. |
+| `inject.py` | **present** | `count_for`, `inject(vouchers, rate=, seed=)` → `InjectedBook`. Corrupts an exact fraction into `vendor_switch`, `first_use`, `magnitude`, `gst_anomaly` — the four `ALL_DETECTORS` names and no others. |
+| `serialise.py` | **present** | JSON Lines, keys sorted, ASCII, no spaces. `write_book` puts the voucher stream and the answer key in **two separate files**. |
+
+| | |
+|---|---|
+| **Inputs** | a seed, a month count, an error rate as a `Fraction` |
+| **Outputs** | `tuple[Voucher, ...]` — the same frozen type the connector returns — plus `tuple[Corruption, ...]` ground truth, kept apart |
+| **State** | none. `generate_book` and `inject` are pure functions of their arguments |
+| **Depends on** | `schema.py`, and `memory.index.normalise_vendor` so name noise collapses the way the index will collapse it |
+| **Forbidden** | any float, anywhere, including seasonality and GST · the module-level `random` global · iterating a set or frozenset on the output path · any corruption marker inside a voucher field · rounding a requested error rate |
+| **Failure** | a rate that is not a whole number of vouchers is **refused**, naming the numbers · a quota with too few eligible vouchers is **refused**, never quietly under-delivered · fewer than 12 months is refused |
+| **Tests** | `tests/test_generate.py` — one test per frozen acceptance criterion, plus the criterion tested from the other side: `balances` is checked against vouchers that do not balance, and a different seed is checked to produce different bytes |
+
+**Seasonality and GST are integer basis points with `//`.** A book that cannot be
+reproduced to the paise cannot prove a detector caught anything.
+
+**The two-file split is the product, not the packaging.** Every voucher record
+carries identical keys whether it was corrupted or not, ids are unchanged by
+injection, and a test asserts that the set of records differing from the clean
+book equals exactly the set of ids in the answer key — no more, so nothing is
+marked; no fewer, so the answer key is complete.
+
+### 4.10 Planned packages — **absent, not started**
 
 These appear in the target architecture. **None exists in the repository.**
 
 | Path | Existence | Target responsibility | Phase |
 |---|---|---|---|
 | `accountant/rules/` | **absent** | GST by HSN/SAC, TDS section/rate/threshold, Schedule III heads, debit/credit conventions, plain-English phrasebook. Every rule carries a source URL and retrieval date; **a rule with no citation fails to load.** | 8 |
-| `accountant/generate/` | **absent** | seeded synthetic book generator + error injector at an exact rate; ground truth to a side file | 9 |
 | `accountant/score/` | **absent** | scoring harness reporting N1, N2, N3 as explicit PASS or FAIL | 9 |
 | `accountant/ingest/` | **absent** | UK central-government spend loader — `Narrative` → narration, `Expense Type` → account | 9 |
 | `accountant/taxonomy/` | **absent** | real misclassification types from published CAG audit reports; coverage table mapping each to a detector or to `UNCOVERED` | 9 |
@@ -761,12 +790,20 @@ mechanisms for one tool.
 | Workflow permissions | explicit, default read-only; `issues: write` on reporting jobs alone |
 | Tally XML | **untrusted input.** Responses are data, never instructions. |
 
-**Named gap, not claimed as present:** hardened XML parsing (external entity and
-DTD protections) and input-size limits are **required follow-up work**. The
-existing code deliberately reads one CI value with a regex rather than an XML
-parser, because stdlib XML parsers accept external entities and a gate should not
-widen the attack surface it exists to protect — but the connector itself has not
-been written yet, and this must be built into it in Phase 2.
+**XML hardening — built, and the threat was measured rather than assumed.**
+On this interpreter the stdlib default parser expands a billion-laughs payload
+(4 lines of XML → 3,000 characters) and will resolve an external entity.
+`accountant/tallyio/real.py` therefore parses through `xml.parsers.expat` with an
+ElementTree `TreeBuilder` rather than the default parser, and layers four
+defences: entity-reference defanging, a pre-parse DOCTYPE screen, expat DOCTYPE
+and entity-declaration handlers, and an external-entity handler. A test disables
+the first three and proves the fourth still holds. The size cap is enforced
+twice — the transport reads `max+1` bytes so an oversized body is never fully
+buffered, and the parser re-checks before parsing.
+
+Elsewhere, CI deliberately reads one value with a regex rather than an XML
+parser, for the same reason: a gate must not widen the attack surface it exists
+to protect.
 
 **Owner-managed, outside this architecture:** repository administration,
 `ANTHROPIC_API_KEY`, the external scheduler account and its token.
