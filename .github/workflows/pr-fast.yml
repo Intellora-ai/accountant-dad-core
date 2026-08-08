@@ -80,6 +80,14 @@ jobs:
       - name: no-stub-jobs
         run: uv run python ci/check_stubs.py
 
+      - name: workflow-lint
+        # actionlint is a Go binary and is not on PyPI, so it cannot come from
+        # uv. The action ships the pinned binary.
+        uses: rhysd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca  # v1.7.12
+
+      - name: workflow-security
+        run: uv run zizmor --persona=pedantic --format=plain .
+
       - name: security-scan
         # Owner-set 2026-08-07: every severity blocks, LOW included. Target is
         # accountant/ only - tests are not shipped and never run under -O.
