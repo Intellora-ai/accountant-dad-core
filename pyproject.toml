@@ -23,6 +23,7 @@ dev = [
     "pip-audit>=2.10",     # dependency vulnerabilities
     "bandit>=1.9",         # Python security scan
     "zizmor>=1.29",        # GitHub Actions security lint
+    "prek>=0.4",           # installs the commit hook
     "build>=1.5",          # sdist/wheel
     "twine>=7.0",          # packaging metadata validation
 ]

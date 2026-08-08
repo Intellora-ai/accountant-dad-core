@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# Fetch actionlint, pinned and checksum-verified, into .tools/
+#
+# actionlint is a Go binary and is not on PyPI, so uv cannot install it. Before
+# this script, scripts/guards warned and carried on when it was missing - which
+# meant the local workflow-lint gate could be silently absent while still
+# appearing to be part of the guard set. A gate that can quietly not run is not
+# a gate.
+#
+# The checksum is not decoration. Without it this script would execute whatever
+# the network returned.
+#
+#   ./scripts/install-actionlint          install if missing
+#   ./scripts/install-actionlint --force  re-download even if present
+
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+VERSION="1.7.12"
+TOOLS_DIR=".tools"
+BIN="${TOOLS_DIR}/actionlint"
+
+# SHA-256 of each release archive, read from the upstream checksums file on
+# 2026-08-08. Pinned here so a compromised release cannot be installed silently.
+sha_for() {
+  case "$1" in
+    darwin_arm64) echo "aba9ced2dee8d27fecca3dc7feb1a7f9a52caefa1eb46f3271ea66b6e0e6953f" ;;
+    darwin_amd64) echo "5b44c3bc2255115c9b69e30efc0fecdf498fdb63c5d58e17084fd5f16324c644" ;;
+    linux_amd64)  echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8" ;;
+    linux_arm64)  echo "325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6" ;;
+    *)            echo "" ;;
+  esac
+}
+
+recovery() {
+  cat >&2 <<EOF
+
+actionlint could not be installed. One of these will fix it:
+
+    brew install actionlint
+    ./scripts/install-actionlint --force
+
+Do not skip it. scripts/guards fails without actionlint rather than
+continuing, because a workflow that has not been linted must not reach GitHub.
+EOF
+  exit 1
+}
+
+force=0
+[ "${1:-}" = "--force" ] && force=1
+
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | cut -d' ' -f1
+  else
+    echo ""
+  fi
+}
+
+# The version string is not integrity. A modified binary can still print
+# "1.7.12" - proven by appending bytes to it and watching an earlier version of
+# this script accept it. The binary's own hash is recorded at install time and
+# checked on every run instead.
+#
+# This catches corruption and accidental replacement. It does not defend against
+# someone who can edit .tools/actionlint.sha256 as well; at that point they
+# already have local write access and the checksum is not the weak link.
+if [ -x "$BIN" ] && [ "$force" -eq 0 ]; then
+  have=$("$BIN" --version 2>/dev/null | head -1 || true)
+  recorded="$(cat "${BIN}.sha256" 2>/dev/null || true)"
+  actual_bin="$(sha256_of "$BIN")"
+  if [ "$have" = "$VERSION" ] && [ -n "$recorded" ] && [ "$recorded" = "$actual_bin" ]; then
+    echo "actionlint ${VERSION} already present at ${BIN}, hash verified"
+    exit 0
+  fi
+  if [ "$have" = "$VERSION" ] && [ "$recorded" != "$actual_bin" ]; then
+    echo "actionlint at ${BIN} reports ${VERSION} but its hash does not match"
+    echo "  recorded ${recorded:-none}"
+    echo "  actual   ${actual_bin:-unreadable}"
+    echo "re-downloading rather than trusting it"
+  else
+    echo "replacing actionlint ${have:-unknown} with ${VERSION}"
+  fi
+fi
+
+case "$(uname -s)" in
+  Darwin) os="darwin" ;;
+  Linux)  os="linux" ;;
+  *)      echo "unsupported operating system: $(uname -s)" >&2; recovery ;;
+esac
+
+case "$(uname -m)" in
+  arm64|aarch64) arch="arm64" ;;
+  x86_64|amd64)  arch="amd64" ;;
+  *)             echo "unsupported architecture: $(uname -m)" >&2; recovery ;;
+esac
+
+platform="${os}_${arch}"
+expected="$(sha_for "$platform")"
+if [ -z "$expected" ]; then
+  echo "no pinned checksum for platform ${platform}" >&2
+  recovery
+fi
+
+archive="actionlint_${VERSION}_${platform}.tar.gz"
+url="https://github.com/rhysd/actionlint/releases/download/v${VERSION}/${archive}"
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+echo "downloading ${archive}"
+curl -sSfL "$url" -o "${tmp}/${archive}" || { echo "download failed: ${url}" >&2; recovery; }
+
+actual="$(sha256_of "${tmp}/${archive}")"
+if [ -z "$actual" ]; then
+  echo "no sha256sum or shasum available - refusing to install unverified binary" >&2
+  recovery
+fi
+
+if [ "$actual" != "$expected" ]; then
+  cat >&2 <<EOF
+CHECKSUM MISMATCH - refusing to install.
+
+  expected  ${expected}
+  actual    ${actual}
+  archive   ${archive}
+
+Either the release was changed after this checksum was pinned, or the download
+was tampered with. Do not work around this.
+EOF
+  exit 1
+fi
+
+mkdir -p "$TOOLS_DIR"
+tar -xzf "${tmp}/${archive}" -C "$tmp" actionlint
+mv "${tmp}/actionlint" "$BIN"
+chmod +x "$BIN"
+sha256_of "$BIN" > "${BIN}.sha256"
+
+installed="$("$BIN" --version 2>/dev/null | head -1 || true)"
+if [ "$installed" != "$VERSION" ]; then
+  echo "installed binary reports ${installed:-nothing}, expected ${VERSION}" >&2
+  recovery
+fi
+
+echo "actionlint ${VERSION} installed at ${BIN}, checksum verified"

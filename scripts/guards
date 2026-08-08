@@ -1,34 +1,43 @@
 #!/usr/bin/env bash
-# Every gate, on your laptop, before you push.
+# Every gate, on your laptop.
 #
-# Your test suite runs in 0.06 seconds. GitHub needs about 35 seconds just to
-# wake a runner up. So the fast feedback loop is here, not there. GitHub's job
-# is to confirm, not to tell you things you could have known instantly.
+# THIS IS AN ACCELERATOR, NOT A GATE.
 #
-#   ./scripts/guards          the fast gates (about a second)
-#   ./scripts/guards --full   everything, including mutation (about a minute)
+# Every check here is run again by CI, which blocks the merge. Skipping this
+# script with `git commit --no-verify` therefore weakens nothing - it only costs
+# you a slow round trip instead of a fast one. Nothing reaches main because this
+# script was skipped. CI is the protection. This is the fast feedback loop.
 #
-# Exits non-zero on the first failure unless --keep-going is passed.
+#   ./scripts/guards --staged   changed files only, for the commit hook
+#   ./scripts/guards            the fast gates
+#   ./scripts/guards --full     everything, including mutation
+#
+# What it will NOT do: continue quietly when a guard is unavailable. A missing
+# tool is a failure with an exact recovery command, never a warning.
 
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
 PY=".venv/bin"
+ACTIONLINT=".tools/actionlint"
 FULL=0
+STAGED=0
 KEEP_GOING=0
 FAILED=()
 
 for arg in "$@"; do
   case "$arg" in
+    --staged)     STAGED=1 ;;
     --full)       FULL=1 ;;
     --keep-going) KEEP_GOING=1 ;;
-    -h|--help)    sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)    sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)            echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
 
 if [ ! -x "$PY/python" ]; then
-  echo "no virtualenv at $PY - run: uv sync --extra dev" >&2
+  echo "no virtualenv at $PY" >&2
+  echo "fix it with:  ./scripts/setup" >&2
   exit 2
 fi
 
@@ -59,36 +68,82 @@ run() {
 finish() {
   echo
   if [ ${#FAILED[@]} -eq 0 ]; then
-    bold "all guards passed"
+    if [ "$STAGED" -eq 1 ]; then
+      bold "staged guards passed"
+    else
+      bold "all guards passed"
+    fi
     exit 0
   fi
   bold "FAILED: ${FAILED[*]}"
   exit 1
 }
 
-# ---- cheapest first, so the common failure is also the fastest --------------
-
-bold "fast guards"
-run "lockfile"        "$PY/uv" lock --check
-run "lint"            "$PY/ruff" check .
-run "format"          "$PY/ruff" format --check .
-run "typecheck"       "$PY/pyright"
-run "gate-contract"   "$PY/python" -m pytest tests/test_gate_contract.py -q
-run "no-stub-jobs"    "$PY/python" ci/check_stubs.py
-run "security-scan"   "$PY/bandit" -r accountant --severity-level low \
-                          --confidence-level low -q
-run "tests"           "$PY/python" -m pytest -q
-
-# ---- workflow linting, only when there are workflows to lint ---------------
-
-if [ -d .github/workflows ]; then
-  run "workflow-security" "$PY/zizmor" --persona=pedantic .
-  if command -v actionlint >/dev/null 2>&1; then
-    run "workflow-lint" actionlint
+# Any staged file under .github/ must trigger workflow validation, even when no
+# Python changed. A workflow edit is exactly the change nobody should push
+# unchecked.
+workflows_touched() {
+  [ -d .github ] || return 1
+  if [ "$STAGED" -eq 1 ]; then
+    git diff --cached --name-only | grep -q '^\.github/'
   else
-    printf '  \033[33m!\033[0m %-22s %s\n' "workflow-lint" \
-      "actionlint not installed (Go binary, not pip): brew install actionlint"
+    [ -d .github/workflows ]
   fi
+}
+
+staged_python() {
+  git diff --cached --name-only --diff-filter=ACM | grep -E '\.py$' || true
+}
+
+# ---- staged mode: changed files only, aiming at a couple of seconds ---------
+
+if [ "$STAGED" -eq 1 ]; then
+  bold "staged guards"
+  files=$(staged_python)
+  if [ -n "$files" ]; then
+    # shellcheck disable=SC2086
+    run "lint"      "$PY/ruff" check $files
+    # shellcheck disable=SC2086
+    run "format"    "$PY/ruff" format --check $files
+    run "typecheck" "$PY/pyright"
+    run "tests"     "$PY/python" -m pytest --testmon -q
+  else
+    pass "lint" "no Python staged"
+  fi
+fi
+
+# ---- full and default modes: cheapest first ---------------------------------
+
+if [ "$STAGED" -eq 0 ]; then
+  bold "fast guards"
+  run "lockfile"        "$PY/uv" lock --check
+  run "lint"            "$PY/ruff" check .
+  run "format"          "$PY/ruff" format --check .
+  run "typecheck"       "$PY/pyright"
+  run "gate-contract"   "$PY/python" -m pytest tests/test_gate_contract.py -q
+  run "no-stub-jobs"    "$PY/python" ci/check_stubs.py
+  run "security-scan"   "$PY/bandit" -r accountant --severity-level low \
+                            --confidence-level low -q
+  run "tests"           "$PY/python" -m pytest -q
+fi
+
+# ---- workflow validation: FAILS when a tool is missing, never warns ---------
+
+if workflows_touched; then
+  run "workflow-security" "$PY/zizmor" --persona=pedantic .
+
+  if [ ! -x "$ACTIONLINT" ]; then
+    echo "  installing actionlint (pinned, checksum-verified)"
+    if ! ./scripts/install-actionlint >/dev/null 2>&1; then
+      fail "workflow-lint" "actionlint could not be installed"
+      echo "      run this and read the error:  ./scripts/install-actionlint"
+      echo "      or:                            brew install actionlint"
+      FAILED+=("workflow-lint")
+      finish
+    fi
+  fi
+  run "workflow-lint" "$ACTIONLINT"
+  run "no-stub-jobs"  "$PY/python" ci/check_stubs.py
 fi
 
 run "whitespace"      git diff --check
