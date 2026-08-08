@@ -193,8 +193,9 @@ This section keeps only the facts that are *status*, not design:
 
 | | |
 |---|---|
-| **Current phase** | **Phase 2 — the Tally spine — substantially proven** (§21) |
+| **Current phase** | **Phase 2 — the Tally spine — ENVIRONMENT-LIMITED, not fully complete** (§21, §24) |
 | **Blocked on** | a **non-Educational TallyPrime licence**. Educational mode rejects voucher dates outside the 1st, 2nd and 31st, so the 15 client-fixture tests in `tests/test_tally_contract.py` — which post on `2026-08-07` — cannot run unmodified. This is the Phase 2 **exit** criterion, and it is the only owner-blocked item left. |
+| **Owner decision, 2026-08-08** | **Option 2 — Educational-mode exception.** No licence is to be purchased, activated, bypassed or simulated. See §24. |
 | **No longer blocked on** | the Windows VM. TallyPrime is installed and answering. The earlier "Windows VM + TallyPrime — NOT INSTALLED — the single blocker" is **superseded** (§17, §21). |
 
 Phases 0 and 1 are complete. Phase 2's build is done and proven end to end
@@ -1470,3 +1471,52 @@ accountant/web/app.py        stdlib http.server  unchanged
 [`BOTTLENECKS.md` A8](./BOTTLENECKS.md#a8--documentation-drift-is-unchecked)
 records it as an open item — **not** as a new gate, and **not** as a blocking
 rule.
+
+---
+
+## 24. Tally licensing — OWNER DECISION, 2026-08-08
+
+**Option 2 selected: Educational-mode exception.**
+
+```
+Tally licensing status: Educational mode only.
+Phase 2 status:         ENVIRONMENT-LIMITED, not fully complete.
+Genuine owner blocker:  A legitimate non-Educational Tally licence is unavailable.
+Unchanged fixture:      2026-08-07.
+Limitation:             Educational mode cannot validate the original 2026-08-07
+                        contract because its date restrictions reject that fixture.
+Evidence status:        All other Phase 2 work is closed. The original 15-test
+                        contract suite remains blocked by environment licensing.
+                        Do not report Phase 2 as complete.
+```
+
+**Standing instructions attached to this decision.** Do not purchase, activate,
+bypass or simulate a non-Educational licence. Do not edit `2026-08-07`. Do not
+convert `ENVIRONMENT_LIMITED` into `PASS`. Do not use the accepted control date
+`2026-08-31` to claim the original fixture passed.
+
+### The measurement that forces it
+
+| voucher date | result | evidence |
+|---|---|---|
+| `2026-08-07` — the contract fixture | **REJECTED** | `TallyRejected … exceptions=1 line_errors=["Voucher dat…"]` |
+| `2026-08-31` — control | **ACCEPTED** | written, then reversed and cleaned up |
+| deletion / reversal | **WORKS** | `deleted=1 errors=0`, `VOUCHER GONE: True` |
+
+The control matters: it isolates the cause. Writing works, deleting works, and
+only the date is refused — so this is an **environment** limit, not an XML,
+connector or parser defect. §21 carries the rest of the live evidence.
+
+### How substitute evidence must be labelled
+
+Anything run around the restriction is a `mechanism test`, `mock test` or
+`Educational-mode test`. **Never** `full live-contract proof`. A copy of the
+fixture on an allowed day is a compatibility test and says so in its name. No
+substitute dataset may be used to claim GST or accounting validation.
+
+### What would close it
+
+A legitimate non-Educational licence, then the original unmodified
+`tests/test_tally_contract.py` run against `RealTally` with all 15
+client-fixture tests passing. Nothing else closes it, and no amount of local
+green changes that.

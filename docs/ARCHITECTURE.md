@@ -801,6 +801,27 @@ response    parsed into the SAME frozen types FakeTally returns
   real client; **all 15 client-fixture tests pass.** Nothing outside
   `accountant/tallyio/` changes.
 
+**The exit has four outcomes, not two.** A licence tier that restricts voucher
+dates can refuse the fixture's date while the connector itself is correct, so
+"the tests did not pass" and "the connector is wrong" must be different answers:
+
+```
+CONTRACT_PASS        all 15 pass against the real client, fixture unmodified
+CONTRACT_FAIL        a test failed. The connector is wrong.
+ENVIRONMENT_LIMITED  the environment refused the fixture, not the connector
+NOT_RUN              no real client was reachable
+```
+
+`ENVIRONMENT_LIMITED` must never be reported as `CONTRACT_PASS`, and a control
+date that the environment *does* accept never stands in for the fixture's own
+date — a substitute that passes proves the mechanism, not the contract.
+
+**The fixture date is part of the acceptance criteria, not an implementation
+detail.** Editing it to suit an environment changes what the phase means, so it
+is an owner decision and never a repair. Current licence mode, the measured
+date behaviour and the standing owner decision are status, and live in
+[`PROJECT_STATE.md` §24](./PROJECT_STATE.md).
+
 ### Phase 3 — the typed vertical slice
 
 - **Entry:** Phase 2 exit.
