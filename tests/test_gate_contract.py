@@ -208,9 +208,11 @@ def test_every_workflow_job_is_declared_in_the_contract():
     if not WORKFLOWS.is_dir():
         return
     declared = {j for g in gates() for j in g["jobs"]}
+    excused = set(contract()["meta"].get("non_gate_jobs", []))
     for job in workflow_job_names():
-        assert job in declared, (
-            f"workflow job {job!r} has no gate behind it in ci/gates.toml"
+        assert job in declared or job in excused, (
+            f"workflow job {job!r} has no gate behind it in ci/gates.toml, "
+            "and is not declared in meta.non_gate_jobs"
         )
 
 

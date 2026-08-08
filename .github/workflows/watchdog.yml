@@ -1,0 +1,128 @@
+name: watchdog
+
+# Two things that nothing else would notice.
+#
+# 1. THE NIGHTLY STOPPED RUNNING. A nightly that silently stops is worse than
+#    one that fails: failure is loud, absence is silent. This checks that a
+#    scheduled run has happened since the last time the nightly cron was due.
+#
+# 2. BRANCH PROTECTION DRIFTED. Someone turns off a rule, or adds a bypass
+#    actor, and every gate downstream becomes decoration. This reads the live
+#    ruleset and compares it with ci/gates.toml.
+#
+# The audit is READ-ONLY. It opens an issue; it never repairs the ruleset.
+# An auditor that can fix what it audits is a second way for protection to
+# change quietly. Repair needs the owner's own admin identity.
+#
+# Honest limit, recorded rather than hidden: GitHub disables scheduled
+# workflows on a repository with no activity for 60 days. A watchdog running
+# ON GitHub cannot catch GitHub switching itself off. Only an off-platform
+# ping could, and that is out of scope here.
+
+on:
+  schedule:
+    # One hour after full.yml's `0 2 * * *`, so the nightly has finished before
+    # this asks whether it ran. Derived from that cron, not chosen freely.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: watchdog-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  nightly-watchdog:
+    name: nightly-watchdog
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read   # read ci/gates.toml
+      actions: read    # list scheduled runs of full.yml
+      issues: write    # raise the alarm when the nightly stopped
+    steps:
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          enable-cache: true
+          cache-suffix: ${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          cache-dependency-glob: uv.lock
+
+      - name: has the nightly run since it was last due?
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # The window is derived from full.yml's own cron, never from a
+          # grace period nobody set. The nightly is due daily at 02:00 UTC, so
+          # a scheduled run must exist within the last 24 hours.
+          latest=$(gh api \
+            "repos/${REPO}/actions/workflows/full.yml/runs?event=schedule&per_page=1" \
+            --jq '.workflow_runs[0].created_at // ""')
+
+          if [ -z "${latest}" ]; then
+            echo "::warning::no scheduled run of full.yml has EVER happened"
+            uv run --no-project python ci/report_nightly.py \
+              --status failure --run-id "${RUN_ID}" \
+              --jobs "nightly-never-ran"
+            exit 1
+          fi
+
+          age=$(( $(date -u +%s) - $(date -u -d "${latest}" +%s) ))
+          echo "most recent scheduled run: ${latest} (${age}s ago)"
+
+          if [ "${age}" -gt 86400 ]; then
+            echo "::error::the nightly has not run for $(( age / 3600 )) hours"
+            uv run --no-project python ci/report_nightly.py \
+              --status failure --run-id "${RUN_ID}" \
+              --jobs "nightly-stopped-running"
+            exit 1
+          fi
+          echo "the nightly is running on schedule"
+
+  ruleset-drift:
+    name: ruleset-drift
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read   # read ci/gates.toml
+      issues: write    # raise the alarm when protection changed
+    steps:
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          enable-cache: true
+          cache-suffix: ${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          cache-dependency-glob: uv.lock
+
+      - name: audit branch protection
+        # Read-only. Reports drift, repairs nothing.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          uv run --no-project python ci/check_ruleset.py \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: watchdog-evidence
+          path: ruleset.json
+          if-no-files-found: ignore
+          retention-days: 30
