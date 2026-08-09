@@ -222,7 +222,6 @@ def test_answering_then_re_evaluating_posts():
         typed("paid Verma Cement 900 bags"),
         "text/plain",
         TypedTextExtractor(),
-        accounts,
         memory,
         today=TODAY,
     )
@@ -262,7 +261,6 @@ def test_an_answer_is_not_permission_to_post():
         typed("paid Verma Cement 900 bags"),
         "text/plain",
         TypedTextExtractor(),
-        accounts,
         memory,
         today=TODAY,
     )
@@ -276,14 +274,12 @@ def test_an_answer_is_not_permission_to_post():
 
 def test_answer_is_recorded_as_provenance():
     t = tally([])
-    accounts = t.read_accounts(COMPANY)
     memory = memory_for(t)
     d = pipeline.build_draft(
         COMPANY,
         typed("paid Verma Cement 900 bags"),
         "text/plain",
         TypedTextExtractor(),
-        accounts,
         memory,
         today=TODAY,
     )
@@ -303,7 +299,6 @@ def test_posting_a_not_valid_draft_is_refused():
         typed("paid Nobody 0 for nothing"),
         "text/plain",
         TypedTextExtractor(),
-        accounts,
         memory,
         today=TODAY,
     )
@@ -332,7 +327,6 @@ def test_an_unclear_draft_is_refused_and_leaves_the_books_byte_identical():
         typed("paid Gupta Hardware 1500 for tools"),
         "text/plain",
         TypedTextExtractor(),
-        accounts,
         memory,
         today=TODAY,
     )
@@ -359,7 +353,6 @@ def test_posting_an_unevaluated_draft_is_refused():
         typed("paid Sharma Traders 4200 cement"),
         "text/plain",
         TypedTextExtractor(),
-        t.read_accounts(COMPANY),
         memory,
         today=TODAY,
     )
@@ -444,7 +437,6 @@ def test_a_write_that_cannot_be_read_back_raises_and_never_records_a_tally_id():
         typed("paid Sharma Traders 4200 for cement"),
         "text/plain",
         TypedTextExtractor(),
-        accounts,
         memory,
         today=TODAY,
     )
@@ -475,7 +467,6 @@ def test_vendor_switch_asks_instead_of_posting_and_names_the_evidence():
         typed("paid Sharma Traders 4200 cement"),
         "text/plain",
         TypedTextExtractor(),
-        accounts,
         memory,
         today=TODAY,
     )

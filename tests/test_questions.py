@@ -260,7 +260,6 @@ def test_a_problem_already_answered_is_never_asked_again():
         b"paid Verma Cement 900 bags",
         "text/plain",
         TypedTextExtractor(),
-        ACCOUNTS,
         memory,
         today=TODAY,
     )
@@ -306,7 +305,6 @@ def test_a_handed_over_entry_is_never_posted():
         b"paid Verma Cement 900 bags",
         "text/plain",
         TypedTextExtractor(),
-        ACCOUNTS,
         memory,
         today=TODAY,
     )

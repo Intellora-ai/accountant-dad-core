@@ -76,7 +76,6 @@ def _unclear_draft() -> tuple[FakeTally, pipeline.Draft]:
         b"paid Gupta Hardware 1500 for tools",
         "text/plain",
         TypedTextExtractor(),
-        ACCOUNTS,
         memory,
         today=TODAY,
     )

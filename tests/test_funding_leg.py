@@ -84,7 +84,6 @@ def draft_for(t: FakeTally, memory: CompanyMemory, text: str):
         text.encode(),
         "text/plain",
         TypedTextExtractor(),
-        chart,
         memory,
         today=TODAY,
     )
@@ -311,13 +310,12 @@ def test_the_build_step_records_the_funding_leg_as_not_found_rather_than_blank()
     `build_draft` no longer proposes this leg at all, so it says so, in the same
     `provenance` map every other field uses.
     """
-    t, memory = books([])
+    _, memory = books([])
     d = pipeline.build_draft(
         COMPANY,
         b"paid Gupta Hardware 1500 for tools",
         "text/plain",
         TypedTextExtractor(),
-        t.read_accounts(COMPANY),
         memory,
         today=TODAY,
     )

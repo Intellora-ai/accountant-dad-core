@@ -59,6 +59,15 @@ class Draft:
     decision: Decision | None = None
     posted_tally_id: str | None = None
     answers: list[tuple[str, str]] = field(default_factory=list[tuple[str, str]])
+    #: Detector names the person has looked at and chosen not to act on.
+    #:
+    #: A dismissal is NOT a validation and deliberately changes nothing else:
+    #: the flag stays, the problem stays, the decision stays. It exists so the
+    #: screen can stop asking and so criterion #3.7 has something to log. One
+    #: line away from here is a version where dismissing a surprise approves
+    #: the entry, and that is the version that posts a wrong voucher because
+    #: somebody clicked to make a warning go away.
+    dismissed: list[str] = field(default_factory=list[str])
 
     @property
     def outcome(self) -> Outcome:
@@ -133,7 +142,6 @@ def build_draft(
     data: bytes,
     mime: str,
     extractor: Extractor,
-    accounts: tuple[str, ...],  # noqa: ARG001 - see below
     memory: CompanyMemory,
     *,
     today: datetime.date | None = None,
@@ -156,17 +164,26 @@ def build_draft(
     because no-match asks the person a question and not-ready means we are not
     entitled to ask one yet.
 
-    `accounts` IS UNUSED here as of 2026-08-09, and kept on purpose. Its only
-    reader was `_default_credit`, the deleted funding guess. It is not removed
-    yet because it is positional in roughly thirty call sites including two
-    test files owned by other work in flight, and a mechanical signature change
-    across those is a merge conflict, not an improvement. Recorded as an open
-    item in `docs/PROJECT_STATE.md` rather than left as a silent oddity.
+    `accounts` IS GONE, 2026-08-09. It was a positional parameter this function
+    never read - its only reader was `_default_credit`, the deleted funding
+    guess - carried since then behind a `# noqa: ARG001` and a paragraph
+    explaining that it did nothing. Deferring it was justified as "thirty
+    positional call sites, a merge conflict rather than an improvement", and
+    the count was right: 32 sites, 2 in the package and 30 across 11 test
+    files, all passing it 5th of 6 positional arguments.
 
-    Nothing here validates a proposed ledger against `accounts`, and that is
-    also deliberate: emptying a leg that memory proposed but the chart no
-    longer contains would DELETE the evidence. `checks.accounts_exist` names
-    the missing ledger instead, which is what the person needs to see.
+    Removed anyway, because the cost was not the noqa. A signature that names
+    the chart of accounts says this function consults the chart, and the
+    docstring then had to spend a paragraph saying it does not - a reader who
+    skims the signature and not the paragraph concludes the proposed ledger is
+    validated here. It is not, and it must not be: emptying a leg that memory
+    proposed but the chart no longer contains would DELETE the evidence.
+    `checks.accounts_exist` names the missing ledger instead, in `evaluate`,
+    which is what the person needs to see.
+
+    The change is a pure deletion with no behaviour in it, and pyright in
+    strict mode plus the whole suite check every call site, so "did I miss one"
+    is measured rather than reviewed.
     """
     expected = normalise_company(company)
     if memory.identity.key != expected:
@@ -644,7 +661,7 @@ def run(
     accounts = client.read_accounts(company)
     history = client.read_vouchers(company)
 
-    draft = build_draft(company, data, mime, extractor, accounts, memory, today=today)
+    draft = build_draft(company, data, mime, extractor, memory, today=today)
     draft = evaluate(
         draft, accounts, history, memory, detector_set=detector_set, flag_cap=flag_cap
     )

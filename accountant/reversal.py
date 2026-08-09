@@ -449,7 +449,12 @@ def _summary(
     state: BatchState, outcomes: Sequence[VoucherOutcome], batch: Batch
 ) -> str:
     if not outcomes:
-        return batch.detail or f"nothing of ours in {batch.company!r}"
+        # Stated outright rather than `batch.detail or <this>`. The fallback was
+        # unreachable — `preview` already writes this exact sentence for an
+        # empty candidate list and nothing else produces an empty detail — so
+        # the `or` was a branch no test could take and no mutant could kill.
+        # An unkillable line is not a safe line, it is an unmeasured one.
+        return f"nothing of ours in {batch.company!r}"
     done = sum(1 for o in outcomes if o.state is VoucherState.REVERSED_VERIFIED)
     untried = sum(1 for o in outcomes if o.state is VoucherState.NOT_ATTEMPTED)
     return (
