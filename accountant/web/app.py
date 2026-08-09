@@ -246,8 +246,38 @@ def configure(
     forgotten by the next request; and no bootstrap record, so "we have not read
     your books yet" was indistinguishable from "your books say nothing about
     this vendor". The first asks a question; the second must not.
+
+    W5 / D5, FIXED 2026-08-09. THE IDENTITY MUST NAME THE CLIENT IT IS FOR.
+
+    `backend_state()` and the page read `identity.backend`. Every ActionLog row
+    writes `type(client).__name__`. Nothing compared them, so a runtime built
+    from a fake client and a real-sounding identity told the person on screen
+    *"This is your real Tally"* while every row in their own audit trail said
+    `RecordingTally`. Both cannot be true, and the one the person reads is the
+    wrong one — which is the exact failure mode the three evidence classes
+    exist to prevent, arriving through the injection seam instead of through a
+    document.
+
+    Compared by class name rather than by `isinstance`, deliberately. The
+    question is not "does this object behave like a real Tally" — a double
+    behaves like one, that is what makes it useful. The question is "does the
+    word we are about to print match the object we are about to use", and a
+    string comparison is the only thing that answers it.
+
+    A wrapper is therefore its own backend: `RecordingTally` around a
+    `FakeTally` must declare `RecordingTally`, because that is what the log
+    will say.
     """
     global _runtime_state
+    actual = type(client).__name__
+    if identity.backend != actual:
+        raise ValueError(
+            f"{REFUSAL}: no operation performed. The identity says the backend "
+            f"is {identity.backend!r} but the client is a {actual}. The page "
+            f"and the action log would name different backends, and nothing "
+            f"downstream could tell which one was written to."
+        )
+
     owned = store if store is not None else MemoryStore(":memory:")
     _runtime_state = Runtime(
         client=client,

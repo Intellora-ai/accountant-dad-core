@@ -2604,12 +2604,38 @@ is reversible by the operation id now on the record. One strict xfail,
 `test_an_unknown_write_outcome_still_records_its_operation_id`, was an
 aspiration; it passes and the marker is deleted.
 
-### 37.5 Still open, not fixed here
+### 37.5 W5 / D5 — the page and the audit trail could name different backends
 
-**W5** — nothing cross-checks `BackendIdentity.backend` against the actual
-client type, so a `FakeTally` behind `BackendIdentity(backend="RealTally")`
-renders *"This is your real Tally"* while every log row says the double's name.
-Both cannot be right and the person reads the wrong one.
+Fixed in the same session. `backend_state()` and the page read
+`identity.backend`; every ActionLog row writes `type(client).__name__`. Nothing
+compared them, so a runtime built from a fake client and a real-sounding
+identity rendered *"This is your real Tally"* while the person's own audit
+trail said `RecordingTally`. Measured: page `real-licence-unknown`, log row
+`RecordingTally`.
+
+`configure()` now refuses the pair. Compared by **class name, not
+`isinstance`** — a double behaves like a real Tally, which is the point of it;
+the question is whether the word about to be printed matches the object about
+to be used, and only a string comparison answers that. A wrapper is its own
+backend: `RecordingTally` around a `FakeTally` declares `RecordingTally`.
+
+**The defect was load-bearing for 22 tests**, which is why it survived.
+`tests/test_backend_states.py` rendered the three real-backend states by
+declaring a real identity over a `FakeTally`. Those states are now produced by
+a real `RealTally` speaking real XML to the in-process simulator the repo
+already owns — a better fixture than the one it replaces, because the state the
+page renders is now produced by the class the page names. The licence mode
+stays constructed: it is a fact about the Tally at the far end, not about the
+client class.
+
+One strict xfail, `test_the_runtime_refuses_an_identity_that_contradicts_the_client_it_names`,
+was an aspiration and now holds.
+
+### 37.6 Still open, not fixed here
 
 `POST /reverse` still bypasses `pipeline.reverse` and verifies no trial balance.
-`DRAFTS` is still unpruned. Neither is a wrong-write risk; both are recorded.
+`DRAFTS` is still unpruned. `build_draft`'s `accounts` parameter is unused.
+`Ltd` / `Pvt Ltd` / `& Co` still collapse to one vendor key, blocked on an owner
+decision about `tests/test_memory.py:994-1001`. `normalise_company` has the same
+NFD fold that `normalise_vendor` just gained. None is a wrong-write risk on the
+gated path; all are recorded.

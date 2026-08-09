@@ -1596,8 +1596,11 @@ def test_a_fake_backend_is_labelled_not_real_on_the_page_and_in_health(
     document, and on exact counts. Searching the page for a common word is how
     two tests earlier in this project came out green and vacuous.
     """
+    # The wrapper is its own backend. `RecordingTally` around a `FakeTally`
+    # must declare `RecordingTally`, because that is the name every ActionLog
+    # row will carry, and since 2026-08-09 `configure()` refuses any other.
     client = RecordingTally(app_company_tally())
-    live_app(client, "FakeTally")
+    live_app(client, "RecordingTally")
 
     assert app.backend_state() == app.BACKEND_NOT_REAL
 
@@ -1610,31 +1613,44 @@ def test_a_fake_backend_is_labelled_not_real_on_the_page_and_in_health(
     assert body.count("Nothing here reaches any real books") == 1
 
     state = app.health()
-    assert state["backend"] == "FakeTally"
+    assert state["backend"] == "RecordingTally"
     assert state["backend_state"] == "not-real"
     assert state["ready"] is True
     assert state["run_id"] == RUN
 
 
-def test_the_page_and_the_action_log_can_disagree_about_which_tally_was_written_to(
+def test_the_page_and_the_action_log_can_no_longer_disagree_about_the_backend(
     live_app: Callable[[TallyClient, str], MemoryStore],
 ) -> None:
-    """MEASURED, AND IT IS DEFECT D5 - accountant/web/app.py:243.
+    """DEFECT D5 / W5, FIXED 2026-08-09. This test pinned it until then.
 
     `backend_state()` reads the DECLARED `identity.backend`. `record_decision`
-    writes `type(client).__name__`. Nothing compares them, so a runtime built
-    with a real-sounding identity and a fake client tells the person on screen
-    that this is their real Tally while every log row says otherwise. Both
+    writes `type(client).__name__`. Nothing compared them, so a runtime built
+    with a real-sounding identity and a fake client told the person on screen
+    that this was their real Tally while every log row said otherwise. Both
     cannot be right, and the one the person reads is the wrong one.
+
+    Measured then: page `real-licence-unknown`, page text "This is your real
+    Tally", log row backend `RecordingTally`. `configure()` now refuses the
+    pair outright, so the disagreement has no state to exist in.
+
+    What remains asserted here is the whole chain with a HONEST identity: the
+    page, `/health` and the log row all name the same backend, and the entry
+    still posts and still reverses. Refusing the contradiction is worthless if
+    it also refuses the truthful case.
     """
     client = RecordingTally(app_company_tally())
-    store = live_app(client, "RealTally")
 
-    assert app.backend_state() == app.BACKEND_LICENCE_UNKNOWN
+    with pytest.raises(ValueError, match="but the client is a RecordingTally"):
+        live_app(client, "RealTally")
+
+    store = live_app(client, "RecordingTally")
+
+    assert app.backend_state() == app.BACKEND_NOT_REAL
     body = app.render_home().decode()
-    assert body.count('data-backend-state="real-licence-unknown"') == 1
-    assert body.count("This is your real Tally") == 1
-    assert body.count('data-backend-state="not-real"') == 0
+    assert body.count('data-backend-state="not-real"') == 1
+    assert body.count("This is your real Tally") == 0
+    assert body.count('data-backend-state="real-licence-unknown"') == 0
 
     draft = pipeline.build_draft(
         app.COMPANY,
@@ -1656,31 +1672,39 @@ def test_the_page_and_the_action_log_can_disagree_about_which_tally_was_written_
     app.record(draft, "posted")
 
     rows = store.actions(app.COMPANY)
-    assert len(rows) == 1
+    assert [r.action for r in rows] == ["posted"]
     assert rows[0].backend == "RecordingTally"
     assert rows[0].run_id == RUN
-    assert app.runtime().identity.backend == "RealTally"
-    assert rows[0].backend != app.runtime().identity.backend
+    assert app.runtime().identity.backend == "RecordingTally"
+    assert rows[0].backend == app.runtime().identity.backend, (
+        "the page, /health and the audit trail name one backend or none"
+    )
+    assert app.health()["backend"] == "RecordingTally"
 
     assert client.write_count == 1
     assert client.reverse_by_operation_id(app.COMPANY, draft.operation_id) is True
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT D5, accountant/web/app.py:243. `configure()` accepts any "
-        "identity for any client, so the backend the page names and the backend "
-        "the action log names can be different things."
-    ),
-)
 def test_the_runtime_refuses_an_identity_that_contradicts_the_client_it_names(
     live_app: Callable[[TallyClient, str], MemoryStore],
 ) -> None:
+    """The aspiration that was a strict xfail until 2026-08-09. It now holds.
+
+    Compared by class name and not by `isinstance`, on purpose. A double
+    BEHAVES like a real Tally - that is what makes it useful. The question is
+    whether the word we are about to print matches the object we are about to
+    use, and only a string comparison answers that.
+    """
     client = RecordingTally(app_company_tally())
 
-    with pytest.raises((ValueError, RuntimeError)):
+    with pytest.raises(ValueError, match=app.REFUSAL):
         live_app(client, "RealTally")
+
+    # And nothing was installed on the way out. A refusal that leaves a
+    # half-built runtime behind is worse than no refusal, because the next
+    # request finds a client nobody vouched for.
+    with pytest.raises(RuntimeError, match=app.REFUSAL):
+        app.runtime()
 
 
 def test_the_recorded_identifier_is_the_one_tally_returned_not_our_own() -> None:

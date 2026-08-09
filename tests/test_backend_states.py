@@ -67,9 +67,11 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
+import tests.test_real_tally as sim_module
 from accountant.memory.store import MemoryStore
 from accountant.schema import Voucher
 from accountant.tallyio import real
+from accountant.tallyio.client import TallyClient
 from accountant.tallyio.factory import (
     BackendIdentity,
     LicenceMode,
@@ -104,6 +106,42 @@ FORBIDDEN_WHEN_REAL = (
 # ---------------------------------------------------------------------------
 # fixtures - a double for the client, a constructed identity for the backend
 # ---------------------------------------------------------------------------
+
+
+def _client_named(backend: str) -> TallyClient:
+    """A client whose CLASS NAME really is `backend`. No spoofing, no wrapper.
+
+    W5, 2026-08-09: `configure()` now refuses an identity that names a
+    different backend from the client handed to it, because the page reads the
+    identity and every log row reads `type(client).__name__`, and nothing used
+    to compare them. A runtime built from a fake client and a real-sounding
+    identity told the person *"This is your real Tally"* while their own audit
+    trail said otherwise.
+
+    These tests exist to render the five backend states, and three of them are
+    only reachable with a real client. So the real ones get a real `RealTally`,
+    speaking real XML to the in-process simulator these tests already own. That
+    is a better fixture than the one it replaces: the state the page renders is
+    now produced by the class the page names.
+
+    The LICENCE mode stays constructed. It is a fact about the Tally at the
+    other end, not about the client class, and varying it is the whole point of
+    the parametrised cases below.
+    """
+    if backend == "RealTally":
+        sim = sim_module.TallySim()
+        sim.add_company(app.COMPANY, ACCOUNTS)
+        for _ in range(4):
+            # The simulator's own seeder, so the XML is the shape `real.py`
+            # actually parses rather than a hand-built approximation of it.
+            sim.seed(app.COMPANY, narration="cement supply", amount_paise=118000)
+        return real.RealTally(
+            transport=sim,
+            backups=real.RecordedBackups(frozenset({app.COMPANY})),
+        )
+    if backend == "FakeTally":
+        return _tally()
+    raise AssertionError(f"no client class is named {backend!r}")
 
 
 def _tally() -> FakeTally:
@@ -154,7 +192,9 @@ def _serving(identity: BackendIdentity) -> Generator[str]:
     ready = threading.Event()
 
     def run() -> None:
-        app.configure(_tally(), identity, store=MemoryStore(":memory:"))
+        app.configure(
+            _client_named(identity.backend), identity, store=MemoryStore(":memory:")
+        )
         ready.set()
         httpd.serve_forever()
 
