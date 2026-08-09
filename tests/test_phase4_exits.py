@@ -25,6 +25,7 @@ rest uses `FakeTally`. Neither says what Tally would do.
 
 from __future__ import annotations
 
+import ast
 import datetime
 import pathlib
 
@@ -226,3 +227,220 @@ def test_an_answer_that_names_a_ledger_the_chart_does_not_have_still_cannot_post
         pipeline.post(again, t)
     assert t.list_our_vouchers(COMPANY) == ()
     assert t.trial_balance(COMPANY) == before
+
+
+# ---------------------------------------------------------------------------
+# Exit 4 — no fallback account exists anywhere in executable code
+# ---------------------------------------------------------------------------
+#
+# This guard did not exist, and the exit was already FALSE. `_default_credit`
+# picked the money-source ledger on EVERY entry from a hard-coded preference
+# list, and its last line returned the literal `"Cash"` even when the company's
+# chart had no such ledger.
+#
+# It stayed invisible because every test chart in the repo contains "Cash", so
+# the first loop iteration always matched and the later branches never ran.
+#
+# The guard reads SOURCE, not behaviour, because behaviour tests can only find
+# a fallback somebody thought to trigger.
+
+# Names that mean "an account we picked because nothing told us which one".
+FALLBACK_NAMES = ("suspense", "sundry expenses", "miscellaneous", "misc")
+
+# `questions.py` is the plain-English phrasebook: it maps ledger names to words
+# a person understands, so it MUST contain account names as data. It is exempt
+# from the name scan, and `test_the_phrasebook_exemption_is_not_a_loophole`
+# proves the exemption cannot hide executable logic.
+PHRASEBOOK = PACKAGE / "questions.py"
+
+# Read-only measurement and synthetic-data code. Neither can reach a real write.
+NOT_A_POSTING_PATH = ("ingest", "generate", "taxonomy", "score")
+
+
+def _shipped_modules() -> list[pathlib.Path]:
+    return [
+        p
+        for p in sorted(PACKAGE.rglob("*.py"))
+        if not any(part in NOT_A_POSTING_PATH for part in p.relative_to(PACKAGE).parts)
+    ]
+
+
+LEDGER_LEGS = ("credit_account", "debit_account")
+
+
+def _chooser_names(tree: ast.AST) -> set[str]:
+    """Functions that can return a non-empty string LITERAL.
+
+    Walks the whole return expression, not just a bare constant, because
+    `_default_credit` hid its fallback in `accounts[0] if accounts else "Cash"`
+    - an IfExp. A fallback lives in the conditional; that is what makes it one.
+    """
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        for inner in ast.walk(node):
+            if not isinstance(inner, ast.Return) or inner.value is None:
+                continue
+            for part in ast.walk(inner.value):
+                if (
+                    isinstance(part, ast.Constant)
+                    and isinstance(part.value, str)
+                    and part.value.strip()
+                ):
+                    names.add(node.name)
+                    break
+    return names
+
+
+def _invented_ledger_legs(tree: ast.AST, choosers: set[str]) -> list[tuple[str, int]]:
+    """Every place a ledger leg is set from something we made up.
+
+    NOT "any function that returns a string" - that flagged `accounts_differ`,
+    `build_ledger_list_request` and three others, none of which chooses an
+    account. The invariant is narrower and exact: `credit_account` and
+    `debit_account` may come from the document, from this company's own memory,
+    or from a person's answer. They may never come from a literal we wrote or
+    from a function that can produce one.
+    """
+    bad: list[tuple[str, int]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        for kw in node.keywords:
+            if kw.arg not in LEDGER_LEGS:
+                continue
+            value = kw.value
+            if (
+                isinstance(value, ast.Constant)
+                and isinstance(value.value, str)
+                and value.value.strip()
+            ):
+                bad.append((f"{kw.arg}={value.value!r}", kw.value.lineno))
+            elif (
+                isinstance(value, ast.Call)
+                and isinstance(value.func, ast.Name)
+                and value.func.id in choosers
+            ):
+                bad.append((f"{kw.arg}={value.func.id}()", value.lineno))
+    return bad
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "DEFECT, PINNED. Phase 4 exit 4 is FALSE. "
+        "accountant/pipeline.py:134 sets credit_account=_default_credit(), a "
+        "hard-coded preference list (Cash, Bank, Sundry Creditors, then the "
+        "first ledger in the chart, then the literal 'Cash' even when the "
+        "company has no such ledger). It runs on EVERY entry and carries no "
+        "provenance. The fix is designed and was proven end to end - read the "
+        "funding leg from this company's own history, unanimous or nothing, "
+        "and ask `questions.how_paid` when the history is silent or split - "
+        "but it turns 21 existing tests red because an unknown vendor then "
+        "correctly asks TWO questions instead of one. Those 21 need "
+        "considering individually, not a bulk edit. See PROJECT_STATE 35."
+    ),
+)
+def test_no_ledger_leg_is_ever_set_from_a_literal_or_a_chooser() -> None:
+    """Exit 4, stated exactly.
+
+    A ledger leg may come from the document, from this company's own memory, or
+    from a person's answer. Never from a name we wrote down, and never from a
+    function that can produce one.
+
+    `_default_credit` violated this on EVERY entry, and its last line returned
+    the literal "Cash" even when the chart had no such ledger. It stayed
+    invisible because every test chart in the repo contains "Cash", so the
+    first loop iteration always matched and the later branches never ran.
+    """
+    offenders: list[str] = []
+    for path in _shipped_modules():
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for what, line in _invented_ledger_legs(tree, _chooser_names(tree)):
+            offenders.append(f"{path.relative_to(REPO)}:{line} {what}")
+    assert not offenders, (
+        "a ledger leg is set from an invented account: "
+        + "; ".join(offenders)
+        + ". No fallback account may exist (Phase 4 exit 4)."
+    )
+
+
+def test_no_shipped_module_names_a_fallback_account_in_executable_code() -> None:
+    """Suspense, Sundry Expenses, Miscellaneous — the classic buckets.
+
+    The phrasebook is exempt because describing a ledger in plain words is its
+    job. Everything else that names one is choosing it.
+    """
+    offenders: list[str] = []
+    for path in _shipped_modules():
+        if path == PHRASEBOOK:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                low = node.value.lower()
+                for bad in FALLBACK_NAMES:
+                    if low == bad:
+                        offenders.append(
+                            f"{path.relative_to(REPO)}:{node.lineno} {node.value!r}"
+                        )
+    assert not offenders, (
+        "a fallback account name appears in executable code: " + "; ".join(offenders)
+    )
+
+
+def test_the_phrasebook_exemption_is_not_a_loophole() -> None:
+    """`questions.py` may hold account NAMES. It may not choose an account.
+
+    Without this, exempting the phrasebook would be a hole big enough to hide a
+    fallback in.
+    """
+    tree = ast.parse(PHRASEBOOK.read_text(encoding="utf-8"), filename=str(PHRASEBOOK))
+    offenders = [
+        f"line {line} {what}"
+        for what, line in _invented_ledger_legs(tree, _chooser_names(tree))
+    ]
+    assert not offenders, (
+        f"{PHRASEBOOK.name} is exempt from the NAME scan only. It must never "
+        f"set a ledger leg: {'; '.join(offenders)}"
+    )
+
+
+def test_the_guard_catches_a_fallback_that_is_deliberately_introduced() -> None:
+    """An absence test nobody has seen fail is indistinguishable from one that
+    cannot fail. This runs the forbidden shapes through the real detectors."""
+    # The exact shape `_default_credit` had, wired the exact way it was wired.
+    # A direct-constant check walks straight past the IfExp, so this is pinned.
+    sneaky = ast.parse(
+        "def _default_credit(accounts):\n"
+        '    return accounts[0] if accounts else "Cash"\n'
+        "def build(accounts):\n"
+        "    return Voucher(credit_account=_default_credit(accounts))\n"
+    )
+    assert _invented_ledger_legs(sneaky, _chooser_names(sneaky)), (
+        "a fallback inside a conditional expression slips past the scan"
+    )
+
+    # And the blunt version.
+    blunt = ast.parse('v = Voucher(credit_account="Suspense")\n')
+    assert _invented_ledger_legs(blunt, set()), "a literal ledger leg slips past"
+
+    # The control on the control: honest shapes must NOT be flagged.
+    fine = ast.parse(
+        "v = Voucher(credit_account=record.credit, debit_account=answer)\n"
+        'empty = Voucher(credit_account="", debit_account="")\n'
+    )
+    assert not _invented_ledger_legs(fine, set()), (
+        "the scan flags a leg taken from input or left empty"
+    )
+
+    named = ast.parse('FALLBACK = "Suspense"\n')
+    hits = [
+        n.value
+        for n in ast.walk(named)
+        if isinstance(n, ast.Constant)
+        and isinstance(n.value, str)
+        and n.value.lower() in FALLBACK_NAMES
+    ]
+    assert hits == ["Suspense"], "the fallback-name scan is blind"

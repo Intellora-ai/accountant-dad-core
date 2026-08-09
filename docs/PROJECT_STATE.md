@@ -2325,3 +2325,116 @@ what teaches memory. Both halves are now asserted separately.
 | mutant: `answer()` keeps the decision | **1 failed** | red | by hand |
 | mutant: `decide_problems` ignores answered ids | **2 failed** | red | by hand |
 | mutant: `evaluate` stops passing them | **2 failed** | red | by hand |
+
+---
+
+## 35. Phase 4 exit 4 — PROVEN FALSE, guard landed, fix designed and NOT shipped
+
+**2026-08-09.** Phase 4 P4.2/P4.3.
+
+### 35.1 Exit 4 was already false, and had never been checked
+
+`docs/ARCHITECTURE.md` says `NO fallback account exists anywhere in the
+codebase`. `PROJECT_STATE.md:128` recorded it as *"VERIFIED — no fallback exists
+in `accountant/decide.py`"* — **one file**. `pipeline.py` was never in scope of
+that verification, and no CI gate covers it.
+
+`accountant/pipeline.py:81-85`:
+
+```python
+def _default_credit(accounts: tuple[str, ...]) -> str:
+    for preferred in ("Cash", "Bank", "Sundry Creditors"):
+        if preferred in accounts:
+            return preferred
+    return accounts[0] if accounts else "Cash"
+```
+
+It runs on **every entry**, including an unknown vendor. Line 85 returns the
+literal `"Cash"` **even when the company has no such ledger**. `credit_account`
+carries **no provenance** — and by this codebase's own definition
+(`ingest/spend.py`), *a field with no source is a hallucination by definition*.
+
+**Why it stayed invisible:** every test chart in the repo contains `"Cash"`, so
+the first loop iteration always matched and lines 83–85 never ran once.
+
+### 35.2 The guard, and two wrong versions of it before the right one
+
+`tests/test_phase4_exits.py`. Two drafts were discarded:
+
+1. **Too narrow** — checked for a bare `return "constant"`. `_default_credit`
+   returns `accounts[0] if accounts else "Cash"`, an `IfExp`, and the scan
+   walked straight past it. **A fallback hides in a conditional; that is what
+   makes it a fallback.**
+2. **Too broad** — "any function whose name mentions an account returning a
+   string" flagged five innocents: `accounts_differ`, `accounts_exist`,
+   `build_ledger_list_request`, `_ledger_entry`, `parse_ledger_names`.
+
+The landed version states the invariant exactly: **a ledger leg may come from
+the document, from this company's own memory, or from a person's answer — never
+from a literal we wrote, and never from a function that can produce one.**
+Result: **exactly one offender, zero false positives.**
+
+It carries its own control (`test_the_guard_catches_a_fallback_that_is_...`),
+which runs the forbidden shapes AND the honest shapes through the real
+detectors — an absence test nobody has seen fail is indistinguishable from one
+that cannot fail.
+
+### 35.3 The fix is designed and was PROVEN END TO END. It is not shipped.
+
+Measured working, before being reverted:
+
+```
+1st: unclear | nothing says how this was paid
+     question: "How did you pay?"  ->  ['cash', 'from the bank']
+2nd: valid   | Dr Purchases | Cr Cash
+provenance: credit_account 'human_answer', debit_account 'company_history'
+```
+
+Four parts:
+
+1. `checks.funding_is_named` — an absent funding leg is a **question**, not a guess
+2. `problems.py` maps it to `Q.how_paid`, which **already existed and was dead
+   code**, never wired to anything
+3. `_funding_from_history(party, history)` — read the funding leg from this
+   company's own past vouchers, **unanimous or nothing**, exactly like the
+   expense leg. Asking "how did you pay?" about a vendor whose last forty
+   vouchers all say Cash is the same failure `bootstrap` exists to prevent
+4. `pipeline.answer` routes by problem id, so the funding answer lands on the
+   **credit** leg instead of overwriting the expense leg
+
+### 35.4 Why it was reverted rather than shipped
+
+It turns **21 tests red**, and they are not wrong — the behaviour genuinely
+changed. An unknown vendor now correctly asks **two** questions (which purpose,
+and how paid) where the tests answer one.
+
+Blast radius measured in stages: 50 red with the naive absence → 28 once the
+funding leg is read from history → **21** once the web path passes history too.
+
+Those 21 need considering individually. Bulk-editing them at the end of a long
+session is exactly the *"batch many unverified changes and hope the final suite
+explains them"* the mandate forbids, so the tree was returned to a verified
+green state and the defect **pinned as a strict xfail** carrying the whole
+diagnosis.
+
+**Status: NOT YET MEASURABLE as passing. Exit 4 remains FALSE.** The next
+session starts with a working design, a precise guard, and a known list of 21.
+
+### 35.5 One further fallback found, not yet addressed
+
+`accountant/questions.py:242-243` — `how_paid` offers `Answer(label="cash",
+value="Cash")` when the chart contains neither Cash nor Bank. Offering a ledger
+the company does not have means the person clicks it and we post to a
+nonexistent account. The AST guard does not catch it because it is an answer
+option, not a ledger-leg assignment. Recorded, not fixed.
+
+### 35.6 Measured
+
+| metric | actual | expected | evidence |
+|---|---|---|---|
+| tests | **1052 passed, 5 xfailed, 0 failed, 0 skipped** | ≥ 1049 | `pytest -q` |
+| guards | 12/12 | 12/12 | `./scripts/guards` |
+| pyright | 0 | 0 | `pyright` |
+| exit 4 | **FALSE, pinned** | true | `test_no_ledger_leg_is_ever_set_from_a_literal_or_a_chooser` |
+| fallback offenders found | **1** (`pipeline.py:134`) | 0 | AST scan |
+| false positives | **0** | 0 | AST scan |
