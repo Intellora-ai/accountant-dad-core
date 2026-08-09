@@ -2264,3 +2264,64 @@ bootstrap" would pass.
 **flipped** from pinning the defect to proving the fix, and renamed
 `..._are_both_refused`. A vacuous `assert survivor is not None` was caught and
 replaced while flipping it — `resume` never returns `None`.
+
+---
+
+## 34. Phase 4 exit 2 made structural, and a stranding bug found on the way
+
+**2026-08-09.** Phase 4 P4.1.
+
+### 34.1 `answer()` left a stale decision
+
+`pipeline.answer()` rewrites `debit_account` and used to leave `draft.decision`
+untouched. Its docstring said *"the caller must re-run evaluate()"* — a comment,
+not a guarantee. After answering, the draft carried a decision describing a
+**different voucher** from the one it now held.
+
+Safe only by accident: `answer` is reached only from UNCLEAR, and `post` refuses
+anything not VALID. Change either and a mutated voucher posts against a stale
+approval.
+
+`answer()` now sets `draft.decision = None`, so `post` fails closed with
+*"draft has not been evaluated"*. **Measured first:** all six existing call sites
+already re-evaluated on the next line, so nothing had to change around it.
+
+### 34.2 A stranding bug, found while testing the above
+
+`decide_problems` chose `answerable[0]` **without** skipping already-answered
+problems; `next_question` **did** skip them. The two disagreed, and the
+disagreement reached the screen. Measured before the fix:
+
+```
+outcome:        unclear
+next_question:  None
+STRANDED:       True
+```
+
+The page renders *"needs an answer"* with **no question and no buttons**. The
+person cannot act and the question budget never advances.
+
+**Fix:** one rule, two readers. `decide_problems` takes the answered ids —
+the same list `next_question` filters on — and when every answerable problem has
+already been answered and is still firing, the entry is **handed over** rather
+than left UNCLEAR. UNCLEAR is a promise to ask something; if there is nothing
+left to ask, saying UNCLEAR is a lie.
+
+### 34.3 What closes the loop, stated so it is not confused
+
+`answer()` alone does **not** make the next pass VALID. It sets
+`debit_account`, but memory still returns NO_MATCH for the vendor, so the same
+problem is found again. `web/app.py` also calls `record_correction`, and that is
+what teaches memory. Both halves are now asserted separately.
+
+### 34.4 Measured
+
+| metric | actual | expected | evidence |
+|---|---|---|---|
+| tests | **1049 passed, 4 xfailed, 0 failed, 0 skipped** | ≥ 1043 | `pytest -q` |
+| guards | 12/12 | 12/12 | `./scripts/guards` |
+| pyright | 0 | 0 | `pyright` |
+| regressions from the decision-order change | **0** | 0 | full suite |
+| mutant: `answer()` keeps the decision | **1 failed** | red | by hand |
+| mutant: `decide_problems` ignores answered ids | **2 failed** | red | by hand |
+| mutant: `evaluate` stops passing them | **2 failed** | red | by hand |

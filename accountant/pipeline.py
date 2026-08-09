@@ -181,7 +181,13 @@ def evaluate(
     draft.problems = problems.find(
         draft.voucher, draft.checks, match, draft.flags, accounts, history, index
     )
-    draft.decision = decide_problems(draft.problems, asked=len(draft.answers))
+    draft.decision = decide_problems(
+        draft.problems,
+        asked=len(draft.answers),
+        # The SAME answered-ids `next_question` filters on, so the decision
+        # and the question can never disagree about what is outstanding.
+        answered=[pid for pid, _ in draft.answers],
+    )
     return draft
 
 
@@ -200,14 +206,30 @@ def next_question(draft: Draft):
 def answer(draft: Draft, account: str, problem_id: str = "which_account") -> Draft:
     """Record an answer to a clarifying question.
 
-    The answer is NOT permission to post. It is new information. The caller must
-    re-run evaluate(), and the entry can still come out Not valid.
+    The answer is NOT permission to post. It is new information, and the entry
+    can still come out Not valid.
+
+    Phase 4 exit 2, made STRUCTURAL 2026-08-09. This used to say "the caller
+    must re-run evaluate()" and leave `draft.decision` alone — a comment, not a
+    guarantee. Since this function rewrites `debit_account`, a surviving
+    decision would be an approval granted to a DIFFERENT voucher from the one
+    the draft now carries.
+
+    It was safe only by accident: `answer` is reached only from an UNCLEAR
+    draft, and `post` refuses anything that is not VALID. Change either and a
+    mutated voucher posts against a stale approval.
+
+    So the decision is CLEARED. `post` then fails closed with "draft has not
+    been evaluated", which makes re-entering the decision order mandatory
+    rather than requested. Every existing caller already re-evaluated on the
+    next line, so nothing had to change around it.
     """
     draft.answers.append((problem_id, account))
     draft.voucher = replace(draft.voucher, debit_account=account)
     prov = dict(draft.voucher.provenance or {})
     prov["debit_account"] = "human_answer"
     draft.voucher = replace(draft.voucher, provenance=prov)
+    draft.decision = None
     return draft
 
 
