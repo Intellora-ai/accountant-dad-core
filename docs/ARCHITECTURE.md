@@ -141,9 +141,9 @@ definition.**
 
 | File | Existence | Implementation |
 |---|---|---|
-| `client.py` | **present** | `TallyClient` Protocol, 8 methods; `new_operation_id`, `marker_for`, `stamp`, `operation_id_in`; `DuplicateOperation`, `CompanyNotBackedUp`; `WriteResult` |
-| `fake.py` | **present** | in-memory Tally implementing all 8 methods |
-| `real.py` | **present** | `RealTally`, all 8 methods. XML over HTTP, host and port configurable via `TallyConfig`. Stdlib only. |
+| `client.py` | **present** | `TallyClient` Protocol, 9 methods; `new_operation_id`, `marker_for`, `stamp`, `operation_id_in`; `DuplicateOperation`, `CompanyNotBackedUp`; `WriteResult` |
+| `fake.py` | **present** | in-memory Tally implementing all 9 methods |
+| `real.py` | **present** | `RealTally`, all 9 methods. XML over HTTP, host and port configurable via `TallyConfig`. Stdlib only. |
 
 **The interface — the single most important contract in the system:**
 
@@ -156,7 +156,19 @@ write_voucher(company, voucher, operation_id) -> WriteResult
 read_by_operation_id(company, operation_id)   -> Voucher | None
 reverse_by_operation_id(company, operation_id)-> bool
 list_our_vouchers(company)                    -> tuple[Voucher, ...]
+backed_up(company)                            -> bool
 ```
+
+**Why there is a ninth method** (added 2026-08-09, G5.2). The backup gate lived
+only inside `write_voucher`, and that had two consequences. Nothing could ASK —
+a bulk reversal must state the backup identity before it runs, and a fact only
+discoverable by attempting a write is not a fact a preview can report. And
+`reverse_by_operation_id` was **not gated at all**: a delete is the more
+destructive of the two operations and it was the ungated one, so a batch could
+empty a company nobody had backed up while a single write to that same company
+was refused. Both are closed by this method plus the gate now on the delete
+path. It is read-only and reads the same `BackupLog` both write paths gate on,
+so what a preview reports and what a write enforces cannot drift apart.
 
 | | |
 |---|---|
@@ -551,6 +563,68 @@ start.
 
 ---
 
+### 4.14 Bulk reversal — `accountant/reversal.py` · **present**
+
+The batch cleanup lifecycle, and the only thing in the system that touches many
+vouchers at once. Added 2026-08-09 (G5.2); before it, `POST /reverse` took one
+operation id out of a form and there was no batch path at all.
+
+| | |
+|---|---|
+| **Inputs** | a `TallyClient`, a company, an explicit confirmation |
+| **Outputs** | `Batch` — frozen, so a partial result cannot be edited into looking finished |
+| **State** | one durable `ActionLog` row per voucher transition, written BEFORE the next attempt |
+| **Depends on** | `pipeline.reverse_operation`, `schema`, `tallyio.client` |
+| **Forbidden** | calling `client.reverse_by_operation_id`. Every undo goes through the doorway that compares the trial balance; an AST test asserts it. |
+| **Tests** | `tests/test_bulk_reversal.py`, `tests/test_bulk_reversal_web.py`, `tests/test_reverse_all_cli.py` |
+
+**Eight per-voucher states and seven batch states.**
+
+```
+PER VOUCHER                       BATCH
+NOT_ATTEMPTED                     PREVIEW
+PRECHECK_REFUSED                  CONFIRMED
+EXPLICIT_REJECTION                REVERSING
+REQUEST_SENT                      PARTIAL_FAILURE
+REVERSED_VERIFIED                 UNKNOWN_OUTCOME
+UNKNOWN_OUTCOME                   CRITICAL_FAILURE
+WRONG_MOVEMENT                    COMPLETED
+READBACK_FAILED
+```
+
+**The four failure categories are not interchangeable, and that is the design.**
+
+| Category | Meaning | Batch becomes |
+|---|---|---|
+| `PRECHECK_REFUSED` | the request never went to Tally | `PARTIAL_FAILURE` |
+| `EXPLICIT_REJECTION` | Tally said clearly it did not occur | `PARTIAL_FAILURE` |
+| `UNKNOWN_OUTCOME` | it may have reached Tally and we cannot prove it | `UNKNOWN_OUTCOME` |
+| `WRONG_MOVEMENT` | Tally answered yes and the ledgers say otherwise | `CRITICAL_FAILURE` |
+
+`UNKNOWN_OUTCOME` is never treated as a rejection, and transport success is
+never treated as accounting success. Those are the same mistake wearing
+different clothes: believing an answer instead of reading the books.
+
+**CLEANUP, NOT ROLLBACK.** Posting is setup; reversing is cleanup. When voucher
+4 fails, vouchers 1–3 are **not** re-reversed — they are already correctly
+cleaned up and putting them back would write entries nobody asked for. The
+resting state is partial by design, and a resume finishes only what is
+outstanding.
+
+**`accounted` is not "did the books come back to where they started".** The
+batch's baseline is taken immediately BEFORE the reversal and already contains
+the vouchers about to be removed, so a successful batch is supposed to end
+somewhere else. What it measures is narrower and stronger: `final == baseline +
+the movements this batch verified`. It returns `None` — UNKNOWN — when any
+outcome was settled by reconciliation rather than measured, because a read
+proves a voucher is gone and cannot prove by how much the books moved.
+
+**A resume needs two different things.** Reconciled (has every unknown been
+turned into a fact by a read?) and approved (has a person seen those facts and
+said go on?). A `CRITICAL_FAILURE` cannot be resumed at all.
+
+---
+
 ## 5. Data flows
 
 Every diagram shows where failure **stops** the flow.
@@ -813,7 +887,7 @@ branch protection                  only AFTER a run publishes the exact names
   the app runs on. **Owner-supplied: the Tally installation and its licence
   tier.** A licence tier that restricts voucher dates restricts which of this
   phase's exit tests can run at all.
-- **Build:** `accountant/tallyio/real.py`, implementing the same 8-method Protocol.
+- **Build:** `accountant/tallyio/real.py`, implementing the same 9-method Protocol.
 
 ```
 transport   HTTP POST to the configured host and port, timeout, bounded retry
@@ -899,10 +973,68 @@ NO fallback account  exists anywhere in the codebase
 - **Exit:** post N vouchers, bulk reverse, **the trial balance returns to its
   exact prior value in paise**; a retry with the same operation ID creates
   nothing; a company with no recorded backup is refused.
+- **N = 10.** OWNER DECISION 2026-08-09. Fixed for this gate, not configurable,
+  and never lowered to make a failing run pass. The fifteen pass conditions are
+  in `ci/acceptance.py` and each is asserted individually, so a failing run
+  names the condition rather than reporting "did not pass".
+- **The batch is fail-closed and resumable.** DESIGN DECISION 2026-08-09: bulk
+  reversal stops at the first unresolved voucher and resumes explicitly. Eight
+  per-voucher states and seven batch states — see §4.14. Reversing ten vouchers
+  is CLEANUP, not a rollback: a batch that stops at voucher 4 leaves 1–3
+  reversed and does not put them back, and a resume finishes only the
+  outstanding work.
+- **Blocking at the first live step.** Every part of this phase that reads or
+  writes a REAL Tally is gated on the acceptance test in §14 —
+  `REQUIRED, NOT YET RUN`. Until it passes, those exits report
+  `BLOCKED_ENVIRONMENT` and never `PASSED`.
+
+### Phase 5B — operational readiness and repeatability
+
+**A RELEASE GATE, NOT A FEATURE.** Inserted 2026-08-09 between Phase 5 and
+Phase 6. Nothing is renumbered: Phases 6 to 10 keep the numbers they have
+always had.
+
+> The Phase 5B operational-readiness gate was previously described incorrectly
+> as Phase 6 in an external planning message. Phase numbering is resolved here
+> by retaining the repository's existing Phase 6 definition.
+
+A feature milestone and a release gate are different things and are never merged
+into one pass/fail claim. **Phase 5B passing does not make Phase 6 complete.
+Phase 6 detector tests passing does not make Phase 5B pass.**
+
+- **Entry:** Phase 5 exit.
+- **Question:** was Phase 5 a lucky one-off, or is this repeatable enough for a
+  tightly controlled pilot? One clean run answers neither, and three IDENTICAL
+  clean runs prove the happy path three times. So the three runs differ:
+
+```
+A  the normal lifecycle
+B  duplicate retry, a lost answer, a restart, reconciliation, explicit resume
+C  refused at voucher 4, persisted partial, reconciled, explicitly resumed
+```
+
+- **Build:** `ci/readiness.py`. Plus company isolation, and a clean room — build
+  a wheel, install it into an empty virtualenv with `--no-index --no-deps`,
+  import it from a directory that is not the repo, and run the reversal command
+  there **expecting it to refuse**. A command that "worked" in a clean room with
+  no Tally would be a command that does not check.
+- **Failures are injected into `FakeTally` and the simulator only.** A failure is
+  never manufactured in real statutory books to test a failure path.
+- **Exit, twelve conditions:** 3 of 3 runs pass · 30 of 30 voucher lifecycles ·
+  zero wrong writes · zero duplicate writes · zero cross-company writes · zero
+  unresolved unknown outcomes · zero trial-balance mismatches · zero cleanup
+  mismatches · clean-room install succeeds · restart/recovery succeeds · every
+  evidence bundle complete · an operator can read the result without raw logs.
+
+**`NOT_RUN` is not a pass.** The gate fails while the clean room has not run, so
+a run that quietly skipped its slowest check cannot be mistaken for a complete
+one.
+
+---
 
 ### Phase 6 — the first detector
 
-- **Entry:** Phase 5 exit.
+- **Entry:** Phase 5B exit.
 - **Build:** wire **only** `vendor_switch` into the review screen. Deterministic
   ranking by severity, ties by voucher id. Per-batch cap with overflow reported as
   a count. Dismissal logging.
@@ -968,12 +1100,14 @@ free — many departments, each with its own `Expense Type` vocabulary, one form
 ### Dependency shape
 
 ```
-0 ──► 1 ──► 2 ──► 3 ──► 4 ──► 5 ──► 6 ──► 7 ──► 8
-                   └────────────────────────────► 9   parallel, independent
-                                                  10  after 8, deferred
+0 ──► 1 ──► 2 ──► 3 ──► 4 ──► 5 ──► 5B ──► 6 ──► 7 ──► 8
+                   └──────────────────────────────────────► 9   parallel
+                                                            10  after 8, deferred
 ```
 
 Phases 2 through 8 are strictly sequential: each exit is the next entry.
+**5B sits between 5 and 6 as a gate, not as a feature**, and it is the only
+entry in this chain that is a release gate rather than a capability.
 Phase 9 needs nothing from them. Phase 10 waits.
 
 ---
@@ -1109,6 +1243,9 @@ means*, not *where we are*.
 [ ] write read back
 [ ] duplicate retry rejected
 [ ] reversal restores exact prior trial balance
+[ ] N = 10 acceptance run passes                           (ci/acceptance.py)
+[ ] Phase 5B readiness gate passes                         (ci/readiness.py)
+[ ] RealTally acceptance test passed                       (§14)
 [ ] memory bootstrapped from the company's OWN posted history
 [ ] existing company + empty index → reported as a bootstrap failure,
     never a proposal                                       (§4.3, invariant 2)
@@ -1211,6 +1348,62 @@ choice made when writing the report afterwards.
 `2026-08-07`. A compatibility run uses a date the environment permits. Editing
 the fixture to match the environment would collapse three classes into one and
 destroy the only signal that says the live question is still open.
+
+### 14.1 The artefact that produces the `live` row
+
+```
+RealTally acceptance test: REQUIRED, NOT YET RUN
+```
+
+The `live` row above has exactly one producer, and it has never been run. Until
+it passes, every exit that depends on a real Tally reports
+`BLOCKED_ENVIRONMENT` and never `PASSED`. `docs/PROJECT_STATE.md` carries the
+status; this section carries what the artefact IS.
+
+**Required sequence, in order:**
+
+```
+disposable Tally test company → known ledgers → actual RealTally connection
+→ read-only identity check → baseline Trial Balance
+→ one controlled voucher dated 2026-08-31 → Tally unfiltered-register read-back
+→ Tally Day Book verification → ledger and Trial Balance delta comparison
+→ approved reversal/cleanup → exact Trial Balance restoration
+```
+
+**The command.** `python -m ci.acceptance_cli`, which prints backend identity,
+company identity, backup identity, licence mode, write-enabled status, the exact
+voucher set, the expected trial-balance movement, the cleanup plan and the
+reconciliation plan — and touches nothing without `--yes`.
+
+**It cannot label itself `LICENSED_REALTALLY`.** The command refuses that class
+unless the connector MEASURED `licence_mode == licensed`. The licence read
+returns `UNKNOWN` by design (§15 — every attempt was refused, and the TDL
+workaround is what wedged a live gateway), so today the machine cannot produce
+the live class at all. The separation between compatibility evidence and live
+proof is therefore enforced by code rather than by whoever writes the report.
+
+**Five evidence-source labels**, and no result may carry one it did not earn:
+
+```
+UNIT_TEST · FAKETALLY · SIMULATOR · EDUCATIONAL_TALLY · LICENSED_REALTALLY
+```
+
+`ci/acceptance_cli.py` offers only the last three: it always talks to a real
+connector, so offering a class that means "no Tally was involved" would let a
+real run be filed under it.
+
+**The owner action, and it is the only blocker.** Create a company named
+`Demo Co` in the TallyPrime GUI on a licensed instance, with the four ledgers
+`tests/test_tally_contract.py:46-47` names: `Purchases`, `Sundry Expenses`,
+`Cash`, `Sharma Traders`. A company **cannot** be created over the XML gateway —
+it was attempted and refused with `<RESPONSE>Unknown Request, cannot be
+processed</RESPONSE>` — so this is a GUI action and retrying it over XML teaches
+nothing.
+
+**The Day Book step and the whitelist.** A Day Book read is a request shape §15
+does not permit. If it cannot be done inside `Export + Collection`, it is
+recorded as `NOT MEASURABLE — would require a forbidden request shape`, and
+nothing is sent.
 
 ---
 

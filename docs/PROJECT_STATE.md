@@ -298,7 +298,7 @@ proved it. Evidence cross-references §9 (gates), §10 (runs), §16 (security).
 | Source inventory | **VERIFIED** | 7,658 lines, 38 files (`accountant/`, including untracked `ingest/` and `taxonomy/`) — measured 2026-08-08 | — |
 | Test inventory | **VERIFIED** | 7,050 lines, 14 test files; **682 tests collected** (`pytest --collect-only -q`, includes `ci/test_protection.py`) | — |
 | Branch / SHA | **VERIFIED** | `main` `f7bf5d9`, 16 commits, **working tree not clean** — §1 | — |
-| Tally connector — Protocol | **VERIFIED** | `accountant/tallyio/client.py`, 8 methods | — |
+| Tally connector — Protocol | **VERIFIED** | `accountant/tallyio/client.py`, 9 methods (the ninth, `backed_up`, added 2026-08-09 — see §40.4 defects 2 and 3) | — |
 | Tally connector — real impl | **BUILT AND RUN AGAINST REAL TALLY** | `accountant/tallyio/real.py`, 63.5 KB. First real read HTTP 200, 1,594 bytes, 65 ms (§21). *The earlier evidence line "`grep … → nothing`" was drift and is superseded.* | fix `trial_balance()` derived head — [`BOTTLENECKS.md` A4](./BOTTLENECKS.md#a4--trial_balance-includes-a-derived-figure) |
 | Tally read | **VERIFIED on real Tally** | companies, chart of accounts, vouchers, trial balance — all read (§21) | — |
 | Tally write | **VERIFIED on real Tally** | Rs 5,000 posted, trial balance moved by exactly that amount (§21) | — |
@@ -2770,3 +2770,130 @@ a form in progress and nothing else.
 | new tests | 9 | `tests/test_lifecycle.py` |
 | direct `reverse_by_operation_id` calls in the web app | **0** | AST scan |
 | ruff / pyright | clean / 0 | `ruff check .`, `pyright` |
+
+---
+
+## §40 Phase 5, Phase 5B and Phase 6 — status, evidence, and what is still not proven
+
+2026-08-09. Commits `ba51485`, `44fdd1c`, `74afe64`, `ca42eef`, `83e3a57`,
+`9f9e0e4`, `3f8f198`, on `phase5/operation-identity` from `c21127c`.
+
+### 40.1 The phase map, after a collision was raised and ruled on
+
+A mandate arrived defining Phase 6 as "3 clean runs, 30 voucher lifecycles,
+clean-room install, restart/recovery, company isolation". `docs/ARCHITECTURE.md`
+§7 already defined Phase 6 as **the first detector**. Two different jobs, one
+number. Raised before any code was written; the owner ruled:
+
+> The Phase 5B operational-readiness gate was previously described incorrectly
+> as Phase 6 in an external planning message. Phase numbering is resolved here
+> by retaining the repository's existing Phase 6 definition.
+
+| Milestone | What it is | Kind | Status |
+|---|---|---|---|
+| **Phase 5** | controlled Tally write/reversal proof, `N = 10` | capability | implementation `PASSED`, live `BLOCKED_ENVIRONMENT` |
+| **Phase 5B** | operational readiness and repeatability | **release gate** | `PASSED` against FakeTally |
+| **Phase 6** | first detector — `vendor_switch` + dismissal logging | capability | `PASSED` against FakeTally over HTTP |
+
+`ARCHITECTURE.md` §7 gained Phase 5B **between** 5 and 6. Nothing was
+renumbered; Phases 6 to 10 keep the numbers they have always had.
+
+### 40.2 The two owner decisions, recorded where they can be found by search
+
+| Label | Value | Where it lives |
+|---|---|---|
+| `OWNER DECISION` | `N = 10` | `ci/acceptance.py:61`, `ARCHITECTURE.md` §7 Phase 5, here |
+| `DESIGN DECISION` | bulk reversal stops at the first unresolved voucher and resumes explicitly | `ARCHITECTURE.md` §4.14, `accountant/reversal.py` |
+| `IMPLEMENTATION REQUIREMENT` | the batch state machine persists per-voucher outcomes and prevents blind retry or false completion | `accountant/reversal.py` |
+
+`N` is not configurable for this gate and is never lowered to make a failing run
+pass. `tests/test_acceptance_n10.py::test_n_is_ten` is the assertion that would
+notice.
+
+### 40.3 What was built, and the evidence for each
+
+| Item | Status | Evidence | Class |
+|---|---|---|---|
+| G5.1 operation-ID identity on all five artefacts | `PASSED` | `tests/test_operation_identity.py`, 8 tests, 4 mutants killed | FAKETALLY |
+| G5.2 bulk reversal, 8+7 states, durable, resumable | `PASSED` | `tests/test_bulk_reversal.py` 41, `_web` 11, `_cli` 9; 10 mutants killed | FAKETALLY + SIMULATOR |
+| G5.3 the `N = 10` conservation proof | `PASSED` | `tests/test_acceptance_n10.py`, 26 tests, 6 mutants killed | FAKETALLY + SIMULATOR |
+| G5.4 the live acceptance command | `PASSED` (the command) | `tests/test_acceptance_cli.py`, 13 tests, 4 mutants killed | FAKETALLY |
+| Phase 5B readiness gate, 12 conditions | `PASSED` | `tests/test_phase5b_readiness.py`, 25 tests | FAKETALLY |
+| G6.1 dismissal logging | `PASSED` | `tests/test_first_detector.py` | FAKETALLY over HTTP |
+| G6.2 dropped-flag count rendered | `PASSED` | same | FAKETALLY |
+| G6.3 `vendor_switch` through the review screen | `PASSED` | same, 16 tests, 5 mutants killed | FAKETALLY over HTTP |
+| **the live acceptance run itself** | **`BLOCKED_ENVIRONMENT`** | none exists | — |
+
+### 40.4 Seven defects found while building this, all real, all fixed
+
+Each had passed every test that existed before it was found.
+
+| # | Defect | Why nothing caught it |
+|---|---|---|
+| 1 | `Decision` carried no operation id, so the artefact that AUTHORISES a write could not be tied to the write | nothing read the link, so nothing broke |
+| 2 | `reverse_by_operation_id` bypassed the backup gate `write_voucher` enforces — a bulk reverse could empty a company nobody had backed up | the gate was only ever tested on the write path |
+| 3 | nothing could ASK whether a backup was recorded, so a preview could not report it | the fact was only discoverable by attempting a write |
+| 4 | batch rows written under the DISPLAY name; `MemoryStore.actions` reads by the NORMALISED key. Ten rows written, zero found | every unit test used `:memory:` and read back through the same unnormalised string |
+| 5 | a reconciled voucher counted as accounted-for movement, so a clean recovery reported `CRITICAL_FAILURE` | reconciliation was only ever tested one voucher at a time |
+| 6 | an explicitly rejected voucher was not retryable by resume, making a recoverable partial failure permanent | no test resumed after a rejection |
+| 7 | `record_correction` ran BEFORE `evaluate`, so the person's answer was learned as fact and then judged against a history containing it. **`vendor_switch` could not fire from the review screen on any input** | the detector had only ever been driven by calling `pipeline.answer` directly |
+
+Defect 7 is the one worth remembering: the system agreed with the person and
+then asked itself whether it was surprised.
+
+### 40.5 Measured
+
+| metric | actual | expected | evidence |
+|---|---|---|---|
+| tests | **1298 passed, 1 xfailed, 0 failed** | ≥ 1147 | `pytest -q` |
+| new tests | 151 | — | six new files |
+| mutation, `COVERAGE_CORE=pytrace` | **1394 zapped of 1402 terminal, 1 timeout** | ≥ 90% | `pytest --gremlins` |
+| survivors in the write path | **0** | 0 | all 7 in `taxonomy/` and `score/` |
+| guards | 12/12 fast, 5/5 full | all | `./scripts/guards` |
+| pyright / ruff | 0 / clean | 0 / clean | — |
+| gate count | **20, unchanged** | 20 | `ci/gates.toml` |
+| `N = 10` run, all 15 conditions | `PASSED` | 15/15 | `ci/acceptance.py` |
+| Phase 5B, 30 of 30 lifecycles | `PASSED` | 30 | `ci/readiness.py` |
+| clean-room wheel install | `PASSED` | — | builds, installs `--no-index --no-deps`, imports outside the repo, refuses a Tally that is not there |
+
+### 40.6 `BLOCKED_ENVIRONMENT` — the live acceptance test
+
+```
+RealTally acceptance test: REQUIRED, NOT YET RUN
+```
+
+Sequence, command, refusal rule and the owner action are in
+`ARCHITECTURE.md` §14.1. The one thing only the owner can do: **create `Demo Co`
+in the TallyPrime GUI on a licensed instance with the four ledgers
+`tests/test_tally_contract.py:46-47` names.** A company cannot be created over
+the XML gateway; it was attempted and refused. Do not retry it.
+
+No result in §40.3 may be relabelled `LICENSED_REALTALLY`, and
+`ci/acceptance_cli.py` refuses to apply that label while the licence read
+returns `UNKNOWN`.
+
+### 40.7 `OWNER-BLOCKED` and `NOT YET MEASURABLE`, carried forward
+
+- `Ltd` / `Pvt Ltd` / `& Co` still collapse to one vendor key — blocked on
+  `tests/test_memory.py:994-1001` (unchanged from §37.6)
+- `normalise_company` still lacks the NFD fold `normalise_vendor` has
+- `build_draft`'s `accounts` parameter is still unused
+- **NEW, found 2026-08-09 and not fixed:** `COMPANY = "Accountant Dad Final"` is
+  hardcoded in every request handler (`accountant/web/app.py:52`), while startup
+  honours `ACCOUNTANT_COMPANY` (`:1194`). A person setting their own company name
+  gets memory keyed to their company and handlers asking for the constant, so
+  `pipeline.build_draft`'s cross-company guard raises. **It fails closed —
+  nothing is written to the wrong books** — but the app today only works for a
+  company literally named `Accountant Dad Final`. Out of Phase 5/6 scope;
+  recorded rather than fixed.
+
+### 40.8 What is explicitly NOT claimed
+
+```
+no licensed-Tally evidence of any kind was produced
+the 2026-08-07 fixture is untouched and still refused by Educational mode
+no FakeTally or SIMULATOR result is offered as evidence about a real TallyPrime
+Phase 5B passing does not make Phase 6 complete
+Phase 6 passing does not make Phase 5B pass
+neither makes the live acceptance test any less REQUIRED
+```
