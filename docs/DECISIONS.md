@@ -18,10 +18,16 @@ engineering one.
 ## How to use it
 
 Answer in one line in this chat. The answer gets written into the **Owner
-answer** row with the date, and the decision moves to
-`IMPLEMENTED_AFTER_OWNER_DECISION`. Until then it stays `OPEN` and everything
-that depends on it reports `OWNER_DECISION_REQUIRED` or `BLOCKED_ENVIRONMENT` —
-never `PASSED`, never quietly defaulted.
+answer** row with the date, and the decision moves to `ANSWERED`. Until then it
+stays `OPEN` and everything that depends on it reports
+`OWNER_DECISION_REQUIRED` or `BLOCKED_ENVIRONMENT` — never `PASSED`, never
+quietly defaulted.
+
+**`ANSWERED` is not `IMPLEMENTED`.** An answer whose code does not exist yet is
+`ANSWERED`. It becomes `IMPLEMENTED_AFTER_OWNER_DECISION` only when a **named
+test** proves the code now does what the owner said. This distinction was
+tightened on 2026-08-10, because "the owner said so" and "the program does so"
+are two different facts and only one of them is measurable.
 
 **A decision is only in here if code cannot safely settle it.** Anything that is
 objectively a defect — a wrong key, a missing gate, an unreachable branch — is
@@ -52,6 +58,7 @@ SUPERSEDED                        a later decision replaced it; both are kept
 | `D-01` … `D-13` | this file, first |
 | `D-14` … `D-21` | [`CLOUD_ARCHITECTURE.md`](./CLOUD_ARCHITECTURE.md) §19 and [`DATA_POLICY.md`](./DATA_POLICY.md) |
 | `D-22` … `D-28` | [`CONTROL_PLANE.yaml`](./CONTROL_PLANE.yaml) |
+| `D-29` | this file, 2026-08-10, next free after `D-28` |
 
 **Nothing has been renumbered and nothing ever will be.** These ids are linked
 from other documents and from commit messages; a renumbered id is an unauditable
@@ -65,11 +72,76 @@ row 24. The short version: **the launch-rule question is `D-22`, not `D-02`.
 Cloud storage is `D-14`, not `D-07`. Retention is `D-15`, not `D-08`. The
 runtime-dependency question is `D-04`, not `D-11`.**
 
+### It nearly happened a second time — 2026-08-10, the owner's six answers
+
+Six owner answers arrived labelled `D-01`, `D-03`, `D-04`, `D-05`, `D-06` and
+`D-22`. **Five of those six labels are right.** They were written straight onto
+the id they name. **One collides, and both readings are recorded here rather
+than one of them being quietly overwritten.**
+
+| the label on the answer | the id that really asks it | what happened |
+|---|---|---|
+| `D-01` Tally licence | `D-01` | correct |
+| **`D-03` reconciliation policy** | **`D-12`, plus the new `D-29`** | **collision — see below** |
+| `D-04` first runtime dependency | `D-04` | correct |
+| `D-05` supplier legal identity | `D-05` | correct |
+| `D-06` live Tally vs stale memory | `D-06` | correct |
+| `D-22` detector launch gate | `D-22` | correct |
+
+**The collision, in plain words.** `D-03` in this repository asks whether
+Tally.ERP 9 is in scope. It has nothing to do with reversals, it was not
+touched, and it is still open.
+
+The question the owner actually answered is *what a bulk reversal does when one
+voucher's outcome cannot be named*. That is **`D-12`**, settled 2026-08-09.
+`D-12` left exactly one half open — refuse the whole batch, or skip the unknown
+voucher and finish the rest — and **that half never carried a `D-` number at
+all**. It lived only as a comment in `accountant/reversal.py` calling itself
+*"Defect D3, OPEN OWNER DECISION"*, and as a strict-`xfail` test.
+
+So the half now has an id: **`D-29`**. `D-12` is not superseded; every word of
+its 2026-08-09 answer still stands.
+
 ---
 
 ## D-01 · The Tally licence — and two instructions that contradict each other
 
-**Status: `OPEN`. This is the single largest blocker in the project.**
+**Status: `BLOCKED_ENVIRONMENT`, answered 2026-08-10. This is still the single
+largest blocker in the project.**
+
+> **Owner answer, 2026-08-10, word for word:**
+> *"Use a legitimate non-Educational licence if you want real Tally validation.
+> Until physically available, remain BLOCKED_ENVIRONMENT."*
+
+**A stated preference is not a licence.** The owner has said which side he would
+take *if* real Tally validation is wanted. He has not put a licence on the
+machine. Nothing here buys one, and the standing instructions recorded in `D-26`
+are unchanged.
+
+So the two contradictory lines below turn out not to be a contradiction after
+all. **Both stay. Neither is deleted.** One says what the owner would prefer.
+The other says what may be done from here, which is nothing.
+
+**Until a licence physically exists on the machine:**
+
+| thing | state |
+|---|---|
+| RealTally validation | `BLOCKED_ENVIRONMENT` |
+| the live validation run in phase 5 | `BLOCKED_ENVIRONMENT` |
+| `B-02` | stays open |
+| `LG-14`, `LG-18`, `LG-19` | stay `NOT_PASSED` |
+
+**Four things stay forbidden, restated because this is the entry people reach
+for.** Never change the frozen `2026-08-07` fixture. Never bypass Educational
+mode. Never simulate a licence. Never claim RealTally evidence that a licensed
+run did not produce.
+
+**What this answer unblocks:** nothing today. **What it settles:** that nobody
+has to keep guessing which of the two lines below is live.
+
+---
+
+### The two lines, kept for the record
 
 Two lines in `docs/PROJECT_STATE.md` say opposite things:
 
@@ -78,9 +150,9 @@ Two lines in `docs/PROJECT_STATE.md` say opposite things:
 | §19 step 20, line 1084 | `OWNER: buy a non-Educational TallyPrime licence → unblocks 16 and 19` |
 | §24, line 1493 (dated 2026-08-08) | *"Do not purchase, activate, bypass or simulate a non-Educational licence."* |
 
-§24 is the later of the two and is titled `OWNER DECISION, 2026-08-08`, so it
-**probably** supersedes. **That is a guess and it is not being acted on.** One of
-these two lines is stale and only the owner can say which.
+§24 is the later of the two and is titled `OWNER DECISION, 2026-08-08`. Before
+2026-08-10 the guess was that it supersedes. **The 2026-08-10 answer above says
+neither line is stale** — one is a preference, the other is the rule for today.
 
 **What it blocks.** the client-fixture tests (count PENDING_COUNT — 19 by an AST count on 2026-08-10, the docs said 15) in `tests/test_tally_contract.py`
 cannot run against a real Tally. Educational mode accepts vouchers dated only the
@@ -94,11 +166,15 @@ measured, not assumed (`PROJECT_STATE.md` §24, the three-row table).
 | **A. Buy a licence** | ₹885 per the earlier price check. The contract tests can run. The Tally spine's exit closes. Live evidence becomes obtainable. |
 | **B. Stay on Educational** | The Tally spine stays `BLOCKED_ENVIRONMENT` for good. No live evidence is ever obtainable, and everything downstream keeps reporting it. |
 
-**Default if unanswered:** B, by inaction. Nothing is bought and nothing is
-bypassed.
+**Recommended safe default, before the answer:** B, by inaction. Nothing is
+bought and nothing is bypassed. **The answer did not change that.**
 
-**Exact answer needed:** "buy the licence" or "stay on Educational", plus which
-of the two contradictory lines to delete.
+**Evidence.** Measured 2026-08-08 — `2026-08-07` REJECTED, `2026-08-31`
+ACCEPTED, deletion works. Only the date is refused, so this is an environment
+limit and not a defect in our connector.
+
+**What would move it:** a licence, physically, on the machine. Nothing an agent
+can do.
 
 ---
 
@@ -153,6 +229,33 @@ runtime dependency the project has ever had.
 
 **Default if unanswered:** the stdlib app. No framework is added.
 
+### A standing rule arrived on 2026-08-10 — the question is still open
+
+> **Owner, 2026-08-10, word for word:**
+> *"no new runtime dependency is approved automatically."*
+
+The **question** — *which* dependency, if any — is still `OPEN`. What is now
+fixed is **how** one may ever be added. **Eight things must be written down
+before any dependency is added, not after:**
+
+| # | what must be recorded |
+|---|---|
+| 1 | the exact dependency, by name and version |
+| 2 | why it is needed, and what breaks without it |
+| 3 | its licence |
+| 4 | its security impact |
+| 5 | its deployment impact |
+| 6 | whether it violates the current policy, which is `dependencies = []` |
+| 7 | the smallest alternative that was considered, and why it lost |
+| 8 | the register entry recording all seven of the above |
+
+**What may still proceed.** Cloud work on architecture, threat model, protocol,
+test design, data flow and connector boundaries. That work **must not add the
+dependency**, and **must not build an irreversible runtime around one**.
+
+**What stays blocked:** option C of `D-16`, and any framework for the local
+front door.
+
 > **Widened 2026-08-10.** This is now the same question on two fronts.
 > [`CLOUD_ARCHITECTURE.md`](./CLOUD_ARCHITECTURE.md) §5 records that option C for
 > connector authentication — Ed25519 message signatures — needs the
@@ -166,7 +269,34 @@ runtime dependency the project has ever had.
 
 ## D-05 · Are `Ltd`, `Pvt Ltd`, `LLP` and `& Co` the same supplier
 
-**Status: `OPEN`. This is a business rule, not a bug.**
+**Status: `ANSWERED` 2026-08-10 — separate. Not yet implemented.**
+
+> **Owner answer, word for word:**
+> *"Treat legal forms as meaningful by default. Do not silently merge Ltd, Pvt
+> Ltd, LLP, Inc, Corp, or & Co. If identity is ambiguous, ask or hand over."*
+
+**Two things are now separate, and must stay separate.**
+
+| | what it is | may it change a supplier's identity? |
+|---|---|---|
+| technical normalisation | Unicode form, upper/lower case, spare spaces | **no** |
+| business identity | which legal entity this actually is | that is the question |
+
+Normalisation **must not destroy legal-form information**. When the identity is
+genuinely unclear, the answer is a question to the person or a hand-over —
+**never a silent merge**.
+
+**What this unblocks:** the wrong-vendor risk now has a rule to build to.
+**What stays blocked:** nothing; no other decision waits on it.
+
+**Why it is `ANSWERED` and not `IMPLEMENTED`.** The code still strips the six
+suffixes, and `tests/test_memory.py:1000-1007` still cements that. This becomes
+`IMPLEMENTED_AFTER_OWNER_DECISION` only when a **named test** proves a bare name
+and its `Ltd` / `Pvt Ltd` / `LLP` / `Inc` / `Corp` / `& Co` variants are
+different suppliers, *and* that Unicode and whitespace normalisation still
+happens.
+
+### The record as it stood before the answer
 
 `Acme Ltd` and `Acme LLP` are two different legal entities. They can have
 different GST numbers, different bank accounts and different contracts. They can
@@ -186,16 +316,38 @@ means changing a test that was written on purpose.
 | **A. Same supplier** | fewer questions asked, and an LLP invoice can post against Ltd-only history |
 | **B. Different suppliers** | safer, and every suffix variant becomes a new unknown vendor that has to be answered for |
 
-**Default if unanswered:** A, the current behaviour, which is the less safe one.
-That is why it is in this register.
-
-**Exact answer needed:** "same" or "separate".
+**Recommended safe default, before the answer:** A, the current behaviour, which
+is the less safe one. That is why it was in this register. **The owner chose B.**
 
 ---
 
 ## D-06 · May a stale memory index outvote the live ledger
 
-**Status: `OPEN`.**
+**Status: `ANSWERED` 2026-08-10 — live Tally wins. Not yet implemented.**
+
+> **Owner answer, word for word:**
+> *"Live Tally wins over stale memory. If live Tally and memory disagree, make
+> the entry UNCLEAR and ask instead of silently posting."*
+
+**Required behaviour, three parts:**
+
+- show the person the conflict
+- record **both** sources
+- never let stale memory silently override contradictory current Tally data
+
+A disagreement is a **question**, not a posting.
+
+**What this unblocks:** the wrong-account risk now has a rule.
+**What stays blocked:** nothing else waits on it.
+
+**Why it is `ANSWERED` and not `IMPLEMENTED`.** `vendor_switch` at
+`accountant/detect/detectors.py:85` still names its history parameter
+`_history` and still never reads it, so today the live ledger is passed in and
+thrown away. This becomes `IMPLEMENTED_AFTER_OWNER_DECISION` only when a **named
+test** proves the reproduction below now ends in an Unclear entry with a
+question, showing both sources, instead of a silent post.
+
+### The record as it stood before the answer
 
 Recorded as defect D4. The scenario: the live ledger shows forty vouchers going
 to one account, and our stored index says another. Today the index can win.
@@ -203,9 +355,13 @@ to one account, and our stored index says another. Today the index can win.
 **Options:** the live ledger always wins and the index is rebuilt · the index
 wins and staleness is surfaced to the person · refuse and ask.
 
-**Default if unanswered:** the current behaviour, where the index can win.
+**Recommended safe default, before the answer:** the current behaviour, where
+the index can win. **The owner chose the first option and added the question.**
 
-**Exact answer needed:** which source wins when they disagree.
+**Evidence.** Reproduced 2026-08-09 — bootstrap `Sharma Traders → Purchases`
+from 40 vouchers, then post 60 `Sharma Traders → Repairs & Maintenance` by hand
+in Tally. The next entry proposes `Purchases`, posts straight through, and
+raises no flag and no question.
 
 ---
 
@@ -303,14 +459,19 @@ run pass. Written into `ci/acceptance.py`, `ARCHITECTURE.md` §7 and
 
 ## D-12 · The bulk-reversal partial-failure policy
 
-**Status: `SETTLED` 2026-08-09.**
+**Status: `IMPLEMENTED_AFTER_OWNER_DECISION`, settled 2026-08-09. Narrowed
+2026-08-10 by `D-29` — not superseded.**
 
 Fail-closed, resumable. The batch stops at the first unresolved voucher.
 Vouchers already reversed are never re-reversed — reversing is **cleanup**, not a
 rollback, so a batch that stops at voucher 4 correctly leaves 1–3 gone. Four
-failure categories, and `UNKNOWN_OUTCOME` is never treated as a rejection.
+failure categories, and an unknown outcome is never treated as a rejection.
 
 Full state machine in `ARCHITECTURE.md` §4.14.
+
+**One half of this was left open and is now `D-29`.** `D-12` says the batch
+stops. It never said what a **resume** may then do while one voucher's fate is
+still unknown. That half is answered in `D-29` below: refuse the whole batch.
 
 ---
 
@@ -348,28 +509,70 @@ listed here so the register is complete, and summarised in
 
 ## D-22 · Does launch use the aggregate false-alarm rate, or the worst book?
 
-**Status: `OPEN`. This is the launch question and it has two opposite answers.**
+**Status: `ANSWERED` 2026-08-10 — both, and a failing department is not hidden.**
+
+> **Owner answer, word for word:**
+> *"Use both aggregate and worst-department results. For launch, do not hide a
+> department that fails."*
+
+**The gate that follows from that:**
 
 | slice | rate per 100 clean entries | target | verdict |
 |---|---|---|---|
 | aggregate, all 7 departments | 6.29 | ≤ 10 | PASS |
 | held-out half | 2.90 | ≤ 10 | PASS |
-| **worst single department (DHSC)** | **33.33** | ≤ 10 | **FAIL** |
+| **worst single department (DHSC)** | **33.33** | ≤ 10 | **NOT_PASSED** |
+| **overall detector launch gate** | — | — | **`NOT_PASSED`** |
+
+**The detector launch gate is `NOT_PASSED`.** It stays that way until one of two
+things happens: the worst-department rule is satisfied, or that department is
+taken out of scope by an **explicit owner scope decision**. Nothing else clears
+it. That gate is `LG-20` in [`CONTROL_PLANE.yaml`](./CONTROL_PLANE.yaml), and
+`D-22` is now the reason recorded on it.
+
+**Every detector report must now carry seven things:**
+
+1. the aggregate
+2. the held-out slice
+3. the worst department
+4. every department's own value
+5. the denominator
+6. the formula
+7. false-alarm examples
+
+**All seven departments, per 100 clean entries** — measured, from
+[`artifacts/detector_evidence.md`](../artifacts/detector_evidence.md):
+
+| department | clean entries | rate | verdict |
+|---|---|---|---|
+| MHCLG | 29 | 0.00 | PASS |
+| DFT | 24 | 0.00 | PASS |
+| HMT | 23 | 0.00 | PASS |
+| DWP | 27 | 3.70 | PASS |
+| DEFRA | 19 | 5.26 | PASS |
+| **DHSC** | 21 | **33.33** | **NOT_PASSED** |
+| DBT | 0 | not measured | not a pass either |
 
 **A customer does not experience an aggregate. They experience their own book.**
 
-Two more facts worth knowing before answering. The calibration half has **zero
-headroom** — one more false alarm there flips it. And one department (DBT) has
-zero clean entries, so it reports "not measured", which is not a pass either.
+Two more facts. The calibration half has **zero headroom** — one more false
+alarm there flips it. And DBT has zero clean entries, so "not measured" is the
+honest word and it is not a pass.
 
-**Options:** A, launch on the aggregate · B, launch only when the worst book is
-inside the target · C, a named intermediate rule such as "no book above 20 and
-the aggregate inside 10", written down with its reason.
+**Options that were on the table:** A, launch on the aggregate · B, launch only
+when the worst book is inside the target · C, a named intermediate rule such as
+"no book above 20 and the aggregate inside 10". **Recommended safe default
+before the answer:** B. **The owner chose B, and added that both numbers are
+always reported.**
 
-**Recommendation, not a decision:** B.
+**What this unblocks:** the launch rule itself. It can no longer be settled by
+whichever number somebody quotes first.
+**What stays blocked:** launch, until DHSC is inside 10 or is scoped out by a
+named owner decision, and until every detector report carries the seven items
+above.
 
-**Default if unanswered:** none. The question stays open rather than being
-answered by whichever number gets quoted first.
+**Why it is `ANSWERED` and not `IMPLEMENTED`.** No test yet refuses a detector
+report that is missing one of the seven items.
 
 ---
 
@@ -428,39 +631,106 @@ contradiction.
 
 ---
 
+## D-29 · A resume, while one voucher's fate is unknown
+
+**Status: `ANSWERED` 2026-08-10 — refuse the whole batch. Not yet implemented.**
+
+**This is the half `D-12` left open**, and until 2026-08-10 it had no `D-`
+number. It lived only as a comment in `accountant/reversal.py` calling itself
+*"Defect D3, OPEN OWNER DECISION"*, and as a strict-`xfail` test. The owner sent
+this answer under the label `D-03`; `D-03` is the Tally.ERP 9 question and was
+**not** renumbered. See the header of this file.
+
+> **Owner answer, word for word:**
+> *"REFUSE THE WHOLE BATCH WHEN ANY VOUCHER HAS UNKNOWN_OUTCOME. Safety beats
+> partial cleanup. Never delete six known vouchers while one voucher's fate is
+> unknown."*
+
+**Required behaviour, six parts:**
+
+1. a resume is **refused** while any voucher is still unknown
+2. **no further voucher is deleted**
+3. every known result **stays recorded**
+4. the operator **is shown** the unresolved voucher
+5. a **separate reconciliation operation** is required
+6. a resume is permitted **only once every voucher has a known verified state**
+
+**Options that were on the table:**
+
+| | Consequence |
+|---|---|
+| **A. Refuse the whole batch** | safest. Outstanding cleanup can never finish while one voucher's fate is unknown. |
+| **B. Skip the unknown voucher and carry on** | cleanup finishes, and a batch continues past an unresolved unknown. |
+
+**Recommended safe default:** none was invented. `accountant/reversal.py` says
+in its own comment that both readings are defensible, that they are mutually
+exclusive, and that the choice is an accounting-operations decision rather than
+an engineering one. **The owner chose A.**
+
+**Evidence — the defect this settles, measured.** `reconcile()` returns
+`reconciled=True` on every path, including the one where every read raised.
+`resume()` then opens, and after a reconciliation that settled nothing it
+removed **six more vouchers** from a company holding one voucher whose fate was
+unknown. Nine of ten gone. The strict-`xfail` test that pins it is
+`tests/test_reversal_recovery.py::test_a_resume_writes_nothing_more_when_the_reconciliation_settled_nothing`.
+
+**One existing test now encodes the losing option** and has to change:
+`test_an_unknown_outcome_voucher_is_never_retried_by_a_resume` currently
+requires a resume to proceed and skip. `D-12`'s own state machine already agrees
+with the owner in spirit — the retryable list in `accountant/reversal.py`
+deliberately excludes the unknown state.
+
+**What this unblocks:** the reversal recovery path, which had two mutually
+exclusive readings and now has one.
+**What stays blocked:** nothing else waits behind it.
+
+**Why it is `ANSWERED` and not `IMPLEMENTED`.** Another agent is changing
+`accountant/reversal.py` now. This becomes
+`IMPLEMENTED_AFTER_OWNER_DECISION` only when that strict `xfail` flips to a
+passing test under its own name.
+
+---
+
 ## Open at a glance
 
-**19 open, of 28.**
+**16 open and 1 blocked by the environment, of 29.**
 
-| # | Question | Blocks |
+Answered on 2026-08-10: `D-05`, `D-06`, `D-22` and the new `D-29`. `D-01` was
+answered too, but the answer does not unblock it — it is `BLOCKED_ENVIRONMENT`
+until a licence physically exists.
+
+| # | Question | Blocks | State |
+|---|---|---|---|
+| **D-01** | the licence | the contract tests, and all live evidence | `BLOCKED_ENVIRONMENT` |
+| D-02 | fixture date frozen | nothing while it stays frozen | `OPEN` |
+| D-03 | Tally.ERP 9 in scope | criterion #6.8 | `OPEN` |
+| D-04 | the first runtime dependency, locally and in the cloud | option C of D-16 | `OPEN`, with a standing rule |
+| D-07 | declared licence mode | what the screen may say | `OPEN` |
+| D-08 | may cloud work begin at all | D-14 to D-21, all eight | `OPEN` |
+| D-10 | merge-queue numbers | nothing today | `OPEN` |
+| D-14 | what the cloud may hold | the whole data policy | `OPEN` |
+| D-15 | retention and deletion | every retention cell | `OPEN` |
+| D-16 | connector authentication | one named breach scenario | `OPEN` |
+| D-17 | do backups exist | the backup column | `OPEN` |
+| D-18 | the legal position | anything customer-facing | `OPEN` |
+| D-19 | connector update policy | the version-support window | `OPEN` |
+| D-20 | who may clear the emergency stop | the recovery path | `OPEN` |
+| D-21 | confirm the launch caps | the write-lease reading | `OPEN` |
+| D-23 | launch input types | whether extraction is on the critical path | `OPEN` |
+| D-24 | supported Windows and Tally versions | what may be claimed | `OPEN` |
+
+**Answered but not yet built into the code — these are the ones with work
+attached:**
+
+| # | Answer | What must exist before it is `IMPLEMENTED` |
 |---|---|---|
-| **D-01** | licence: buy, or stay on Educational | the contract tests, and all live evidence |
-| D-02 | fixture date frozen | nothing while it stays frozen |
-| D-03 | Tally.ERP 9 in scope | criterion #6.8 |
-| D-04 | the first runtime dependency, locally and in the cloud | option C of D-16 |
-| **D-05** | `Ltd` vs `LLP` — same supplier or not | a real wrong-vendor risk |
-| **D-06** | stale index vs live ledger | a real wrong-account risk |
-| D-07 | declared licence mode | what the screen may say |
-| D-08 | may cloud work begin at all | D-14 to D-21, all eight |
-| D-10 | merge-queue numbers | nothing today |
-| D-14 | what the cloud may hold | the whole data policy |
-| D-15 | retention and deletion | every retention cell |
-| D-16 | connector authentication | one named breach scenario |
-| D-17 | do backups exist | the backup column |
-| D-18 | the legal position | anything customer-facing |
-| D-19 | connector update policy | the version-support window |
-| D-20 | who may clear the emergency stop | the recovery path |
-| D-21 | confirm the launch caps | the write-lease reading |
-| **D-22** | aggregate or worst book | **the launch rule itself** |
-| D-23 | launch input types | whether extraction is on the critical path |
-| D-24 | supported Windows and Tally versions | what may be claimed |
+| D-05 | legal forms are meaningful; do not merge them | a named test proving the variants are separate suppliers |
+| D-06 | live Tally beats stale memory; ask instead of posting | a named test proving the disagreement ends in a question |
+| D-22 | both aggregate and worst department; hide nothing | a named test refusing a report missing one of the seven items |
+| D-29 | refuse the whole batch while a voucher is unknown | the strict `xfail` flipping to a passing test |
 
-**Four are worth answering first: `D-01`, `D-05`, `D-06` and `D-22`.**
-
-- `D-01` unsticks four phases at once.
-- `D-05` and `D-06` are each a live wrong-posting risk in code that already runs.
-- `D-22` decides whether the product is launchable at all, and nobody can build
-  their way past it.
-
-Everything else costs nothing while it waits. The eight cloud decisions cost
-nothing because nothing cloud is being built.
+**What is now the front of the queue.** `D-01` is not answerable by anyone here.
+`D-05`, `D-06`, `D-22` and `D-29` are answered and are waiting on code, not on
+the owner. The next owner question worth the owner's time is `D-08`, because
+eight cloud decisions sit behind it — though it costs nothing while it waits,
+since nothing cloud is being built.

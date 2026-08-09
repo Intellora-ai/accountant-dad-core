@@ -16,9 +16,38 @@ the item stays `OPEN` and everything depending on it reports
 
 ---
 
-## Do these three first
+## What you answered on 2026-08-10
 
-They cost the least and unstick the most.
+Five of these are now off your list. One is not, and the reason is worth
+reading.
+
+| id | your answer, in short | where it stands now |
+|---|---|---|
+| `D-01` | use a real licence if you want real Tally validation; until one physically exists, stay blocked | **still blocked.** A stated preference is not a licence. Nothing was bought, bypassed or simulated. |
+| `D-29` | refuse the whole batch when any voucher's outcome is unknown | answered; the code is being changed now |
+| `D-04` | no new runtime dependency is approved automatically | **the question is still open** — what is fixed is how one may ever be added |
+| `D-05` | legal forms are meaningful; do not silently merge them | answered; the code still merges them and has to change |
+| `D-06` | live Tally beats stale memory; ask instead of posting silently | answered; the code still ignores the live ledger and has to change |
+| `D-22` | use both the aggregate and the worst department; hide neither | answered; the detector launch gate is `NOT_PASSED` for a decided reason |
+
+**You labelled the reversal answer `D-03`.** In this repository `D-03` is a
+different question — is Tally.ERP 9 supported. Nothing was renumbered. Your
+answer went onto `D-12` (the reversal policy) and the half it left open is now
+`D-29`. Both are recorded and cross-linked in
+[`DECISIONS.md`](./DECISIONS.md).
+
+**Two of these still need something physical from you.** `D-01` needs a licence
+on the machine, and it is the only thing that moves it. `D-04` needs one named
+dependency, with eight things written down first, or a "stdlib only, final".
+
+---
+
+## The top of the list
+
+**Two of the three below are now answered and need nothing more from you.** They
+are kept here because they are the ones everything else refers to. After the
+2026-08-10 answers, only **two things** are still yours to do here: make
+`Demo Co`, and put a real licence on the machine.
 
 ### 1 · `B-01` — make `Demo Co` in TallyPrime · about 2 minutes
 
@@ -36,56 +65,72 @@ is not enough — item 2 is the other half.
 
 ---
 
-### 2 · `D-01` — the licence, and two instructions that contradict each other
+### 2 · `D-01` — the licence · answered 2026-08-10, and still blocked
 
-**Two lines in the repository say opposite things.** Both are quoted here word
-for word. Neither is being acted on.
+> **Your words:** *"Use a legitimate non-Educational licence if you want real
+> Tally validation. Until physically available, remain BLOCKED_ENVIRONMENT."*
+
+**A stated preference is not a licence.** Nothing here bought one, and nothing
+bypassed or simulated one. Until a licence physically exists on the machine:
+
+- RealTally validation is `BLOCKED_ENVIRONMENT`
+- the live validation run is `BLOCKED_ENVIRONMENT`
+- `B-02` stays open, and `LG-14`, `LG-18` and `LG-19` stay `NOT_PASSED`
+- the frozen `2026-08-07` fixture is never changed to make anything pass
+
+**The one thing that moves this: a licence, on the machine.** Roughly ₹885 per
+the earlier price check.
+
+Your answer also settled something that had been guessed at for two days — the
+two lines below are **not** a contradiction. One is a preference, the other is
+the rule for today. Both stay.
+
+**The two lines, kept for the record.** Both are quoted word for word.
 
 | where | what it says |
 |---|---|
 | `PROJECT_STATE.md` §19 step 20 | *"OWNER: buy a non-Educational TallyPrime licence → unblocks 16 and 19"* |
 | `PROJECT_STATE.md` §24, dated 2026-08-08, headed OWNER DECISION | *"Do not purchase, activate, bypass or simulate a non-Educational licence."* |
 
-The second is later and is labelled an owner decision, so it **probably**
-supersedes the first. **That is a guess and nobody is acting on it.**
-
 | option | what follows |
 |---|---|
-| **A. Buy a licence** | roughly ₹885 per the earlier price check. The contract fixture can run. The Tally spine's exit closes. Live evidence becomes obtainable for the first time. |
-| **B. Stay on Educational** | the Tally spine stays `BLOCKED_ENVIRONMENT` for good. No live evidence is ever obtainable. Everything downstream keeps reporting `BLOCKED_ENVIRONMENT`, correctly. |
+| **A. A real licence** | roughly ₹885. The contract fixture can run. Live evidence becomes obtainable for the first time. |
+| **B. Stay on Educational** | no live evidence is ever obtainable, and everything downstream keeps saying so, correctly. |
 
-**If you say nothing:** B happens by inaction. Nothing is bought and nothing is
-bypassed.
-
-**What is needed:** *"buy the licence"* or *"stay on Educational"* — plus which
-of the two lines above to delete.
+**Where it sits now:** you chose A *as the preference*, and B *as the reality
+until a licence exists*. Nothing needs saying again. Something needs buying.
 
 ---
 
-### 3 · `D-06` — when the memory and the live ledger disagree, who wins?
+### 3 · `D-06` — memory versus the live ledger · answered 2026-08-10
 
-**This one has a real wrong-account risk and it is reproducible today.**
+> **Your words:** *"Live Tally wins over stale memory. If live Tally and memory
+> disagree, make the entry UNCLEAR and ask instead of silently posting."*
 
-Bootstrap `Sharma Traders → Purchases` from 40 vouchers. Then post 60
+**Nothing more is needed from you on this one.** It is recorded, and the code
+has to change to match. Three things the code must now do: show the conflict,
+record both sources, and never let stale memory quietly override what Tally says
+today.
+
+**The risk it closes, and it is reproducible today.** Bootstrap
+`Sharma Traders → Purchases` from 40 vouchers. Then post 60
 `Sharma Traders → Repairs & Maintenance` by hand in Tally. The next entry
 proposes `Purchases`, posts straight through, and raises **no flag and no
-question**.
+question**. The cause is objective: the only detector on the production path
+never reads the history it is given.
 
-The cause is objective: the only detector on the production path never reads the
-history it is given. The live ledger is passed in and thrown away, and nothing
-ever re-reads it.
+---
 
-**The bug is a bug. The response is policy**, and that is the part only you can
-set: re-read on what schedule, compare against what, flag or block, at what
-threshold.
+### And one more, answered the same day · `D-29` — bulk reversal
 
-| option | consequence |
-|---|---|
-| the live ledger always wins, index rebuilt | safest; more reads |
-| the index wins, staleness shown to the person | fastest; the person carries the risk |
-| refuse and ask | most questions |
+> **Your words:** *"REFUSE THE WHOLE BATCH WHEN ANY VOUCHER HAS UNKNOWN_OUTCOME.
+> Safety beats partial cleanup. Never delete six known vouchers while one
+> voucher's fate is unknown."*
 
-**If you say nothing:** the current behaviour stands, and it is the unsafe one.
+**Nothing more is needed from you.** Measured before the answer: after a
+reconciliation where every read failed, a resume removed six more vouchers from
+a company holding one voucher whose fate was unknown. Nine of ten gone. That is
+the exact thing your answer forbids.
 
 ---
 
@@ -98,22 +143,45 @@ threshold.
 | `D-02` | is the `2026-08-07` fixture date frozen? | it stays frozen. Silence keeps it. |
 | `D-03` | is Tally.ERP 9 in scope, or TallyPrime only? | the criterion stands and stays unmet |
 | `D-04` | may this project take its first runtime dependency — a web framework locally, or a signing library in the cloud? | stdlib only. Dependencies stay empty. |
-| `D-05` | are `Ltd`, `Pvt Ltd`, `& Co` the same supplier as the bare name? | the current behaviour, which is the less safe one |
 | `D-07` | may a person *declare* the Tally licence mode when the program cannot read it? | it stays `UNKNOWN`, and the screen says so |
 | `D-10` | the five merge-queue policy numbers | the queue stays off, and nothing is worse for it |
-| `D-22` | **does the product launch on the aggregate false-alarm rate, or on the worst single customer's book?** | undecided, and the launch question stays open |
 | `D-23` | which input types must work at first launch? | typed text only, because it is the only one that exists |
 | `D-24` | which Windows and Tally versions are supported at launch? | only what has been tested — one TallyPrime release, one Windows build |
 
-**`D-05`, the supplier one, has a cheap measurement that settles it** and it can
-be run today against your own Tally: count the party names that differ only by a
-stripped suffix. Zero pairs means the current rule costs you nothing. One pair
-means it is already merging two of your own suppliers into one ledger.
+**`D-04` is half-answered.** You said no new runtime dependency is approved
+automatically, and that rule is now recorded. What is still open is whether
+there is ever to be **one named dependency**. Before any is added, eight things
+must be written down first: the exact dependency · why it is needed · its
+licence · its security impact · its deployment impact · whether it breaks the
+current `dependencies = []` policy · the smallest alternative and why it lost ·
+the register entry holding all seven. Cloud design work may continue on
+architecture, threat model, protocol, test design, data flow and connector
+boundaries — as long as it adds no dependency and builds nothing irreversible
+around one.
 
-**`D-22` is worth reading twice.** The aggregate false-alarm rate passes at
-6.29 against a target of 10. The worst single department fails at 33.33. Those
-two numbers give opposite launch answers, and a customer does not experience an
-aggregate — they experience their own book.
+---
+
+### The detector launch gate · `D-22`, answered 2026-08-10
+
+> **Your words:** *"Use both aggregate and worst-department results. For launch,
+> do not hide a department that fails."*
+
+**What follows from that, in one table:**
+
+| slice | rate per 100 clean entries | target | verdict |
+|---|---|---|---|
+| aggregate, all 7 departments | 6.29 | ≤ 10 | PASS |
+| worst single department (DHSC) | 33.33 | ≤ 10 | `NOT_PASSED` |
+| **the detector launch gate overall** | — | — | **`NOT_PASSED`** |
+
+**The gate clears one of two ways.** DHSC comes inside 10, or you take that
+department out of scope with a named scope decision. Nothing else clears it, and
+no aggregate number clears it.
+
+Every detector report must now carry seven things: the aggregate · the held-out
+slice · the worst department · every department's own value · the denominator ·
+the formula · false-alarm examples. Full evidence is in
+[`artifacts/detector_evidence.md`](../artifacts/detector_evidence.md).
 
 ---
 
@@ -167,6 +235,15 @@ Kept here so nobody asks twice.
 | `D-26` | Educational mode, Option 2. Do not purchase, activate, bypass or simulate a licence. Do not edit the fixture. | 2026-08-08 |
 | `D-27` | the cached-mutation gate is parked. It stays in the contract and stays counted; it is deliberately not executed. | 2026-08-08 |
 | `D-28` | Claude merges when the gates are green — and never decides *whether* they passed. | 2026-08-08 |
+| `D-05` | legal forms are meaningful. Do not silently merge `Ltd`, `Pvt Ltd`, `LLP`, `Inc`, `Corp` or `& Co`. If identity is ambiguous, ask or hand over. | 2026-08-10 |
+| `D-06` | live Tally wins over stale memory. On a disagreement, make the entry Unclear and ask. | 2026-08-10 |
+| `D-22` | use both the aggregate and the worst department. Do not hide a department that fails. | 2026-08-10 |
+| `D-29` | refuse the whole batch when any voucher's outcome is unknown. Safety beats partial cleanup. | 2026-08-10 |
+
+**Four of those are answered but not yet built.** `D-05`, `D-06`, `D-22` and
+`D-29` are waiting on code, not on you. Each becomes "done" only when a named
+test proves the program does what you said — the owner saying it and the program
+doing it are two different facts, and only one of them can be measured.
 
 ---
 
@@ -185,3 +262,10 @@ actually used is in the header of
 The short version: **the aggregate-versus-worst-department launch rule is `D-22`,
 not `D-02`. Cloud data storage is `D-14`, not `D-07`. Retention is `D-15`, not
 `D-08`. The runtime-dependency question is `D-04`, not `D-11`.**
+
+**It nearly happened again on 2026-08-10.** Six answers arrived labelled `D-01`,
+`D-03`, `D-04`, `D-05`, `D-06` and `D-22`. Five of the six labels were right and
+went straight onto the id they name. The sixth, `D-03`, is the Tally.ERP 9
+question — not the reversal question. The reversal answer went onto `D-12`, and
+the half `D-12` had left open became the new `D-29`. **Nothing was renumbered
+and both readings are written down.**
