@@ -47,7 +47,7 @@ import datetime
 import re
 import threading
 from collections.abc import Callable, Iterator, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from xml.etree import ElementTree  # nosec B405 - only used to read our own output
 
@@ -2163,6 +2163,512 @@ def test_reversal_ignores_a_lookalike_in_another_company(sim: TallySim) -> None:
 
     assert client.reverse_by_operation_id("Other Co", op) is False
     assert client.read_by_operation_id(COMPANY, op) is not None
+
+
+# ===========================================================================
+# W1's TWIN: the connector read-back proves IDENTITY, not presence
+# ===========================================================================
+#
+# `pipeline.post` was fixed on 2026-08-09 to compare the voucher Tally hands
+# back against the one we sent. `RealTally.write_voucher` was not: its read-back
+# asked "is there a voucher carrying my marker" and threw the answer away. Every
+# caller that talks to the connector directly - and that is the layer that
+# touches somebody's books - was still exposed.
+#
+# The rule these tests pin: a write succeeds only when TALLY'S OWN ANSWER proves
+# OUR voucher is stored. Not "a voucher exists". Not our marker alone. Not HTTP
+# 200.
+#
+# And the subtle half, which is the one that costs money: when Tally's import
+# answer says a write happened and the read-back cannot confirm it, that is
+# UNKNOWN_OUTCOME, not failure. A plain failure invites a retry, and a retry
+# after a write that actually landed puts TWO statutory entries in the books.
+# ---------------------------------------------------------------------------
+
+
+def _register_payload(*bodies: str, company: str | None = None) -> str:
+    """A voucher export, optionally echoing the company Tally answered for.
+
+    The echo is assumption A12: authoritative when present, absent when the
+    build does not send it. Both shapes are exercised below.
+    """
+    echo = (
+        "<DESC><STATICVARIABLES>"
+        f"<SVCURRENTCOMPANY>{_esc(company)}</SVCURRENTCOMPANY>"
+        "</STATICVARIABLES></DESC>"
+        if company is not None
+        else ""
+    )
+    return (
+        "<ENVELOPE><HEADER><VERSION>1</VERSION><STATUS>1</STATUS></HEADER>"
+        f"<BODY>{echo}"
+        f"<DATA><COLLECTION>{''.join(bodies)}</COLLECTION></DATA>"
+        "</BODY></ENVELOPE>"
+    )
+
+
+def _stored(
+    *,
+    date: str = "20260807",
+    party: str = "Sharma Traders",
+    debit: str = "Purchases",
+    credit: str = "Cash",
+    amount_paise: int = 118000,
+    narration: str = "cement bags [ACCOUNTANT_DAD:ad_7]",
+    master_id: str = "M11",
+) -> str:
+    """One voucher as Tally would export it. Defaults equal `contract.a_voucher()`."""
+    return (
+        f'<VOUCHER MASTERID="{_esc(master_id)}" VCHTYPE="Journal">'
+        f"<DATE>{date}</DATE>"
+        f"<VOUCHERNUMBER>{_esc(master_id)}</VOUCHERNUMBER>"
+        f"<PARTYLEDGERNAME>{_esc(party)}</PARTYLEDGERNAME>"
+        f"<NARRATION>{_esc(narration)}</NARRATION>"
+        + _leg_xml(debit, -amount_paise, "Yes")
+        + _leg_xml(credit, amount_paise, "No")
+        + "</VOUCHER>"
+    )
+
+
+def _write_reading_back(
+    read_back: str, *, voucher: Voucher | None = None, op: str = "ad_7"
+) -> real.WriteResult:
+    """Drive one write whose read-back is exactly `read_back`.
+
+    The scripted replies are, in order: the chart of accounts (A10), the C5
+    duplicate check (clean), Tally's import answer (created one), the read-back.
+    """
+    client = _client_with(
+        [
+            EMPTY_VOUCHERS,
+            import_response(created=1, status=1, last_vch_id="M11"),
+            read_back,
+        ]
+    )
+    return client.write_voucher(COMPANY, voucher or contract.a_voucher(), op)
+
+
+# ---- the pure verifier: every outcome has a name ---------------------------
+
+
+SENT = contract.a_voucher()
+
+
+def _same_as_sent(**changes: object) -> Voucher:
+    return replace(SENT, **changes)  # type: ignore[arg-type]
+
+
+def test_a_read_back_that_matches_field_for_field_is_an_exact_match() -> None:
+    verdict = real.verify_read_back(
+        company=COMPANY,
+        sent=SENT,
+        operation_id="ad_7",
+        found=_same_as_sent(narration="cement bags [ACCOUNTANT_DAD:ad_7]"),
+        found_in_company=COMPANY,
+        tally_id="M11",
+    )
+    assert verdict.outcome is real.ReadBackOutcome.EXACT_MATCH
+    assert verdict.confirmed is True
+    assert verdict.fields == ()
+    assert verdict.tally_id == "M11"
+
+
+def test_zero_candidates_is_named_no_match_and_is_not_a_match() -> None:
+    verdict = real.verify_read_back(
+        company=COMPANY, sent=SENT, operation_id="ad_7", found=None
+    )
+    assert verdict.outcome is real.ReadBackOutcome.NO_MATCH
+    assert verdict.confirmed is False
+
+
+def test_a_read_back_from_a_different_company_is_wrong_company() -> None:
+    verdict = real.verify_read_back(
+        company=COMPANY,
+        sent=SENT,
+        operation_id="ad_7",
+        found=SENT,
+        found_in_company="Other Co",
+    )
+    assert verdict.outcome is real.ReadBackOutcome.WRONG_COMPANY
+    assert "company" in verdict.fields
+    assert "Other Co" in verdict.detail and COMPANY in verdict.detail
+
+
+@pytest.mark.parametrize(
+    ("changes", "outcome", "field"),
+    [
+        ({"amount_paise": 59000}, real.ReadBackOutcome.WRONG_AMOUNT, "amount_paise"),
+        (
+            {"date": datetime.date(2026, 8, 1)},
+            real.ReadBackOutcome.WRONG_DATE,
+            "date",
+        ),
+        (
+            {"debit_account": "Sundry Expenses"},
+            real.ReadBackOutcome.WRONG_LEDGER,
+            "debit_account",
+        ),
+        (
+            {"credit_account": "Sundry Expenses"},
+            real.ReadBackOutcome.WRONG_LEDGER,
+            "credit_account",
+        ),
+        ({"party": "Verma Cement"}, real.ReadBackOutcome.WRONG_LEDGER, "party"),
+    ],
+)
+def test_each_changed_field_gets_its_own_named_outcome(
+    changes: dict[str, object], outcome: real.ReadBackOutcome, field: str
+) -> None:
+    """One field wrong, one name for it, and the name of the field in the text."""
+    verdict = real.verify_read_back(
+        company=COMPANY,
+        sent=SENT,
+        operation_id="ad_7",
+        found=_same_as_sent(**changes),
+        found_in_company=COMPANY,
+    )
+    assert verdict.outcome is outcome
+    assert verdict.fields == (field,)
+    assert field in verdict.detail
+
+
+def test_two_wrong_fields_are_both_named_not_just_the_first() -> None:
+    """A refusal saying only that something is wrong sends a person through
+    their whole ledger. Naming the amount and the party does not."""
+    verdict = real.verify_read_back(
+        company=COMPANY,
+        sent=SENT,
+        operation_id="ad_7",
+        found=_same_as_sent(amount_paise=59000, party="Verma Cement"),
+        found_in_company=COMPANY,
+    )
+    assert verdict.outcome is real.ReadBackOutcome.WRONG_AMOUNT
+    assert set(verdict.fields) == {"amount_paise", "party"}
+    assert "amount_paise" in verdict.detail
+    assert "party" in verdict.detail
+    assert "Verma Cement" in verdict.detail
+    assert "59000" in verdict.detail
+
+
+def test_the_narration_is_not_compared_because_we_stamp_it() -> None:
+    """We add the marker to the narration, so it is EXPECTED to differ."""
+    verdict = real.verify_read_back(
+        company=COMPANY,
+        sent=SENT,
+        operation_id="ad_7",
+        found=_same_as_sent(narration="anything at all"),
+        found_in_company=COMPANY,
+    )
+    assert verdict.outcome is real.ReadBackOutcome.EXACT_MATCH
+
+
+def test_no_verdict_a_write_can_produce_is_ever_safe_to_retry() -> None:
+    """A verdict only exists AFTER a write went out. There is no value of it
+    that makes an automatic retry safe."""
+    for outcome in real.ReadBackOutcome:
+        verdict = real.ReadBackVerdict(
+            outcome=outcome, company=COMPANY, operation_id="ad_7"
+        )
+        assert verdict.safe_to_retry is False
+
+
+# ---- the write path, end to end --------------------------------------------
+
+
+def test_a_correct_voucher_read_back_is_accepted() -> None:
+    """The control. Everything below refuses; this one must not."""
+    result = _write_reading_back(_register_payload(_stored(), company=COMPANY))
+    assert result.operation_id == "ad_7"
+    assert result.tally_id == "M11"
+    assert result.narration.endswith(marker_for("ad_7"))
+
+
+def test_a_wrong_voucher_carrying_our_marker_is_refused_naming_the_field() -> None:
+    """The whole defect in one test: the marker matches, the CONTENT does not.
+
+    Tally answered `created=1`, our marker is on a voucher in the register, and
+    that voucher is not the one we sent. Presence proves nothing.
+    """
+    payload = _register_payload(
+        _stored(amount_paise=59000, party="Verma Cement"), company=COMPANY
+    )
+    with pytest.raises(real.TallyWriteMismatch) as refused:
+        _write_reading_back(payload)
+
+    assert refused.value.verdict.outcome is real.ReadBackOutcome.WRONG_AMOUNT
+    text = str(refused.value)
+    assert "amount_paise" in text
+    assert "party" in text
+    assert "59000" in text
+    assert "Verma Cement" in text
+    assert refused.value.safe_to_retry is False
+
+
+@pytest.mark.parametrize(
+    ("body", "outcome", "field"),
+    [
+        (_stored(date="20260801"), real.ReadBackOutcome.WRONG_DATE, "date"),
+        (
+            _stored(amount_paise=59000),
+            real.ReadBackOutcome.WRONG_AMOUNT,
+            "amount_paise",
+        ),
+        (
+            _stored(debit="Sundry Expenses"),
+            real.ReadBackOutcome.WRONG_LEDGER,
+            "debit_account",
+        ),
+        (
+            _stored(credit="Sundry Expenses"),
+            real.ReadBackOutcome.WRONG_LEDGER,
+            "credit_account",
+        ),
+        (_stored(party="Verma Cement"), real.ReadBackOutcome.WRONG_LEDGER, "party"),
+    ],
+    ids=["date", "amount", "debit", "credit", "party"],
+)
+def test_one_wrong_field_on_the_write_path_names_that_field(
+    body: str, outcome: real.ReadBackOutcome, field: str
+) -> None:
+    with pytest.raises(real.TallyWriteMismatch) as refused:
+        _write_reading_back(_register_payload(body, company=COMPANY))
+    assert refused.value.verdict.outcome is outcome
+    assert refused.value.verdict.fields == (field,)
+    assert field in str(refused.value)
+
+
+def test_a_register_answering_for_another_company_is_refused() -> None:
+    """A correct answer on port 9000 does not mean the right company is open.
+
+    Tally echoed a DIFFERENT company on the read-back. The voucher matches field
+    for field, and it is still not proof: it is proof about somebody else's book.
+    """
+    payload = _register_payload(_stored(), company="Other Co")
+    with pytest.raises(real.TallyWriteMismatch) as refused:
+        _write_reading_back(payload)
+    assert refused.value.verdict.outcome is real.ReadBackOutcome.WRONG_COMPANY
+    assert "company" in refused.value.verdict.fields
+    assert "Other Co" in str(refused.value)
+
+
+def test_a_build_that_echoes_no_company_is_not_treated_as_a_mismatch() -> None:
+    """A12. Absent is "cannot check", never "wrong"."""
+    result = _write_reading_back(_register_payload(_stored()))
+    assert result.tally_id == "M11"
+
+
+def test_two_candidates_are_refused_and_neither_is_picked() -> None:
+    """A5, on the read-back. Two vouchers carry one marker; choosing either is a
+    coin flip with statutory consequences."""
+    both = _register_payload(
+        _stored(master_id="M11"), _stored(master_id="M12"), company=COMPANY
+    )
+    with pytest.raises(real.AmbiguousMarker) as refused:
+        _write_reading_back(both)
+    assert refused.value.outcome is real.ReadBackOutcome.MULTIPLE_MATCHES
+    assert "matches 2 vouchers" in str(refused.value)
+    assert "MASTERID=M11" in str(refused.value)
+    assert "MASTERID=M12" in str(refused.value)
+
+
+def test_zero_candidates_after_a_claimed_create_is_unknown_not_failed() -> None:
+    """THE SUBTLE ONE.
+
+    Tally said `status=1 created=1`. The register does not show it. That is not
+    "the write failed" - the voucher may be there and unreadable to us - and
+    reporting failure invites a retry that would create a SECOND entry.
+    """
+    with pytest.raises(real.TallyWriteUnknown) as unknown:
+        _write_reading_back(_register_payload(company=COMPANY))
+
+    assert unknown.value.verdict.outcome is real.ReadBackOutcome.UNKNOWN_OUTCOME
+    assert unknown.value.safe_to_retry is False
+    text = str(unknown.value)
+    assert "UNKNOWN" in text
+    assert "ad_7" in text
+    assert "retr" in text, "the message has to say not to retry it"
+
+
+def test_unknown_is_a_different_class_from_a_definite_mismatch() -> None:
+    """We-cannot-tell and Tally-stored-the-wrong-thing are different facts, and
+    a caller must be able to branch on them without reading English."""
+    assert not issubclass(real.TallyWriteMismatch, real.TallyWriteUnknown)
+    assert not issubclass(real.TallyWriteUnknown, real.TallyWriteMismatch)
+    assert issubclass(real.TallyWriteUnknown, real.TallyWriteUnverified)
+    assert issubclass(real.TallyWriteMismatch, real.TallyWriteUnverified)
+    # Still a refusal to everything upstream that already fails closed on it.
+    assert issubclass(real.TallyWriteUnverified, real.TallyRejected)
+
+
+def test_every_read_back_refusal_names_its_outcome_the_same_way() -> None:
+    """One accessor across the whole family, so a caller branching on the
+    outcome does not need to know which class it caught."""
+    with pytest.raises(real.TallyWriteUnknown) as unknown:
+        _write_reading_back(_register_payload(company=COMPANY))
+    assert unknown.value.outcome is real.ReadBackOutcome.UNKNOWN_OUTCOME
+
+    with pytest.raises(real.TallyWriteMismatch) as wrong:
+        _write_reading_back(_register_payload(_stored(amount_paise=1), company=COMPANY))
+    assert wrong.value.outcome is real.ReadBackOutcome.WRONG_AMOUNT
+
+    with pytest.raises(real.AmbiguousMarker) as ambiguous:
+        _write_reading_back(
+            _register_payload(
+                _stored(master_id="M11"), _stored(master_id="M12"), company=COMPANY
+            )
+        )
+    assert ambiguous.value.outcome is real.ReadBackOutcome.MULTIPLE_MATCHES
+
+
+def test_a_correct_voucher_without_our_marker_is_unknown_and_says_so() -> None:
+    """DECIDED: an unmarked lookalike is NOT accepted, and NOT called a failure.
+
+    Not accepted, because the narration marker is this system's identity (A5).
+    A voucher that merely matches on content could be the person's own hand-typed
+    entry for the same bill, and accepting a coincidence as proof is how you post
+    twice and reverse somebody else's work.
+
+    Not a failure either: a write that lost its narration is exactly what this
+    looks like from outside. So it is UNKNOWN, and the message names the
+    lookalike so a person knows where to look instead of hunting the ledger.
+    """
+    lookalike = _stored(narration="cement bags")  # our content, no marker
+    with pytest.raises(real.TallyWriteUnknown) as unknown:
+        _write_reading_back(_register_payload(lookalike, company=COMPANY))
+
+    assert unknown.value.verdict.outcome is real.ReadBackOutcome.UNKNOWN_OUTCOME
+    text = str(unknown.value)
+    assert "marker" in text
+    assert "M11" in text, "the lookalike has to be pointed at"
+
+
+def test_an_unmarked_voucher_that_is_nothing_like_ours_is_not_reported_as_one() -> None:
+    """The control for the test above: a lookalike claim must be earned."""
+    other = _stored(
+        amount_paise=9900, party="Verma Cement", narration="a wholly different entry"
+    )
+    with pytest.raises(real.TallyWriteUnknown) as unknown:
+        _write_reading_back(_register_payload(other, company=COMPANY))
+    assert "unmarked voucher" not in str(unknown.value)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "<ENVELOPE><BODY><DATA><COLLECTION><VOUCHER>",
+        "Tally is busy, please try later",
+        _register_payload(
+            '<VOUCHER MASTERID="M11" VCHTYPE="Journal"><DATE>20260807</DATE>'
+            "<NARRATION>cement bags [ACCOUNTANT_DAD:ad_7]</NARRATION></VOUCHER>"
+        ),
+        _register_payload(_stored(date="not-a-date")),
+    ],
+    ids=["truncated", "not_xml", "no_ledger_entries", "unreadable_date"],
+)
+def test_a_malformed_register_response_is_refused_not_read_as_absent(
+    payload: str,
+) -> None:
+    """A read-back we cannot read is not evidence of anything, least of all
+    absence. It is named, and it is not retryable."""
+    with pytest.raises(real.MalformedRegisterResponse) as refused:
+        _write_reading_back(payload)
+    assert refused.value.verdict.outcome is real.ReadBackOutcome.MALFORMED_RESPONSE
+    assert refused.value.safe_to_retry is False
+    assert "ad_7" in str(refused.value)
+
+
+def test_the_original_parser_error_survives_into_the_refusal() -> None:
+    """A person debugging this needs the sentence the parser actually produced."""
+    payload = _register_payload(
+        '<VOUCHER MASTERID="M11" VCHTYPE="Journal"><DATE>20260807</DATE>'
+        "<NARRATION>cement bags [ACCOUNTANT_DAD:ad_7]</NARRATION></VOUCHER>"
+    )
+    with pytest.raises(real.MalformedRegisterResponse, match="no ledger entries"):
+        _write_reading_back(payload)
+
+
+# ---- the case that is not hypothetical -------------------------------------
+
+
+class MovesTheDate(TallySim):
+    """A TallyPrime in Educational mode, in the one way that matters here.
+
+    Educational mode accepts only the 1st, 2nd and 31st. Measured 2026-08-08:
+    2026-08-07 REJECTED, 2026-08-31 ACCEPTED. This double does the worse thing -
+    it takes the voucher, answers `created=1 status=1`, and stores it under a
+    date nobody asked for.
+    """
+
+    coerced = datetime.date(2026, 8, 1)
+
+    def _import(self, root: ElementTree.Element, company: str | None) -> str:
+        node = root.find(".//VOUCHER")
+        answer = super()._import(root, company)
+        if node is not None and node.get("ACTION") == "Create":
+            assert company is not None
+            self.companies[company].vouchers[-1].date = self.coerced
+        return answer
+
+
+def test_a_date_tally_moved_under_us_is_refused_at_the_connector() -> None:
+    """The read-back is the only thing standing between a coerced date and a
+    filing period nobody chose."""
+    sim = MovesTheDate()
+    sim.add_company(COMPANY, ACCOUNTS)
+    client = real.RealTally(
+        transport=sim, backups=real.RecordedBackups(frozenset({COMPANY}))
+    )
+    op = new_operation_id()
+
+    with pytest.raises(real.TallyWriteMismatch) as refused:
+        client.write_voucher(COMPANY, contract.a_voucher(), op)
+
+    assert refused.value.verdict.outcome is real.ReadBackOutcome.WRONG_DATE
+    assert refused.value.verdict.fields == ("date",)
+    assert "2026-08-07" in str(refused.value)
+    assert "2026-08-01" in str(refused.value)
+    # The entry really is in the books under the wrong date, and the refusal is
+    # what tells somebody to go and look.
+    assert sim.companies[COMPANY].vouchers[0].date == MovesTheDate.coerced
+
+
+def test_the_read_back_verification_sends_no_new_request_shape(sim: TallySim) -> None:
+    """The verification is built out of the reads this connector already makes.
+
+    A custom TDL <REPORT> wedged a live TallyPrime on 2026-08-09. Nothing about
+    proving identity is worth a third request family.
+    """
+    client = real.RealTally(
+        transport=sim, backups=real.RecordedBackups(frozenset({COMPANY}))
+    )
+    client.write_voucher(COMPANY, contract.a_voucher(), new_operation_id())
+
+    assert sim.sent, "nothing was sent, so nothing was proved"
+    for payload in sim.sent:
+        lowered = payload.lower()
+        for tag in ("<report", "<form", "<part ", "<part>", "<line", "<field"):
+            assert tag not in lowered, f"the write path emitted {tag!r}"
+        if "<TALLYREQUEST>Export</TALLYREQUEST>" in payload:
+            assert "<TYPE>Collection</TYPE>" in payload
+        else:
+            assert "<TALLYREQUEST>Import</TALLYREQUEST>" in payload
+            assert "<TYPE>Data</TYPE>" in payload
+
+
+def test_every_named_outcome_is_produced_by_something_here() -> None:
+    """Nine names, and none of them decoration. If a name exists it has to be
+    reachable, or it is a comment pretending to be code."""
+    assert {o.value for o in real.ReadBackOutcome} == {
+        "EXACT_MATCH",
+        "NO_MATCH",
+        "MULTIPLE_MATCHES",
+        "WRONG_COMPANY",
+        "WRONG_LEDGER",
+        "WRONG_DATE",
+        "WRONG_AMOUNT",
+        "MALFORMED_RESPONSE",
+        "UNKNOWN_OUTCOME",
+    }
 
 
 # ---------------------------------------------------------------------------

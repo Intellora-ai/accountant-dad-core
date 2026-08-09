@@ -26,26 +26,35 @@ WHAT THIS FILE DOES NOT PROVE
 
 DEFECTS THIS FILE FOUND, AND DID NOT FIX
 ----------------------------------------
-Six tests below are `@pytest.mark.xfail(strict=True)`. That is deliberate and
-it is said loudly here rather than hidden in a decorator: each one asserts the
+The tests below marked `@pytest.mark.xfail(strict=True)` are deliberate, and it
+is said loudly here rather than hidden in a decorator: each one asserts the
 behaviour the system SHOULD have, is expected to fail at this commit, and will
 turn into a hard failure the moment somebody fixes the defect and forgets to
 update it. Each xfail is paired with a plain passing test that pins the
 behaviour actually measured, so the defect is visible in a green run.
 
-    D1  accountant/pipeline.py:228   the C6 read-back is a presence check, not
-                                     an identity check
     D2  accountant/pipeline.py:281   a write whose outcome is unknown records
                                      no ActionLog row at all
     D3  accountant/tallyio/real.py:1230  an error envelope on the voucher
                                      export reads as an empty company, which
                                      silently disables the C5 duplicate guard
-    D4  accountant/tallyio/fake.py:112   the double resolves a duplicated
-                                     marker by picking the first, where
-                                     RealTally refuses
     D5  accountant/web/app.py:243    nothing cross-checks the declared backend
                                      identity against the client that was
                                      handed in
+
+FIXED SINCE, AND STILL PINNED HERE
+----------------------------------
+The xfail came off and the paired test was rewritten to assert the fixed
+behaviour, so the case keeps failing if the fix is ever undone. Each says
+"FIXED <date>. This test pinned the DEFECT until then." in its docstring.
+
+    D1  accountant/pipeline.py   the C6 read-back was a presence check, not an
+                                 identity check. FIXED 2026-08-09.
+    D4  accountant/tallyio/fake.py  the double resolved a duplicated marker by
+                                 picking the first, where RealTally refuses.
+                                 FIXED 2026-08-09; the agreement between the
+                                 two backends is now pinned by the
+                                 `test_both_backends_*` cases in section 8.
 """
 
 from __future__ import annotations
@@ -861,13 +870,20 @@ def test_a_disconnect_after_the_write_hides_a_voucher_that_really_exists() -> No
     assert client.trial_balance(COMPANY) == {}
 
 
-def test_a_write_whose_outcome_is_unknown_records_nothing_in_the_action_log() -> None:
-    """MEASURED, AND IT IS DEFECT D2 - accountant/pipeline.py:281.
+def test_a_write_whose_outcome_is_unknown_leaves_two_rows_naming_the_operation() -> (
+    None
+):
+    """DEFECT D2 / W2, FIXED 2026-08-09. This test pinned it until then.
 
-    `run` records the decision AFTER `post` returns. When `post` raises, the
-    exception leaves `run` and `record_decision` is never reached, so the one
-    durable trace of an attempted write with an unknown outcome is zero rows.
-    Nobody can reconcile it later, because nobody knows the operation id.
+    `run` recorded the decision only AFTER `post` returned. When `post` raised,
+    the exception left `run`, `record_decision` was never reached, and the one
+    durable trace of a write that went out with an unknown outcome was ZERO
+    rows. The books had moved and nobody knew the operation id.
+
+    `post` now writes AHEAD of the socket. Two rows: `write_attempted` before
+    anything is sent, `write_outcome_unknown` naming the exception. The pair is
+    what makes the voucher findable; the first row alone is what survives a
+    process that does not live long enough to write the second.
     """
     t = tally(past())
     store = MemoryStore(":memory:")
@@ -890,7 +906,20 @@ def test_a_write_whose_outcome_is_unknown_records_nothing_in_the_action_log() ->
 
     assert client.write_count == 1
     assert len(client.read_backs) == 1
-    assert store.actions(COMPANY) == (), "no row at all for a write that went out"
+
+    rows = store.actions(COMPANY)
+    assert [r.action for r in rows] == [
+        pipeline.WRITE_ATTEMPTED,
+        pipeline.WRITE_OUTCOME_UNKNOWN,
+    ]
+    assert {r.operation_id for r in rows} == {
+        operation_id_in(client.list_our_vouchers(COMPANY)[0].narration)
+    }, "both rows name the operation id of the voucher actually in the books"
+    assert "ConnectionError" in rows[1].reason
+    assert rows[1].outcome == pipeline.WRITE_OUTCOME_UNKNOWN, (
+        "not 'valid'. A row that says valid is a row somebody reads as posted."
+    )
+    assert all(r.voucher_id == "" for r in rows), "no tally id is claimed"
 
     # And the write really did land, so the books moved with nothing written down.
     assert len(client.list_our_vouchers(COMPANY)) == 1
@@ -901,15 +930,14 @@ def test_a_write_whose_outcome_is_unknown_records_nothing_in_the_action_log() ->
     assert client.trial_balance(COMPANY) == balance_before
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT D2, accountant/pipeline.py:281. `run` records the decision only "
-        "after `post` returns, so a write whose outcome is unknown leaves no "
-        "durable row and its operation id is lost."
-    ),
-)
 def test_an_unknown_write_outcome_still_records_its_operation_id() -> None:
+    """The aspiration that was a strict xfail until 2026-08-09. It now holds.
+
+    Kept alongside the test above rather than merged into it: that one proves
+    the SHAPE of the pair, this one proves the single fact somebody actually
+    needs at 9pm - the operation id of a voucher that may be in the books is
+    written down, under this run id, in this company's scope.
+    """
     t = tally(past())
     store = MemoryStore(":memory:")
     memory = memory_for(t, store)
@@ -929,9 +957,9 @@ def test_an_unknown_write_outcome_still_records_its_operation_id() -> None:
         )
 
     rows = store.actions(COMPANY)
-    assert len(rows) == 1
-    assert rows[0].operation_id == client.writes[0][1]
-    assert rows[0].run_id == RUN
+    assert len(rows) == 2, "written ahead of the socket, then again on the way out"
+    assert {r.operation_id for r in rows} == {client.writes[0][1]}
+    assert {r.run_id for r in rows} == {RUN}
 
 
 def test_the_same_run_call_records_a_row_when_nothing_goes_wrong() -> None:
@@ -961,10 +989,20 @@ def test_the_same_run_call_records_a_row_when_nothing_goes_wrong() -> None:
 
     assert draft.outcome is Outcome.VALID
     assert client.write_count == 1
-    row = only_row(store)
-    assert (row.action, row.outcome, row.run_id) == ("posted", "valid", RUN)
-    assert row.operation_id == draft.operation_id
-    assert row.backend == "RecordingTally"
+
+    # TWO rows on the healthy path since 2026-08-09: the write-ahead row, then
+    # the decision. The pair is the point - an attempt with no partner is the
+    # signature of an unknown outcome, and that reading only works if the
+    # partner reliably appears when the write succeeds.
+    rows = store.actions(COMPANY)
+    assert [r.action for r in rows] == [pipeline.WRITE_ATTEMPTED, "posted"]
+    assert {r.operation_id for r in rows} == {draft.operation_id}
+    assert {r.run_id for r in rows} == {RUN}
+    assert {r.backend for r in rows} == {"RecordingTally"}
+
+    row = rows[-1]
+    assert (row.action, row.outcome) == ("posted", "valid")
+    assert row.voucher_id == draft.posted_tally_id
 
 
 # ---------------------------------------------------------------------------
@@ -1006,7 +1044,16 @@ def test_a_read_back_of_zero_vouchers_blocks_the_post_and_writes_no_posted_row()
 
     assert client.write_count == 1
     assert len(client.read_backs) == 1
-    assert store.actions(COMPANY) == ()  # DEFECT D2 again, from the other side
+
+    # DEFECT D2 again, from the other side, and fixed the same way. No `posted`
+    # row - nothing was posted - but the attempt is on the record.
+    rows = store.actions(COMPANY)
+    assert [r.action for r in rows] == [
+        pipeline.WRITE_ATTEMPTED,
+        pipeline.WRITE_OUTCOME_UNKNOWN,
+    ]
+    assert "posted" not in {r.action for r in rows}
+    assert "could not read it back" in rows[1].reason
 
     # The write DID happen inside the fake, which is what makes this expensive.
     assert len(client.list_our_vouchers(COMPANY)) == 1
@@ -1075,18 +1122,25 @@ def test_an_ambiguous_marker_stops_the_pipeline_instead_of_picking_one() -> None
         pipeline.reverse(draft, client)
 
 
-def test_the_in_memory_double_picks_the_first_of_two_vouchers_sharing_one_marker() -> (
-    None
-):
-    """MEASURED, AND IT IS DEFECT D4 - accountant/tallyio/fake.py:112 and :118.
+def test_the_in_memory_double_refuses_the_ambiguity_and_names_both_vouchers() -> None:
+    """W4/D4, FIXED 2026-08-09. This test pinned the DEFECT until then.
 
-    `RealTally._read_exported_by_operation_id` raises on two matches, and its
-    docstring says why: picking is a coin flip with statutory consequences.
-    `FakeTally` returns the first match and its reverse deletes the first match.
-    The two backends are held to one contract in
-    `tests/test_tally_contract.py`, and this property is not in it, so no
-    contract test can catch the divergence - which means a test written against
-    the fake can "prove" an ambiguity is handled when it is not.
+    Before the fix `FakeTally` returned the FIRST of the two matches and its
+    reverse DELETED the first, leaving the twin behind and the trial balance
+    holding 250000 where 368000 belonged - while `RealTally` refused
+    (real.py:1797). `tests/test_tally_contract.py` holds both backends to one
+    contract and this property was not in it, so no contract test could see the
+    divergence, and a test written against the fake could "prove" an ambiguity
+    was handled when it was not.
+
+    Two things here that the both-backends tests below do NOT cover, which is
+    why this one stayed rather than being folded into them:
+
+      * the refusal survives `RecordingTally`, the wrapper every other case in
+        this file goes through;
+      * the message NAMES both vouchers and both amounts. "There are two" sends
+        a person hunting through a whole ledger; naming them does not, and the
+        fake has locators of its own to name.
     """
     t = tally()
     op = "ad_ambiguous_probe"
@@ -1105,45 +1159,187 @@ def test_the_in_memory_double_picks_the_first_of_two_vouchers_sharing_one_marker
         )
     client = RecordingTally(t)
 
-    picked = client.read_by_operation_id(COMPANY, op)
-    assert picked is not None, "the fake chose one instead of refusing"
-    assert picked.amount_paise == 118000, "and it chose the first"
+    with pytest.raises(real.TallyDataError) as raised:
+        client.read_by_operation_id(COMPANY, op)
 
+    said = str(raised.value)
+    for named in ("dup-0", "dup-1", "118000", "250000"):
+        assert named in said, f"the refusal does not name {named}: {said}"
+
+    with pytest.raises(real.TallyDataError):
+        client.reverse_by_operation_id(COMPANY, op)
+
+    # pytest.raises is never the whole proof. Both survived, to the paise.
     assert len(client.list_our_vouchers(COMPANY)) == 2
-    assert client.reverse_by_operation_id(COMPANY, op) is True
-    assert len(client.list_our_vouchers(COMPANY)) == 1, "one of the two survived"
-    assert client.trial_balance(COMPANY) == {"Purchases": 250000, "Cash": -250000}
+    assert client.trial_balance(COMPANY) == {"Purchases": 368000, "Cash": -368000}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT D4, accountant/tallyio/fake.py:112. FakeTally resolves a "
-        "duplicated marker by picking the first match; RealTally refuses. The "
-        "shared contract does not cover the case, so the doubles disagree."
-    ),
-)
-def test_both_backends_refuse_to_choose_between_two_vouchers_sharing_one_marker() -> (
-    None
-):
+# ---- the same decision from both backends ----------------------------------
+#
+# WHY THESE ARE NOT IN tests/test_tally_contract.py, WHERE THEY BELONG BY SUBJECT
+#
+# "a marker that matches two vouchers is refused" is a property of every
+# TallyClient, so the shared contract is its natural home. Two reasons it is
+# here instead:
+#
+#   1. That file is FROZEN at its 2026-08-07 fixture (owner decision, and the
+#      Educational-mode exception recorded with it). Nothing may be added to it.
+#   2. Freezing it did not cost much, because per accountant/tallyio/real.py:26-28
+#      the 2026-08-07 date that fixture posts on is one Educational-mode Tally
+#      MEASURABLY REFUSES, so the contract file cannot run against RealTally
+#      unmodified anyway. A case added there would be a FakeTally-only test
+#      wearing a contract's name - which is the precise shape of W4 itself.
+#
+# So the both-backends cases live here and drive both backends by hand: the fake
+# directly, and RealTally over `TallySim` so the whole XML read path runs. The
+# transports differ; the safety decision must not.
+#
+# SCOPE. These cover the marker-COUNT rows of the ladder - zero, one, two. The
+# other rows are pinned elsewhere and are not reproved here: wrong identity by
+# `test_a_read_back_with_our_marker_but_not_our_numbers_is_refused` above,
+# malformed and unknown-outcome by section 3 and by `tests/test_real_tally.py`.
+
+#: A backend, plus the only backend-specific thing these tests need: a way to
+#: plant a voucher that already carries a given marker, as a duplicate-entry
+#: feature or a second copy of a company file would.
+Backend = tuple[TallyClient, Callable[[str, int], None]]
+
+
+def a_fake_backend() -> Backend:
     t = tally()
-    op = "ad_ambiguous_probe"
-    for i in range(2):
+
+    def plant(op: str, amount_paise: int) -> None:
         t.seed_voucher(
             COMPANY,
             Voucher(
-                id=f"dup-{i}",
+                id=f"planted-{amount_paise}",
                 date=TODAY,
                 party="Sharma Traders",
                 narration=f"cement bags {marker_for(op)}",
                 debit_account="Purchases",
                 credit_account="Cash",
-                amount_paise=118000,
+                amount_paise=amount_paise,
             ),
         )
 
-    with pytest.raises(Exception, match="matches 2 vouchers"):
-        t.read_by_operation_id(COMPANY, op)
+    return t, plant
+
+
+def a_real_backend() -> Backend:
+    sim = a_simulated_tally()
+
+    def plant(op: str, amount_paise: int) -> None:
+        sim.seed(
+            COMPANY,
+            narration=f"cement bags {marker_for(op)}",
+            amount_paise=amount_paise,
+            debit="Purchases",
+            credit="Cash",
+            party="Sharma Traders",
+        )
+
+    return sim_client(sim), plant
+
+
+#: Both implementations of `TallyClient` this repository has. The ids are the
+#: backend names, so a failure says WHICH backend broke the agreement.
+BOTH_BACKENDS = pytest.mark.parametrize(
+    "make_backend",
+    [
+        pytest.param(a_fake_backend, id="FakeTally"),
+        pytest.param(a_real_backend, id="RealTally-over-TallySim"),
+    ],
+)
+
+
+@BOTH_BACKENDS
+def test_both_backends_refuse_to_choose_between_two_vouchers_sharing_one_marker(
+    make_backend: Callable[[], Backend],
+) -> None:
+    """W4. The read refuses, names the count, and leaves both vouchers alone.
+
+    Two vouchers, one marker, DIFFERENT amounts - so "it picked one" and "it
+    refused" cannot be confused with each other. `RealTally` has always refused
+    (real.py:1797). `FakeTally` returned the first match until 2026-08-09, and
+    no contract test could see the difference.
+    """
+    client, plant = make_backend()
+    op = "ad_ambiguous_probe"
+    plant(op, 118000)
+    plant(op, 250000)
+    before = client.trial_balance(COMPANY)
+
+    with pytest.raises(real.TallyDataError) as raised:
+        client.read_by_operation_id(COMPANY, op)
+
+    said = str(raised.value)
+    assert "matches 2 vouchers" in said, said
+    assert op in said, "the refusal must name the operation it is about"
+    assert "a person has to decide" in said, said
+
+    # pytest.raises is never the whole proof. Neither voucher was chosen, and
+    # neither was touched.
+    ours = client.list_our_vouchers(COMPANY)
+    assert len(ours) == 2
+    assert sorted(v.amount_paise for v in ours) == [118000, 250000]
+    assert client.trial_balance(COMPANY) == before
+
+
+@BOTH_BACKENDS
+def test_both_backends_refuse_to_reverse_either_of_two_vouchers_sharing_one_marker(
+    make_backend: Callable[[], Backend],
+) -> None:
+    """The destructive half of W4, and the expensive one.
+
+    A read that picks wrong shows somebody the wrong number. A reverse that
+    picks wrong DELETES a statutory entry and leaves its twin behind, so the
+    books are now wrong in a way no later read can detect.
+    """
+    client, plant = make_backend()
+    op = "ad_ambiguous_probe"
+    plant(op, 118000)
+    plant(op, 250000)
+    before = client.trial_balance(COMPANY)
+
+    with pytest.raises(real.TallyDataError, match="a person has to decide"):
+        client.reverse_by_operation_id(COMPANY, op)
+
+    assert len(client.list_our_vouchers(COMPANY)) == 2, "nothing may be deleted"
+    assert client.trial_balance(COMPANY) == before
+
+
+@BOTH_BACKENDS
+def test_both_backends_answer_a_marker_the_same_way_at_zero_one_and_two_matches(
+    make_backend: Callable[[], Backend],
+) -> None:
+    """The whole count ladder in one place, so the two ends anchor the middle.
+
+    Without the zero and one rows, a backend that refused EVERY read would pass
+    the ambiguity test above while being useless. The refusal has to be aimed at
+    the ambiguity and at nothing else.
+    """
+    client, plant = make_backend()
+    op = "ad_ambiguous_probe"
+
+    # zero matches: not found, and nothing to reverse. Not an error.
+    assert client.read_by_operation_id(COMPANY, op) is None
+    assert client.reverse_by_operation_id(COMPANY, op) is False
+
+    # one match: the voucher itself, and it is the one that was planted.
+    plant(op, 118000)
+    found = client.read_by_operation_id(COMPANY, op)
+    assert found is not None
+    assert found.amount_paise == 118000
+
+    # two matches: refused, both times, with nothing deleted in between.
+    plant(op, 250000)
+    before = client.trial_balance(COMPANY)
+    with pytest.raises(real.TallyDataError, match="matches 2 vouchers"):
+        client.read_by_operation_id(COMPANY, op)
+    with pytest.raises(real.TallyDataError, match="matches 2 vouchers"):
+        client.reverse_by_operation_id(COMPANY, op)
+    assert len(client.list_our_vouchers(COMPANY)) == 2
+    assert client.trial_balance(COMPANY) == before
 
 
 # ---------------------------------------------------------------------------
@@ -1236,6 +1432,25 @@ def test_a_caller_that_skips_the_valid_gate_writes_an_entry_the_pipeline_refuses
     client = RecordingTally(t)
     draft = unclear_draft(client, memory)
     assert draft.voucher.debit_account == "", "an unseen vendor proposes nothing"
+
+    # The funding leg is set HERE rather than left to whatever the pipeline
+    # happens to fill in. An unseen vendor raises two problems now -
+    # `which_account` and `funding_is_named` - so an unanswered draft can carry
+    # NEITHER leg, and a voucher posted with ""/"" moves account "" up and down
+    # by the same amount. It nets to zero, `trial_balance` drops the zero, and
+    # the books look untouched by a write that really happened. This test would
+    # then pass while demonstrating the opposite of its claim.
+    #
+    # The state built here is reachable and still UNCLEAR: the person has said
+    # how it was paid and has not yet said what it was for. `post` therefore
+    # still refuses, and the entry the hidden caller lands in somebody's books
+    # has a real credit leg and no debit leg - which is the damage worth
+    # showing.
+    draft.voucher = replace(draft.voucher, credit_account="Cash")
+    assert draft.voucher.debit_account == ""
+    assert draft.voucher.credit_account == "Cash"
+    assert draft.outcome is Outcome.UNCLEAR, "still not postable, and that is the point"
+
     balance_before = client.trial_balance(COMPANY)
 
     with pytest.raises(ValueError, match="refusing to post: outcome is unclear"):
@@ -1293,13 +1508,19 @@ def test_the_guard_would_fail_if_the_hidden_write_lived_inside_the_package() -> 
 
 
 def test_the_real_connector_refuses_the_voucher_the_double_accepted() -> None:
-    """The other half of D4: the doubles do not agree about invalid input.
+    """The doubles do not agree about invalid input. STILL OPEN.
 
-    `FakeTally` wrote a voucher with an empty debit account in the test above.
-    `RealTally` refuses the same voucher before anything reaches the wire. A
-    bypass test written against the fake alone would therefore under-report the
-    damage, and a fix validated against the fake alone would not be validated at
-    all.
+    D4 was the doubles disagreeing about an ambiguous MARKER, and that half is
+    fixed (section 8). This is the same shape on a different input and it has
+    NOT been fixed: `FakeTally` wrote a voucher with an empty debit account in
+    the test above, and `RealTally` refuses the same voucher before anything
+    reaches the wire. A bypass test written against the fake alone would
+    therefore under-report the damage, and a fix validated against the fake
+    alone would not be validated at all.
+
+    Left as measured rather than closed here, because making the fake check its
+    chart of accounts changes what `write_voucher` accepts across the suite -
+    a decision with its own blast radius, not a rider on the marker fix.
 
     Measured: the refusal comes from `_check_ledgers_exist`
     (`accountant/tallyio/real.py:1836`), which runs before

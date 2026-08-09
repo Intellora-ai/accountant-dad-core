@@ -13,8 +13,8 @@ answer can fix are refusals — in practice, internal type errors.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, replace
 
 from accountant import questions as Q
 from accountant.memory.index import MemoryIndex
@@ -49,22 +49,58 @@ def _from_check(c: CheckResult, voucher: Voucher, accounts: Sequence[str]) -> Pr
     if c.name in UNANSWERABLE_CHECKS:
         return Problem(id=c.name, answerable=False, detail=c.detail)
 
-    q = {
-        "amount_is_positive": lambda: Q.how_much(voucher.party),
-        "party_is_named": lambda: Q.who_was_it(),
-        "accounts_exist": lambda: Q.which_purpose(accounts, voucher.party),
-        "accounts_differ": lambda: Q.which_purpose(accounts, voucher.party),
-        "gst_not_larger_than_amount": lambda: Q.tax_bigger_than_total(
-            voucher.amount_paise, voucher.gst_paise or 0
-        ),
-    }.get(c.name)
-
+    q = QUESTION_FOR.get(c.name)
     if q is None:
         # A check we have no words for yet. Refusing silently would hide it, so
         # it becomes a visible unanswerable problem rather than a guess.
         return Problem(id=c.name, answerable=False, detail=c.detail)
 
-    return Problem(id=c.name, answerable=True, detail=c.detail, question=q())
+    try:
+        question = q(voucher, accounts)
+    except Q.NoAnswerableOption as exc:
+        # Every option would have been invented, so there is nothing honest to
+        # ask. Unanswerable is NOT_VALID, and that is the truth: nothing the
+        # person could say makes this postable.
+        return Problem(id=c.name, answerable=False, detail=str(exc))
+
+    # THE ID IS THE CHECK NAME, always, whatever the question factory called
+    # itself. `decide_problems` filters outstanding problems by `Problem.id`
+    # and `pipeline.next_question` filters answered ones by
+    # `Question.problem_id`; when those disagree the answer is filed under a
+    # name nothing looks for, the problem is never retired, and the person is
+    # asked the same question until the budget of 5 runs out and the entry is
+    # handed over. Measured 2026-08-09, three live mismatches:
+    #
+    #     amount_is_positive         asked as  amount
+    #     party_is_named             asked as  party
+    #     gst_not_larger_than_amount asked as  gst_too_big
+    #
+    # Overwriting it here rather than editing each factory means the next check
+    # added cannot reintroduce the bug, and it leaves the factories reusable by
+    # `find` below, which owns the "which_account" id in its own right.
+    return Problem(
+        id=c.name,
+        answerable=True,
+        detail=c.detail,
+        question=replace(question, problem_id=c.name),
+    )
+
+
+# Every check that a person can answer, and the words to ask them in. A check
+# absent from here is unanswerable BY CONSTRUCTION, not by oversight.
+QUESTION_FOR: dict[str, Callable[[Voucher, Sequence[str]], Q.Question]] = {
+    "amount_is_positive": lambda v, _a: Q.how_much(v.party),
+    "party_is_named": lambda _v, _a: Q.who_was_it(),
+    "accounts_exist": lambda v, a: Q.which_purpose(a, v.party),
+    "accounts_differ": lambda v, a: Q.which_purpose(a, v.party),
+    # `how_paid` was written long ago and wired to NOTHING. Wiring it is what
+    # replaces `_default_credit`: the funding leg becomes a question instead of
+    # a guess.
+    "funding_is_named": lambda _v, a: Q.how_paid(a),
+    "gst_not_larger_than_amount": lambda v, _a: Q.tax_bigger_than_total(
+        v.amount_paise, v.gst_paise or 0
+    ),
+}
 
 
 def _from_flag(
@@ -96,6 +132,11 @@ def _from_flag(
     return Problem(id=f.detector, answerable=True, detail=f.reason, question=q)
 
 
+# The one problem deliberately asked last. Defined here rather than imported
+# from `pipeline` because `pipeline` imports this module.
+FUNDING_PROBLEM = "funding_is_named"
+
+
 def find(
     voucher: Voucher,
     checks: Sequence[CheckResult],
@@ -118,9 +159,22 @@ def find(
             seen_ids.add(p.id)
             out.append(p)
 
+    # "What was it for?" is asked before "how did you pay?", always.
+    #
+    # Not cosmetic. Both are questions to the same person about the same
+    # entry, and the purpose is the one they can answer from the bill in
+    # their hand. Check order would otherwise decide it, because
+    # `funding_is_named` is a check and the vendor question is derived from
+    # the memory match further down - so the funding question came first by
+    # accident of list position.
+    funding: Problem | None = None
     for c in checks:
         if not c.passed:
-            add(_from_check(c, voucher, accounts))
+            p = _from_check(c, voucher, accounts)
+            if p.id == FUNDING_PROBLEM:
+                funding = p
+                continue
+            add(p)
 
     for f in flags:
         add(_from_flag(f, voucher, history, index))
@@ -148,5 +202,8 @@ def find(
                 ),
             )
         )
+
+    if funding is not None:
+        add(funding)
 
     return out

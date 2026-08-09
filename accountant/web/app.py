@@ -662,7 +662,13 @@ def _run(text: str) -> pipeline.Draft:
     )
     d = pipeline.evaluate(d, accounts, history, live.memory)
     if d.outcome is Outcome.VALID:
-        d = pipeline.post(d, runtime().client)
+        d = pipeline.post(
+            d,
+            live.client,
+            log=live.store,
+            memory=live.memory,
+            run_id=live.identity.run_id,
+        )
     record(d, ACTION_FOR[d.outcome])
     DRAFTS[d.id] = d
     return d
@@ -780,12 +786,30 @@ class Handler(BaseHTTPRequestHandler):
                 # The correction is recorded against THIS company and no other,
                 # and it is evidence, not an override: a vendor with genuinely
                 # contradictory history stays CONFLICTED and keeps asking.
-                runtime().memory.record_correction(d.voucher.party, value)
+                #
+                # NOT for the funding answer. `record_correction` teaches the
+                # vendor -> EXPENSE account map, and "I paid in cash" says
+                # nothing about what the money was for. Recording it wrote
+                # "Gupta Hardware -> Cash" alongside "Gupta Hardware ->
+                # Purchases", which made the vendor CONFLICTED, re-raised the
+                # question the person had just answered, and ended the entry at
+                # NOT_VALID with both legs correctly filled in. Measured on the
+                # first two-question run. The funding leg is learned instead
+                # from the posted voucher's own credit side.
+                if problem != pipeline.FUNDING_PROBLEM:
+                    runtime().memory.record_correction(d.voucher.party, value)
 
             d = pipeline.evaluate(d, accounts, history, runtime().memory)
 
             if d.outcome is Outcome.VALID:
-                d = pipeline.post(d, runtime().client)
+                live = runtime()
+                d = pipeline.post(
+                    d,
+                    live.client,
+                    log=live.store,
+                    memory=live.memory,
+                    run_id=live.identity.run_id,
+                )
             record(d, ACTION_FOR[d.outcome])
             DRAFTS[d.id] = d
             self._send(page(render_decision(d) + '<p><a href="/">&larr; back</a></p>'))

@@ -357,6 +357,31 @@ run(...)                      -> Draft      the whole path
 returning a default. An unevaluated draft has no outcome, and saying otherwise
 would be a lie in the type.
 
+**Where each ledger leg comes from, and why they come from different places.**
+
+| leg | proposed by | from |
+|---|---|---|
+| debit — what the money was FOR | `build_draft` | this company's vendor→account index |
+| credit — where the money came FROM | `evaluate` | this company's own posted credit legs for this vendor, **unanimous or nothing** |
+
+Neither is ever chosen from a list of likely names, and a value that came from
+nowhere is impossible to write: both legs carry a `provenance` entry, one of
+`company_history`, `human_answer` or `not_found`.
+
+The credit leg is proposed in `evaluate` rather than in `build_draft`, and that
+asymmetry is the safety property. `evaluate` is the only function that gives a
+draft a `decision`, and `post` refuses a draft that has none. Siting the
+proposal there makes it structurally impossible to post a voucher whose funding
+leg was not either read from the company's books or answered by a person — a
+caller cannot skip `build_draft` and reach `post` with a blank leg. It fills an
+EMPTY leg only, so a human answer is never overwritten by the pattern.
+
+`answer(draft, account, pid)` routes by problem id: the funding answer lands on
+the credit leg, everything else on the debit leg. `Problem.id` and
+`Question.problem_id` are the same string by construction — when they disagree
+the answer is filed under a name nothing looks for and the question is asked
+forever.
+
 ### 4.7 Extraction adapter — `accountant/extract/adapter.py` · **present**
 
 ```python

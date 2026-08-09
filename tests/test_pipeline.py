@@ -233,7 +233,18 @@ def test_answering_then_re_evaluating_posts():
     memory.record_correction("Verma Cement", "Purchases")
     d = pipeline.evaluate(d, accounts, history, memory)
 
+    # Verma Cement is new to this company, so its funding leg is unknown too.
+    # Until 2026-08-09 it was filled in by `_default_credit` with the string
+    # "Cash" and no provenance, which is why one answer used to be enough.
+    assert d.outcome is Outcome.UNCLEAR
+    q = pipeline.next_question(d)
+    assert q is not None and q.problem_id == pipeline.FUNDING_PROBLEM
+
+    d = pipeline.answer(d, "Cash", problem_id=q.problem_id)
+    d = pipeline.evaluate(d, accounts, history, memory)
+
     assert d.outcome is Outcome.VALID
+    assert (d.voucher.debit_account, d.voucher.credit_account) == ("Purchases", "Cash")
     d = pipeline.post(d, t)
     assert d.posted_tally_id is not None
 

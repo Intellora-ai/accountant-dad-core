@@ -2012,7 +2012,9 @@ From `tests/test_adversarial_amounts_and_states.py` (+21 tests, 0 skips, 0 xfail
 | **A5** | ordering, `pipeline.py:273` | Tally is read before memory readiness, so a not-ready company with a flaky connector reports the connector's error instead of `MemoryNotReady`. Fails closed; only the diagnosis is wrong |
 | **A6** | 9 of 13 state names in the brief do not exist in the code | `BOOTSTRAPPING`, `POSTING`, `READ_BACK_VERIFIED`, `CLEANED` and others are absences or field values, not states. `POSTING` matters: **a crash mid-write leaves no trace that a write was started** — the same hole as W2 |
 
-Pinned by `test_nine_of_the_thirteen_state_names_do_not_exist_in_the_shipped_package`.
+Pinned by `test_eight_of_the_thirteen_state_names_do_not_exist_in_the_shipped_package`.
+Eight, not nine, since 2026-08-09: `POSTING` now exists as a durable
+`write_attempted` row. See §37.
 
 ---
 
@@ -2438,3 +2440,176 @@ option, not a ledger-leg assignment. Recorded, not fixed.
 | exit 4 | **FALSE, pinned** | true | `test_no_ledger_leg_is_ever_set_from_a_literal_or_a_chooser` |
 | fallback offenders found | **1** (`pipeline.py:134`) | 0 | AST scan |
 | false positives | **0** | 0 | AST scan |
+
+---
+
+## §36 Phase 4 exit 4 — the funding guess, deleted and replaced
+
+2026-08-09. Follows §35, which pinned this as a strict xfail. **The xfail is
+gone: it passes.**
+
+### 36.1 What was deleted
+
+`accountant/pipeline.py:81-85`, in full:
+
+```python
+def _default_credit(accounts: tuple[str, ...]) -> str:
+    for preferred in ("Cash", "Bank", "Sundry Creditors"):
+        if preferred in accounts:
+            return preferred
+    return accounts[0] if accounts else "Cash"
+```
+
+It ran on **every** entry. It read nothing about the vendor and nothing about
+the company's history. It wrote no provenance, which by this project's own
+Hallucinate definition makes it a hallucination on every voucher. Its last line
+returned the literal string `"Cash"` for a company with no such ledger.
+
+**Why 1,026 green tests and a 94.34% mutation score did not catch it:** every
+test chart in the repository contains `"Cash"`, so the first loop iteration
+always matched and the three later branches never executed once. A guess that
+agrees with every fixture is indistinguishable from knowledge until somebody
+writes the fixture where they disagree. `tests/test_funding_leg.py` is those
+fixtures — 13 tests, including the disconfirming one: a chart containing Cash,
+a vendor whose history says Bank, and the answer is Bank.
+
+### 36.2 What replaced it
+
+`pipeline._funding_from_history(party, history)` — the credit accounts THIS
+company has used for THIS vendor. **Unanimous or nothing.** Two different
+funding accounts is a conflict, and a conflict is a question, never a majority
+vote. Nine Cash and one Bank produces a question, not "Cash".
+
+Sited in `evaluate`, not in `build_draft`, and the siting is the guarantee:
+`evaluate` is the only function that gives a draft a decision, and `post`
+refuses a draft without one. So **no voucher can be posted whose credit leg was
+not either read from this company's own history or answered by a person.**
+It fills an EMPTY leg only, so a human answer is never overwritten.
+
+`checks.funding_is_named` turns the absence into a question;
+`questions.how_paid` offers only ledgers present in this company's chart and
+raises `NoAnswerableOption` when the company has neither Cash nor Bank, which
+becomes an unanswerable problem and therefore NOT_VALID. That closes §35.5.
+
+### 36.3 Five further defects the change exposed, each fixed
+
+| # | Defect | Where | Consequence before |
+|---|---|---|---|
+| 1 | `Problem.id` and `Question.problem_id` allowed to disagree | `problems._from_check` | The answer is filed under a name nothing looks for, the problem is never retired, and the person is asked the same question until the budget of 5 is spent. **Three live mismatches measured:** `amount_is_positive` asked as `amount`, `party_is_named` as `party`, `gst_not_larger_than_amount` as `gst_too_big`. Now forced to the check name in one place, so a new check cannot repeat it. |
+| 2 | The funding answer taught the vendor→expense map | `web/app.py` `/answer` | "I paid in cash" wrote `Gupta Hardware → Cash` next to `Gupta Hardware → Purchases`, making the vendor CONFLICTED, re-raising the question just answered, and ending a fully-answered entry at NOT_VALID. |
+| 3 | `accounts_differ` treated two absent legs as one sameness failure | `checks.py` | Unreachable while `_default_credit` existed. Without it an unknown vendor produced the refusal `"both sides are "` — naming no ledger — ahead of the two questions actually owed. |
+| 4 | Every answer was written to `debit_account` | `pipeline.answer` | The funding answer would silently overwrite the expense account the person had just chosen. Routing is now by problem id. |
+| 5 | `_funding_from_history` guarded on `party`, not on the normalised key | `pipeline.py` | `"   "` is truthy and normalises to `""`, the key every blank-party history row shares. Thirty such rows would make "the vendor nobody named" the most consistently-paid supplier in the books. |
+
+### 36.4 Blast radius, and what was NOT weakened
+
+50 tests red with a naive absence → 28 once the funding leg reads from history
+→ 21 once `evaluate` owns the proposal → **0** after updating them.
+
+Every updated test asserts the two-question sequence explicitly and then
+finishes the draft. None was trimmed back to the old single-answer shape. Two
+web tests gained a helper, `answer_purpose_and_funding`, which **asserts the
+funding question was asked** before answering it, so deleting the question turns
+them red rather than green.
+
+### 36.5 Retained, on purpose, and recorded rather than hidden
+
+`build_draft(..., accounts, ...)` is now unused. Its only reader was
+`_default_credit`. It is kept because it is positional in roughly thirty call
+sites including test files owned by concurrent work, and a mechanical signature
+change across those is a merge conflict rather than an improvement. Marked
+`# noqa: ARG001` with the reason in the docstring. **Open item, not done.**
+
+`build_draft` also does not validate a proposed ledger against the chart, and
+that is deliberate: emptying a leg the chart no longer contains would delete the
+evidence. `checks.accounts_exist` names the missing ledger instead. A guard was
+written, measured against
+`test_an_account_missing_from_the_chart_is_asked_about_and_never_posted`, found
+to hide the problem, and reverted.
+
+### 36.6 Measured
+
+| metric | actual | expected | evidence |
+|---|---|---|---|
+| exit 4 | **TRUE** | true | `test_no_ledger_leg_is_ever_set_from_a_literal_or_a_chooser` passes; the strict xfail is deleted |
+| fallback offenders, AST scan | **0** | 0 | `tests/test_phase4_exits.py` |
+| new tests | **13** | — | `tests/test_funding_leg.py` |
+| pyright | 0 | 0 | `pyright accountant/` |
+| ruff | clean | clean | `ruff check accountant/ tests/` |
+
+**Evidence class: FakeTally implementation.** Every test in
+`tests/test_funding_leg.py` runs against a double. Nothing here is evidence
+about a real TallyPrime, and it is not merged with the RealTally record.
+
+---
+
+## §37 W2 and A6 — the write nobody could find afterwards
+
+2026-08-09. Closes **W2** (§29) and the `POSTING` half of **A6**.
+
+### 37.1 The hole
+
+`pipeline.run` recorded the decision **after** `post` returned. When `post`
+raised, the exception left `run`, `record_decision` was never reached, and
+**zero** ActionLog rows existed for a write that had already gone out. The
+operation id survived in a traceback and nowhere else. Measured: write count 1,
+trial balance moved, rows 0. The same hole existed on the web path.
+
+An `except` clause would have closed most of it and none of the worst of it. No
+handler runs when the process dies between the request and the response, and
+that is exactly the case where a voucher exists in somebody's statutory books
+and nobody knows.
+
+### 37.2 The fix: write ahead of the socket
+
+`pipeline.post` now writes a `write_attempted` row **before** anything is sent,
+and a `write_outcome_unknown` row naming the exception on any `BaseException`
+before re-raising.
+
+```
+write_attempted   + posted                  → the voucher is in the books
+write_attempted   + write_outcome_unknown   → it may be; here is the operation id
+write_attempted   + nothing                 → the process did not survive; check by hand
+```
+
+The third line is the one an exception handler cannot produce, and it is the
+reason the row is written ahead rather than in a `finally`.
+
+`BaseException`, not `Exception`: a `KeyboardInterrupt` or `SystemExit` arriving
+between the write and the read-back leaves precisely the uncertainty this row
+exists to record.
+
+The row's `outcome` is the action name, never the decision's `valid`. A row
+saying `valid` is a row somebody reads as posted.
+
+`log` and `memory` are keyword-optional on `post` so the many tests calling
+`post(draft, client)` still work; both real callers pass them, and that is
+asserted rather than assumed.
+
+### 37.3 Consequence recorded honestly
+
+`POSTING` leaves `INVENTED_STATE_NAMES` in
+`tests/test_adversarial_amounts_and_states.py`. It is no longer a name the
+brief invented: it now has a durable representation. It is a **row, not a
+field**, because the case that matters is the process not surviving to update a
+field. The census count in that file drops from nine to eight, and the count
+itself is asserted so the list cannot be quietly shortened to silence a failure.
+
+### 37.4 Alarms that fired, as designed
+
+Three tests pinned this defect on purpose and went red the moment it was fixed.
+All three are flipped to assert the fix and keep their evidence — that the write
+really did go out, that the books really did move, and that the stranded voucher
+is reversible by the operation id now on the record. One strict xfail,
+`test_an_unknown_write_outcome_still_records_its_operation_id`, was an
+aspiration; it passes and the marker is deleted.
+
+### 37.5 Still open, not fixed here
+
+**W5** — nothing cross-checks `BackendIdentity.backend` against the actual
+client type, so a `FakeTally` behind `BackendIdentity(backend="RealTally")`
+renders *"This is your real Tally"* while every log row says the double's name.
+Both cannot be right and the person reads the wrong one.
+
+`POST /reverse` still bypasses `pipeline.reverse` and verifies no trial balance.
+`DRAFTS` is still unpruned. Neither is a wrong-write risk; both are recorded.

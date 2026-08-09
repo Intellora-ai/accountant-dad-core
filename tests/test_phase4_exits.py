@@ -148,8 +148,24 @@ def test_re_evaluating_an_answered_draft_runs_the_whole_order_again() -> None:
     again = pipeline.evaluate(answered, ACCOUNTS, t.read_vouchers(COMPANY), memory)
 
     assert again.decision is not None, "evaluate restores a live decision"
-    assert again.outcome is Outcome.VALID
-    assert again.voucher.debit_account == "Purchases"
+
+    # An UNKNOWN vendor genuinely has two unknowns, and since 2026-08-09 the
+    # second one is asked instead of guessed: this company has never paid Gupta
+    # Hardware, so nothing in its history says HOW. `_default_credit` used to
+    # answer that with "Cash" and no provenance.
+    assert again.outcome is Outcome.UNCLEAR
+    second = pipeline.next_question(again)
+    assert second is not None and second.problem_id == pipeline.FUNDING_PROBLEM
+
+    paid = pipeline.answer(again, "Cash", problem_id=second.problem_id)
+    done = pipeline.evaluate(paid, ACCOUNTS, t.read_vouchers(COMPANY), memory)
+
+    assert done.outcome is Outcome.VALID
+    assert done.voucher.debit_account == "Purchases"
+    assert done.voucher.credit_account == "Cash"
+    # Both legs now say where they came from. Neither was invented.
+    assert (done.voucher.provenance or {})["debit_account"] == "human_answer"
+    assert (done.voucher.provenance or {})["credit_account"] == "human_answer"
 
 
 def test_an_unclear_entry_always_has_a_question_to_show_the_person() -> None:
@@ -326,22 +342,6 @@ def _invented_ledger_legs(tree: ast.AST, choosers: set[str]) -> list[tuple[str, 
     return bad
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT, PINNED. Phase 4 exit 4 is FALSE. "
-        "accountant/pipeline.py:134 sets credit_account=_default_credit(), a "
-        "hard-coded preference list (Cash, Bank, Sundry Creditors, then the "
-        "first ledger in the chart, then the literal 'Cash' even when the "
-        "company has no such ledger). It runs on EVERY entry and carries no "
-        "provenance. The fix is designed and was proven end to end - read the "
-        "funding leg from this company's own history, unanimous or nothing, "
-        "and ask `questions.how_paid` when the history is silent or split - "
-        "but it turns 21 existing tests red because an unknown vendor then "
-        "correctly asks TWO questions instead of one. Those 21 need "
-        "considering individually, not a bulk edit. See PROJECT_STATE 35."
-    ),
-)
 def test_no_ledger_leg_is_ever_set_from_a_literal_or_a_chooser() -> None:
     """Exit 4, stated exactly.
 
@@ -353,6 +353,11 @@ def test_no_ledger_leg_is_ever_set_from_a_literal_or_a_chooser() -> None:
     the literal "Cash" even when the chart had no such ledger. It stayed
     invisible because every test chart in the repo contains "Cash", so the
     first loop iteration always matched and the later branches never ran.
+
+    DELETED 2026-08-09. The funding leg is now read from this company's own
+    history, unanimous or nothing, and when the history is silent or split it
+    is an absence - which `checks.funding_is_named` turns into a question.
+    This guard went from a strict xfail to a passing assertion.
     """
     offenders: list[str] = []
     for path in _shipped_modules():

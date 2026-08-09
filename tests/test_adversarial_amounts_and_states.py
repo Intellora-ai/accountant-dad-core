@@ -22,13 +22,20 @@ WHAT THIS FILE DOES NOT PROVE
       `tests/test_real_tally.py::TallySim`. A simulator built from the same
       assumptions as `real.py` cannot falsify them. Two sockets are opened,
       both to loopback servers this file starts, and neither reaches Tally.
-    * That the DEFECTS recorded here are the only ones. SIX tests below assert
+    * That the DEFECTS recorded here are the only ones. SIX tests below asserted
       a WRONG answer on purpose, because the job was to measure what happens
       and not to change it. Each carries a `DEFECT:` line naming file and line.
       They are not aspirations written as assertions; they are the
       measurement, and they will start failing the day somebody fixes the
       thing they describe. That is the intended alarm, and each one says in
       its message what to do when it goes off.
+
+      THE ALARM HAS GONE OFF TWICE, 2026-08-09. The date-drift and
+      amount-change tests both fired the moment `RealTally.write_voucher`
+      started comparing the read-back field by field. Both are now flipped to
+      assert the refusal, and they keep the differential evidence that made
+      them worth writing: the create really went out, and the books really do
+      hold something different. FOUR remain asserting a wrong answer.
     * That the amounts here are realistic. ₹92 quadrillion is not a payment
       anybody makes; it is the smallest amount that proves the paise never
       became a float on the way through.
@@ -422,12 +429,11 @@ def test_a_sub_paise_amount_is_truncated_by_the_reader_and_refused_by_the_wire()
     assert client.writes[0][2] == 1000, "the truncated amount is what got written"
 
     rows = _rows(store)
-    assert len(rows) == 1
-    assert rows[0].action == "posted"
-    assert rows[0].detail.endswith("1000 paise")
-    assert rows[0].run_id == RUN_ID
-    assert rows[0].backend == "RecordingTally"
-    assert "10.005" not in rows[0].detail, (
+    assert [r.action for r in rows] == [pipeline.WRITE_ATTEMPTED, "posted"]
+    assert rows[-1].detail.endswith("1000 paise")
+    assert {r.run_id for r in rows} == {RUN_ID}
+    assert {r.backend for r in rows} == {"RecordingTally"}
+    assert "10.005" not in rows[-1].detail, (
         "the log records what we wrote and never what the person typed, so the "
         "truncation is unrecoverable from the trail"
     )
@@ -600,28 +606,25 @@ class EducationalTally(sim_module.TallySim):
 
 
 def test_a_date_tally_moved_under_us_is_read_back_and_accepted_in_silence() -> None:
-    """The read-back asks whether the voucher EXISTS and nothing else.
+    """A date Tally moved under us is now refused, not reported as a clean write.
 
-    DEFECT: accountant/tallyio/real.py:1888-1900 and
-    accountant/pipeline.py:228-232. Both read the voucher back and both check
-    only `is None`. Neither compares one field of the returned voucher against
-    the voucher that was sent, so a Tally that accepts the write and stores
-    different content reports a clean success.
+    DEFECT, FIXED 2026-08-09. `accountant/tallyio/real.py` compared only
+    `written is None`; `accountant/pipeline.py` did the same until W1. Neither
+    compared one field of the returned voucher against the voucher that was
+    sent, so a Tally that accepted the write and stored different content
+    reported a clean success.
 
     This is not hypothetical here. `docs`-level owner decision of 2026-08-08
     leaves this project on a Tally in Educational mode, which accepts only the
     1st, 2nd and 31st. An entry dated the 7th is exactly the case: the write
     succeeds, the books hold the 1st, and the operator is told it posted.
 
-    Expected: the write is refused, or at minimum the drift is reported.
-    Actual: `WriteResult` is returned, write count 1, and the requested date is
-    gone with no record of it anywhere.
+    Expected: the write is refused and the field is named.
+    Actual (2026-08-09): `TallyWriteMismatch`, `WRONG_DATE`, `fields == ("date",)`.
 
-    Smallest fix: in `RealTally.write_voucher`, after `written` is read back,
-    compare `written.date`, `written.amount_paise`, `written.debit_account` and
-    `written.credit_account` against `voucher` and raise `TallyRejected` naming
-    each field that differs. The read is already being done; only the
-    comparison is missing.
+    The create still went out — that is why the check has to exist at all, and
+    why `safe_to_retry` is False. The rest of this test is unchanged: it still
+    proves the drift is Tally's and not a date this connector never sent.
 
     backend RealTally over EducationalTally | no ActionLog on this path.
     """
@@ -631,14 +634,13 @@ def test_a_date_tally_moved_under_us_is_read_back_and_accepted_in_silence() -> N
     client = _real(sim)
 
     op = new_operation_id()
-    result = client.write_voucher(
-        sim_module.COMPANY, _voucher(420_000, date=asked_for), op
-    )
+    with pytest.raises(real.TallyWriteMismatch) as refused:
+        client.write_voucher(sim_module.COMPANY, _voucher(420_000, date=asked_for), op)
 
-    assert isinstance(result, WriteResult), "nothing raised; this reads as success"
-    assert result.operation_id == op
-    assert result.tally_id == "M1"
-    assert _creates(sim) == 1
+    assert refused.value.verdict.outcome is real.ReadBackOutcome.WRONG_DATE
+    assert refused.value.verdict.fields == ("date",)
+    assert refused.value.verdict.safe_to_retry is False
+    assert _creates(sim) == 1, "the write DID go out; refusing is not undoing"
 
     back = client.read_by_operation_id(sim_module.COMPANY, op)
     assert back is not None
@@ -668,7 +670,12 @@ def test_an_amount_tally_changed_under_us_is_also_accepted_in_silence() -> None:
     because an amount silently halved is the version of this defect that costs
     money rather than a filing period.
 
-    Expected: refused. Actual: reported as a clean write, count 1.
+    Expected: refused. Actual (2026-08-09): `TallyWriteMismatch`,
+    `WRONG_AMOUNT`, `fields == ("amount_paise",)`.
+
+    The trial-balance assertion at the end is the point of keeping this test
+    after the fix: refusing the write does not un-write it. The books still
+    hold half. What changed is that nobody is told it went in correctly.
     """
     sent = 420_000
     stored = 210_000
@@ -687,10 +694,12 @@ def test_an_amount_tally_changed_under_us_is_also_accepted_in_silence() -> None:
     client = _real(sim)
 
     op = new_operation_id()
-    result = client.write_voucher(sim_module.COMPANY, _voucher(sent), op)
+    with pytest.raises(real.TallyWriteMismatch) as refused:
+        client.write_voucher(sim_module.COMPANY, _voucher(sent), op)
 
-    assert result.tally_id == "M1"
-    assert _creates(sim) == 1
+    assert refused.value.verdict.outcome is real.ReadBackOutcome.WRONG_AMOUNT
+    assert refused.value.verdict.fields == ("amount_paise",)
+    assert _creates(sim) == 1, "the write DID go out; refusing is not undoing"
 
     back = client.read_by_operation_id(sim_module.COMPANY, op)
     assert back is not None
@@ -734,14 +743,23 @@ def test_an_amount_tally_changed_under_us_is_also_accepted_in_silence() -> None:
 #                        and there is a THIRD outcome the brief's list omits:
 #                        Outcome.UNCLEAR, which is where most adversarial
 #                        amounts in Part A actually land.
-#   POSTING              DOES NOT EXIST. `pipeline.post` is a synchronous call;
-#                        there is no in-flight marker anywhere, so a crash
-#                        mid-write leaves no trace saying a write was started.
+#   POSTING              EXISTS SINCE 2026-08-09, as a durable row rather than
+#                        as a state value: `pipeline.WRITE_ATTEMPTED`, written
+#                        AHEAD of the socket. It had to be a row and not a
+#                        field, because the case that matters is the process
+#                        not surviving to update a field. A `write_attempted`
+#                        with no partner row is the in-flight marker; the
+#                        partner is `posted` or `write_outcome_unknown`.
 #   POSTED               NOT A STATE. `Draft.posted_tally_id is not None`.
-#   READ_BACK_VERIFIED   DOES NOT EXIST. It is the ABSENCE of a raise, and as
-#                        Part A shows it verifies existence only.
-#   READ_BACK_FAILED     DOES NOT EXIST. It is a `RuntimeError` from
-#                        pipeline.py:230 or `TallyRejected` from real.py:1890.
+#   READ_BACK_VERIFIED   DOES NOT EXIST as a state value, but since 2026-08-09
+#                        it is a real VERDICT: `real.ReadBackVerdict`, with
+#                        `outcome`, the differing `fields`, and `confirmed`.
+#                        It no longer verifies existence only.
+#   READ_BACK_FAILED     DOES NOT EXIST as one thing, and the split matters:
+#                        `TallyWriteMismatch` (Tally definitely stored
+#                        something else) and `TallyWriteUnknown` (we cannot
+#                        tell) are different facts, and a `RuntimeError` from
+#                        `pipeline.post` is a third.
 #   CLEANED              NOT A STATE. `reverse_by_operation_id` returning True.
 #                        Nothing on the draft records it.
 
@@ -751,7 +769,9 @@ INVENTED_STATE_NAMES = (
     "CONNECTED",
     "BOOTSTRAPPING",
     "BOOTSTRAP_FAILURE",
-    "POSTING",
+    # "POSTING" was here until 2026-08-09. It is no longer invented: W2's
+    # write-ahead row gives it a durable representation, and this list is only
+    # honest while it names things that really are absent.
     "POSTED",
     "READ_BACK_VERIFIED",
     "READ_BACK_FAILED",
@@ -764,7 +784,9 @@ def _package_source() -> str:
     return "\n".join(path.read_text() for path in sorted(root.rglob("*.py")))
 
 
-def test_nine_of_the_thirteen_state_names_do_not_exist_in_the_shipped_package() -> None:
+def test_eight_of_the_thirteen_state_names_do_not_exist_in_the_shipped_package() -> (
+    None
+):
     """Naming the mismatch is the result. This checks it instead of asserting it.
 
     Scanned on whole words over every `.py` file in `accountant/`, so
@@ -784,7 +806,11 @@ def test_nine_of_the_thirteen_state_names_do_not_exist_in_the_shipped_package() 
         f"a state this file reports as absent now exists: {found}. Update the "
         "map at the top of PART B rather than deleting the assertion."
     )
-    assert len(INVENTED_STATE_NAMES) == 9
+    # EIGHT since 2026-08-09. "POSTING" left this list when W2's write-ahead
+    # row gave it a durable representation. The count is asserted so the list
+    # cannot be quietly shortened to make a failure go away - shortening it is
+    # allowed, but only together with this number and the map above it.
+    assert len(INVENTED_STATE_NAMES) == 8
 
     # The four that DO exist, pinned so the absence above cannot be vacuous.
     for present in ("READY", "EMPTY_SOURCE", "NOT_VALID", "UNCLEAR"):
@@ -1046,7 +1072,7 @@ def test_a_bootstrap_that_failed_part_way_through_posts_nothing() -> None:
     )
     assert again.outcome is Outcome.VALID
     assert len(client.writes) == 1
-    assert [r.action for r in _rows(store)] == ["posted"]
+    assert [r.action for r in _rows(store)] == [pipeline.WRITE_ATTEMPTED, "posted"]
 
 
 def test_an_empty_source_company_may_be_asked_but_proposes_and_writes_nothing() -> None:
@@ -1100,6 +1126,13 @@ def test_an_empty_source_company_may_be_asked_but_proposes_and_writes_nothing() 
     accounts = client.read_accounts(COMPANY)
     draft = pipeline.answer(draft, "Purchases")
     memory.record_correction(draft.voucher.party, "Purchases")
+    draft = pipeline.evaluate(draft, accounts, client.read_vouchers(COMPANY), memory)
+
+    # An empty-source company has no history at all, so it cannot say how this
+    # vendor was paid either. Both legs are asked about; neither is invented.
+    assert draft.outcome is Outcome.UNCLEAR
+    assert client.writes == [], "still nothing written while a question is open"
+    draft = pipeline.answer(draft, "Cash", problem_id=pipeline.FUNDING_PROBLEM)
     draft = pipeline.evaluate(draft, accounts, client.read_vouchers(COMPANY), memory)
 
     assert draft.outcome is Outcome.VALID

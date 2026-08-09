@@ -244,12 +244,32 @@ def test_a_correction_recorded_on_one_company_leaves_the_other_unchanged():
     a = run_for(t, COMPANY_A, mem_a, NEW_VENDOR_ENTRY)
     b = run_for(t, COMPANY_B, mem_b, NEW_VENDOR_ENTRY)
 
-    assert a.outcome is Outcome.VALID
-    assert a.voucher.debit_account == "Sundry Expenses"
+    # Both are UNCLEAR, and that is the point: they are unclear about DIFFERENT
+    # things. A has learned what the money was for and is only missing how it
+    # was paid; B has learned nothing and is still on the first question. Before
+    # 2026-08-09 A came out VALID here because `_default_credit` invented its
+    # funding leg, so the two companies differed by one field rather than by a
+    # whole question.
+    assert a.voucher.debit_account == "Sundry Expenses", "A learned"
+    assert b.voucher.debit_account == "", "B learned nothing"
+
+    q_a = pipeline.next_question(a)
+    q_b = pipeline.next_question(b)
+    assert q_a is not None and q_a.problem_id == pipeline.FUNDING_PROBLEM
+    assert q_b is not None and q_b.problem_id == "which_account"
+
     assert b.outcome is Outcome.UNCLEAR
-    assert b.voucher.debit_account == ""
     assert b.posted_tally_id is None
     assert t.list_our_vouchers(COMPANY_B) == ()
+
+    # A finishes and posts; B still cannot.
+    accounts_a = t.read_accounts(COMPANY_A)
+    a = pipeline.answer(a, "Cash", problem_id=q_a.problem_id)
+    a = pipeline.evaluate(a, accounts_a, t.read_vouchers(COMPANY_A), mem_a)
+    assert a.outcome is Outcome.VALID
+    a = pipeline.post(a, t)
+    assert a.posted_tally_id is not None
+    assert t.list_our_vouchers(COMPANY_B) == (), "B's books stayed empty throughout"
 
 
 # ---- switching company ------------------------------------------------------
