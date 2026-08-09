@@ -111,7 +111,6 @@ def draft_for(
         text,
         "text/plain",
         TypedTextExtractor(),
-        ACCOUNTS,
         memory,
         today=TODAY,
     )

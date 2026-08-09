@@ -427,7 +427,6 @@ def test_a_detector_that_raises_stops_the_entry_rather_than_posting_it():
         KNOWN.encode(),
         "text/plain",
         TypedTextExtractor(),
-        accounts,
         memory,
     )
 

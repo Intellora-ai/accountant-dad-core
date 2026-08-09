@@ -170,7 +170,6 @@ def valid_draft(client: TallyClient, memory: CompanyMemory) -> pipeline.Draft:
         ENTRY.encode(),
         "text/plain",
         TypedTextExtractor(),
-        accounts,
         memory,
         today=TODAY,
     )
@@ -188,7 +187,6 @@ def unclear_draft(client: TallyClient, memory: CompanyMemory) -> pipeline.Draft:
         b"paid Gupta Hardware 1500 for tools",
         "text/plain",
         TypedTextExtractor(),
-        accounts,
         memory,
         today=TODAY,
     )
@@ -1795,7 +1793,6 @@ def test_the_page_and_the_action_log_can_no_longer_disagree_about_the_backend(
         ENTRY.encode(),
         "text/plain",
         TypedTextExtractor(),
-        client.read_accounts(app.COMPANY),
         app.runtime().memory,
         today=TODAY,
     )

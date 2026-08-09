@@ -1073,7 +1073,6 @@ def test_memory_belonging_to_another_company_is_refused_and_writes_nothing() -> 
             LATIN_SHARMA.encode(),
             "text/plain",
             _entry(LATIN_SHARMA),
-            ACCOUNTS,
             mem_ours,
             today=TODAY,
         )
@@ -1084,7 +1083,6 @@ def test_memory_belonging_to_another_company_is_refused_and_writes_nothing() -> 
         LATIN_SHARMA.encode(),
         "text/plain",
         _entry(LATIN_SHARMA),
-        ACCOUNTS,
         mem_theirs,
         today=TODAY,
     )

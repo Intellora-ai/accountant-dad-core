@@ -1154,7 +1154,6 @@ def _run(text: str) -> pipeline.Draft:
         text.encode(),
         "text/plain",
         TypedTextExtractor(),
-        accounts,
         live.memory,
     )
     d = pipeline.evaluate(d, accounts, history, live.memory)

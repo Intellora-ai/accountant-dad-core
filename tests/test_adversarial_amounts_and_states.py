@@ -218,7 +218,6 @@ def _stubbed(
         b"an entry the reader supplied",
         "text/plain",
         StubExtractor(party=party, total_paise=total_paise, tax_paise=tax_paise),
-        accounts,
         memory,
         today=TODAY,
     )
@@ -1235,7 +1234,6 @@ def test_an_unevaluated_draft_cannot_be_posted_and_still_has_no_outcome() -> Non
         b"paid Sharma Traders 4200 for cement",
         "text/plain",
         TypedTextExtractor(),
-        client.read_accounts(COMPANY),
         memory,
         today=TODAY,
     )
@@ -1282,7 +1280,6 @@ def test_a_failed_read_back_is_never_recorded_as_a_posted_entry() -> None:
         b"paid Sharma Traders 4200 for cement",
         "text/plain",
         TypedTextExtractor(),
-        accounts,
         memory,
         today=TODAY,
     )
