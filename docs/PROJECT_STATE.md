@@ -2775,6 +2775,9 @@ a form in progress and nothing else.
 
 ## §40 Phase 5, Phase 5B and Phase 6 — status, evidence, and what is still not proven
 
+> Owner decisions live in **[`DECISIONS.md`](./DECISIONS.md)** from 2026-08-09.
+> Anything waiting on one reports `OWNER_BLOCKED` and never `PASSED`.
+
 2026-08-09. Commits `ba51485`, `44fdd1c`, `74afe64`, `ca42eef`, `83e3a57`,
 `9f9e0e4`, `3f8f198`, on `phase5/operation-identity` from `c21127c`.
 
