@@ -181,12 +181,7 @@ this by hand for one of them).
 `test_reads_the_chart_of_accounts` (`:77`) asserts
 
 ```python
-client.read_accounts(COMPANY) == (
-    "Purchases",
-    "Sundry Expenses",
-    "Cash",
-    "Sharma Traders",
-)
+client.read_accounts(COMPANY) == ("Purchases", "Sundry Expenses", "Cash", "Sharma Traders")
 ```
 
 Exact tuple equality. `RealTally.read_accounts` (`accountant/tallyio/real.py:2130-2134`)
