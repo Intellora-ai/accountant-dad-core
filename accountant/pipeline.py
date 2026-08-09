@@ -459,9 +459,104 @@ def post(
     return draft
 
 
+@dataclass(frozen=True)
+class Reversal:
+    """What a reversal actually did, measured against Tally's own trial balance."""
+
+    operation_id: str
+    reversed_: bool
+    #: Ledger -> paise, AFTER minus BEFORE, for every ledger that moved.
+    moved: dict[str, int]
+    detail: str
+
+
+def reverse_operation(client: TallyClient, company: str, operation_id: str) -> Reversal:
+    """Undo exactly one voucher by operation id, and PROVE the books moved back.
+
+    The single doorway for undoing. `POST /reverse` used to call
+    `client.reverse_by_operation_id` directly with whatever string the form
+    carried, check nothing, and report "reversed" on the strength of a boolean.
+    `pipeline.reverse` did the same thing one layer up. Neither looked at the
+    trial balance, although criterion #6.5 - "post N vouchers, run bulk
+    reverse, and Tally's trial balance returns to its exact prior value in
+    paise" - is the rollback the whole project rests on, and it was only ever
+    checked inside tests.
+
+    So it is checked here, on the live path:
+
+        read the voucher back      what should move, and by how much
+        trial balance BEFORE
+        reverse
+        trial balance AFTER
+        compare                    exact paise, both legs, nothing else moved
+
+    A reversal that returns True and leaves the books unchanged is the worst of
+    the three possible outcomes, because it is the one that gets believed.
+    """
+    voucher = client.read_by_operation_id(company, operation_id)
+    if voucher is None:
+        return Reversal(
+            operation_id=operation_id,
+            reversed_=False,
+            moved={},
+            detail=f"no voucher of ours in {company!r} carries {operation_id!r}",
+        )
+
+    before = client.trial_balance(company)
+    ok = client.reverse_by_operation_id(company, operation_id)
+    after = client.trial_balance(company)
+    moved = {
+        ledger: after.get(ledger, 0) - before.get(ledger, 0)
+        for ledger in set(before) | set(after)
+        if after.get(ledger, 0) != before.get(ledger, 0)
+    }
+
+    if not ok:
+        if moved:
+            raise RuntimeError(
+                f"reversing {operation_id!r} in {company!r} reported failure but "
+                f"the trial balance moved by {moved}. The books and the answer "
+                "disagree; nothing here can be trusted until a person looks."
+            )
+        return Reversal(
+            operation_id=operation_id,
+            reversed_=False,
+            moved={},
+            detail=f"Tally refused to reverse {operation_id!r} and nothing moved",
+        )
+
+    expected = {
+        voucher.debit_account: -voucher.amount_paise,
+        voucher.credit_account: voucher.amount_paise,
+    }
+    if moved != expected:
+        raise RuntimeError(
+            f"reversing {operation_id!r} in {company!r} reported success, but "
+            f"the trial balance moved by {moved} and undoing this voucher "
+            f"should have moved it by {expected}. Nothing is recorded as "
+            "reversed. The books must be checked by hand."
+        )
+
+    return Reversal(
+        operation_id=operation_id,
+        reversed_=True,
+        moved=moved,
+        detail=(
+            f"undid {voucher.amount_paise} paise: "
+            f"{voucher.debit_account} and {voucher.credit_account} are back "
+            "to their exact prior value"
+        ),
+    )
+
+
 def reverse(draft: Draft, client: TallyClient) -> bool:
-    """Undo exactly this voucher, by operation ID. Never by amount."""
-    return client.reverse_by_operation_id(draft.company, draft.operation_id)
+    """Undo exactly this voucher, by operation ID. Never by amount.
+
+    Thin on purpose: everything it does is `reverse_operation`, which is also
+    what the web app calls, so the two paths cannot drift into two different
+    definitions of what "reversed" means.
+    """
+    return reverse_operation(client, draft.company, draft.operation_id).reversed_
 
 
 def run(
@@ -494,6 +589,13 @@ def run(
     the result in. A caller that cannot produce one has not read the person's
     books, and must not be proposing accounts.
     """
+    # A5. BEFORE the two reads, not after them. Both of these can fail on a
+    # flaky connector, and when they do on a company we have never successfully
+    # read, the exception a caller sees should say "we have not read your
+    # books", not "connection refused". Same outcome - nothing is written -
+    # different diagnosis, and the two lead to completely different actions.
+    memory.require_usable("propose an account")
+
     accounts = client.read_accounts(company)
     history = client.read_vouchers(company)
 

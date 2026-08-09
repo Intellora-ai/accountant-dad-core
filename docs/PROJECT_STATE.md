@@ -2694,3 +2694,79 @@ exactly, so the refusal is about precision and not about decimals.
 
 New: `tests/test_money.py`, 17 cases, including the cross-check that the reader
 and the connector now return the same integer for the same string.
+
+---
+
+## §39 Lifecycle — the undo, the order, and the drafts
+
+2026-08-09. Closes **A5**, the `POST /reverse` bypass and the unpruned `DRAFTS`
+recorded in §35's "Noted, not fixed here".
+
+### 39.1 The undo said "reversed" without looking
+
+`POST /reverse` called `client.reverse_by_operation_id` with whatever `op`
+string the form carried and reported success on the strength of a boolean.
+`pipeline.reverse` did the same one layer up. Neither looked at the trial
+balance — although criterion **#6.5**, *"post N vouchers, run bulk reverse, and
+Tally's trial balance returns to its exact prior value in paise"*, is the
+rollback the entire project rests on. It was verified only inside tests, never
+on the path a person uses.
+
+`pipeline.reverse_operation(client, company, operation_id)` is now the single
+doorway:
+
+```
+read the voucher back      what should move, and by how much
+trial balance BEFORE
+reverse
+trial balance AFTER
+compare                    exact paise, both legs, nothing else moved
+```
+
+Three outcomes are now distinguishable where a boolean saw one:
+
+| | before | now |
+|---|---|---|
+| unknown operation id | `False`, indistinguishable from a refusal | `Reversal(reversed_=False)` naming the id, nothing touched |
+| Tally says yes, books do not move | reported **reversed** | raises; the books are named |
+| Tally says yes, wrong amount moves | reported **reversed** | raises, naming what moved and what should have |
+
+The middle one is the worst of the three, because it is the one that gets
+believed. `pipeline.reverse(draft, client)` is now three lines delegating here,
+so the web path and the draft path cannot drift into two definitions of
+"reversed". An AST guard asserts `accountant/web/app.py` makes **zero** direct
+calls to `reverse_by_operation_id`.
+
+### 39.2 A5 — the order of two lines decided which truth the caller heard
+
+`pipeline.run` read the chart and the voucher history out of Tally *before*
+anything checked whether this company's books had ever been read. On a flaky
+connector against a never-bootstrapped company, both facts are true and the
+connector's error won every time. Nothing was written either way — it failed
+closed — but "your network is down" and "we have not read your books" send
+somebody to completely different places.
+
+`memory.require_usable()` now runs first. It raises the **same sentence**
+`propose_account` raises, plus the status and the detail: one condition, two
+call sites, and a caller matching on one of them cannot miss the other.
+
+### 39.3 The drafts were the unbounded thing
+
+`DRAFTS` held every entry anybody ever typed — voucher, checks, flags, problems
+— for the life of the process, sitting next to `EVENTS`, which was capped at
+forty. The audit trail was the bounded one and the live state was not.
+
+`DRAFT_LIMIT = 200`, oldest evicted first. 200 rather than 40 because a draft is
+only useful while somebody might still answer its question, and taking one away
+mid-question is a worse failure than holding a few more. **The draft is not the
+record**: every decision is already durable in the action log, so eviction loses
+a form in progress and nothing else.
+
+### 39.4 Measured
+
+| metric | actual | evidence |
+|---|---|---|
+| tests | **1147 passed, 1 xfailed, 0 failed** | `pytest -q` |
+| new tests | 9 | `tests/test_lifecycle.py` |
+| direct `reverse_by_operation_id` calls in the web app | **0** | AST scan |
+| ruff / pyright | clean / 0 | `ruff check .`, `pyright` |

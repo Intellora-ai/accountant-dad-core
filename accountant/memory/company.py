@@ -205,6 +205,30 @@ class CompanyMemory:
             self._store.phrase(self.identity.key, subject),
         )
 
+    def require_usable(self, doing: str) -> None:
+        """Public form of the same guard, for callers that must check FIRST.
+
+        A5, 2026-08-09. `pipeline.run` read the chart and the voucher history
+        out of Tally before anything looked at this, so a company that had
+        never been read successfully AND a flaky connector produced the
+        connector's error rather than MEMORY_NOT_READY. It failed closed
+        either way - nothing was written - but the diagnosis was wrong, and a
+        wrong diagnosis on this particular pair is expensive: one says "your
+        network is down", the other says "we have not read your books".
+        """
+        if not self._report.askable:
+            # The SAME sentence `propose_account` raises, plus the status and
+            # the detail. Two refusals for one condition, worded differently,
+            # is how a caller ends up matching on one of them and missing the
+            # other - which is exactly what moving the check earlier would have
+            # caused if the wording had been left to drift.
+            raise MemoryNotReady(
+                f"no successful bootstrap for company {self.identity.key!r}; "
+                f"nothing may be proposed — refusing to {doing} for "
+                f"{self.identity.name!r}: {self._report.status.value} — "
+                f"{self._report.detail}"
+            )
+
     def _require_ready(self, doing: str) -> None:
         if not self._report.askable:
             raise MemoryNotReady(

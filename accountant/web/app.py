@@ -53,6 +53,30 @@ COMPANY = "Accountant Dad Final"
 
 DRAFTS: dict[str, pipeline.Draft] = {}
 
+# How many drafts stay answerable at once. `DRAFTS` was unbounded: every entry
+# anybody ever typed stayed in memory for the life of the process, holding its
+# voucher, its checks, its flags and its problems. `EVENTS`, the thing it sat
+# next to, was capped at forty - so the audit trail was the bounded one and the
+# unbounded one was live state.
+#
+# 200 rather than 40: a draft is only useful while somebody might still answer
+# its question, and answering happens within minutes, but evicting one out from
+# under a person mid-question is a worse failure than holding a few more.
+# Eviction is oldest-first and it is not silent - the handler says the draft
+# expired rather than 404-ing on an id the person is looking at.
+#
+# The DRAFT IS NOT THE RECORD. Every decision is already durable in the action
+# log, so evicting one loses a form in progress and nothing else.
+DRAFT_LIMIT = 200
+
+
+def remember_draft(draft: pipeline.Draft) -> None:
+    """Keep this draft answerable, and drop the oldest once past the limit."""
+    DRAFTS[draft.id] = draft
+    while len(DRAFTS) > DRAFT_LIMIT:
+        DRAFTS.pop(next(iter(DRAFTS)))
+
+
 # How many log rows the page shows. The log itself is unbounded and append-only;
 # this is a rendering choice and nothing more. `EVENTS`, the forty-row in-memory
 # list this replaced, was the opposite: the cap WAS the retention policy, so row
@@ -752,7 +776,7 @@ def _run(text: str) -> pipeline.Draft:
             run_id=live.identity.run_id,
         )
     record(d, ACTION_FOR[d.outcome])
-    DRAFTS[d.id] = d
+    remember_draft(d)
     return d
 
 
@@ -893,18 +917,23 @@ class Handler(BaseHTTPRequestHandler):
                     run_id=live.identity.run_id,
                 )
             record(d, ACTION_FOR[d.outcome])
-            DRAFTS[d.id] = d
+            remember_draft(d)
             self._send(page(render_decision(d) + '<p><a href="/">&larr; back</a></p>'))
             return
 
         if self.path == "/reverse":
             op = form.get("op", "")
-            ok = runtime().client.reverse_by_operation_id(COMPANY, op)
+            # Through `pipeline.reverse_operation`, not straight at the client.
+            # This handler used to call `reverse_by_operation_id` with whatever
+            # string the form carried and report "reversed" on the strength of
+            # a boolean, having looked at nothing. Criterion #6.5 - the trial
+            # balance returns to its exact prior value in paise - was checked
+            # only inside tests, never on the path a person actually uses.
+            result = pipeline.reverse_operation(runtime().client, COMPANY, op)
             note(
                 "reversed",
-                "reversed" if ok else "not_found",
-                f"the person asked to undo {op}"
-                + ("" if ok else ", and no voucher of ours carries that id"),
+                "reversed" if result.reversed_ else "not_found",
+                f"the person asked to undo {op}: {result.detail}",
                 operation_id=op,
             )
             self._send(render_home())
