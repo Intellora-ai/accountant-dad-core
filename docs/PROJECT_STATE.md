@@ -1545,7 +1545,8 @@ the owner's 2026-08-08 Option 2 decision (§24) and that has not changed.
 
 | Metric | Actual | Expected | Pass rule | Source |
 |---|---|---|---|---|
-| tests | **891** | ≥ 891 | count only goes up | `pytest -q` |
+| tests at `dc067f8` | **891** | ≥ 891 | count only goes up | `pytest -q` |
+| tests at `bcb301f` | **904** | ≥ 891 | +13: the request-shape whitelist, 6 builders x 2 parametrised guards plus the Function-export guard | `pytest -q` |
 | failed / skipped | **0 / 0** | 0 / 0 | no skips are permitted | `pytest -q` |
 | guards | **12/12** | 12/12 | all pass | `./scripts/guards` |
 | pyright errors | **0** | 0 | zero | `pyright` |
@@ -1641,7 +1642,11 @@ Export/Data "License Info"
 
 A custom TDL `<REPORT>/<FORM>/<PART>/<LINE>/<FIELD>` was then tried, and **it
 wedged the live TallyPrime**. TCP kept accepting; HTTP never answered again, for
-that request or any after it, through 18 polls over three and a half minutes.
+that request or any after it. Measured to exhaustion: **40 polls at 10-second
+intervals over roughly seven minutes, then one deliberate 150-second
+single-request attempt in case Tally was grinding rather than dead. All timed
+out.** `nc -z 192.168.64.2 9000` succeeded throughout — the socket accepts, the
+server never replies.
 `utmctl exec` produces no output at all, so the application could not be
 restarted remotely.
 

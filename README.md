@@ -76,13 +76,31 @@ Every gate, locally, before you push:
 
 ## Status
 
-The Tally connector is defined as a Protocol and exercised by contract tests
-against an in-memory fake. **The real connector — XML over `localhost:9000` —
-is not built yet**, because Tally is Windows-only and the VM does not exist.
-The same contract tests run unchanged against it when it does.
+The Tally connector is a Protocol with two implementations. `FakeTally` is for
+tests. **`RealTally` is built** — XML over HTTP to Tally's port 9000 — and has
+been read from and written to against a real TallyPrime 7. The web app imports
+neither directly; it asks a factory, so "which Tally are we talking to" has one
+answer and one place to enforce it. If Tally is unreachable the app refuses to
+start rather than serving pages that cannot work.
 
-Not yet built: PDF/image input, the Indian rules corpus beyond a small
-phrasebook, SQLite persistence (state is in memory and is lost on restart).
+Three kinds of evidence, never merged:
+
+| class | proves | cannot prove |
+|---|---|---|
+| FakeTally | our logic is right | anything about TallyPrime |
+| Educational-mode compatibility | a real Tally accepted our XML on a permitted date | that the unchanged contract fixture passes |
+| RealTally live | the product works on real books | — |
+
+The live class is **not yet obtained.** Tally here runs in Educational mode,
+which accepts vouchers only on the 1st, 2nd and 31st, and the contract fixture
+posts on the 7th. That fixture is not edited to work around it. See
+[`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md) §24 and §25.
+
+Our own data — the memory index and the append-only action log — is in SQLite
+and survives a restart. Their books are never ours; they stay in Tally.
+
+Not yet built: PDF/image input, and the Indian rules corpus beyond a small
+phrasebook.
 
 ## Licence
 
