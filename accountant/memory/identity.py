@@ -21,6 +21,30 @@ of one supplier are one supplier. The opposite is true here. "Acme Ltd" and
 Collapsing them would merge two ledgers, so this function removes punctuation
 and nothing else.
 
+WHY NFC IS THE FIRST THING THAT HAPPENS
+---------------------------------------
+D1's other half, fixed 2026-08-09. `_PUNCT` turns everything that is neither
+`\\w` nor `\\s` into a space, and a combining mark (U+0301 COMBINING ACUTE,
+category Mn) is neither. With no fold in front of it, decomposed "Café
+Supplies" lost its accent and keyed as `cafe_supplies` — the key of a
+DIFFERENT company, "Cafe Supplies" — while the precomposed spelling of the same
+visible name keyed as `café_supplies`.
+
+That is the exact failure this module exists to prevent, and it is worse here
+than it was for vendors. `normalise_vendor` was fixed the same day; this was
+left as a reported open item. A vendor collision costs one voucher in the wrong
+ledger. A company collision costs an index: `company_key` is the first column
+of every primary key in the store, `save_bootstrap` deletes the colliding
+company's rows before writing, and both cross-company guards in `pipeline.py`
+compare these same keys, so neither of them can fire when two companies share
+one.
+
+Folding to NFC is NOT a collapse of two names into one, so it does not violate
+the conservatism above: it makes ONE VISIBLE NAME one key whichever encoding
+the keyboard, the scanner or the operating system produced, and that key is
+still not the unaccented company's. No word is removed. Stdlib, no new
+dependency, and the same two lines `accountant/memory/index.py` already uses.
+
 WHAT IDENTITY WE ACTUALLY HAVE
 ------------------------------
 `TallyClient.list_companies()` returns names and nothing else, so the name is
@@ -32,6 +56,7 @@ company GUID, this module is the only place that changes.
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 
 _PUNCT = re.compile(r"[^\w\s]")
@@ -41,10 +66,14 @@ _SPACE = re.compile(r"\s+")
 def normalise_company(name: str) -> str:
     """Collapse one company name to a single scope key.
 
-    Deterministic. Same input always gives the same key. Punctuation and case
-    only — never a word, because a removed word can merge two companies.
+    Deterministic. Same input always gives the same key. Unicode normal form,
+    punctuation and case only — never a word, because a removed word can merge
+    two companies.
     """
-    return _SPACE.sub("_", _PUNCT.sub(" ", name.casefold()).strip())
+    # NFC first, before `_PUNCT` can turn a combining mark into a space and
+    # hand one visible company the key of a different one. See the docstring.
+    folded = unicodedata.normalize("NFC", name)
+    return _SPACE.sub("_", _PUNCT.sub(" ", folded.casefold()).strip())
 
 
 @dataclass(frozen=True)

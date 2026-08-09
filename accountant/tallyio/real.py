@@ -1145,10 +1145,83 @@ class VoucherPage:
         return tuple(item.voucher for item in self.exported)
 
 
+#: The tags Tally answers with when it did not do the thing. A READ that finds
+#: one of these has been refused, and a refusal is not data.
+#:
+#: `parse_import_response` and `parse_function_result` deliberately do NOT
+#: consult this list. They read the SAME tags as data, and that asymmetry is
+#: the whole distinction: a write asks "did you do it", and `<LINEERROR>` is
+#: the answer; a read asks "what is in the books", and `<LINEERROR>` is a
+#: refusal to answer. `test_the_import_response_still_reads_line_errors_as_data`
+#: pins the direction that must keep reading them.
+_ERROR_TAGS: tuple[str, ...] = ("LINEERROR", "ERRORMSG", "EXCEPTION")
+
+
+def _refusals_in(root: ElementTree.Element) -> list[str]:
+    """Every error Tally put in this response, quoted as it arrived."""
+    told = [
+        f"<{tag}>{text}</{tag}>"
+        for tag in _ERROR_TAGS
+        for node in root.iter(tag)
+        if (text := _text_of(node)) is not None
+    ]
+    # `<RESPONSE>Unknown Request, cannot be processed</RESPONSE>` - what this
+    # gateway answers when it does not recognise the request at all. Measured
+    # 2026-08-08 and quoted in `ci/educational_slice.py`. It is not an ENVELOPE
+    # and it carries nothing but the sentence, so it is matched on the ROOT
+    # rather than anywhere: an import response has a `<RESPONSE>` of its own,
+    # and that one is a result.
+    if root.tag == "RESPONSE" and len(root) == 0 and (text := _text_of(root)):
+        told.append(f"<RESPONSE>{text}</RESPONSE>")
+    return told
+
+
+def parse_read_response(
+    payload: str, limit: int = DEFAULT_MAX_RESPONSE_BYTES
+) -> ElementTree.Element:
+    """Parse a response we are READING data out of, or refuse it. D3, 2026-08-09.
+
+    `parse_xml` alone was the entry point for every read in this file, and it
+    is honest about what it does: it turns bytes into a tree. It has no opinion
+    about whether the tree is an answer or a refusal, and none of the four read
+    parsers had one either. Each scanned for its own payload tag - COMPANY,
+    LEDGER, VOUCHER - found none in a well-formed error envelope, and returned
+    an empty result with nothing raised.
+
+    So "Tally refused the request" and "this company has nothing in it" were the
+    same answer. `TallyResponseError`'s docstring already forbade exactly that:
+    a silent `()` reads as "this company has no vouchers", which is a lie with
+    statutory consequences. `accountant/tallyio/factory.py` says the same thing
+    about the whole connector: a fallback would turn "your books are
+    unreachable" into "your books are empty", and those are opposite facts.
+
+    THE COST WAS NOT HYPOTHETICAL. With the voucher export wedged and the
+    import path still working - the state the live instance was measured in -
+    the C5 duplicate check read the register, saw nothing, and let a SECOND
+    voucher through under an operation id that had already been written. Two
+    identical statutory entries sharing one marker, which automatic reversal
+    then refuses to touch. Both reads were wrong in the same direction, which
+    is how a guard comes to be disabled without anybody removing it.
+
+    Refusing here rather than in `parse_xml` keeps the write path reading its
+    own errors as data. See `_ERROR_TAGS`.
+    """
+    root = parse_xml(payload, limit)
+    told = _refusals_in(root)
+    if told:
+        raise TallyResponseError(
+            "Tally refused this read rather than answering it: "
+            + "; ".join(told)
+            + ". That is not an empty company and will not be reported as one. "
+            "Nothing was read."
+        )
+    return root
+
+
 def parse_companies(
     payload: str, limit: int = DEFAULT_MAX_RESPONSE_BYTES
 ) -> tuple[str, ...]:
-    root = parse_xml(payload, limit)
+    root = parse_read_response(payload, limit)
     return tuple(
         name for node in root.iter("COMPANY") if (name := _name_of(node)) is not None
     )
@@ -1157,7 +1230,7 @@ def parse_companies(
 def parse_ledger_names(
     payload: str, limit: int = DEFAULT_MAX_RESPONSE_BYTES
 ) -> tuple[str, ...]:
-    root = parse_xml(payload, limit)
+    root = parse_read_response(payload, limit)
     return tuple(
         name for node in root.iter("LEDGER") if (name := _name_of(node)) is not None
     )
@@ -1213,7 +1286,7 @@ def parse_closing_balances(
     what `test_a_real_trial_balance_sums_to_zero` exists to catch. The
     conservation law is the guard, not this function's judgement.
     """
-    root = parse_xml(payload, limit)
+    root = parse_read_response(payload, limit)
     balances: dict[str, int] = {}
     for node in root.iter("LEDGER"):
         name = _name_of(node)
@@ -1384,7 +1457,7 @@ def parse_vouchers(
     means one of our entries was edited in Tally, and bulk-reverse arithmetic
     over it can no longer be trusted.
     """
-    root = parse_xml(payload, limit)
+    root = parse_read_response(payload, limit)
     _refuse_mixed_entry_tags(root)
     answered_for = _text_of(root.find(".//SVCURRENTCOMPANY"))
     exported: list[ExportedVoucher] = []

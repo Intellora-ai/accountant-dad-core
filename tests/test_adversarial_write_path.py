@@ -35,9 +35,6 @@ behaviour actually measured, so the defect is visible in a green run.
 
     D2  accountant/pipeline.py:281   a write whose outcome is unknown records
                                      no ActionLog row at all
-    D3  accountant/tallyio/real.py:1230  an error envelope on the voucher
-                                     export reads as an empty company, which
-                                     silently disables the C5 duplicate guard
     D5  accountant/web/app.py:243    nothing cross-checks the declared backend
                                      identity against the client that was
                                      handed in
@@ -50,6 +47,14 @@ behaviour, so the case keeps failing if the fix is ever undone. Each says
 
     D1  accountant/pipeline.py   the C6 read-back was a presence check, not an
                                  identity check. FIXED 2026-08-09.
+    D3  accountant/tallyio/real.py  a well-formed error envelope read as an
+                                 empty company on every read path, which
+                                 silently disabled the C5 duplicate guard and
+                                 let one operation id write two vouchers.
+                                 FIXED 2026-08-09 by `parse_read_response`; the
+                                 four read parsers refuse a refusal, and
+                                 `parse_import_response` still reads the same
+                                 tag as data. No xfail is left in this file.
     D4  accountant/tallyio/fake.py  the double resolved a duplicated marker by
                                  picking the first, where RealTally refuses.
                                  FIXED 2026-08-09; the agreement between the
@@ -70,7 +75,7 @@ from accountant import pipeline
 from accountant.extract.adapter import TypedTextExtractor
 from accountant.memory.bootstrap import bootstrap
 from accountant.memory.company import CompanyMemory
-from accountant.memory.store import MemoryStore
+from accountant.memory.store import BootstrapStatus, MemoryStore
 from accountant.schema import ActionLog, Decision, Outcome, Voucher
 from accountant.tallyio import real
 from accountant.tallyio.client import (
@@ -768,71 +773,190 @@ def test_a_voucher_missing_its_ledger_entries_is_an_unreadable_export() -> None:
         real.parse_vouchers(partial)
 
 
-def test_an_error_envelope_from_the_voucher_export_reads_as_an_empty_company() -> None:
-    """MEASURED, AND IT IS DEFECT D3 - accountant/tallyio/real.py:1230.
+#: What this gateway answered, verbatim, when it did not recognise a request at
+#: all. Measured 2026-08-08 and quoted in `ci/educational_slice.py`. Not an
+#: ENVELOPE, no DATA block, nothing but the sentence.
+UNKNOWN_REQUEST = "<RESPONSE>Unknown Request, cannot be processed</RESPONSE>"
 
-    The envelope is well formed, carries a `<LINEERROR>` and no vouchers.
-    `_voucher_nodes` finds a DATA block with nothing in it, so the page is
-    empty and no exception is raised. "Tally refused the request" and "this
-    company has no entries" become the same answer.
+#: A well-formed export of a company that genuinely has nothing in it. The
+#: control for every refusal below: an empty company must still read as empty,
+#: or the fix has replaced one wrong answer with another.
+EMPTY_EXPORT = (
+    "<ENVELOPE>"
+    "<HEADER><VERSION>1</VERSION><STATUS>1</STATUS></HEADER>"
+    "<BODY><DESC><CMPINFO><COMPANY>1</COMPANY><VOUCHER>0</VOUCHER></CMPINFO></DESC>"
+    "<DATA><COLLECTION></COLLECTION></DATA>"
+    "</BODY></ENVELOPE>"
+)
+
+#: Every read parser in the connector, by the name a failure should print.
+READ_PARSERS: tuple[tuple[str, Callable[[str], object]], ...] = (
+    ("parse_companies", real.parse_companies),
+    ("parse_ledger_names", real.parse_ledger_names),
+    ("parse_closing_balances", real.parse_closing_balances),
+    ("parse_vouchers", real.parse_vouchers),
+)
+
+
+@pytest.mark.parametrize("name,parse", READ_PARSERS, ids=[n for n, _ in READ_PARSERS])
+def test_an_error_envelope_is_refused_rather_than_read_as_an_empty_company(
+    name: str, parse: Callable[[str], object]
+) -> None:
+    """DEFECT D3, FIXED 2026-08-09. A refusal is not data, on any read.
+
+    WHAT THIS USED TO PIN
+        The envelope is well formed, carries a `<LINEERROR>`, and holds no
+        payload tag. Every read parser scanned for its own tag - COMPANY,
+        LEDGER, VOUCHER - found none, and returned `()` / `{}` with nothing
+        raised. "Tally refused the request" and "this company has no entries"
+        became one answer.
+
+        `TallyResponseError`'s own docstring already forbade it: "Never
+        downgraded to an empty result - a silent `()` here would read as 'this
+        company has no vouchers', which is a lie with statutory consequences."
+        The WRITE path had always read the same tag correctly -
+        `parse_import_response` collects `<LINEERROR>` and `ImportResult.ok`
+        goes False. Only the reads were blind.
+
+    WHY IT IS ALL FOUR AND NOT ONLY THE VOUCHER EXPORT
+        A wedged company list makes the factory refuse, which is safe. A wedged
+        LEDGER read makes `_check_ledgers_exist` refuse the write, which is also
+        safe. A wedged CLOSINGBALANCE read is not: `pipeline.reverse_operation`
+        compares the trial balance before and after, and two empty dicts
+        compare EQUAL - so a reversal that moved nothing would have been
+        reported as exact.
     """
-    page = real.parse_vouchers(EXPORT_ERROR)
+    with pytest.raises(real.TallyResponseError, match="refused"):
+        parse(EXPORT_ERROR)
+    assert name
+
+
+@pytest.mark.parametrize("name,parse", READ_PARSERS, ids=[n for n, _ in READ_PARSERS])
+def test_the_unknown_request_answer_is_a_refusal_and_not_an_empty_company(
+    name: str, parse: Callable[[str], object]
+) -> None:
+    """The other measured shape. It is not even an ENVELOPE."""
+    with pytest.raises(real.TallyResponseError, match="refused"):
+        parse(UNKNOWN_REQUEST)
+    assert name
+
+
+def test_a_company_that_really_is_empty_still_reads_as_empty() -> None:
+    """The control. Refusing everything would satisfy the tests above.
+
+    EMPTY_SOURCE is a legitimate state - a brand new customer is in it - and
+    the whole value of the fix is that it now means only that.
+    """
+    page = real.parse_vouchers(EMPTY_EXPORT)
 
     assert page.exported == ()
     assert page.skipped == 0
+    assert real.parse_companies(EMPTY_EXPORT) == ()
+    assert real.parse_ledger_names(EMPTY_EXPORT) == ()
+    assert real.parse_closing_balances(EMPTY_EXPORT) == {}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT D3, accountant/tallyio/real.py:1230. parse_vouchers returns an "
-        "empty page for a response carrying <LINEERROR>, so a refused export is "
-        "indistinguishable from an empty company."
-    ),
-)
-def test_an_error_envelope_is_refused_rather_than_read_as_zero_vouchers() -> None:
-    with pytest.raises(real.TallyError):
-        real.parse_vouchers(EXPORT_ERROR)
+def test_the_import_response_still_reads_line_errors_as_data() -> None:
+    """The asymmetry is the point, so it is asserted rather than assumed.
+
+    A write asks "did you do it", and `<LINEERROR>` is the answer. A read asks
+    "what is in the books", and `<LINEERROR>` is a refusal to answer. One tag,
+    two directions, and the refusal must not leak into the direction that reads
+    it as data - or every rejected import would raise instead of reporting
+    which line Tally objected to.
+    """
+    result = real.parse_import_response(EXPORT_ERROR)
+
+    assert result.ok is False
+    assert result.line_errors == ("Could not set 'SVCURRENTCOMPANY'",)
 
 
-def test_a_wedged_voucher_export_lets_one_operation_id_write_two_vouchers() -> None:
-    """MEASURED, AND IT IS THE COST OF D3. This is the duplicate in the books.
+def test_a_wedged_voucher_export_can_no_longer_write_two_vouchers_for_one_id() -> None:
+    """THE COST OF D3, and it is gone. This was the duplicate in the books.
 
-    The import path works; the export path answers with an error envelope. Every
-    read the write path makes therefore says "no vouchers":
+    WHAT THIS USED TO PIN
+        The import path works; the export path answers with an error envelope.
+        Every read the write path made therefore said "no vouchers":
 
-      * the C5 duplicate check sees none, so it does not refuse;
-      * the C6 read-back sees none, so the write raises `TallyRejected` and the
-        caller is told the voucher does not exist.
+          * the C5 duplicate check saw none, so it did not refuse;
+          * the C6 read-back saw none, so the write raised and the caller was
+            told the voucher did not exist.
 
-    Both are wrong in the same direction. Run it twice with the SAME operation
-    id and the company ends up holding two identical statutory entries, while
-    every layer above reported failure both times. Worse, the two now share one
-    marker, so the automatic reversal refuses to touch either of them and a
-    person has to go in and decide which is real.
+        Both wrong in the same direction. Run it twice with the SAME operation
+        id and the company held two identical statutory entries while every
+        layer above reported failure both times - and the two shared one marker,
+        so automatic reversal refused to touch either and a person had to go in
+        and decide which was real.
+
+    WHAT HAPPENS NOW
+        NEITHER attempt reaches the import. The C5 duplicate check is the first
+        read `write_voucher` makes after the ledger check, it cannot read the
+        register, and it raises - so the write is refused before the socket
+        that would carry it is opened. Nothing lands, and nothing lands twice.
+
+        That is the correct answer and not merely a safer one: a duplicate
+        check that cannot see the register has not answered "no duplicate", it
+        has failed to answer, and posting on the strength of a failed check is
+        the whole defect. The person is told the read was refused, which sends
+        them to the gateway rather than through their ledger.
     """
     sim = a_simulated_tally()
     transport = WedgesTheVoucherExport(sim)
     client = sim_client(sim, transport)
     op = new_operation_id()
 
-    for _ in range(2):
-        with pytest.raises(real.TallyRejected, match="whatever HTTP said"):
+    for attempt in (1, 2):
+        with pytest.raises(real.TallyResponseError, match="refused") as caught:
             client.write_voucher(COMPANY, contract.a_voucher(), op)
+        assert "SVCURRENTCOMPANY" in str(caught.value), (
+            f"attempt {attempt} must quote what Tally actually said"
+        )
 
-    assert transport.substituted == 4, "two reads per write, all four wedged"
+    assert not any(_is_import(payload) for payload in transport.sent), (
+        "a write went out even though the duplicate check could not be made"
+    )
 
     # Unwedge, and look at the books the person actually owns.
     transport.wedged = False
-    register = client.read_vouchers(COMPANY)
-    assert len(register) == 2
-    assert [operation_id_in(v.narration) for v in register] == [op, op]
-    assert client.trial_balance(COMPANY) == {"Purchases": 236000, "Cash": -236000}
+    assert client.read_vouchers(COMPANY) == ()
+    assert client.trial_balance(COMPANY) == {}
+    assert client.read_by_operation_id(COMPANY, op) is None
 
-    # And now nothing can clean it up automatically.
-    with pytest.raises(real.TallyDataError, match="matches 2 vouchers"):
-        client.reverse_by_operation_id(COMPANY, op)
-    assert len(client.read_vouchers(COMPANY)) == 2
+    # ...and once the gateway answers again, the same id writes exactly once
+    # and stays findable and reversible - which the pair of duplicates never was.
+    client.write_voucher(COMPANY, contract.a_voucher(), op)
+    register = client.read_vouchers(COMPANY)
+    assert len(register) == 1
+    assert operation_id_in(register[0].narration) == op
+    with pytest.raises(DuplicateOperation):
+        client.write_voucher(COMPANY, contract.a_voucher(), op)
+    assert len(client.read_vouchers(COMPANY)) == 1
+    assert client.reverse_by_operation_id(COMPANY, op) is True
+    assert client.trial_balance(COMPANY) == {}
+
+
+def test_a_wedged_voucher_export_never_reads_as_a_company_with_no_history() -> None:
+    """The other end of D3: bootstrap must not call a refusal EMPTY_SOURCE.
+
+    EMPTY_SOURCE is `askable` - we tell the person we read their books and
+    found nothing, and we go on taking entries. That sentence is exactly what
+    `accountant/tallyio/factory.py` forbids: "A fallback would turn 'your books
+    are unreachable' into 'your books are empty', and those are opposite facts."
+
+    A partial wedge walks straight past the startup gate, because the company
+    list and the ledger list still answer. So the refusal has to come from the
+    read itself, and it lands as INCOMPLETE - which is not askable, proposes
+    nothing, and names the step that failed.
+    """
+    sim = a_simulated_tally(history=3)
+    client = sim_client(sim, WedgesTheVoucherExport(sim))
+
+    memory = bootstrap(client, COMPANY, MemoryStore(":memory:"))
+
+    assert memory.report.status is BootstrapStatus.INCOMPLETE
+    assert memory.report.status is not BootstrapStatus.EMPTY_SOURCE
+    assert memory.report.askable is False
+    assert "vouchers" in memory.report.detail, "and it names the step that failed"
 
 
 # ---------------------------------------------------------------------------

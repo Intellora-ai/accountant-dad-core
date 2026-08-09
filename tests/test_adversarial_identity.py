@@ -345,6 +345,77 @@ ACCENTED_NFD = unicodedata.normalize("NFD", "Caf\u00e9 Supplies")
 UNACCENTED = "Cafe Supplies"
 
 
+def test_an_accented_company_name_never_borrows_an_unaccented_companys_scope() -> None:
+    """D1's other half, FIXED 2026-08-09. The COMPANY key folds to NFC too.
+
+    WHAT THIS USED TO PIN, one file away from the vendor fix
+        `accountant/memory/identity.py` compiled `_PUNCT` as `[^\\w\\s]` and
+        replaced every match with a space, with no NFC fold in front of it.
+        U+0301 COMBINING ACUTE is category Mn - neither `\\w` nor `\\s` - so
+        decomposed "Caf\u00e9 Supplies" lost its accent and keyed as
+        `cafe_supplies`: the key of a DIFFERENT company, "Cafe Supplies".
+
+        That is the one thing this module exists to stop. Its own docstring
+        says a pooled KEY is a correctness bug, and `company_key` is the FIRST
+        column of every primary key in the store, the scope of every lookup,
+        and the thing both cross-company guards in `pipeline.py` compare. Two
+        companies sharing one key means those guards CANNOT fire, and
+        `save_bootstrap` deletes the first company's rows before writing the
+        second's.
+
+        It is worse here than it was for vendors. A vendor collision costs one
+        voucher in the wrong ledger. A company collision costs a whole index,
+        and the two businesses need not have anything to do with each other -
+        only an accent.
+
+    WHY THE FIX IS SAFE IN THE DIRECTION THAT MATTERS
+        Folding NFC->NFD is not a collapse of two names into one. It makes ONE
+        VISIBLE NAME one key, whichever encoding the keyboard, the scanner or
+        the operating system produced, and that key is still not the
+        unaccented company's. The module is deliberately conservative because
+        removing a WORD can merge two companies; this removes nothing.
+    """
+    assert ACCENTED_NFC != ACCENTED_NFD, "the two spellings really are different bytes"
+
+    # one visible company, one key, whichever normal form arrived...
+    assert normalise_company(ACCENTED_NFC) == "caf\u00e9_supplies"
+    assert normalise_company(ACCENTED_NFD) == "caf\u00e9_supplies"
+    assert normalise_company(ACCENTED_NFC) == normalise_company(ACCENTED_NFD)
+
+    # ...and it is NOT the unaccented company's key.
+    assert normalise_company(UNACCENTED) == "cafe_supplies"
+    assert normalise_company(ACCENTED_NFD) != normalise_company(UNACCENTED)
+
+    # The damage, end to end, in one store. Two businesses, two Tallys, two
+    # sets of books. Bootstrapping the second used to `forget()` the first's
+    # key and write its own rows over the top.
+    store = MemoryStore(":memory:")
+    plain = _tally(_history("Sharma Traders", "Purchases"), company=UNACCENTED)
+    fancy = _tally(
+        _history("Verma Cement", "Repairs & Maintenance"), company=ACCENTED_NFD
+    )
+
+    first = bootstrap(plain, UNACCENTED, store)
+    second = bootstrap(fancy, ACCENTED_NFD, store)
+
+    assert first.report.status is BootstrapStatus.READY
+    assert second.report.status is BootstrapStatus.READY
+    assert first.identity.key != second.identity.key, "two companies, two scopes"
+
+    # Each company still knows its own vendor and nothing about the other's.
+    assert first.lookup("Sharma Traders").accounts == ("Purchases",)
+    assert first.lookup("Verma Cement").status is CompanyMatchStatus.NO_MATCH
+    assert second.lookup("Verma Cement").accounts == ("Repairs & Maintenance",)
+    assert second.lookup("Sharma Traders").status is CompanyMatchStatus.NO_MATCH
+
+    # And re-opening the unaccented company from the store alone still gets the
+    # unaccented company, not whichever one was written last.
+    reopened = resume(store, UNACCENTED)
+    assert reopened.identity.name == UNACCENTED
+    assert reopened.report.status is BootstrapStatus.READY
+    assert reopened.lookup("Sharma Traders").accounts == ("Purchases",)
+
+
 def test_an_accented_vendor_name_decides_one_way_in_nfc_and_nfd() -> None:
     """D1, FIXED 2026-08-09. One visible name, one key, either encoding.
 
@@ -368,10 +439,11 @@ def test_an_accented_vendor_name_decides_one_way_in_nfc_and_nfd() -> None:
         unaccented supplier's. BOTH halves are asserted, because agreeing on
         the WRONG key would satisfy the first half on its own.
 
-    THE SAME DEFECT IS STILL LIVE ONE FILE AWAY, and is REPORTED rather than
-    fixed here: `accountant/memory/identity.py` keys COMPANIES with the same
-    substitution and no NFC fold, so `normalise_company(NFD)` still collides
-    with a different company's key. Asserted below so it cannot drift unseen.
+    THE SAME DEFECT WAS LIVE ONE FILE AWAY UNTIL 2026-08-09, and is now fixed:
+    `accountant/memory/identity.py` keyed COMPANIES with the same substitution
+    and no NFC fold, so `normalise_company(NFD)` collided with a different
+    company's key. The company half is asserted below, and end to end in
+    `test_an_accented_company_name_never_borrows_an_unaccented_companys_scope`.
 
     ONE MORE THING THIS TEST RECORDS AND DOES NOT FIX
         Answering both questions does not make an unknown vendor postable.
@@ -396,10 +468,11 @@ def test_an_accented_vendor_name_decides_one_way_in_nfc_and_nfd() -> None:
     assert normalise_vendor(ACCENTED_NFC) != normalise_vendor(UNACCENTED)
     assert normalise_vendor(ACCENTED_NFD) != normalise_vendor(UNACCENTED)
 
-    # PINNED and REPORTED, not fixed: companies are still keyed the old way.
+    # Companies now fold the same way, and for a sharper reason: a shared
+    # company key merges two indexes, not one voucher.
     assert normalise_company(ACCENTED_NFC) == "café_supplies"
-    assert normalise_company(ACCENTED_NFD) == "cafe_supplies"
-    assert normalise_company(ACCENTED_NFD) == normalise_company(UNACCENTED)
+    assert normalise_company(ACCENTED_NFD) == "café_supplies"
+    assert normalise_company(ACCENTED_NFD) != normalise_company(UNACCENTED)
 
     # Books that know only the UNACCENTED supplier. Both accented spellings
     # must ask, and neither may borrow that supplier's account.
