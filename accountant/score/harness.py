@@ -35,6 +35,23 @@ the system ask which account to use; it never claims anything is wrong. The
 frozen definitions count questions and false alarms separately, and so does
 this harness.
 
+THE LAUNCH GATE IS DECIDED ON TWO NUMBERS, NEVER ONE
+----------------------------------------------------
+`DetectorGate` at the foot of this module is the launch verdict across several
+books at once. Owner decision D-22, 2026-08-10: use the aggregate AND the worst
+department, and do not hide a department that fails. An aggregate inside the
+target with one department three times over it is NOT_PASSED, and it says which
+department and by how much.
+
+The gate carries seven things and refuses to be built without them: the
+aggregate, the held-out half, the worst department, EVERY department including
+the passing ones, the denominator, the formula, and the false alarms themselves.
+Three of those are enforced by arithmetic rather than by good intentions - the
+departments must add up to the aggregate on both the numerator and the
+denominator, and the examples must account for every false alarm. Dropping a
+department, changing a denominator or deleting a hard case therefore raises
+here instead of producing a quieter number.
+
 Nothing measured fails closed. A book with no clean entries cannot support a
 claim about N1, and a book with no injected errors cannot support a claim about
 N3, so those report FAIL with the reason stated rather than a vacuous PASS.
@@ -54,7 +71,7 @@ type, its extraction adapter or its company scoping change around them.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from fractions import Fraction
@@ -63,7 +80,7 @@ from accountant import checks, problems
 from accountant.decide import decide_problems
 from accountant.detect import detectors
 from accountant.memory.index import MemoryIndex
-from accountant.schema import Outcome, Voucher
+from accountant.schema import Flag, Outcome, Voucher
 from accountant.score.book import Book
 
 # Owner-set targets. Not adjustable from here.
@@ -118,6 +135,11 @@ class EntryResult:
     problem, duplicates already folded in. `fired` names **every** detector
     that fired, folded ones included, because a detector whose alert was
     merged still produced that alert and must still be charged for it.
+
+    `raw_flags` is that same undeduplicated list with its evidence still
+    attached, so a report can say WHY a detector fired and not only that it
+    did. A count with no reason beside it cannot be dismissed quickly, and a
+    slow dismissal is exactly what N1 is measuring the cost of.
     """
 
     voucher_id: str
@@ -126,6 +148,7 @@ class EntryResult:
     outcome: Outcome
     fired: tuple[str, ...] = ()
     duplicate_flags: int = 0
+    raw_flags: tuple[Flag, ...] = ()
 
     @property
     def flagged(self) -> bool:
@@ -293,6 +316,7 @@ def _evaluate_one(
         outcome=decide_problems(found).outcome,
         fired=tuple(sorted({f.detector for f in raw})),
         duplicate_flags=len(raw) - len(flags),
+        raw_flags=tuple(raw),
     )
 
 
@@ -528,4 +552,536 @@ def score(
             for name in _detector_names(detectors.ALL_DETECTORS)
             if name not in ran and name not in {w.detector for w in detectors.WITHDRAWN}
         ),
+    )
+
+
+# --------------------------------------------------------------------------
+# The launch gate - owner decision D-22, 2026-08-10
+# --------------------------------------------------------------------------
+#
+# "Use both aggregate and worst-department results. For launch, do not hide a
+#  department that fails."
+#
+# Nothing below tunes a threshold, excludes a department, changes a denominator
+# or drops a case. It reports what is there and says PASS or NOT_PASSED.
+
+
+class GateVerdict(StrEnum):
+    """The launch gate's two verdicts.
+
+    The members are MET and NOT_MET rather than PASS and NOT_PASSED for the
+    same reason `Status` uses MET and MISSED: the security scan treats any
+    constant named `PASS` as a possible hardcoded credential. The words that
+    get printed are unchanged.
+    """
+
+    MET = "PASS"
+    NOT_MET = "NOT_PASSED"
+
+
+# The denominator and the formula, written once, so every report states the
+# same two things and a test can check the words against the code.
+DENOMINATOR = (
+    "every clean entry in the books measured - an entry with no injected "
+    "error. Silencing a flag cannot shrink it, and an entry nobody reported "
+    "is still counted."
+)
+FORMULA = (
+    "false alarms per 100 clean entries, carried in hundredths: "
+    "(false_alarms * PERCENT_SCALE * 2 + clean_entries) // (clean_entries * 2)"
+    f", with PERCENT_SCALE = {PERCENT_SCALE}. That expression is round half up "
+    "over whole numbers. The verdict is decided on integers and never on the "
+    "printed number: false_alarms * 100 <= target * clean_entries."
+)
+
+
+@dataclass(frozen=True)
+class ScopeResult:
+    """False alarms over one named scope: a department, a half, or all of them.
+
+    `clean_entries` of nought means nothing was measured. That reports as
+    "not measured" and is never a pass, because absent evidence is not
+    evidence.
+    """
+
+    scope: str
+    false_alarms: int
+    clean_entries: int
+
+    def __post_init__(self) -> None:
+        if not self.scope.strip():
+            raise ValueError("a scope with no name cannot be reported")
+        if self.clean_entries < 0:
+            raise ValueError(f"{self.clean_entries} clean entries is not a count")
+        if not 0 <= self.false_alarms <= self.clean_entries:
+            raise ValueError(
+                f"{self.scope!r}: {self.false_alarms} false alarms of "
+                f"{self.clean_entries} clean entries"
+            )
+
+    @property
+    def measured(self) -> bool:
+        return self.clean_entries > 0
+
+    @property
+    def per_100_hundredths(self) -> int | None:
+        """False alarms per 100 clean entries, in hundredths. None if unmeasured."""
+        if not self.measured:
+            return None
+        return scaled_rate(self.false_alarms, self.clean_entries, PERCENT_SCALE)
+
+    def within(self, target_per_100: int) -> bool:
+        """Measured, AND inside the target. Both, in that order."""
+        return (
+            self.measured
+            and self.false_alarms * 100 <= target_per_100 * self.clean_entries
+        )
+
+    def verdict(self, target_per_100: int) -> GateVerdict:
+        if self.within(target_per_100):
+            return GateVerdict.MET
+        return GateVerdict.NOT_MET
+
+
+@dataclass(frozen=True)
+class FalseAlarmExample:
+    """One flag raised on one clean entry, with the evidence that raised it.
+
+    The gate carries every one of these, not a sample. A report that shows
+    three of nine cannot be checked, and a case that is hard to look at is
+    exactly the case that must stay in.
+    """
+
+    voucher_id: str
+    scope: str
+    party: str
+    account: str
+    amount_paise: int
+    detector: str
+    severity: int
+    reason: str
+
+    def __post_init__(self) -> None:
+        for field, value in (
+            ("voucher_id", self.voucher_id),
+            ("scope", self.scope),
+            ("detector", self.detector),
+            ("reason", self.reason),
+        ):
+            if not value.strip():
+                raise ValueError(f"a false alarm example carries no {field}")
+
+
+@dataclass(frozen=True)
+class WithdrawnCost:
+    """What the numbers become when a withdrawn detector is switched back on.
+
+    A metric that passes because a detector was turned off is a metric with a
+    condition attached, and the condition belongs next to the number. This is
+    measured, not asserted.
+    """
+
+    detector: str
+    because: str
+    aggregate: ScopeResult
+    held_out: ScopeResult
+
+    def costs_the_pass(self, target_per_100: int) -> bool:
+        """True when switching this detector back on breaks the aggregate."""
+        return not self.aggregate.within(target_per_100)
+
+
+@dataclass(frozen=True)
+class AccountConcentration:
+    """One department and one account behind more than their share of alarms.
+
+    Six false alarms on one account is one wrong ceiling counted six times,
+    not six independent problems. Naming the account is what turns a rate into
+    something a person can act on.
+    """
+
+    scope: str
+    account: str
+    entries: int
+    of_total: int
+    detectors: tuple[str, ...]
+
+    @property
+    def share_hundredths(self) -> int:
+        """This account's share of every false alarm, in hundredths of a percent."""
+        return scaled_rate(self.entries, self.of_total, PERCENT_SCALE)
+
+
+@dataclass(frozen=True)
+class DetectorGate:
+    """The detector launch verdict, decided on the aggregate AND the worst part.
+
+    Seven things, all required, none of them optional:
+
+        aggregate            over every book measured
+        held_out             the half no threshold was chosen on
+        departments          EVERY one, the passing ones included
+        worst_department     named, never averaged away
+        denominator          what the rate is out of
+        formula              how the rate and the verdict are computed
+        examples             every false alarm, not a sample
+
+    Three arithmetic checks run on construction, so the three ways this report
+    could be made to look better are refused rather than argued about:
+
+        departments' clean entries must sum to the aggregate's  (no department
+                                                                 dropped, no
+                                                                 denominator
+                                                                 changed)
+        departments' false alarms must sum to the aggregate's
+        the examples must account for exactly the false alarms  (no hard case
+                                                                 deleted)
+    """
+
+    aggregate: ScopeResult
+    held_out: ScopeResult
+    departments: tuple[ScopeResult, ...]
+    examples: tuple[FalseAlarmExample, ...]
+    target_per_100: int = N1_MAX_FALSE_ALARMS_PER_100
+    denominator: str = DENOMINATOR
+    formula: str = FORMULA
+    withdrawn_cost: tuple[WithdrawnCost, ...] = ()
+    detector_set: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.departments:
+            raise ValueError("a gate over no departments decides nothing")
+        if not self.denominator.strip():
+            raise ValueError("a rate with no stated denominator cannot be checked")
+        if not self.formula.strip():
+            raise ValueError("a rate with no stated formula cannot be checked")
+
+        names = [d.scope for d in self.departments]
+        repeated = sorted({n for n in names if names.count(n) > 1})
+        if repeated:
+            raise ValueError(f"a department appears twice: {', '.join(repeated)}")
+
+        clean = sum(d.clean_entries for d in self.departments)
+        if clean != self.aggregate.clean_entries:
+            raise ValueError(
+                f"the departments hold {clean} clean entries and the aggregate "
+                f"holds {self.aggregate.clean_entries}. A department cannot be "
+                f"left out of a gate, and the denominator cannot be changed"
+            )
+        alarms = sum(d.false_alarms for d in self.departments)
+        if alarms != self.aggregate.false_alarms:
+            raise ValueError(
+                f"the departments hold {alarms} false alarms and the aggregate "
+                f"holds {self.aggregate.false_alarms}"
+            )
+        if self.held_out.clean_entries > self.aggregate.clean_entries:
+            raise ValueError(
+                f"the held-out half holds {self.held_out.clean_entries} clean "
+                f"entries, more than the {self.aggregate.clean_entries} measured"
+            )
+
+        known = set(names)
+        unknown = sorted({e.scope for e in self.examples} - known)
+        if unknown:
+            raise ValueError(
+                f"false alarms are reported for departments this gate does not "
+                f"list: {', '.join(unknown)}"
+            )
+        for department in self.departments:
+            shown = len(
+                {e.voucher_id for e in self.examples if e.scope == department.scope}
+            )
+            if shown != department.false_alarms:
+                raise ValueError(
+                    f"{department.scope} counts {department.false_alarms} false "
+                    f"alarms and shows {shown}. Every false alarm is reported, "
+                    f"including the ones that are hard to look at"
+                )
+
+        for cost in self.withdrawn_cost:
+            if cost.aggregate.clean_entries != self.aggregate.clean_entries:
+                raise ValueError(
+                    f"{cost.detector!r} was measured against a different "
+                    f"denominator, so the two numbers cannot be compared"
+                )
+
+    @property
+    def measured_departments(self) -> tuple[ScopeResult, ...]:
+        return tuple(d for d in self.departments if d.measured)
+
+    @property
+    def unmeasured_departments(self) -> tuple[ScopeResult, ...]:
+        """Departments with no clean entry to fire on. Not a pass, and visible."""
+        return tuple(d for d in self.departments if not d.measured)
+
+    @property
+    def worst_department(self) -> ScopeResult | None:
+        """The measured department with the highest false-alarm rate.
+
+        None only when no department was measured at all. Compared as exact
+        fractions, so no rounding decides which one is worst.
+        """
+        measured = self.measured_departments
+        if not measured:
+            return None
+        return max(
+            measured,
+            key=lambda d: (Fraction(d.false_alarms, d.clean_entries), d.scope),
+        )
+
+    @property
+    def failing_departments(self) -> tuple[ScopeResult, ...]:
+        """Every department outside the target, unmeasured ones included."""
+        return tuple(d for d in self.departments if not d.within(self.target_per_100))
+
+    @property
+    def aggregate_verdict(self) -> GateVerdict:
+        return self.aggregate.verdict(self.target_per_100)
+
+    @property
+    def held_out_verdict(self) -> GateVerdict:
+        return self.held_out.verdict(self.target_per_100)
+
+    @property
+    def worst_department_verdict(self) -> GateVerdict:
+        worst = self.worst_department
+        if worst is None:
+            return GateVerdict.NOT_MET
+        return worst.verdict(self.target_per_100)
+
+    @property
+    def verdict(self) -> GateVerdict:
+        """PASS only when the aggregate AND every department are inside target.
+
+        The aggregate on its own can never decide this. That is the whole
+        point of D-22: an average over seven departments is not a promise
+        about any one of them, and the department a customer actually has is
+        the one that matters to them.
+        """
+        inside = (
+            self.aggregate.within(self.target_per_100)
+            and self.held_out.within(self.target_per_100)
+            and not self.failing_departments
+        )
+        return GateVerdict.MET if inside else GateVerdict.NOT_MET
+
+    @property
+    def reasons(self) -> tuple[str, ...]:
+        """Every input to the verdict, in words, whichever way each one went.
+
+        Both the aggregate and the worst department appear here on every run,
+        so a report can never show one number and call it the decision.
+        """
+        worst = self.worst_department
+        said: list[str] = [
+            f"aggregate {_rate_text(self.aggregate)} - {self.aggregate_verdict.value}",
+            f"held-out half {_rate_text(self.held_out)} - "
+            f"{self.held_out_verdict.value}",
+        ]
+        if worst is None:
+            said.append("no department was measured at all - NOT_PASSED")
+        else:
+            said.append(
+                f"worst department {worst.scope} {_rate_text(worst)} - "
+                f"{self.worst_department_verdict.value}"
+            )
+        said.extend(
+            f"{d.scope} has no clean entry to fire on, which is not a pass - NOT_PASSED"
+            for d in self.unmeasured_departments
+        )
+        return tuple(said)
+
+    @property
+    def concentration(self) -> AccountConcentration | None:
+        """The single department-and-account pair behind the most false alarms.
+
+        Returned whenever one pair holds two or more of them, because two
+        alarms on one account is already a pattern and one alarm is not.
+        """
+        counted: dict[tuple[str, str], set[str]] = {}
+        fired: dict[tuple[str, str], list[str]] = {}
+        for e in self.examples:
+            key = (e.scope, e.account)
+            counted.setdefault(key, set()).add(e.voucher_id)
+            names = fired.setdefault(key, [])
+            if e.detector not in names:
+                names.append(e.detector)
+        if not counted:
+            return None
+        scope, account = max(counted, key=lambda k: (len(counted[k]), k))
+        entries = len(counted[(scope, account)])
+        if entries < 2:
+            return None
+        return AccountConcentration(
+            scope=scope,
+            account=account,
+            entries=entries,
+            of_total=self.aggregate.false_alarms,
+            detectors=tuple(sorted(fired[(scope, account)])),
+        )
+
+
+def _rate_text(scope: ScopeResult) -> str:
+    """'6.29 per 100 (9 of 143 clean)', or the unmeasured truth instead."""
+    rate = scope.per_100_hundredths
+    if rate is None:
+        return "not measured - 0 clean entries"
+    return (
+        f"{rate // 100}.{rate % 100:02d} per 100 "
+        f"({scope.false_alarms} of {scope.clean_entries} clean)"
+    )
+
+
+def _false_alarms_in(
+    scope: str, book: Book, detector_set: Sequence[detectors.Detector]
+) -> tuple[int, int, tuple[FalseAlarmExample, ...]]:
+    """One book measured: false alarms, clean entries, and every flag raised.
+
+    Every entry goes through `_evaluate_one`, the same evaluation `score` runs,
+    so the gate cannot drift away from the harness it sits in - and so the
+    detectors keep exactly the call sites `tests/test_phase6_exits.py`
+    enumerates. `EntryResult.raw_flags` is the undeduplicated list, so a
+    detector whose alert would be folded into another one still appears in the
+    examples. The false-alarm COUNT stays per entry, because that is what N1
+    counts.
+    """
+    index = MemoryIndex.from_vouchers(book.history)
+    injected = book.truth.by_voucher()
+    flagged = 0
+    clean = 0
+    found: list[FalseAlarmExample] = []
+    for entry in book.entries:
+        if entry.id in injected:
+            continue
+        clean += 1
+        result = _evaluate_one(book, entry, index, detector_set, None)
+        if not result.flagged:
+            continue
+        flagged += 1
+        found.extend(
+            FalseAlarmExample(
+                voucher_id=entry.id,
+                scope=scope,
+                party=entry.party,
+                account=entry.debit_account,
+                amount_paise=entry.amount_paise,
+                detector=f.detector,
+                severity=f.severity,
+                reason=f.reason,
+            )
+            for f in result.raw_flags
+        )
+    return flagged, clean, tuple(found)
+
+
+def _sum_scope(
+    scope: str,
+    books: Mapping[str, Book],
+    detector_set: Sequence[detectors.Detector],
+) -> ScopeResult:
+    """Several books measured as one scope."""
+    flagged = 0
+    clean = 0
+    for name, book in books.items():
+        one, entries, _ = _false_alarms_in(name, book, detector_set)
+        flagged += one
+        clean += entries
+    return ScopeResult(scope=scope, false_alarms=flagged, clean_entries=clean)
+
+
+def _withdrawn_costs(
+    books: Mapping[str, Book],
+    held_out: Mapping[str, Book],
+    detector_set: Sequence[detectors.Detector],
+) -> tuple[WithdrawnCost, ...]:
+    """Every withdrawn detector, measured with it switched back on.
+
+    The point is not to switch it on. It is to say out loud what the passing
+    number costs, so nobody reads the pass as though the concern that detector
+    covered were covered by something else.
+    """
+    ran = {detectors.name_of(d) for d in detector_set}
+    available = {detectors.name_of(d): d for d in detectors.ALL_DETECTORS}
+    costs: list[WithdrawnCost] = []
+    for w in detectors.WITHDRAWN:
+        if w.detector in ran or w.detector not in available:
+            continue
+        wider = (*detector_set, available[w.detector])
+        costs.append(
+            WithdrawnCost(
+                detector=w.detector,
+                because=w.because,
+                aggregate=_sum_scope(
+                    f"all departments, with {w.detector}", books, wider
+                ),
+                held_out=_sum_scope(
+                    f"held-out half, with {w.detector}", held_out, wider
+                ),
+            )
+        )
+    return tuple(costs)
+
+
+def gate_from_books(
+    books: Mapping[str, Book],
+    *,
+    held_out: Sequence[str],
+    detector_set: Sequence[detectors.Detector] = detectors.ACTIVE_DETECTORS,
+    target_per_100: int = N1_MAX_FALSE_ALARMS_PER_100,
+) -> DetectorGate:
+    """Measure every book and build the gate. Same books in, same gate out.
+
+    `books` maps a department's name to its book, and its order is the order
+    the report prints. `held_out` names the departments in the half no
+    threshold was chosen on.
+
+    Every number in the returned gate is measured here by running the
+    detectors. None of them can be supplied by a caller, so a report cannot be
+    assembled out of numbers somebody typed.
+    """
+    if not books:
+        raise ValueError("no books were supplied, so nothing could be measured")
+    unknown = sorted(set(held_out) - set(books))
+    if unknown:
+        raise ValueError(
+            f"held-out departments that were not measured: {', '.join(unknown)}"
+        )
+    if not detector_set:
+        raise ValueError("no detectors were supplied, so nothing could be flagged")
+
+    departments: list[ScopeResult] = []
+    examples: list[FalseAlarmExample] = []
+    for name, book in books.items():
+        flagged, clean, found = _false_alarms_in(name, book, detector_set)
+        departments.append(
+            ScopeResult(scope=name, false_alarms=flagged, clean_entries=clean)
+        )
+        examples.extend(found)
+
+    held = {name: books[name] for name in held_out}
+    return DetectorGate(
+        aggregate=ScopeResult(
+            scope="all departments",
+            false_alarms=sum(d.false_alarms for d in departments),
+            clean_entries=sum(d.clean_entries for d in departments),
+        ),
+        held_out=_sum_scope("held-out half", held, detector_set),
+        departments=tuple(departments),
+        # Worst first: severity, then size. A reader who stops after one row
+        # has still seen the loudest thing in the book.
+        examples=tuple(
+            sorted(
+                examples,
+                key=lambda e: (
+                    -e.severity,
+                    -e.amount_paise,
+                    e.scope,
+                    e.voucher_id,
+                    e.detector,
+                ),
+            )
+        ),
+        target_per_100=target_per_100,
+        withdrawn_cost=_withdrawn_costs(books, held, detector_set),
+        detector_set=_detector_names(detector_set),
     )
