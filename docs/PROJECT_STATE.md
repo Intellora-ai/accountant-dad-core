@@ -1952,7 +1952,7 @@ undermine claims already committed in this branch.
 
 | id | defect | measured damage | smallest fix |
 |---|---|---|---|
-| **W1** | **The read-back is a PRESENCE check, not an IDENTITY check.** `pipeline.py:228-235` raises only when `back is None`; `back` is then **discarded**. | Sent 420,000 / Sharma Traders / 7 Aug; read back 2,000,000 / Verma Properties / 31 Aug → outcome `valid`, ActionLog `posted`. Second face: present in the marker view but **absent from `read_vouchers` and `trial_balance`** → still reported posted. **This defeats G3**, the register guarantee this branch claims. | compare `back.amount_paise/party/date/debit_account/credit_account` to `draft.voucher`, raise on mismatch, and set `posted_tally_id` from `back.tally_id` not `result.tally_id`. |
+| ~~**W1**~~ **FIXED 2026-08-09, see §32** | **The read-back was a PRESENCE check, not an IDENTITY check.** `pipeline.py:228-235` raises only when `back is None`; `back` is then **discarded**. | Sent 420,000 / Sharma Traders / 7 Aug; read back 2,000,000 / Verma Properties / 31 Aug → outcome `valid`, ActionLog `posted`. Second face: present in the marker view but **absent from `read_vouchers` and `trial_balance`** → still reported posted. **This defeats G3**, the register guarantee this branch claims. | compare `back.amount_paise/party/date/debit_account/credit_account` to `draft.voucher`, raise on mismatch, and set `posted_tally_id` from `back.tally_id` not `result.tally_id`. |
 | **W2** | **A write with an unknown outcome records NOTHING.** `record_decision` is only reached after `post` returns; when `post` raises, **zero** ActionLog rows exist. | The operation id survives only in a traceback, so a voucher that may exist cannot be reconciled or reversed later. Same hole at `web/app.py:656-657`, where the socket simply drops. | wrap `post` in `try/except BaseException`, record `action="write_outcome_unknown"` carrying the operation id, re-raise. |
 | **W3** | **An error envelope reads as an empty company.** `parse_vouchers` (`real.py:1203-1230`) returns `VoucherPage(exported=(), skipped=0)` for a well-formed `<ENVELOPE>` containing `<LINEERROR>` and no vouchers. | The duplicate pre-check at `real.py:1854` sees no marker and imports. **Two identical statutory entries** from one operation id — and both write calls raised, so every layer reported failure. They now share a marker, so `reverse_by_operation_id` raises `matches 2 vouchers` and cleanup needs a human. | raise `TallyResponseError` when any `<LINEERROR>` carries text. Same shape in `parse_companies`, `parse_ledger_names`, `parse_closing_balances`. **Narrows but does not close** — the pre-check still fails OPEN on any read it cannot positively confirm. |
 | **W4** | **The fake and the real disagree, and the contract cannot see it.** `fake.py:112-124` picks the FIRST of two vouchers sharing a marker; `RealTally._read_exported_by_operation_id` (`real.py:1797`) refuses. | `test_tally_contract.py` holds both backends to one contract and this property is not in it — so **a test written against the fake can "prove" an ambiguity is handled when it is not.** | collect all matches, raise on `len > 1`, and add the case to the shared contract. |
@@ -2071,4 +2071,108 @@ around, and the PR is NOT described as merged.**
 Phase 3 implementation:        COMPLETE
 Phase 3 live validation:       ENVIRONMENT-LIMITED
 RealTally 2026-08-07 evidence: NOT PROVEN
+```
+
+---
+
+## 32. W1 FIXED — the headline claim is now true in the code that posts
+
+**2026-08-09.** Owner instruction: *"The headline claim must be checked by the code
+that actually posts, not just the standalone slice."*
+
+### 32.1 What changed
+
+`accountant/pipeline.py::post`. Three additions, no behaviour removed:
+
+1. **Identity, not presence.** `VERIFIED_FIELDS` — `amount_paise`, `party`, `date`,
+   `debit_account`, `credit_account` — must all come back unchanged.
+   `_identity_mismatches` names **every** field that differs, one per line, because
+   *"something is wrong"* sends a person through their whole ledger and *"the amount
+   and the party are wrong"* does not. `narration` is deliberately excluded: we stamp
+   the marker into it, so it is expected to differ.
+2. **G3 enforced on the posting path.** The voucher must appear in Tally's
+   **unfiltered** `read_vouchers()` register, not only through our marker filter.
+   This is what the phase claimed and only the standalone slice checked.
+3. **`posted_tally_id` comes from Tally**, not from our own `WriteResult`. Tally's
+   answer is evidence; ours is a claim.
+
+It can only ever refuse **more**, never post more. There is no input for which the
+old code refused and the new one accepts.
+
+### 32.2 LIVE PROOF — the fixed path, real TallyPrime
+
+```
+posted_tally_id                     21          (Tally's own identifier)
+in Tally's UNFILTERED register      True
+identity verified                   amount 222200 · party 'AD Test Vendor'
+                                    · date 2026-08-31 · Dr 'AD Test Expense'
+                                    · Cr 'AD Test Vendor'
+id came from TALLY, not from us     True
+cleanup                             True
+books restored exactly              True, register back to 0
+```
+
+### 32.3 The fix caught a real inconsistency on its FIRST live run
+
+Its first live attempt **refused**:
+
+```
+read back a DIFFERENT voucher: party: sent 'AD Test Vendor', Tally has 'Cash'
+```
+
+Investigated rather than assumed. Raw export measured: **Tally does return
+`PARTYLEDGERNAME`, and it OVERRODE ours.** We sent `party='AD Test Vendor'` while
+`build_draft` had set `credit_account='Cash'` via `_default_credit`, so the voucher
+never touched the vendor's ledger at all — and Tally corrected the party to the
+ledger actually used.
+
+**Tally was right and our draft was internally inconsistent.** Not a false positive:
+the check found a genuine defect on its first contact with reality.
+
+**NEW OPEN DEFECT — P1.** `pipeline.build_draft` sets `party` from the extracted
+vendor and `credit_account` from `_default_credit(accounts)`, which prefers `Cash`.
+For a vendor with its own ledger this produces a voucher that names the vendor as
+the party but posts nothing to their account. Owner decision, and it is Phase 4
+territory — proper vendor-ledger resolution.
+
+### 32.4 MISTAKE, RECORDED — over-reversal of test data
+
+Cleaning up the orphan the refusal warned about, a loop reversed **every** voucher
+carrying our marker rather than only that one. Three were removed, not one; the two
+baseline test vouchers went with it and `Accountant Dad Final` is now empty
+(register 0, trial balance `{}`).
+
+All three carried **our own marker**, in a test company with test ledgers
+(`AD Test Expense`, `AD Test Vendor`), so nothing belonging to a real business was
+touched. The ledgers themselves survived. **It was still more than needed, and it
+is recorded rather than smoothed over.** The two removed vouchers were `tally_id`
+1 (`AD Test Vendor`, 123456 paise) and 2 (`AD Test Vendor`, 45000 paise); their
+dates were not captured before deletion, so they are **not** reconstructable and
+were not guessed at.
+
+### 32.5 Tests
+
+Four pinned DEFECT tests were **flipped from documenting the bug to proving the
+fix**, and both `xfail(strict)` markers removed because they now XPASS:
+
+```
+test_a_read_back_with_our_marker_but_not_our_numbers_is_refused
+test_a_read_back_must_match_the_voucher_we_sent_and_not_merely_our_marker
+test_a_write_absent_from_tallys_own_register_is_refused
+test_a_post_is_not_a_success_until_tallys_own_register_shows_the_voucher
+```
+
+One test added after a **surviving mutant** exposed a gap in the fix itself —
+replacing `posted_tally_id = back.tally_id` with a constant left the suite green:
+
+```
+test_the_recorded_identifier_is_the_one_tally_returned_not_our_own
+```
+
+Mutants, all now dead: revert to presence-only (1 fail) · drop the register check
+(2 fail) · record our id instead of Tally's (1 fail).
+
+```
+tests   1023 -> 1026 passed, 4 xfailed (was 6), 0 failed, 0 skipped
+guards  12/12      pyright 0      accidental deletions 0
 ```

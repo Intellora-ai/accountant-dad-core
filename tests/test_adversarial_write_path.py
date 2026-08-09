@@ -538,59 +538,42 @@ def _posted_against_a_swapped_read_back() -> tuple[
     return client, valid_draft(client, memory), store
 
 
-def test_a_read_back_with_our_marker_but_not_our_numbers_reads_as_posted() -> None:
-    """MEASURED, AND IT IS DEFECT D1 - accountant/pipeline.py:228.
+def test_a_read_back_with_our_marker_but_not_our_numbers_is_refused() -> None:
+    """W1, FIXED 2026-08-09. This test pinned the DEFECT until then.
 
-    `post` checks the read-back for `is None` and for nothing else. The voucher
-    Tally handed back is 2,000,000 paise of rent to Verma Properties on the
-    31st; the voucher we sent was 420,000 paise of cement to Sharma Traders on
-    the 7th. The pipeline reports success and records a posted row.
+    Tally hands back 2,000,000 paise of rent to Verma Properties on the 31st.
+    We sent 420,000 paise of cement to Sharma Traders on the 7th. The marker
+    matches; nothing else does.
 
-    This test pins the behaviour that exists. The one below it asserts the
-    behaviour that should.
+    Before the fix `post` checked the read-back for `is None` and nothing else,
+    reported success, and recorded a posted row. It checked the label on the
+    box and never opened it. The message must now NAME every field that
+    differs, because "something is wrong" sends a person looking through their
+    whole ledger and "the amount and the party are wrong" does not.
     """
     client, draft, store = _posted_against_a_swapped_read_back()
 
-    posted = pipeline.post(draft, client)
-    pipeline.record_decision(
-        store, posted, memory_for(client.inner, store), client, "posted", RUN
-    )
+    with pytest.raises(RuntimeError) as raised:
+        pipeline.post(draft, client)
 
-    assert posted.decision is not None
-    assert posted.decision.outcome is Outcome.VALID
-    assert client.write_count == 1
-    assert client.writes == [(COMPANY, draft.operation_id, ENTRY_PAISE)]
-    assert client.read_backs == [(COMPANY, draft.operation_id)]
+    said = str(raised.value)
+    assert "read back a DIFFERENT voucher" in said
+    for field in ("amount_paise", "party", "date"):
+        assert field in said, f"the refusal does not name {field}"
+    assert "420000" in said and "2000000" in said
+    assert "Sharma Traders" in said and "Verma Properties" in said
 
-    # The differential nobody looks at: what we sent, against what came back.
-    sent = client.inner.read_by_operation_id(COMPANY, draft.operation_id)
-    assert sent is not None
-    assert sent.amount_paise == ENTRY_PAISE
-    assert sent.party == "Sharma Traders"
-    handed_back = client.read_by_operation_id(COMPANY, draft.operation_id)
-    assert handed_back is not None
-    assert handed_back.amount_paise == 2_000_000
-    assert handed_back.party == "Verma Properties"
-    assert handed_back.date == datetime.date(2026, 8, 31)
+    # pytest.raises is never the whole proof. The state has to be clean too.
+    assert draft.posted_tally_id is None
+    assert client.write_count == 1, "the write happened; only the CLAIM is refused"
+    assert store.actions(COMPANY) == (), "nothing is recorded as posted"
 
-    row = only_row(store)
-    assert (row.action, row.outcome) == ("posted", "valid")
-    assert row.run_id == RUN
-    assert row.backend == "SwapsTheReadBack"
-    assert row.operation_id == draft.operation_id
-    assert row.detail == f"Purchases {ENTRY_PAISE} paise"
-
+    # The entry may genuinely exist in Tally - the refusal says so, and says it
+    # must be checked by hand. That is the honest state, not a clean rollback.
+    assert client.read_by_operation_id(COMPANY, draft.operation_id) is not None
     assert client.reverse_by_operation_id(COMPANY, draft.operation_id) is True
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT D1, accountant/pipeline.py:228. The C6 read-back is a presence "
-        "check. A voucher carrying our marker with a different amount, party or "
-        "date is accepted as proof of our write."
-    ),
-)
 def test_a_read_back_must_match_the_voucher_we_sent_and_not_merely_our_marker() -> None:
     """Voucher identity has to come from Tally, not from our own marker."""
     client, draft, _store = _posted_against_a_swapped_read_back()
@@ -1168,17 +1151,18 @@ def test_both_backends_refuse_to_choose_between_two_vouchers_sharing_one_marker(
 # ---------------------------------------------------------------------------
 
 
-def test_a_write_absent_from_tallys_own_register_is_still_reported_as_posted() -> None:
-    """MEASURED, AND IT IS DEFECT D1's second face - accountant/pipeline.py:228.
+def test_a_write_absent_from_tallys_own_register_is_refused() -> None:
+    """W1's second face, FIXED 2026-08-09. This test pinned the DEFECT until then.
 
     Our marker filter says the voucher is there. Tally's own voucher list and
-    its own trial balance say it is not. `post` only ever consults the filter,
-    so the pipeline reports success against a register that never moved.
+    its own trial balance say it is not. Before the fix `post` consulted only
+    the filter and reported success against a register that never moved.
 
     G3 in `tests/test_tally_contract.py` states the requirement - "the posted
     voucher shows up in Tally's OWN report, not only in the view our marker
-    filter produces" - and proves it of the CLIENT. Nothing enforces it on the
-    pipeline, which is the layer that decides whether to tell the person yes.
+    filter produces" - and proved it of the CLIENT. Nothing enforced it on the
+    PIPELINE, which is the layer that decides whether to tell the person yes.
+    Now it does, so the phase's headline claim is true in the code that runs.
     """
     t = tally(past())
     store = MemoryStore(":memory:")
@@ -1188,32 +1172,25 @@ def test_a_write_absent_from_tallys_own_register_is_still_reported_as_posted() -
     balance_before = client.trial_balance(COMPANY)
 
     draft = valid_draft(client, memory)
-    posted = pipeline.post(draft, client)
-    pipeline.record_decision(store, posted, memory, client, "posted", RUN)
 
-    assert posted.posted_tally_id is not None
-    assert client.write_count == 1
+    with pytest.raises(RuntimeError) as raised:
+        pipeline.post(draft, client)
 
-    # The differential, all three views of the same fact.
+    said = str(raised.value)
+    assert "NOT in Tally's own register" in said
+    assert draft.operation_id in said
+
+    # The differential, all three views of the same fact - and now the pipeline
+    # believes the register rather than its own filter.
     assert client.read_by_operation_id(COMPANY, draft.operation_id) is not None
     assert client.read_vouchers(COMPANY) == register_before
     assert client.list_our_vouchers(COMPANY) == ()
     assert client.trial_balance(COMPANY) == balance_before
 
-    row = only_row(store)
-    assert (row.action, row.outcome, row.run_id) == ("posted", "valid", RUN)
-    assert row.backend == "HidesItFromTheRegister"
-    assert row.voucher_id == posted.posted_tally_id
+    assert draft.posted_tally_id is None
+    assert store.actions(COMPANY) == (), "nothing is recorded as posted"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT D1 (second face), accountant/pipeline.py:228. `post` confirms a "
-        "write against our own marker filter only; a voucher missing from "
-        "Tally's own register and trial balance is still reported as posted."
-    ),
-)
 def test_a_post_is_not_a_success_until_tallys_own_register_shows_the_voucher() -> None:
     t = tally(past())
     store = MemoryStore(":memory:")
@@ -1483,3 +1460,32 @@ def test_the_runtime_refuses_an_identity_that_contradicts_the_client_it_names(
 
     with pytest.raises((ValueError, RuntimeError)):
         live_app(client, "RealTally")
+
+
+def test_the_recorded_identifier_is_the_one_tally_returned_not_our_own() -> None:
+    """A SURVIVING MUTANT found this gap in the W1 fix itself.
+
+    Replacing `draft.posted_tally_id = back.tally_id` with a constant of our own
+    left the whole suite green. Nothing asserted WHOSE identifier gets recorded.
+
+    It matters because the identifier is what a person uses to find the entry in
+    Tally afterwards. `WriteResult.tally_id` is what our own client believed it
+    created; `back.tally_id` is what Tally says it stored. Only the second is
+    evidence, and when they disagree the first is the one that sends somebody
+    hunting for a voucher that is not there.
+    """
+    t = tally(past())
+    store = MemoryStore(":memory:")
+    memory = memory_for(t, store)
+    draft = valid_draft(t, memory)
+
+    posted = pipeline.post(draft, t)
+
+    back = t.read_by_operation_id(COMPANY, draft.operation_id)
+    assert back is not None
+    assert posted.posted_tally_id == back.tally_id
+
+    # Scoped to Tally's own register, so the identifier is one a person could
+    # actually look up - not merely a string we agree with ourselves about.
+    register = t.read_vouchers(COMPANY)
+    assert [v.tally_id for v in register].count(posted.posted_tally_id) == 1
