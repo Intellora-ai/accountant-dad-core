@@ -1520,3 +1520,176 @@ A legitimate non-Educational licence, then the original unmodified
 `tests/test_tally_contract.py` run against `RealTally` with all 15
 client-fixture tests passing. Nothing else closes it, and no amount of local
 green changes that.
+
+---
+
+## 25. Phase 3 — status, evidence, and the three kinds of proof
+
+**Date: 2026-08-09.** Commits `12a8afb` (P3.1–P3.3) and `dc067f8` (P3.4–P3.5).
+
+### 25.1 The distinction everything else depends on
+
+This project produces three kinds of evidence. Conflating any two of them is how
+a green suite comes to mean nothing.
+
+| Class | What it proves | What it can NEVER prove |
+|---|---|---|
+| **FakeTally implementation** | our code behaves as designed | anything at all about TallyPrime |
+| **Educational-mode compatibility** | a real TallyPrime accepted our XML on a date Educational mode permits | that the unchanged `2026-08-07` fixture works |
+| **RealTally live** | the unchanged contract passed against a licensed TallyPrime | — |
+
+**All Phase 3 test evidence to date is class 1.** Class 3 is unobtainable under
+the owner's 2026-08-08 Option 2 decision (§24) and that has not changed.
+
+### 25.2 Measured — VERIFIED 2026-08-09
+
+| Metric | Actual | Expected | Pass rule | Source |
+|---|---|---|---|---|
+| tests | **891** | ≥ 891 | count only goes up | `pytest -q` |
+| failed / skipped | **0 / 0** | 0 / 0 | no skips are permitted | `pytest -q` |
+| guards | **12/12** | 12/12 | all pass | `./scripts/guards` |
+| pyright errors | **0** | 0 | zero | `pyright` |
+| accidental deletions | **0** | 0 | `git diff` removed-line count | `git diff` |
+| coverage, overall | **98%** | ≥ 90 | threshold | `coverage`, branch on |
+| `pipeline.py:230` read-back raise | **covered** | covered | G4 | `--cov-report=term-missing` |
+
+### 25.3 The startup path — VERIFIED in a clean room
+
+`serve()` did not call `connect()`. `python -m accountant.web.app`, the exact
+command in `README.md:64`, started a server on which **every page answered
+`REAL TALLY REQUIRED`**. The product could not be run at all, and no test could
+have caught it: every web test injects a client through `configure()` and so
+never executes `serve()`'s body.
+
+Verified against a `git archive` of `dc067f8` extracted to an empty directory,
+with stock Python 3.14.6 and **no virtualenv and nothing installed**:
+
+```
+import accountant.web.app          -> OK, dependencies needed: none
+python -m accountant.web.app       -> refuses, exit code 1
+python -m accountant.web           -> refuses, exit code 1   (was: "No module named
+                                      accountant.web.__main__", an error that tells
+                                      a non-programmer nothing)
+```
+
+The refusal names what to check: TallyPrime running, the company open, and
+`F1 > Settings > Advanced Configuration > HTTP Server`.
+
+### 25.4 Two false statements the running app was making
+
+Neither was in any plan. Both are RealTally safety, not cosmetics.
+
+1. **`serve()` never connected** — above.
+2. **Every page rendered** *"Demo mode. This is talking to a fake Tally running
+   in memory… Nothing here touches any real books."* True while the app built its
+   own `FakeTally`; a lie from P3.1 onward, and the dangerous direction — a person
+   told nothing is real will type freely into books that are. The notice is now
+   measured from the live identity. **This hole SURVIVED as a mutant**: deleting
+   the branch so a fake rendered exactly as a real Tally left all 879 tests green.
+
+### 25.5 Live TallyPrime — what was measured, and what broke
+
+Reached through **our own `RealTally` client**, VERIFIED 2026-08-09:
+
+```
+list_companies()  -> ('Accountant Dad Final',)
+read_accounts()   -> ('AD Test Expense', 'AD Test Vendor', 'Cash', 'Profit & Loss A/c')
+read_vouchers()   -> 2 vouchers
+trial_balance()   -> {'AD Test Expense': 168456, 'AD Test Vendor': -168456}   sums to 0
+```
+
+**The transport, the XML and the parsing all work against a real TallyPrime 7.**
+
+#### The company/ledger mismatch — root cause, measured
+
+| Fixture expects | Live Tally has |
+|---|---|
+| company `Demo Co` | `Accountant Dad Final` |
+| `Purchases`, `Sundry Expenses`, `Sharma Traders` | absent |
+| `Cash` | present |
+| an empty company for the flat-trial-balance test | 2 vouchers already posted |
+
+**Cause, five whys:** the contract fixture hard-codes a company and four ledgers
+because `FakeTally.add_company` can invent a world on demand. A real Tally
+cannot — the company must already exist and be **open in the application**.
+The root is not a wrong name; it is that *the fixture assumes a capability only
+a fake has.*
+
+Creating the company over the gateway was attempted and **REFUSED**:
+
+```
+COMPANY NAME="Demo Co" ACTION="Create"
+  -> <RESPONSE>Unknown Request, cannot be processed</RESPONSE>
+```
+
+So it is **not** a code, configuration, fixture or bootstrap defect that this
+project can fix. Creating a company is a GUI action. **OWNER-BLOCKED** — the
+exact action is in §25.7.
+
+#### Licence mode is UNREADABLE over the gateway — and probing for it wedged Tally
+
+An earlier agent reported `$$LicenseInfo:IsEducationalMode -> Yes`. **That is not
+reproducible.** Measured directly:
+
+```
+Export/Function $$LicenseInfo:IsEducationalMode
+  -> <ERRORMSG>Could not find: $$LicenseInfo:IsEducationalMode</ERRORMSG>
+     identical for IsEduMode, LicenseInfo, IsLicensedMode, SerialNumber
+Export/Data "License Info"
+  -> <LINEERROR>Could not find Report 'License Info'!</LINEERROR>
+```
+
+A custom TDL `<REPORT>/<FORM>/<PART>/<LINE>/<FIELD>` was then tried, and **it
+wedged the live TallyPrime**. TCP kept accepting; HTTP never answered again, for
+that request or any after it, through 18 polls over three and a half minutes.
+`utmctl exec` produces no output at all, so the application could not be
+restarted remotely.
+
+**Consequences, all recorded rather than smoothed over:**
+- the UI's Educational-mode state must be driven by an honest `UNKNOWN` that
+  **fails closed**, never by a guess or by inference from company or ledger names
+- the Educational compatibility slice (§25.6) could not complete this session
+- **regression guard added** — `tests/test_real_tally.py` now pins every request
+  this connector can build to two families, `Export+Collection` and
+  `Import+Data`, and fails if any builder ever emits a `REPORT`, `FORM`, `PART`,
+  `LINE`, `FIELD` or `TYPE=Function`. Both mutants die.
+
+### 25.6 The Educational compatibility slice
+
+Built: `ci/educational_slice.py`. It posts one voucher dated **2026-08-31**,
+reads it back from the **unfiltered** register, checks the trial-balance delta,
+reverses by operation ID, and asserts the balance returns to the exact paise —
+emitting one row per metric with `actual · expected · pass_rule · evidence ·
+run_id · backend · company · ledger`.
+
+**It has not produced a passing run.** Tally became unresponsive (§25.5) before
+the first execution completed. Status: **NOT YET MEASURED.** No number from it
+is claimed anywhere.
+
+When it does run it is **compatibility evidence only**. It may never be labelled
+live proof, RealTally proof, `2026-08-07` proof, or Phase 3 live completion. The
+`2026-08-07` fixture is untouched — verified: it appears once as an addition in
+the initial commit and has never been removed or changed in any commit since.
+
+### 25.7 Owner actions — exact, and the only ones outstanding
+
+1. **Restart TallyPrime inside the Windows VM.** Its HTTP gateway is wedged.
+   Close TallyPrime and open it again, then reopen the company. Nothing else
+   recovers it; there is no remote path.
+2. **If the live slice is wanted against `Demo Co`:** create a company named
+   exactly `Demo Co` in TallyPrime and leave it open. It cannot be created over
+   XML. Without this, the slice runs against `Accountant Dad Final` and says so
+   in every evidence row.
+
+Neither is on the critical path for anything else. All other work continued.
+
+### 25.8 Phase 3 status
+
+```
+Phase 3 implementation complete.
+Phase 3 live validation remains environment-limited.
+```
+
+Not "complete". Not "passing". The implementation is done and proven against
+FakeTally; the live validation is blocked by the licence decision in §24 and now
+also by §25.5 and §25.7.

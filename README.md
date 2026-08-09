@@ -43,7 +43,7 @@ decides. It asks when it needs to understand, not for permission.
 
 | | |
 |---|---|
-| Tests | 208 |
+| Tests | 891 |
 | Test suite runtime | 0.06s (without the web tests) |
 | Line coverage | 95% |
 | Mutation score | 94% of 267 mutants |
@@ -61,7 +61,11 @@ mapping is silently incomplete and the score under-reports badly.
 
 ```bash
 uv sync --extra dev
-python -m accountant.web.app          # http://127.0.0.1:8000
+python -m accountant.web              # http://127.0.0.1:8000
+
+It connects to TallyPrime FIRST. If Tally is not running, or the company is not
+open, or its HTTP server is off, it refuses in the terminal and exits 1 rather
+than serving pages that cannot work.
 ```
 
 Every gate, locally, before you push:

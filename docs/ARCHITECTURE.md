@@ -1101,3 +1101,101 @@ place to look for what to do today, and a "next action" written here goes stale
 the moment it is done — which is exactly how the drift recorded in
 [`PROJECT_STATE.md` §23](./PROJECT_STATE.md#23-documentation-drift-corrected)
 happened.
+
+---
+
+## 13. The startup path
+
+There is **one** way this process starts, and it connects before it serves.
+
+```
+python -m accountant.web            ── both routes reach the same serve()
+python -m accountant.web.app        ──┘
+        │
+        ▼
+   serve(host, port, tally=TallyConfig(...))
+        │
+        ▼
+   connect()  ──►  factory.real_tally()  ──►  RealTally over HTTP
+        │                                        │
+        │                                   identity check, READ ONLY
+        │                                        │
+        ├── unreachable / unlicensed / ──► RealTallyRequired
+        │   unidentified / company                │
+        │   uncertain                             ▼
+        │                                  SystemExit, code 1
+        │                                  ■ NO SERVER IS STARTED
+        ▼
+   bootstrap this company's memory from its OWN Tally
+        │
+        ▼
+   HTTPServer(...).serve_forever()
+```
+
+**Why the refusal happens before the socket opens.** A server that starts and
+then answers `REAL TALLY REQUIRED` on every page looks like a working
+application that hates you. Refusing in the terminal, in one second, with the
+exact setting to check, is the difference between a person fixing it and a
+person concluding the software is broken.
+
+**Why `__main__.py` only routes.** It calls `app.serve()` and adds nothing. Two
+entry points that each did a little setup would be two startup paths, and the
+second one is always the one nobody tests.
+
+**Why tests cannot substitute for this.** Every web test injects a client via
+`configure()`, so none of them executes `serve()`'s body. A startup path is only
+proven by starting up — against a stub that speaks Tally's XML over a real
+socket, one layer below the `TallyClient` interface.
+
+---
+
+## 14. Evidence classes — a design constraint, not a reporting style
+
+The system can be exercised three ways, and the boundary between them is
+architectural: it decides what a result is allowed to be used for.
+
+| Class | Backend | Proves | May NEVER be used to claim |
+|---|---|---|---|
+| implementation | `FakeTally` | our logic is correct | anything about TallyPrime |
+| compatibility | real TallyPrime, permitted date | the XML, transport and reversal mechanism work | that the unchanged contract fixture passes |
+| live | real TallyPrime, contract fixture unchanged | the product works on real books | — |
+
+**Consequence for code, not just for prose.** A harness that produces one class
+must not be able to emit a label belonging to another. `ci/educational_slice.py`
+therefore hard-codes its own `EVENTS`-style constant, `EVIDENCE_CLASS =
+"EDUCATIONAL_MODE_COMPATIBILITY"`, prints it beside every verdict, and states in
+its own output what it is not. The label is a property of the harness, never a
+choice made when writing the report afterwards.
+
+**The fixture date is load-bearing.** `tests/test_tally_contract.py` posts on
+`2026-08-07`. A compatibility run uses a date the environment permits. Editing
+the fixture to match the environment would collapse three classes into one and
+destroy the only signal that says the live question is still open.
+
+---
+
+## 15. What the connector is allowed to send
+
+Two request families. There is no third.
+
+```
+Export + Collection   the four reads   companies · ledgers · closing balances · vouchers
+Import + Data         the two writes   voucher create · voucher delete
+```
+
+**Why this is pinned by a test rather than left to judgement.** A custom TDL
+`<REPORT>/<FORM>/<PART>/<LINE>/<FIELD>` request sent to a live TallyPrime 7
+wedged its HTTP gateway: TCP kept accepting connections and no request was ever
+answered again. Recovery required restarting the application by hand.
+
+The connector has never sent that shape. **"Has never" is not "cannot"**, and
+the cost of discovering the difference is a customer's Tally going unresponsive
+in the middle of a posting run. So the permitted shapes are a whitelist — a
+blacklist only forbids the harmful shapes somebody already thought of, and this
+one was on nobody's list until it happened.
+
+`TYPE=Function` is on the same footing: every attempt to read licence
+information through it was refused by a live Tally, and the TDL workaround is
+what caused the wedge. A licence read is therefore **`UNKNOWN` by design**, and
+an unknown licence mode must fail closed in the UI rather than render as
+"connected, all good".
