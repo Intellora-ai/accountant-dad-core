@@ -9,11 +9,25 @@ Corrections under test:
   C5  a retry with the same operation ID does not create a second voucher
   C6  every post is read back; reversal is checked against the exact prior
       trial balance
+  G3  the posted voucher shows up in Tally's OWN report, not only in the view
+      our marker filter produces (P3.4, last section of this file)
+
+What the G3 section does NOT prove:
+  * it does not prove anything about a real TallyPrime. `client` is FakeTally
+    here; the section is written so the same three tests run unchanged once the
+    fixture also yields RealTally.
+  * "Tally's own report" means `read_vouchers()` and `trial_balance()`, per
+    docs/ARCHITECTURE.md:61 ("Tally's own reports and trial balance") and :792
+    (steps 4 and 5 of the connector order). No Day Book read and no new TDL
+    request is attempted; both are out of scope for Phase 3.
+  * `seed_voucher` is a FakeTally-only setup helper, so the control test carries
+    an isinstance guard, matching the existing pattern above it.
 """
 
 from __future__ import annotations
 
 import datetime
+from dataclasses import replace
 
 import pytest
 
@@ -248,3 +262,111 @@ def test_trial_balance_is_in_paise_and_balances_to_zero(client: TallyClient):
     tb = client.trial_balance(COMPANY)
     assert all(isinstance(v, int) for v in tb.values())
     assert sum(tb.values()) == 0
+
+
+# ---- G3 / P3.4: Tally's own report, not our own marker filter ---------------
+#
+# Every other read-back in this file goes through `operation_id_in(narration)`
+# -- our marker, our filter, our view (fake.py:112-123, real.py:1517). That
+# proves we can find what we wrote in a register we are already filtering. It
+# does not prove the voucher landed in the register Tally itself reports.
+# These three close that gap. The third is the control: without it the first
+# would still pass against a register that only ever contains our own writes.
+
+
+def _delta(before: dict[str, int], after: dict[str, int]) -> dict[str, int]:
+    """Per-account movement, in paise. Accounts that did not move are dropped."""
+    moved = {k: after.get(k, 0) - before.get(k, 0) for k in set(before) | set(after)}
+    return {k: v for k, v in moved.items() if v != 0}
+
+
+def test_a_posted_voucher_appears_in_the_unfiltered_register(client: TallyClient):
+    """Found by party and amount, never by our marker.
+
+    Searching the register for our own marker would only re-prove that our
+    filter agrees with itself.
+    """
+    before = client.read_vouchers(COMPANY)
+
+    result = client.write_voucher(
+        COMPANY, a_voucher(amount_paise=118000), new_operation_id()
+    )
+
+    after = client.read_vouchers(COMPANY)
+    assert len(after) == len(before) + 1
+
+    matches = [
+        v for v in after if v.party == "Sharma Traders" and v.amount_paise == 118000
+    ]
+    assert len(matches) == 1
+    posted = matches[0]
+    assert posted.debit_account == "Purchases"
+    assert posted.credit_account == "Cash"
+    assert posted.date == datetime.date(2026, 8, 7)
+    assert posted.tally_id == result.tally_id
+
+
+def test_a_posted_voucher_moves_the_trial_balance_by_its_own_amount(
+    client: TallyClient,
+):
+    """The DELTA is the claim, not the absolute.
+
+    A prior voucher is written first so the balances are already non-zero; an
+    assertion on the absolute figures would then be wrong, and only a delta
+    assertion can pass.
+    """
+    client.write_voucher(COMPANY, a_voucher(amount_paise=250000), new_operation_id())
+
+    before = client.trial_balance(COMPANY)
+    # Measured convention: debit positive, credit negative (FakeTally
+    # trial_balance, accountant/tallyio/fake.py:76-85).
+    assert before == {"Purchases": 250000, "Cash": -250000}
+
+    client.write_voucher(COMPANY, a_voucher(amount_paise=118000), new_operation_id())
+    after = client.trial_balance(COMPANY)
+
+    assert _delta(before, after) == {"Purchases": 118000, "Cash": -118000}
+    assert sum(after.values()) == 0
+
+
+def test_the_unfiltered_register_also_holds_vouchers_we_did_not_write(
+    client: TallyClient,
+):
+    """The control for the two tests above.
+
+    If read_vouchers() were secretly our-only, the first test would pass while
+    proving nothing. One hand-entered voucher and one of ours: the register must
+    show both, list_our_vouchers must show only ours.
+    """
+    theirs = replace(
+        a_voucher(amount_paise=500000, narration="rent paid by hand"),
+        id="draft-human",
+        party="Verma Properties",
+    )
+    assert isinstance(client, FakeTally)
+    client.seed_voucher(COMPANY, theirs)  # simulate a human-entered entry
+
+    op = new_operation_id()
+    client.write_voucher(COMPANY, a_voucher(amount_paise=118000), op)
+
+    register = client.read_vouchers(COMPANY)
+    assert len(register) == 2
+    assert {(v.party, v.amount_paise) for v in register} == {
+        ("Verma Properties", 500000),
+        ("Sharma Traders", 118000),
+    }
+
+    unmarked = [v for v in register if operation_id_in(v.narration) is None]
+    assert len(unmarked) == 1
+    assert unmarked[0].amount_paise == 500000
+    assert unmarked[0].tally_id is None  # nobody wrote it through us
+
+    ours = client.list_our_vouchers(COMPANY)
+    assert len(ours) == 1
+    assert operation_id_in(ours[0].narration) == op
+    assert ours[0].amount_paise == 118000
+    assert all(v.amount_paise != 500000 for v in ours)
+
+    # And the human voucher moved Tally's own trial balance too, so the report
+    # under test is the whole book, not our slice of it.
+    assert client.trial_balance(COMPANY) == {"Purchases": 618000, "Cash": -618000}

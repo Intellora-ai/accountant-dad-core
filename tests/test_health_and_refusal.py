@@ -190,3 +190,173 @@ def test_a_request_with_no_runtime_gets_a_reason_not_a_dropped_socket(
     assert "REAL TALLY REQUIRED" in body
     assert client.list_our_vouchers(app.COMPANY) == ()
     assert client.trial_balance(app.COMPANY) == before
+
+
+# ---- G6: the banner. A person must be TOLD, not left guessing -----------------
+#
+# /health answers a machine. Nobody watching a browser reads it. Before the
+# banner, a company whose books had not been read served either a normal-looking
+# entry form — the app looked fine and simply never suggested anything — or a
+# stack trace out of pipeline.build_draft.
+#
+# These drive a REAL server over HTTP, like the fixture above, because a banner
+# that only appears when a helper is called directly is not a banner a person
+# can see.
+#
+# Assertions match app.CANNOT_HELP, the marker every message shares, rather than
+# the prose around it. That is deliberate twice over: the wording is meant to be
+# edited freely without breaking tests, and — the reason that matters — two tests
+# written earlier today were GREEN AND VACUOUS because they searched a whole page
+# for a common word the stylesheet already contained. The marker appears in
+# exactly one place in the document.
+
+
+def _serve(tally: FakeTally) -> Iterator[str]:
+    httpd = HTTPServer(("127.0.0.1", 0), app.Handler)
+    ready = threading.Event()
+
+    def run() -> None:
+        app.configure(tally, _identity(), store=MemoryStore(":memory:"))
+        ready.set()
+        httpd.serve_forever()
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    assert ready.wait(timeout=5), "the server thread never configured a runtime"
+    try:
+        yield f"http://127.0.0.1:{httpd.server_address[1]}"
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=5)
+        app.disconnect()
+
+
+def _page(base: str) -> str:
+    with urllib.request.urlopen(base + "/", timeout=5) as r:  # noqa: S310
+        return r.read().decode()
+
+
+def _company_with(vouchers: tuple[Voucher, ...]) -> FakeTally:
+    t = FakeTally()
+    t.add_company(app.COMPANY, accounts=ACCOUNTS, vouchers=vouchers, backed_up=True)
+    return t
+
+
+def _nameless(n: int) -> tuple[Voucher, ...]:
+    """History that exists but teaches nothing — no party on any row."""
+    return tuple(
+        Voucher(
+            id=f"n{i}",
+            date=datetime.date(2026, 4, 1),
+            party="",
+            narration="cash paid",
+            debit_account="Purchases",
+            credit_account="Cash",
+            amount_paise=5000,
+        )
+        for i in range(n)
+    )
+
+
+def test_a_company_we_really_read_shows_no_banner_at_all() -> None:
+    """THE CONTROL. Without it every test below passes on an always-on banner."""
+    for base in _serve(_tally()):
+        page = _page(base)
+        assert app.runtime().memory.report.status is BootstrapStatus.READY
+        assert app.CANNOT_HELP not in page
+        # Scoped to the banner's own marker. `class=warn` is used by four other
+        # things on this page — the backend notice, an expired draft, a retype
+        # prompt, the refusal box — so asserting on it would fail for reasons
+        # that have nothing to do with the bootstrap banner.
+        assert "We have not read" not in page
+        assert "no past entries" not in page
+
+
+def test_a_company_with_no_history_at_all_is_told_so_in_plain_words() -> None:
+    for base in _serve(_company_with(())):
+        page = _page(base)
+        assert app.runtime().memory.report.status is BootstrapStatus.EMPTY_SOURCE
+        assert app.CANNOT_HELP in page
+        assert "no past entries" in page
+
+
+def test_a_company_whose_history_teaches_nothing_is_told_so_in_plain_words() -> None:
+    for base in _serve(_company_with(_nameless(4))):
+        page = _page(base)
+        status = app.runtime().memory.report.status
+        assert status is BootstrapStatus.EMPTY_VENDOR_INDEX
+        assert app.CANNOT_HELP in page
+        assert "says who you paid" in page
+
+
+def test_a_company_that_cannot_help_yet_still_posts_nothing() -> None:
+    """The banner explains; it does not replace the refusal."""
+    for base in _serve(_company_with(())):
+        code, _ = _post(base, "/entry", text="paid Sharma Traders 4200 for cement")
+        assert code in (200, 503)
+        assert app.runtime().client.list_our_vouchers(app.COMPANY) == ()
+
+
+def test_every_status_has_words_and_none_of_them_is_jargon() -> None:
+    """Plain language is a product requirement, so it is asserted, not trusted.
+
+    A twelve-year-old must be able to read these. The forbidden list is checked
+    WHOLE rather than sampled, and every non-READY status must have a message —
+    a status with no words would silently show a blank warning box.
+    """
+    forbidden = (
+        "bootstrap",
+        "index",
+        "mapping",
+        "vendor_key",
+        "enum",
+        "status",
+        "EMPTY_SOURCE",
+        "EMPTY_VENDOR_INDEX",
+        "INCOMPLETE",
+        "NEVER_RUN",
+    )
+    for status in BootstrapStatus:
+        message = app.BOOTSTRAP_TROUBLE.get(status, "")
+        if status is BootstrapStatus.READY:
+            assert message == "", "a company we read must produce no banner"
+            continue
+        assert message, f"{status.value} would render an empty warning box"
+        assert app.CANNOT_HELP in message
+        for word in forbidden:
+            assert word.lower() not in message.lower(), f"{status.value}: {word}"
+
+
+def test_a_backend_that_is_not_real_tally_says_so_on_every_page() -> None:
+    """A SURVIVING MUTANT found this gap; it is not a hypothetical.
+
+    Deleting the `ident.backend != "RealTally"` branch — so a fake is presented
+    exactly as a real Tally would be — left all 879 tests green. Nothing
+    anywhere asserted that the page tells the truth about which Tally it is on.
+
+    The page used to carry a hardcoded "Demo mode... fake Tally... Nothing here
+    touches any real books." That was true when the app built its own FakeTally
+    and became a lie the moment P3.1 wired it to a real one. Both directions are
+    dangerous. The false-reassurance direction is worse: a person told nothing
+    is real will type freely into books that are.
+    """
+    for base in _serve(_tally()):
+        page = _page(base)
+        assert app.runtime().identity.backend == "FakeTally"
+        assert "Not real accounting software" in page
+        assert "FakeTally" in page
+        assert "Nothing here reaches any real books" in page
+
+
+def test_the_page_never_claims_a_fake_backend_is_tally() -> None:
+    """The inverse, and the one that protects somebody's real books.
+
+    Asserted as an absence, because the failure is a sentence that should not
+    be there. The wording is taken from the notice itself so it cannot drift.
+    """
+    for base in _serve(_tally()):
+        page = _page(base)
+        assert "writing into <b>RealTally</b>" not in page, (
+            "the page presented a fake backend as if it were a real Tally"
+        )

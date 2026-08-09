@@ -37,10 +37,10 @@ from accountant import questions as Q
 from accountant.extract.adapter import TypedTextExtractor
 from accountant.memory.bootstrap import bootstrap
 from accountant.memory.company import CompanyMemory
-from accountant.memory.store import MemoryStore
+from accountant.memory.store import BootstrapReport, BootstrapStatus, MemoryStore
 from accountant.schema import ActionLog, Outcome
 from accountant.tallyio.client import TallyClient, operation_id_in
-from accountant.tallyio.factory import BackendIdentity, real_tally
+from accountant.tallyio.factory import BackendIdentity, RealTallyRequired, real_tally
 from accountant.tallyio.real import RecordedBackups, TallyConfig
 
 COMPANY = "Accountant Dad Final"
@@ -146,6 +146,60 @@ def health() -> dict[str, object]:
         "last_bootstrap": report.bootstrapped_at,
         **live.identity.as_metrics(),
     }
+
+
+# ---- "have we actually read this company's books?" --------------------------
+#
+# G6. A failure to read the books has to be visible to the PERSON, not only to
+# whoever reads /health. Before this, a company whose history had not been read
+# served either a normal-looking entry form — so the app looked fine and simply
+# never suggested anything — or a stack trace out of `pipeline.build_draft`.
+# Neither says the one thing that matters: we have not read your books yet.
+#
+# `report.detail` is never shown. It is written for us; it names steps and says
+# "6 mapping(s)". The person gets sentences instead, and the five are worded so
+# a reader can tell which one they are looking at without knowing any of this.
+#
+# Every message ends its first sentence with CANNOT_HELP. That is deliberate:
+# it gives the tests one stable thing to assert on, so "a banner appeared" can
+# be checked without matching prose that is meant to be edited freely.
+
+CANNOT_HELP = "cannot suggest anything"
+
+BOOTSTRAP_TROUBLE: dict[BootstrapStatus, str] = {
+    BootstrapStatus.NEVER_RUN: (
+        f"<b>We have not read your Tally books yet, so we {CANNOT_HELP}.</b> "
+        "Nothing has been read out of Tally for this company. Until it is, "
+        "every entry you type will come back as a question."
+    ),
+    BootstrapStatus.INCOMPLETE: (
+        f"<b>We started reading your Tally books but did not get to the end, "
+        f"so we {CANNOT_HELP}.</b> Something went wrong part way through. "
+        "Check the company is open in Tally, then start this app again."
+    ),
+    BootstrapStatus.EMPTY_SOURCE: (
+        f"<b>We read your Tally books and there are no past entries in them "
+        f"at all, so we {CANNOT_HELP}.</b> There is nothing for us to learn "
+        "from yet. We will ask you about every entry until you have built up "
+        "some history."
+    ),
+    BootstrapStatus.EMPTY_VENDOR_INDEX: (
+        f"<b>We read your Tally books, but not one past entry says who you "
+        f"paid, so we {CANNOT_HELP}.</b> With no name on a past entry there is "
+        "nothing for us to learn from. We will ask you about every entry."
+    ),
+}
+
+
+def bootstrap_banner(report: BootstrapReport) -> str:
+    """The warning box, or "" when the books were read AND were useful.
+
+    Returning "" for READY is the whole point. A banner that is always there
+    is not a banner, it is decoration, and the test that proves a READY
+    company shows nothing is what keeps it honest.
+    """
+    trouble = BOOTSTRAP_TROUBLE.get(report.status, "")
+    return f"<div class=warn>{trouble}</div>" if trouble else ""
 
 
 def connected() -> bool:
@@ -297,14 +351,44 @@ def esc(s: object) -> str:
     return html.escape(str(s))
 
 
+def backend_notice() -> str:
+    """Name the backend we are ACTUALLY on, read from the live identity.
+
+    This was a hardcoded "Demo mode. This is talking to a fake Tally running in
+    memory... Nothing here touches any real books." It was true when the app
+    built its own `FakeTally`. P3.1 removed that, and the sentence stayed —
+    printed on every page of an app now wired to somebody's real statutory
+    books, telling them the opposite.
+
+    Both directions of that lie are dangerous, and the false-reassurance one is
+    worse: a person told nothing is real will type freely into books that are.
+    So the notice is MEASURED, never written down. Anything that is not
+    RealTally warns loudly; RealTally states the endpoint so the person can see
+    which Tally they are about to change.
+    """
+    if _runtime_state is None:
+        return ""
+    ident = _runtime_state.identity
+    if ident.backend != "RealTally":
+        return (
+            f"<div class=warn><b>Not real accounting software.</b> This is "
+            f"talking to <b>{esc(ident.backend)}</b> at "
+            f"{esc(ident.endpoint)}, not to TallyPrime. Nothing here reaches "
+            f"any real books.</div>"
+        )
+    return (
+        f"<p class=sub>writing into <b>{esc(ident.backend)}</b> at "
+        f"{esc(ident.endpoint)}</p>"
+    )
+
+
 def page(body: str) -> bytes:
     return f"""<!doctype html><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>Accountant Dad</title><style>{CSS}</style>
 <h1>Accountant Dad</h1>
 <p class=sub>{esc(COMPANY)} &middot; posting into Tally</p>
-<div class=warn><b>Demo mode.</b> This is talking to a <b>fake Tally</b> running in
-memory, not real accounting software. Nothing here touches any real books.</div>
+{backend_notice()}
 {body}""".encode()
 
 
@@ -423,7 +507,7 @@ def render_home(banner: str = "") -> bytes:
         or '<div class="ev muted">nothing yet</div>'
     )
 
-    return page(f"""{banner}
+    return page(f"""{bootstrap_banner(live.memory.report)}{banner}
 <form class=entry method=post action=/entry>
 <input type=text name=text autofocus
  placeholder="paid Sharma Traders 4200 for cement including 18% GST">
@@ -605,13 +689,49 @@ class Handler(BaseHTTPRequestHandler):
         self._send(render_home(), 404)
 
 
-def serve(host: str = "127.0.0.1", port: int = 8000) -> None:
-    # Said "(demo, fake Tally)" until 2026-08-09, which stopped being true when
-    # the fake path was removed. A banner that names the wrong backend is the
-    # cheapest possible way to mistake a test run for a real one.
-    print(f"Accountant Dad -> http://{host}:{port}")
+def serve(
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    *,
+    tally: TallyConfig | None = None,
+    company: str = COMPANY,
+    backups: RecordedBackups | None = None,
+) -> None:
+    """Connect to the real Tally FIRST, then serve. Refuse loudly otherwise.
+
+    Two separate defects lived in the four lines this replaced.
+
+    It printed "(demo, fake Tally)", which stopped being true the moment the
+    fake path was removed. A banner naming the wrong backend is the cheapest
+    possible way to mistake a test run for a real one.
+
+    Worse, it never called `connect()`. P3.1 deleted the old `seed()` FakeTally
+    path and nothing replaced it, so `python -m accountant.web.app` — the exact
+    command in README.md — started a server on which EVERY page answered
+    "REAL TALLY REQUIRED". Failing closed is correct; never being able to open
+    is not, and it made the whole product unrunnable while every test passed.
+    No test could have caught it: the tests inject a client through
+    `configure()` and so never take this path at all.
+
+    Refusing here rather than per-request is deliberate. If Tally is not there,
+    the person finds out in the terminal in one second, not by opening a page
+    that looks like an app and refuses everything they type.
+    """
+    live = connect(tally or TallyConfig(), company, backups=backups)
+    print(
+        f"Accountant Dad -> http://{host}:{port}\n"
+        f"  backend {live.identity.backend} at {live.identity.endpoint}\n"
+        f"  company {live.identity.company!r}\n"
+        f"  books    {live.memory.report.status.value}\n"
+        f"  run      {live.identity.run_id}"
+    )
     HTTPServer((host, port), Handler).serve_forever()
 
 
-if __name__ == "__main__":
-    serve()
+if __name__ == "__main__":  # pragma: no cover - the process entry point
+    try:
+        serve()
+    except RealTallyRequired as exc:
+        # Exit non-zero so a launcher, a script or a packaged .exe can tell the
+        # difference between "stopped" and "never started".
+        raise SystemExit(f"{REFUSAL}: no operation performed. {exc}") from exc
