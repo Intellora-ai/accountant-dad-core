@@ -25,6 +25,7 @@ Stdlib only. No framework, no build step, no install.
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import html
 import json
@@ -950,7 +951,16 @@ def render_decision(d: pipeline.Draft) -> str:
     # has been dismissed — a way to dismiss it. Dismissing changes nothing about
     # the entry; it records that a person looked.
     flags = "".join(
-        f"<p class=reason>&#9873; <b>{esc(f.detector)}</b> — {esc(f.reason)}"
+        # `data-detector` and `data-dismissed` are here for the same reason
+        # `data-outcome` is on the log rows: two tests written earlier were
+        # green and vacuous because they searched a whole page for a common
+        # word the stylesheet already contained. `"vendor_switch" in page` is
+        # also true of the hidden form input below it, so a render that dropped
+        # the flag and kept the button would pass. An attribute cannot be
+        # matched by accident.
+        f'<p class=reason data-detector="{esc(f.detector)}" '
+        f'data-dismissed="{"true" if f.detector in d.dismissed else "false"}">'
+        f"&#9873; <b>{esc(f.detector)}</b> — {esc(f.reason)}"
         + (
             " <b>dismissed</b></p>"
             if f.detector in d.dismissed
@@ -1197,19 +1207,66 @@ class Handler(BaseHTTPRequestHandler):
         is exactly what a readiness failure is — and it is what stops a caller
         retrying against a machine that cannot serve them.
 
-        Only `RuntimeError` is caught, and only the refusal it carries. Any
-        other exception still surfaces, because swallowing unknown failures
-        here would hide real defects behind a tidy error page.
+        THE SECOND HALF, added 2026-08-09 after an audit found the same defect
+        one branch away. Only the refusal was caught, so ANY other failure —
+        a detector raising, a parser giving up, an unexpected shape from Tally
+        — escaped exactly the way the refusal used to: traceback in the log,
+        dropped socket at the browser, and a person who cannot tell a broken
+        app from an unreachable Tally. The paragraph above was true and was
+        being applied to one exception out of all of them.
+
+        So everything is caught now, and the two cases are kept apart because
+        they mean different things:
+
+            the refusal        we are not connected; the sentence IS the answer
+            anything else      something in us broke; the person is told that,
+                               and the detail goes to the durable log where
+                               whoever fixes it will look
+
+        The page never carries the exception text. A stack message on a screen
+        a customer sees is a different failure, and `note()` already has a
+        field for it.
+
+        `BaseException` is deliberately NOT caught. A KeyboardInterrupt or a
+        SystemExit is somebody stopping the process, and answering it with a
+        tidy 503 would fight them.
         """
         try:
             super().handle_one_request()
         except RuntimeError as exc:
-            if not str(exc).startswith(REFUSAL):
-                raise
-            self._send(
-                page(f"<div class=warn><b>{esc(exc)}</b></div>"),
-                code=503,
+            if str(exc).startswith(REFUSAL):
+                self._send(page(f"<div class=warn><b>{esc(exc)}</b></div>"), code=503)
+                return
+            self._broke(exc)
+        except Exception as exc:
+            self._broke(exc)
+
+    def _broke(self, exc: BaseException) -> None:
+        """Answer a failure of ours, and record what it was.
+
+        Two audiences, two messages. The page says what happened and what to do
+        and names no internals; the log row carries the type and the message so
+        the failure is diagnosable without a screenshot.
+
+        Recording is best-effort on purpose: if the runtime is the thing that
+        broke, `note()` raises too, and a logging failure must not replace the
+        answer the person is waiting for.
+        """
+        with contextlib.suppress(Exception):
+            note(
+                "failed",
+                "FAILED",
+                f"the request could not be finished: {type(exc).__name__}: {exc}",
             )
+        self._send(
+            page(
+                "<div class=warn><b>Something in Accountant Dad broke, so this "
+                "entry could not be finished.</b> Nothing was written to your "
+                "Tally. The details are in the activity log below. Try again, "
+                "and if it keeps happening the log is what to send on.</div>"
+            ),
+            code=503,
+        )
 
     def _form(self) -> dict[str, str]:
         n = int(self.headers.get("Content-Length", 0))
@@ -1267,6 +1324,34 @@ class Handler(BaseHTTPRequestHandler):
             value = form.get("value", "")
             problem = form.get("problem", "which_account")
             learn = False
+
+            # The answer must be one WE OFFERED. `decide_problems` already
+            # computes the exact allowed set and puts it on the decision as
+            # `question_options`; until 2026-08-09 nothing outside tests read
+            # it, and this handler wrote whatever the form carried straight
+            # onto a ledger leg through `pipeline.answer`.
+            #
+            # A hand-made POST could therefore set the debit account to any
+            # string at all. It failed closed one step later — `accounts_exist`
+            # refuses a ledger the chart does not hold — but that is a
+            # coincidence of the decision order, not a check, and it would stop
+            # being true the moment somebody sent a string that IS in the
+            # chart but was never offered for this question.
+            #
+            # 400, not 503: the request is wrong, not the service.
+            offered = d.decision.question_options if d.decision else ()
+            if offered and value not in offered:
+                self._send(
+                    page(
+                        f"<div class=warn><b>{esc(value)}</b> was not one of the "
+                        "answers offered for this question, so nothing was "
+                        "changed.</div>"
+                        + render_decision(d)
+                        + '<p><a href="/">&larr; back</a></p>'
+                    ),
+                    code=400,
+                )
+                return
 
             live = runtime()
             accounts = live.client.read_accounts(live.company)
