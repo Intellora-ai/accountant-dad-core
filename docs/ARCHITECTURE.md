@@ -630,11 +630,26 @@ sequenceDiagram
         W->>T: read_by_operation_id(op_id)
         alt None
             Note over W: STOP. The write did NOT happen,<br/>whatever HTTP said.
-        else Voucher
+        else a DIFFERENT voucher
+            Note over W: STOP. W1. amount, party, date or either<br/>ledger differs from what we sent.<br/>The refusal NAMES every field.
+        else not in the UNFILTERED register
+            W->>T: read_vouchers(company)
+            Note over W: STOP. G3. Our marker found it,<br/>Tally's own register does not have it.
+        else verified
+            W->>W: posted_tally_id = TALLY's id, not ours
             W->>W: ActionLog(action="posted")
         end
     end
 ```
+
+**Why identity and not presence.** Until 2026-08-09 this branch was `is None` and
+nothing else: the voucher Tally handed back was read and then discarded. It
+checked the label on the box and never opened it, so a voucher carrying our
+marker with a different amount, party or date was accepted as proof — and so was
+one present in the marker view but absent from the register and the trial
+balance. **G3 is a claim about the posting path, so it has to be enforced there**,
+not only in a standalone script. The check can refuse more; it can never post
+more.
 
 ### 5.7 Bulk reversal
 
