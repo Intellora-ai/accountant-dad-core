@@ -36,7 +36,7 @@ from accountant.memory.company import (
     FROM_TALLY_HISTORY,
     CompanyMemory,
 )
-from accountant.memory.identity import CompanyIdentity
+from accountant.memory.identity import CompanyIdentity, normalise_company
 from accountant.memory.index import normalise_phrase, normalise_vendor
 from accountant.memory.store import (
     BootstrapCounts,
@@ -125,6 +125,56 @@ def _rows(company_key: str, seen: dict[str, _Seen]) -> list[Observation]:
     ]
 
 
+def _colliding_company(
+    company: str, key: str, open_companies: Sequence[str]
+) -> str | None:
+    """Another company open in Tally RIGHT NOW that reduces to the same key.
+
+    Checked against the live list rather than against the store, because the
+    store can only ever hold one of a colliding pair — `company_key` is the
+    sole primary key and the writer is `INSERT OR REPLACE`, so by the time two
+    of them have been through here one has already replaced the other. The set
+    of names actually open in Tally is the only place the pair both exist.
+
+    Comparing keys and returning the ORIGINAL name is deliberate: the key is
+    what collides, and the name is what a person can act on.
+    """
+    for other in open_companies:
+        if other != company and normalise_company(other) == key:
+            return other
+    return None
+
+
+def _refused(
+    store: MemoryStore,
+    identity: CompanyIdentity,
+    attempted_at: str,
+    last_success: str,
+    detail: str,
+) -> CompanyMemory:
+    """A refusal that touches NOTHING. No read, no write, no `forget`.
+
+    Separate from `_incomplete` because `_incomplete` calls `save_bootstrap`,
+    and on a key collision that write IS the damage: it would stamp this
+    company's `display_name` onto the row belonging to the other company that
+    shares the key. A refusal whose own record corrupts the thing it is
+    refusing to touch is not a refusal.
+    """
+    return CompanyMemory(
+        BootstrapReport(
+            identity=identity,
+            status=BootstrapStatus.COMPANY_KEY_COLLISION,
+            detail=detail,
+            attempted_at=attempted_at,
+            bootstrapped_at=last_success,
+            steps=(),
+        ),
+        # The real store, not None: the refusal writes nothing, and a
+        # non-READY report already makes every lookup raise MemoryNotReady.
+        store,
+    )
+
+
 def _incomplete(
     store: MemoryStore,
     identity: CompanyIdentity,
@@ -190,11 +240,20 @@ def bootstrap(
     attempted_at = _stamp(now)
     previous = store.state(identity.key)
     last_success = previous.bootstrapped_at if previous is not None else ""
-    store.forget(identity.key)
 
     done: list[str] = []
     try:
-        if company not in client.list_companies():
+        # D3. EVERY check that can refuse this company runs BEFORE `forget()`.
+        #
+        # `store.forget(identity.key)` used to sit four lines above here,
+        # unconditional. So the first opportunity to notice anything was wrong
+        # came AFTER the previous company's vendor, phrase, chart and company
+        # rows had already been deleted — and `_incomplete` then wrote a row
+        # under the shared key carrying THIS company's display name, so
+        # `resume(the other one)` came back INCOMPLETE under the wrong name.
+        # Destroying an index is the last thing we do, not the first.
+        open_companies = client.list_companies()
+        if company not in open_companies:
             return _incomplete(
                 store,
                 identity,
@@ -203,7 +262,25 @@ def bootstrap(
                 last_success,
                 f"{company!r} is not open in Tally, so its history cannot be read",
             )
+
+        clash = _colliding_company(company, identity.key, open_companies)
+        if clash is not None:
+            # NOT `_incomplete` — that writes, and writing is the damage.
+            return _refused(
+                store,
+                identity,
+                attempted_at,
+                last_success,
+                f"{company!r} and {clash!r} are both open in Tally and both "
+                f"reduce to the same internal name {identity.key!r}, so their "
+                f"histories cannot be told apart. Nothing was read and nothing "
+                f"was changed. Rename one of them in Tally, then try again.",
+            )
         done.append("identity")
+
+        # Safe now: this is the right company, and no other open company can
+        # be confused with it.
+        store.forget(identity.key)
 
         chart = client.read_accounts(company)
         done.append("accounts")

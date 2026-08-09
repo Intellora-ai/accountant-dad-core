@@ -22,13 +22,20 @@ WHAT THIS FILE DOES NOT PROVE
       `tests/test_real_tally.py::TallySim`. A simulator built from the same
       assumptions as `real.py` cannot falsify them. Two sockets are opened,
       both to loopback servers this file starts, and neither reaches Tally.
-    * That the DEFECTS recorded here are the only ones. SIX tests below assert
+    * That the DEFECTS recorded here are the only ones. SIX tests below asserted
       a WRONG answer on purpose, because the job was to measure what happens
       and not to change it. Each carries a `DEFECT:` line naming file and line.
       They are not aspirations written as assertions; they are the
       measurement, and they will start failing the day somebody fixes the
       thing they describe. That is the intended alarm, and each one says in
       its message what to do when it goes off.
+
+      THE ALARM HAS GONE OFF TWICE, 2026-08-09. The date-drift and
+      amount-change tests both fired the moment `RealTally.write_voucher`
+      started comparing the read-back field by field. Both are now flipped to
+      assert the refusal, and they keep the differential evidence that made
+      them worth writing: the create really went out, and the books really do
+      hold something different. FOUR remain asserting a wrong answer.
     * That the amounts here are realistic. ₹92 quadrillion is not a payment
       anybody makes; it is the smallest amount that proves the paise never
       became a float on the way through.
@@ -321,18 +328,19 @@ def test_a_zero_amount_asks_how_much_and_writes_nothing() -> None:
     assert rows[0].detail.endswith("0 paise")
 
 
-def test_a_negative_amount_asks_how_much_and_is_shown_to_the_person_wrongly() -> None:
-    """Expected UNCLEAR, actual UNCLEAR, write count 0 - and a wrong number.
+def test_a_negative_amount_asks_how_much_and_is_shown_to_the_person_correctly() -> None:
+    """Expected UNCLEAR, actual UNCLEAR, write count 0, and the right number.
 
-    DEFECT: accountant/web/app.py:357-358. `rupees()` is
+    DEFECT, FIXED 2026-08-09. `rupees()` was
     `f"{paise // 100:,}.{paise % 100:02d}"`, and Python floors both operators
     towards negative infinity. -420050 paise is ₹-4,200.50 and renders as
     "-4,201.50"; -1 paise renders as "-1.99". `real.rupees_from_paise` splits
     the sign off first and gets it right, so the two renderers in this system
     disagree about every negative that is not a whole rupee.
 
-    Smallest fix: render the magnitude and prepend the sign, exactly as
-    `accountant/tallyio/real.py:319-321` already does.
+    Fixed by rendering the magnitude and prepending the sign, exactly as
+    `real.rupees_from_paise` already did. The two renderers in this system now
+    agree on every negative.
 
     Asserted here rather than in isolation because this is the user-facing
     message for this case, and the case is the one where a negative reaches the
@@ -357,15 +365,11 @@ def test_a_negative_amount_asks_how_much_and_is_shown_to_the_person_wrongly() ->
     )
 
     card = _card(draft)
-    assert card.count("₹-4,200.50") == 0, (
-        "app.rupees has been fixed; delete the defect note in this docstring"
-    )
-    assert card.count("₹-4,201.50") == 1, (
-        "the screen shows one rupee less than the entry carries"
-    )
-    assert app.rupees(-1) == "-1.99", "₹-0.01 renders as ₹-1.99"
+    assert card.count("₹-4,200.50") == 1, "the screen shows what the entry carries"
+    assert card.count("₹-4,201.50") == 0, "the old floored rendering is gone"
+    assert app.rupees(-1) == "-0.01"
     assert real.rupees_from_paise(-420_050) == "-4200.50", (
-        "the connector's renderer is the one that is right"
+        "and the two renderers agree, which is the property that was broken"
     )
 
     # The gate refuses it as well as the screen mis-stating it, and the refusal
@@ -379,24 +383,23 @@ def test_a_negative_amount_asks_how_much_and_is_shown_to_the_person_wrongly() ->
 def test_a_sub_paise_amount_is_truncated_by_the_reader_and_refused_by_the_wire() -> (
     None
 ):
-    """Two components disagree about the same string, and only one is right.
+    """Both components refuse the same string now. FIXED 2026-08-09.
 
-    DEFECT: accountant/extract/adapter.py:66 and :79. `_AMOUNT` matches at most
-    two decimal places, so "10.005" matches as "10.00" and the third digit is
-    dropped without a word; `_to_paise` then multiplies a FLOAT by 100.
-    `real.paise_from_rupees` refuses the identical string - "carries sub-paise
-    precision; refusing to round it away" - because rounding invoice arithmetic
-    is how reconciliation breaks later.
+    DEFECT, until then: `_AMOUNT` matched at most two decimal places, so
+    "10.005" matched as "10.00" and the third digit was dropped without a word;
+    `_to_paise` then multiplied a FLOAT by 100. `real.paise_from_rupees`
+    refused the identical string - "carries sub-paise precision; refusing to
+    round it away" - because rounding invoice arithmetic is how reconciliation
+    breaks later.
 
-    So a sub-paise amount typed by a person is silently rounded, while the same
-    amount arriving from Tally is refused. Expected: both refuse. Actual: the
-    reader rounds. Write count 0 only because the vendor is unseen, NOT because
-    anything noticed the truncation - so this test also pins that the truncated
-    amount is what would have been written.
+    So a sub-paise amount typed by a person was silently rounded and POSTED,
+    while the same amount arriving from Tally was refused. Measured then:
+    amount 1000 paise, outcome VALID, one write, and the log row said "1000
+    paise" so the truncation was unrecoverable from the trail.
 
-    Smallest fix: give `TypedTextExtractor` the `Decimal` path
-    `paise_from_rupees` already has, and make a third decimal place a
-    not_found with a stated reason rather than a silent 10.00.
+    Now the reader returns no amount at all, which `amount_is_positive` turns
+    into a question. Refusing rather than raising, because an unreadable amount
+    is a question for the person and an exception here would be a 500.
 
     backend RecordingTally | cleanup not attempted.
     """
@@ -405,36 +408,36 @@ def test_a_sub_paise_amount_is_truncated_by_the_reader_and_refused_by_the_wire()
 
     draft = _run(client, store, "paid Sharma Traders 10.005 for cement")
 
-    assert draft.voucher.amount_paise == 1000, (
-        "the reader kept ₹10.00 out of ₹10.005 and said nothing"
+    assert draft.voucher.amount_paise == 0, (
+        "no amount was read, so none is carried - never a rounded one"
     )
     assert int(Decimal("10.005") * 100) == 1000, (
         "1000 paise is the truncation, and 1000.5 paise is not representable - "
-        "which is why the connector refuses the string instead of picking one"
+        "which is why both components refuse the string instead of picking one"
     )
     with pytest.raises(real.TallyDataError, match="sub-paise"):
         real.paise_from_rupees("10.005")
 
-    assert draft.outcome is Outcome.VALID, (
-        "the truncated amount was otherwise perfectly postable"
-    )
-    assert len(client.writes) == 1
-    assert client.writes[0][2] == 1000, "the truncated amount is what got written"
+    assert draft.outcome is Outcome.UNCLEAR
+    assert draft.reason == "amount is 0 paise"
+    assert client.writes == [], "nothing is written and nothing is truncated"
+    assert client.inner.list_our_vouchers(COMPANY) == ()
 
     rows = _rows(store)
-    assert len(rows) == 1
-    assert rows[0].action == "posted"
-    assert rows[0].detail.endswith("1000 paise")
-    assert rows[0].run_id == RUN_ID
-    assert rows[0].backend == "RecordingTally"
-    assert "10.005" not in rows[0].detail, (
-        "the log records what we wrote and never what the person typed, so the "
-        "truncation is unrecoverable from the trail"
+    assert [r.action for r in rows] == ["blocked"], (
+        "no write was attempted, so there is no write-ahead row either"
     )
+    assert {r.run_id for r in rows} == {RUN_ID}
+    assert {r.backend for r in rows} == {"RecordingTally"}
 
-    op = draft.operation_id
+    # The disconfirming case, on the same reader and the same sentence shape:
+    # two decimal places still read exactly, so the refusal is about precision
+    # and not about decimals.
+    fine = _run(client, store, "paid Sharma Traders 10.50 for cement")
+    assert fine.voucher.amount_paise == 1050
+    assert fine.outcome is Outcome.VALID
+    op = fine.operation_id
     assert client.reverse_by_operation_id(COMPANY, op) is True
-    assert client.reversals == [(op, True)]
     assert client.inner.trial_balance(COMPANY) == {
         "Purchases": 4_000_000,
         "Cash": -4_000_000,
@@ -531,10 +534,10 @@ def test_a_tenth_plus_two_tenths_of_a_rupee_lands_on_the_exact_paise() -> None:
 def test_a_rupee_amount_a_float_cannot_hold_loses_a_paise_before_it_reaches_tally() -> (
     None
 ):
-    """The typed-text reader still multiplies a float by 100.
+    """The typed-text reader no longer multiplies a float by 100. FIXED 2026-08-09.
 
-    DEFECT: accountant/extract/adapter.py:79.
-    `_to_paise` is `round(float(text.replace(",", "")) * 100)`. A float64 holds
+    DEFECT, until then: `_to_paise` was
+    `round(float(text.replace(",", "")) * 100)`. A float64 holds
     about sixteen significant digits, so from ₹99,999,999,999,999.99 upward the
     paise it produces is simply the wrong integer - here one paise short, and
     at ₹999,999,999,999,999.99 one paise long. `real.paise_from_rupees` uses
@@ -544,8 +547,7 @@ def test_a_rupee_amount_a_float_cannot_hold_loses_a_paise_before_it_reaches_tall
     everywhere and that a float in a money field is a correctness bug. This is
     that bug, in the one component that reads what a person typed.
 
-    Smallest fix: `int(Decimal(cleaned) * 100)` in `_to_paise`, which is the
-    expression `paise_from_rupees` already uses.
+    Fixed with `Decimal`, the expression `paise_from_rupees` already used.
 
     Write count 0 - nothing is posted here, the reader is called directly.
     ActionLog and the rendered message are not applicable at this layer.
@@ -553,11 +555,12 @@ def test_a_rupee_amount_a_float_cannot_hold_loses_a_paise_before_it_reaches_tall
     exact_low = int(Decimal("99999999999999.99") * 100)
     exact_high = int(Decimal("999999999999999.99") * 100)
 
-    assert _read_amount("99999999999999.99") == exact_low - 1, (
-        "the reader is one paise short; if this now equals the exact value the "
-        "defect is fixed and this test should say so instead"
+    assert _read_amount("99999999999999.99") == exact_low, (
+        "one paise short before the fix; exact now"
     )
-    assert _read_amount("999999999999999.99") == exact_high + 1
+    assert _read_amount("999999999999999.99") == exact_high, (
+        "one paise long before the fix; exact now"
+    )
 
     assert real.paise_from_rupees("99999999999999.99") == exact_low
     assert real.paise_from_rupees("999999999999999.99") == exact_high
@@ -570,12 +573,11 @@ def test_a_rupee_amount_a_float_cannot_hold_loses_a_paise_before_it_reaches_tall
     record = TypedTextExtractor().extract(
         b"paid Sharma Traders 99999999999999.99 for cement", "text/plain"
     )
-    assert record.total_paise == exact_low - 1, (
-        "the wrong integer is what the pipeline would go on to write"
+    assert record.total_paise == exact_low, (
+        "the exact integer is what the pipeline goes on to write"
     )
     assert record.per_field_source["total_paise"] == "typed_text", (
-        "the record claims the reader supplied this number, so nothing "
-        "downstream has any reason to doubt it"
+        "the record claims the reader supplied this number, and now it can"
     )
 
 
@@ -600,28 +602,25 @@ class EducationalTally(sim_module.TallySim):
 
 
 def test_a_date_tally_moved_under_us_is_read_back_and_accepted_in_silence() -> None:
-    """The read-back asks whether the voucher EXISTS and nothing else.
+    """A date Tally moved under us is now refused, not reported as a clean write.
 
-    DEFECT: accountant/tallyio/real.py:1888-1900 and
-    accountant/pipeline.py:228-232. Both read the voucher back and both check
-    only `is None`. Neither compares one field of the returned voucher against
-    the voucher that was sent, so a Tally that accepts the write and stores
-    different content reports a clean success.
+    DEFECT, FIXED 2026-08-09. `accountant/tallyio/real.py` compared only
+    `written is None`; `accountant/pipeline.py` did the same until W1. Neither
+    compared one field of the returned voucher against the voucher that was
+    sent, so a Tally that accepted the write and stored different content
+    reported a clean success.
 
     This is not hypothetical here. `docs`-level owner decision of 2026-08-08
     leaves this project on a Tally in Educational mode, which accepts only the
     1st, 2nd and 31st. An entry dated the 7th is exactly the case: the write
     succeeds, the books hold the 1st, and the operator is told it posted.
 
-    Expected: the write is refused, or at minimum the drift is reported.
-    Actual: `WriteResult` is returned, write count 1, and the requested date is
-    gone with no record of it anywhere.
+    Expected: the write is refused and the field is named.
+    Actual (2026-08-09): `TallyWriteMismatch`, `WRONG_DATE`, `fields == ("date",)`.
 
-    Smallest fix: in `RealTally.write_voucher`, after `written` is read back,
-    compare `written.date`, `written.amount_paise`, `written.debit_account` and
-    `written.credit_account` against `voucher` and raise `TallyRejected` naming
-    each field that differs. The read is already being done; only the
-    comparison is missing.
+    The create still went out — that is why the check has to exist at all, and
+    why `safe_to_retry` is False. The rest of this test is unchanged: it still
+    proves the drift is Tally's and not a date this connector never sent.
 
     backend RealTally over EducationalTally | no ActionLog on this path.
     """
@@ -631,14 +630,13 @@ def test_a_date_tally_moved_under_us_is_read_back_and_accepted_in_silence() -> N
     client = _real(sim)
 
     op = new_operation_id()
-    result = client.write_voucher(
-        sim_module.COMPANY, _voucher(420_000, date=asked_for), op
-    )
+    with pytest.raises(real.TallyWriteMismatch) as refused:
+        client.write_voucher(sim_module.COMPANY, _voucher(420_000, date=asked_for), op)
 
-    assert isinstance(result, WriteResult), "nothing raised; this reads as success"
-    assert result.operation_id == op
-    assert result.tally_id == "M1"
-    assert _creates(sim) == 1
+    assert refused.value.verdict.outcome is real.ReadBackOutcome.WRONG_DATE
+    assert refused.value.verdict.fields == ("date",)
+    assert refused.value.verdict.safe_to_retry is False
+    assert _creates(sim) == 1, "the write DID go out; refusing is not undoing"
 
     back = client.read_by_operation_id(sim_module.COMPANY, op)
     assert back is not None
@@ -668,7 +666,12 @@ def test_an_amount_tally_changed_under_us_is_also_accepted_in_silence() -> None:
     because an amount silently halved is the version of this defect that costs
     money rather than a filing period.
 
-    Expected: refused. Actual: reported as a clean write, count 1.
+    Expected: refused. Actual (2026-08-09): `TallyWriteMismatch`,
+    `WRONG_AMOUNT`, `fields == ("amount_paise",)`.
+
+    The trial-balance assertion at the end is the point of keeping this test
+    after the fix: refusing the write does not un-write it. The books still
+    hold half. What changed is that nobody is told it went in correctly.
     """
     sent = 420_000
     stored = 210_000
@@ -687,10 +690,12 @@ def test_an_amount_tally_changed_under_us_is_also_accepted_in_silence() -> None:
     client = _real(sim)
 
     op = new_operation_id()
-    result = client.write_voucher(sim_module.COMPANY, _voucher(sent), op)
+    with pytest.raises(real.TallyWriteMismatch) as refused:
+        client.write_voucher(sim_module.COMPANY, _voucher(sent), op)
 
-    assert result.tally_id == "M1"
-    assert _creates(sim) == 1
+    assert refused.value.verdict.outcome is real.ReadBackOutcome.WRONG_AMOUNT
+    assert refused.value.verdict.fields == ("amount_paise",)
+    assert _creates(sim) == 1, "the write DID go out; refusing is not undoing"
 
     back = client.read_by_operation_id(sim_module.COMPANY, op)
     assert back is not None
@@ -734,14 +739,23 @@ def test_an_amount_tally_changed_under_us_is_also_accepted_in_silence() -> None:
 #                        and there is a THIRD outcome the brief's list omits:
 #                        Outcome.UNCLEAR, which is where most adversarial
 #                        amounts in Part A actually land.
-#   POSTING              DOES NOT EXIST. `pipeline.post` is a synchronous call;
-#                        there is no in-flight marker anywhere, so a crash
-#                        mid-write leaves no trace saying a write was started.
+#   POSTING              EXISTS SINCE 2026-08-09, as a durable row rather than
+#                        as a state value: `pipeline.WRITE_ATTEMPTED`, written
+#                        AHEAD of the socket. It had to be a row and not a
+#                        field, because the case that matters is the process
+#                        not surviving to update a field. A `write_attempted`
+#                        with no partner row is the in-flight marker; the
+#                        partner is `posted` or `write_outcome_unknown`.
 #   POSTED               NOT A STATE. `Draft.posted_tally_id is not None`.
-#   READ_BACK_VERIFIED   DOES NOT EXIST. It is the ABSENCE of a raise, and as
-#                        Part A shows it verifies existence only.
-#   READ_BACK_FAILED     DOES NOT EXIST. It is a `RuntimeError` from
-#                        pipeline.py:230 or `TallyRejected` from real.py:1890.
+#   READ_BACK_VERIFIED   DOES NOT EXIST as a state value, but since 2026-08-09
+#                        it is a real VERDICT: `real.ReadBackVerdict`, with
+#                        `outcome`, the differing `fields`, and `confirmed`.
+#                        It no longer verifies existence only.
+#   READ_BACK_FAILED     DOES NOT EXIST as one thing, and the split matters:
+#                        `TallyWriteMismatch` (Tally definitely stored
+#                        something else) and `TallyWriteUnknown` (we cannot
+#                        tell) are different facts, and a `RuntimeError` from
+#                        `pipeline.post` is a third.
 #   CLEANED              NOT A STATE. `reverse_by_operation_id` returning True.
 #                        Nothing on the draft records it.
 
@@ -751,7 +765,9 @@ INVENTED_STATE_NAMES = (
     "CONNECTED",
     "BOOTSTRAPPING",
     "BOOTSTRAP_FAILURE",
-    "POSTING",
+    # "POSTING" was here until 2026-08-09. It is no longer invented: W2's
+    # write-ahead row gives it a durable representation, and this list is only
+    # honest while it names things that really are absent.
     "POSTED",
     "READ_BACK_VERIFIED",
     "READ_BACK_FAILED",
@@ -764,7 +780,9 @@ def _package_source() -> str:
     return "\n".join(path.read_text() for path in sorted(root.rglob("*.py")))
 
 
-def test_nine_of_the_thirteen_state_names_do_not_exist_in_the_shipped_package() -> None:
+def test_eight_of_the_thirteen_state_names_do_not_exist_in_the_shipped_package() -> (
+    None
+):
     """Naming the mismatch is the result. This checks it instead of asserting it.
 
     Scanned on whole words over every `.py` file in `accountant/`, so
@@ -784,7 +802,11 @@ def test_nine_of_the_thirteen_state_names_do_not_exist_in_the_shipped_package() 
         f"a state this file reports as absent now exists: {found}. Update the "
         "map at the top of PART B rather than deleting the assertion."
     )
-    assert len(INVENTED_STATE_NAMES) == 9
+    # EIGHT since 2026-08-09. "POSTING" left this list when W2's write-ahead
+    # row gave it a durable representation. The count is asserted so the list
+    # cannot be quietly shortened to make a failure go away - shortening it is
+    # allowed, but only together with this number and the map above it.
+    assert len(INVENTED_STATE_NAMES) == 8
 
     # The four that DO exist, pinned so the absence above cannot be vacuous.
     for present in ("READY", "EMPTY_SOURCE", "NOT_VALID", "UNCLEAR"):
@@ -804,6 +826,12 @@ def test_the_states_that_do_exist_are_exactly_these_two_enums() -> None:
         "EMPTY_VENDOR_INDEX",
         "INCOMPLETE",
         "NEVER_RUN",
+        # Added 2026-08-09 with the D3 fix. A collision is not INCOMPLETE:
+        # INCOMPLETE means a step failed part way and a row was written
+        # recording that. A collision means NOTHING was read and NOTHING was
+        # written, because writing the failure would itself have stamped this
+        # company's name onto the other one's row.
+        "COMPANY_KEY_COLLISION",
     ]
     assert [o.name for o in Outcome] == ["NOT_VALID", "UNCLEAR", "VALID"]
     assert not hasattr(Outcome, "INVALID"), "INVALID is spelled NOT_VALID here"
@@ -1040,7 +1068,7 @@ def test_a_bootstrap_that_failed_part_way_through_posts_nothing() -> None:
     )
     assert again.outcome is Outcome.VALID
     assert len(client.writes) == 1
-    assert [r.action for r in _rows(store)] == ["posted"]
+    assert [r.action for r in _rows(store)] == [pipeline.WRITE_ATTEMPTED, "posted"]
 
 
 def test_an_empty_source_company_may_be_asked_but_proposes_and_writes_nothing() -> None:
@@ -1094,6 +1122,13 @@ def test_an_empty_source_company_may_be_asked_but_proposes_and_writes_nothing() 
     accounts = client.read_accounts(COMPANY)
     draft = pipeline.answer(draft, "Purchases")
     memory.record_correction(draft.voucher.party, "Purchases")
+    draft = pipeline.evaluate(draft, accounts, client.read_vouchers(COMPANY), memory)
+
+    # An empty-source company has no history at all, so it cannot say how this
+    # vendor was paid either. Both legs are asked about; neither is invented.
+    assert draft.outcome is Outcome.UNCLEAR
+    assert client.writes == [], "still nothing written while a question is open"
+    draft = pipeline.answer(draft, "Cash", problem_id=pipeline.FUNDING_PROBLEM)
     draft = pipeline.evaluate(draft, accounts, client.read_vouchers(COMPANY), memory)
 
     assert draft.outcome is Outcome.VALID
@@ -1153,14 +1188,21 @@ def test_a_not_valid_entry_is_refused_by_the_post_gate_and_moves_no_money() -> N
     assert client.inner.trial_balance(COMPANY) == before
     assert client.inner.list_our_vouchers(COMPANY) == ()
 
-    with pytest.raises(ValueError, match="Unknown format code"):
-        _card(draft)
-    assert app.ACTION_FOR[Outcome.NOT_VALID] == "blocked", (
-        "the log word exists for an outcome the screen cannot draw"
-    )
+    # FIXED 2026-08-09. `_card(draft)` raised `ValueError: Unknown format code
+    # 'd' for object of type 'float'` out of `app.rupees`, so the ONE outcome
+    # that means "nothing was posted" was the one outcome the screen could not
+    # draw. The person got a traceback instead of the reason.
+    #
+    # `rupees` stays strict - a money formatter that renders a float as rupees
+    # is how a lost paise stops being visible - and the page degrades instead,
+    # printing the value as it actually is and saying it is not an amount.
+    card = _card(draft)
+    assert card.count("4200.5 (not an amount)") == 1
+    assert card.count("₹") == 0, "nothing here is rendered as a rupee figure"
+    assert "amount is float" in card, "and the reason is on the same screen"
+    assert app.ACTION_FOR[Outcome.NOT_VALID] == "blocked"
 
-    # The refusal is still recorded, which is why the defect above is a missing
-    # message rather than a missing audit trail.
+    # The refusal is recorded as well as shown.
     pipeline.record_decision(store, draft, memory, client, "blocked", RUN_ID)
     rows = _rows(store)
     assert len(rows) == 1
@@ -1311,29 +1353,39 @@ def test_invalid_input_never_reaches_a_real_write() -> None:
     client = _real(sim)
     bad = dataclasses.replace(_voucher(4200), amount_paise=4200.5)  # type: ignore[arg-type]
 
-    with pytest.raises(ValueError) as refused:
+    with pytest.raises(real.TallyRejected) as refused:
         client.write_voucher(sim_module.COMPANY, bad, new_operation_id())
 
-    assert "Unknown format code" in str(refused.value)
     assert _creates(sim) == 0, "a float amount reached the wire"
     assert client.read_vouchers(sim_module.COMPANY) == ()
     assert client.trial_balance(sim_module.COMPANY) == {}
 
-    # The missing guard, stated as the observable difference. Every DELIBERATE
-    # refusal in `_check_writable` opens with "refusing to write voucher <id>";
-    # this one names neither the voucher nor the amount, because it is not a
-    # refusal at all - it is a format code failing to accept a float.
-    assert "refusing to write" not in str(refused.value)
-    assert bad.id not in str(refused.value)
+    # A4, FIXED 2026-08-09, stated as the observable difference. The refusal
+    # used to be `ValueError: Unknown format code 'd' for object of type
+    # 'float'` from `rupees_from_paise` one line later - naming no voucher, no
+    # field and no amount, so whoever read that log learned nothing about which
+    # entry to look at. Every DELIBERATE refusal in `_check_writable` opens
+    # with "refusing to write voucher <id>", and this one now does too.
+    message = str(refused.value)
+    assert "refusing to write" in message
+    assert bad.id in message
+    assert "4200.5" in message
+    assert "float" in message
+    assert "Unknown format code" not in message
 
     # The write counter is live. Without this the zero above would also hold if
     # `_creates` matched nothing at all.
     client.write_voucher(sim_module.COMPANY, _voucher(4200), new_operation_id())
     assert _creates(sim) == 1
 
-    # And the accidental nature of the refusal, measured: a bool IS an int in
-    # Python, so it sails through the format code and renders as one paise.
+    # The case the format code could never have caught: a bool IS an int in
+    # Python, so it sails straight through `rupees_from_paise` and renders as
+    # one paise. Only an explicit type check refuses it.
     assert real.rupees_from_paise(True) == "0.01"
+    boolean = dataclasses.replace(_voucher(4200), amount_paise=True)  # type: ignore[arg-type]
+    with pytest.raises(real.TallyRejected, match="bool"):
+        client.write_voucher(sim_module.COMPANY, boolean, new_operation_id())
+    assert _creates(sim) == 1, "still one; the bool never reached the wire"
 
 
 def test_a_bootstrap_that_derived_no_vendor_mapping_is_not_ready_and_health_says_so() -> (  # noqa: E501

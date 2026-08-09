@@ -53,6 +53,30 @@ COMPANY = "Accountant Dad Final"
 
 DRAFTS: dict[str, pipeline.Draft] = {}
 
+# How many drafts stay answerable at once. `DRAFTS` was unbounded: every entry
+# anybody ever typed stayed in memory for the life of the process, holding its
+# voucher, its checks, its flags and its problems. `EVENTS`, the thing it sat
+# next to, was capped at forty - so the audit trail was the bounded one and the
+# unbounded one was live state.
+#
+# 200 rather than 40: a draft is only useful while somebody might still answer
+# its question, and answering happens within minutes, but evicting one out from
+# under a person mid-question is a worse failure than holding a few more.
+# Eviction is oldest-first and it is not silent - the handler says the draft
+# expired rather than 404-ing on an id the person is looking at.
+#
+# The DRAFT IS NOT THE RECORD. Every decision is already durable in the action
+# log, so evicting one loses a form in progress and nothing else.
+DRAFT_LIMIT = 200
+
+
+def remember_draft(draft: pipeline.Draft) -> None:
+    """Keep this draft answerable, and drop the oldest once past the limit."""
+    DRAFTS[draft.id] = draft
+    while len(DRAFTS) > DRAFT_LIMIT:
+        DRAFTS.pop(next(iter(DRAFTS)))
+
+
 # How many log rows the page shows. The log itself is unbounded and append-only;
 # this is a rendering choice and nothing more. `EVENTS`, the forty-row in-memory
 # list this replaced, was the opposite: the cap WAS the retention policy, so row
@@ -195,6 +219,14 @@ BOOTSTRAP_TROUBLE: dict[BootstrapStatus, str] = {
         "from yet. We will ask you about every entry until you have built up "
         "some history."
     ),
+    BootstrapStatus.COMPANY_KEY_COLLISION: (
+        f"<b>Two of your companies have names that are too alike, so we "
+        f"{CANNOT_HELP}.</b> Tally has two companies open whose names only "
+        "differ by brackets, dots, dashes or spare spaces, and we cannot tell "
+        "their books apart. Nothing has been read and nothing has been "
+        "changed. Give one of them a clearly different name in Tally, then "
+        "start this app again."
+    ),
     BootstrapStatus.EMPTY_VENDOR_INDEX: (
         f"<b>We read your Tally books, but not one past entry says who you "
         f"paid, so we {CANNOT_HELP}.</b> With no name on a past entry there is "
@@ -238,8 +270,38 @@ def configure(
     forgotten by the next request; and no bootstrap record, so "we have not read
     your books yet" was indistinguishable from "your books say nothing about
     this vendor". The first asks a question; the second must not.
+
+    W5 / D5, FIXED 2026-08-09. THE IDENTITY MUST NAME THE CLIENT IT IS FOR.
+
+    `backend_state()` and the page read `identity.backend`. Every ActionLog row
+    writes `type(client).__name__`. Nothing compared them, so a runtime built
+    from a fake client and a real-sounding identity told the person on screen
+    *"This is your real Tally"* while every row in their own audit trail said
+    `RecordingTally`. Both cannot be true, and the one the person reads is the
+    wrong one — which is the exact failure mode the three evidence classes
+    exist to prevent, arriving through the injection seam instead of through a
+    document.
+
+    Compared by class name rather than by `isinstance`, deliberately. The
+    question is not "does this object behave like a real Tally" — a double
+    behaves like one, that is what makes it useful. The question is "does the
+    word we are about to print match the object we are about to use", and a
+    string comparison is the only thing that answers it.
+
+    A wrapper is therefore its own backend: `RecordingTally` around a
+    `FakeTally` must declare `RecordingTally`, because that is what the log
+    will say.
     """
     global _runtime_state
+    actual = type(client).__name__
+    if identity.backend != actual:
+        raise ValueError(
+            f"{REFUSAL}: no operation performed. The identity says the backend "
+            f"is {identity.backend!r} but the client is a {actual}. The page "
+            f"and the action log would name different backends, and nothing "
+            f"downstream could tell which one was written to."
+        )
+
     owned = store if store is not None else MemoryStore(":memory:")
     _runtime_state = Runtime(
         client=client,
@@ -356,7 +418,59 @@ padding:1px 5px;border-radius:4px}
 
 
 def rupees(paise: int) -> str:
-    return f"{paise // 100:,}.{paise % 100:02d}"
+    """Integer paise as rupees. A3, FIXED 2026-08-09.
+
+    Was `f"{paise // 100:,}.{paise % 100:02d}"`. Python floors division toward
+    minus infinity, so `-420050 // 100` is -4201 and `-420050 % 100` is 50: the
+    page printed -4,201.50 for a balance of -4,200.50. Every negative figure in
+    the trial balance was one rupee further from zero, and the paise did not
+    move with it, which is what makes it read like a rounding style instead of
+    an error. `tallyio.rupees_from_paise` has always split the sign off first;
+    this now does the same.
+
+    And it RAISED on a non-int, through the `:02d` format code, with the
+    message "Unknown format code 'd' for object of type 'float'".
+    `amount_is_integer_paise` is the only unanswerable check in the codebase,
+    so a float amount is the clearest route to NOT_VALID there is - and it was
+    the one draft the screen could not draw. The outcome that means "nothing
+    was posted" was the outcome the person could not be shown. The refusal is
+    now explicit and says what is wrong.
+    """
+    if isinstance(paise, bool):  # bool is an int; render it as one
+        paise = int(paise)
+    # Annotated `int`, so pyright calls this unnecessary. The annotation is not
+    # enforced at runtime and the whole point of this branch is the value that
+    # arrives anyway - which is how the NOT_VALID screen came to be the one
+    # screen the app could not draw.
+    if not isinstance(paise, int):  # pyright: ignore[reportUnnecessaryIsInstance]
+        raise TypeError(
+            f"amounts are integer paise, never {type(paise).__name__}: {paise!r}"
+        )
+    sign = "-" if paise < 0 else ""
+    whole, fraction = divmod(abs(paise), 100)
+    return f"{sign}{whole:,}.{fraction:02d}"
+
+
+def money(paise: object) -> str:
+    """An amount for the SCREEN. Never raises, and never invents a rendering.
+
+    A3's other half. `rupees` is strict on purpose - it is the money formatter,
+    and a formatter that quietly renders a float as rupees is how a lost paise
+    stops being visible. But the page is not allowed to fail: a non-integer
+    amount is exactly what makes an entry NOT_VALID through
+    `amount_is_integer_paise`, the only unanswerable check in the codebase, so
+    the one draft the person MOST needs to see was the one that raised while
+    being drawn. They got a traceback instead of "nothing was posted, and here
+    is why".
+
+    So the strictness stays in `rupees` and the page degrades: it prints the
+    value as it actually is, marked as not an amount, which is the true
+    statement and the one that explains the refusal on the same screen.
+    """
+    try:
+        return f"₹{rupees(paise)}"  # type: ignore[arg-type]
+    except TypeError:
+        return f"{esc(paise)} (not an amount)"
 
 
 def esc(s: object) -> str:
@@ -518,8 +632,8 @@ def render_decision(d: pipeline.Draft) -> str:
             ("Party", v.party or "—"),
             ("Debit", v.debit_account or "—"),
             ("Credit", v.credit_account),
-            ("Amount", f"₹{rupees(v.amount_paise)}"),
-            ("GST", f"₹{rupees(v.gst_paise)}" if v.gst_paise else "—"),
+            ("Amount", money(v.amount_paise)),
+            ("GST", money(v.gst_paise) if v.gst_paise else "—"),
             ("Date", v.date),
         ]
     )
@@ -588,7 +702,7 @@ def render_home(banner: str = "") -> bytes:
     posted_rows = (
         "".join(
             f"<tr><td>{esc(v.party)}</td><td>{esc(v.debit_account)}</td>"
-            f"<td class=num>₹{rupees(v.amount_paise)}</td>"
+            f"<td class=num>{money(v.amount_paise)}</td>"
             f"<td><code>{esc(operation_id_in(v.narration))}</code></td></tr>"
             for v in ours
         )
@@ -654,9 +768,15 @@ def _run(text: str) -> pipeline.Draft:
     )
     d = pipeline.evaluate(d, accounts, history, live.memory)
     if d.outcome is Outcome.VALID:
-        d = pipeline.post(d, runtime().client)
+        d = pipeline.post(
+            d,
+            live.client,
+            log=live.store,
+            memory=live.memory,
+            run_id=live.identity.run_id,
+        )
     record(d, ACTION_FOR[d.outcome])
-    DRAFTS[d.id] = d
+    remember_draft(d)
     return d
 
 
@@ -772,25 +892,48 @@ class Handler(BaseHTTPRequestHandler):
                 # The correction is recorded against THIS company and no other,
                 # and it is evidence, not an override: a vendor with genuinely
                 # contradictory history stays CONFLICTED and keeps asking.
-                runtime().memory.record_correction(d.voucher.party, value)
+                #
+                # NOT for the funding answer. `record_correction` teaches the
+                # vendor -> EXPENSE account map, and "I paid in cash" says
+                # nothing about what the money was for. Recording it wrote
+                # "Gupta Hardware -> Cash" alongside "Gupta Hardware ->
+                # Purchases", which made the vendor CONFLICTED, re-raised the
+                # question the person had just answered, and ended the entry at
+                # NOT_VALID with both legs correctly filled in. Measured on the
+                # first two-question run. The funding leg is learned instead
+                # from the posted voucher's own credit side.
+                if problem != pipeline.FUNDING_PROBLEM:
+                    runtime().memory.record_correction(d.voucher.party, value)
 
             d = pipeline.evaluate(d, accounts, history, runtime().memory)
 
             if d.outcome is Outcome.VALID:
-                d = pipeline.post(d, runtime().client)
+                live = runtime()
+                d = pipeline.post(
+                    d,
+                    live.client,
+                    log=live.store,
+                    memory=live.memory,
+                    run_id=live.identity.run_id,
+                )
             record(d, ACTION_FOR[d.outcome])
-            DRAFTS[d.id] = d
+            remember_draft(d)
             self._send(page(render_decision(d) + '<p><a href="/">&larr; back</a></p>'))
             return
 
         if self.path == "/reverse":
             op = form.get("op", "")
-            ok = runtime().client.reverse_by_operation_id(COMPANY, op)
+            # Through `pipeline.reverse_operation`, not straight at the client.
+            # This handler used to call `reverse_by_operation_id` with whatever
+            # string the form carried and report "reversed" on the strength of
+            # a boolean, having looked at nothing. Criterion #6.5 - the trial
+            # balance returns to its exact prior value in paise - was checked
+            # only inside tests, never on the path a person actually uses.
+            result = pipeline.reverse_operation(runtime().client, COMPANY, op)
             note(
                 "reversed",
-                "reversed" if ok else "not_found",
-                f"the person asked to undo {op}"
-                + ("" if ok else ", and no voucher of ours carries that id"),
+                "reversed" if result.reversed_ else "not_found",
+                f"the person asked to undo {op}: {result.detail}",
                 operation_id=op,
             )
             self._send(render_home())

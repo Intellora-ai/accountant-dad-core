@@ -36,11 +36,28 @@ from accountant.schema import (
 )
 
 
-def decide_problems(problems: Sequence[Problem], asked: int = 0) -> Decision:
+def decide_problems(
+    problems: Sequence[Problem],
+    asked: int = 0,
+    answered: Sequence[str] = (),
+) -> Decision:
     """Apply the decision order to a list of problems.
 
     `asked` is how many questions have already been put to the person. Once the
     budget is spent the entry is handed over rather than asked about again.
+
+    `answered` is the problem ids the person has ALREADY answered, and it is
+    what stops this function and `pipeline.next_question` disagreeing.
+
+    They used to. This picked `answerable[0]` with no regard for what had been
+    answered; `next_question` skipped answered ids by the non-overlapping rule.
+    So a problem that was answered and then found AGAIN produced UNCLEAR here
+    and `None` there, and the page rendered "needs an answer" with no question
+    and no buttons. Measured: outcome `unclear`, `next_question()` `None`. The
+    person was stranded with nothing to click.
+
+    UNCLEAR is a promise to ask something. If nothing is left to ask, the
+    honest outcome is to hand the entry over.
     """
     unanswerable = [p for p in problems if not p.answerable]
     if unanswerable:
@@ -50,7 +67,20 @@ def decide_problems(problems: Sequence[Problem], asked: int = 0) -> Decision:
         )
 
     answerable = [p for p in problems if p.answerable]
-    if answerable:
+    already = set(answered)
+    outstanding = [p for p in answerable if p.id not in already]
+
+    if answerable and not outstanding:
+        return Decision(
+            outcome=Outcome.NOT_VALID,
+            reason=(
+                "you already answered this and it still is not clear — "
+                "saved for you to finish. Still unresolved: "
+                + "; ".join(p.id for p in answerable)
+            ),
+        )
+
+    if outstanding:
         from accountant.questions import QUESTION_CAP
 
         if asked >= QUESTION_CAP:
@@ -59,10 +89,10 @@ def decide_problems(problems: Sequence[Problem], asked: int = 0) -> Decision:
                 reason=(
                     f"asked {asked} questions and still not sure — "
                     f"saved for you to finish. Left over: "
-                    + "; ".join(p.id for p in answerable)
+                    + "; ".join(p.id for p in outstanding)
                 ),
             )
-        nxt = answerable[0]
+        nxt = outstanding[0]
         # Problem.__post_init__ refuses to construct an answerable problem
         # without a question, so this is never None. Not an assert: python -O
         # deletes asserts, so an assert is not a guarantee in shipped code.

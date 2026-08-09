@@ -315,13 +315,7 @@ def test_an_answer_is_stored_under_the_vendor_key_not_the_typed_spelling(server:
     was written against the normalised vendor key inside this company's scope.
     """
     asked = post(server, "/entry", text="paid Gupta Hardware 1500 for tools")
-    post(
-        server,
-        "/answer",
-        draft=draft_id(asked),
-        value="Purchases",
-        problem="which_account",
-    )
+    answer_purpose_and_funding(server, asked, "Purchases")
 
     again = post(
         server, "/entry", text="paid M/s Gupta Hardware Pvt Ltd 1600 for tools"
@@ -388,15 +382,26 @@ def test_the_answers_offered_are_plain_words_not_accounts(server: str):
     assert "fixing something you already own" in body
 
 
+def answer_purpose_and_funding(server: str, asked: str, account: str) -> str:
+    """Answer BOTH questions an unknown vendor now raises, and return the page.
+
+    An unknown vendor has two unknowns, not one: what the money was for, and
+    where it came from. Until 2026-08-09 the second was not asked - the funding
+    leg was filled by `_default_credit`, which preferred the string "Cash" and
+    carried no provenance. These tests answered once and posted, which is why
+    none of them noticed.
+    """
+    d = draft_id(asked)
+    purpose = post(server, "/answer", draft=d, value=account, problem="which_account")
+    assert "how did you pay" in purpose.lower(), (
+        "the funding question must be asked before anything is posted"
+    )
+    return post(server, "/answer", draft=d, value="Cash", problem="funding_is_named")
+
+
 def test_answering_the_question_posts_the_entry(server: str):
     asked = post(server, "/entry", text="paid Gupta Hardware 1500 for tools")
-    done = post(
-        server,
-        "/answer",
-        draft=draft_id(asked),
-        value="Purchases",
-        problem="which_account",
-    )
+    done = answer_purpose_and_funding(server, asked, "Purchases")
     assert "posted" in done.lower()
     assert len(app.runtime().client.list_our_vouchers(app.COMPANY)) == 1
 
@@ -416,13 +421,7 @@ def test_the_account_chosen_is_shown_after_the_answer(server: str):
 
 def test_an_answer_is_remembered_so_the_same_vendor_is_not_asked_twice(server: str):
     asked = post(server, "/entry", text="paid Gupta Hardware 1500 for tools")
-    post(
-        server,
-        "/answer",
-        draft=draft_id(asked),
-        value="Purchases",
-        problem="which_account",
-    )
+    answer_purpose_and_funding(server, asked, "Purchases")
     again = post(server, "/entry", text="paid Gupta Hardware 1600 for tools")
     assert "posted" in again.lower()
 

@@ -9,6 +9,26 @@ reads back what it wrote, and reverses by operation ID rather than by amount.
 What it CANNOT prove: that any of this survives contact with real Tally. The
 reverse-restores-trial-balance test is only meaningful against the real thing.
 This fake is honest about the shape, not about the integration.
+
+THE TRANSPORT IS SIMULATED. THE SAFETY DECISIONS ARE NOT.
+---------------------------------------------------------
+This double may be softer than `RealTally` about HOW a voucher is fetched -
+there is no XML, no port 9000, no MASTERID. It may never be softer about WHAT
+to do with what it found. A double that makes an easier call than the thing it
+stands in for does not merely fail to catch a bug; it issues an alibi, because
+a test written against it can show an ambiguity being handled when it is not.
+
+Defect W4, fixed 2026-08-09, was exactly that: a marker matching two vouchers
+made `RealTally` refuse (`real.py:1797`) and made this file pick the first.
+`read_by_operation_id` and `reverse_by_operation_id` now collect every match and
+raise the SAME `TallyDataError`, worded the same way, so one assertion holds
+both backends. The import direction is deliberate - the fake depends on the real
+connector's refusal, never the reverse, and `tests/test_runtime_backend.py`
+forbids any shipped module from importing this one.
+
+The agreement is pinned by
+`tests/test_adversarial_write_path.py::test_both_backends_*`, and not by
+`tests/test_tally_contract.py`, which is frozen; that file says why.
 """
 
 from __future__ import annotations
@@ -23,6 +43,7 @@ from accountant.tallyio.client import (
     operation_id_in,
     stamp,
 )
+from accountant.tallyio.real import TallyDataError
 
 
 @dataclass
@@ -109,19 +130,56 @@ class FakeTally:
             operation_id=operation_id, tally_id=tally_id, narration=narration
         )
 
+    def _positions_carrying(self, company: str, operation_id: str) -> list[int]:
+        """Every position in the register whose narration carries this marker.
+
+        All of them, never the first hit. Stopping at the first match is what
+        makes a two-match register look like a one-match register, and the
+        caller can then no longer tell the difference.
+        """
+        return [
+            i
+            for i, v in enumerate(self._co(company).vouchers)
+            if operation_id_in(v.narration) == operation_id
+        ]
+
+    def _the_one_position_carrying(self, company: str, operation_id: str) -> int | None:
+        """The single match, `None` for no match, and a refusal for two or more.
+
+        Mirrors `RealTally._read_exported_by_operation_id` (real.py:1781),
+        including the wording: the marker is this system's identity, so two
+        vouchers wearing it is an ambiguity, not a menu. Nothing is read back
+        and nothing is deleted until a person says which one is real.
+        """
+        found = self._positions_carrying(company, operation_id)
+        if not found:
+            return None
+        if len(found) > 1:
+            vouchers = self._co(company).vouchers
+            where = "; ".join(
+                f"{vouchers[i].id!r} ({vouchers[i].tally_id or 'no tally id'}, "
+                f"{vouchers[i].amount_paise} paise)"
+                for i in found
+            )
+            raise TallyDataError(
+                f"operation {operation_id!r} matches {len(found)} vouchers in "
+                f"{company!r} ({where}). The narration marker is this system's "
+                "identity and it has to be unique. Refusing to read one back or "
+                "delete any of them: a person has to decide which is real."
+            )
+        return found[0]
+
     def read_by_operation_id(self, company: str, operation_id: str) -> Voucher | None:
-        for v in self._co(company).vouchers:
-            if operation_id_in(v.narration) == operation_id:
-                return v
-        return None
+        at = self._the_one_position_carrying(company, operation_id)
+        return None if at is None else self._co(company).vouchers[at]
 
     def reverse_by_operation_id(self, company: str, operation_id: str) -> bool:
         co = self._co(company)
-        for i, v in enumerate(co.vouchers):
-            if operation_id_in(v.narration) == operation_id:
-                del co.vouchers[i]
-                return True
-        return False
+        at = self._the_one_position_carrying(company, operation_id)
+        if at is None:
+            return False
+        del co.vouchers[at]
+        return True
 
     def list_our_vouchers(self, company: str) -> tuple[Voucher, ...]:
         return tuple(

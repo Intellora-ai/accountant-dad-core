@@ -34,7 +34,19 @@ def amount_is_integer_paise(voucher: Voucher, _accounts: Sequence[str]) -> Check
 
 
 def accounts_differ(voucher: Voucher, _accounts: Sequence[str]) -> CheckResult:
-    ok = voucher.debit_account != voucher.credit_account
+    """Two NAMED legs may not be the same ledger. Two absent legs are not "same".
+
+    Same reasoning as `accounts_exist` below: an empty leg means nobody has
+    chosen yet, which is Unclear and is owned by the vendor lookup (debit) and
+    by `funding_is_named` (credit). Before 2026-08-09 both legs were never
+    empty at once, because `_default_credit` always filled the credit side, so
+    this branch could not be reached. With that deleted, an unknown vendor
+    arrives here with two blanks and the old form failed with the sentence
+    "both sides are " - a refusal, with no ledger named, in place of the two
+    questions we actually owe the person.
+    """
+    both_named = bool(voucher.debit_account and voucher.credit_account)
+    ok = not both_named or voucher.debit_account != voucher.credit_account
     return CheckResult(
         name="accounts_differ",
         passed=ok,
@@ -58,6 +70,26 @@ def accounts_exist(voucher: Voucher, accounts: Sequence[str]) -> CheckResult:
         name="accounts_exist",
         passed=not missing,
         detail="" if not missing else f"not in chart of accounts: {', '.join(missing)}",
+    )
+
+
+def funding_is_named(voucher: Voucher, _accounts: Sequence[str]) -> CheckResult:
+    """Where the money came FROM has to be known, never assumed.
+
+    Until 2026-08-09 `build_draft` filled this in with `_default_credit`, a
+    hard-coded preference list of "Cash", then "Bank", then "Sundry Creditors",
+    then whatever sorted first in the chart, then the literal "Cash" EVEN WHEN
+    THE COMPANY HAD NO SUCH LEDGER. It ran on every entry, carried no
+    provenance, and no test ever asserted it. It stayed invisible because every
+    test chart in the repo contains "Cash", so the first loop iteration always
+    matched and the later branches never ran once.
+
+    An absence is not a failure to be filled in. It is a question.
+    """
+    return CheckResult(
+        name="funding_is_named",
+        passed=bool(voucher.credit_account),
+        detail="" if voucher.credit_account else "nothing says how this was paid",
     )
 
 
@@ -89,6 +121,7 @@ ALL_CHECKS = (
     amount_is_integer_paise,
     accounts_differ,
     accounts_exist,
+    funding_is_named,
     gst_not_larger_than_amount,
     party_is_named,
 )

@@ -65,8 +65,32 @@ Design, in the order the decisions matter:
 `fail closed`
     No recorded backup, no write. A dropped response never becomes a second
     voucher: writes are never retried, and every write is preceded by a read and
-    followed by a read-back. `read_by_operation_id` returning `None` after a
-    write means the write did not happen, whatever HTTP said.
+    followed by a read-back.
+
+`the read-back proves IDENTITY, not presence` (W1's twin, FIXED 2026-08-09)
+    `write_voucher` used to ask "is there a voucher carrying my operation id",
+    and reported success on any answer that was not `None`. It checked the label
+    on the box and never opened it. A Tally that accepted the write and stored a
+    DIFFERENT date - which is exactly what Educational mode does to a bill dated
+    the 7th - came back as a clean write, and so did one that stored a different
+    amount. `pipeline.post` was fixed the same day; the connector was not, and
+    the connector is the layer that anything bypassing the pipeline talks to.
+
+    A write now succeeds only when TALLY'S OWN ANSWER shows OUR voucher:
+    company, party, date, amount_paise, debit_account and credit_account all
+    unchanged, plus an identifier Tally returned. `VERIFIED_FIELDS` is the list.
+    `narration` is deliberately not on it - we stamp the marker into it.
+
+    Nine outcomes, all named, in `ReadBackOutcome`. The one that matters most is
+    UNKNOWN_OUTCOME: Tally's import answer says a voucher was created and the
+    register does not show it. That is NOT a failure. Calling it one invites a
+    retry, and a retry after a write that DID land puts two statutory entries in
+    somebody's books. It raises `TallyWriteUnknown`, whose `safe_to_retry` is
+    False, and it is a different class from `TallyWriteMismatch`.
+
+    None of this sends a new request shape. The verification is built out of the
+    `Export`/`Collection` read the connector already makes - see A11 and the
+    wedged-instance note for why a third request family is not on the table.
 
 FIRST-INTEGRATION TRAPS
 -----------------------
@@ -196,6 +220,14 @@ A11 MEASURED 2026-08-09, and the answer is NO. The licence mode CANNOT be read
     person as "connected, all good". Educational mode is NEVER inferred from a
     company name, a ledger name, a voucher count or anything else circumstantial
     - an inferred licence mode is an invented one.
+A12 UNVERIFIED. Whether a response echoes back the `<SVCURRENTCOMPANY>` it was
+    asked for. Some Tally builds echo the static variables in `<DESC>`; nobody
+    has checked which. It is read the same way A8's `Dr`/`Cr` suffix is read:
+    AUTHORITATIVE WHEN PRESENT, and "we cannot check" when absent. A read-back
+    that says it answered for a different company than the one we wrote to is
+    WRONG_COMPANY and the write is refused. A read-back that says nothing about
+    the company is never treated as agreeing - it is treated as silent, which is
+    why `ReadBackVerdict` carries the outcome rather than a bare boolean.
 """
 
 from __future__ import annotations
@@ -207,7 +239,7 @@ import threading
 import time
 import urllib.request
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from typing import Protocol
@@ -228,6 +260,46 @@ from accountant.tallyio.client import (
     operation_id_in,
     stamp,
 )
+
+# ---------------------------------------------------------------------------
+# what a read-back can conclude
+# ---------------------------------------------------------------------------
+
+
+class ReadBackOutcome(StrEnum):
+    """Every conclusion the post-write read-back is allowed to reach.
+
+    Nine names, exhaustive and mutually exclusive. "It went wrong" is not one of
+    them: a person reading a refusal has to know WHICH field disagreed, or they
+    go through the whole ledger by hand.
+
+    EXACT_MATCH         Tally's own answer shows OUR voucher, field for field.
+                        The only outcome a write may succeed on.
+    NO_MATCH            The marker found nothing in the register.
+    MULTIPLE_MATCHES    The marker found more than one. A5: never resolved by
+                        picking one.
+    WRONG_COMPANY       The register answered for a different company.
+    WRONG_LEDGER        A ledger name differs - the debit, the credit, or the
+                        party. All three are ledger names in Tally.
+    WRONG_DATE          The stored date is not the date we sent.
+    WRONG_AMOUNT        The stored amount is not the paise we sent.
+    MALFORMED_RESPONSE  The register answered with something we cannot read, so
+                        it is evidence of nothing - least of all absence.
+    UNKNOWN_OUTCOME     Tally's import answer says a write happened and the
+                        read-back cannot confirm it. NOT a failure. See
+                        `TallyWriteUnknown`.
+    """
+
+    EXACT_MATCH = "EXACT_MATCH"
+    NO_MATCH = "NO_MATCH"
+    MULTIPLE_MATCHES = "MULTIPLE_MATCHES"
+    WRONG_COMPANY = "WRONG_COMPANY"
+    WRONG_LEDGER = "WRONG_LEDGER"
+    WRONG_DATE = "WRONG_DATE"
+    WRONG_AMOUNT = "WRONG_AMOUNT"
+    MALFORMED_RESPONSE = "MALFORMED_RESPONSE"
+    UNKNOWN_OUTCOME = "UNKNOWN_OUTCOME"
+
 
 # ---------------------------------------------------------------------------
 # errors
@@ -263,6 +335,74 @@ class TallyDataError(TallyError):
     vouchers that no longer has two legs, an export carrying a voucher with no
     ledger entries at all, a response mixing two names for the same collection,
     or one operation ID matching more than one voucher.
+    """
+
+
+class AmbiguousMarker(TallyDataError):
+    """A5. One operation ID matched more than one voucher.
+
+    Its own class so a caller can branch on the ambiguity without reading the
+    English. The message is unchanged from when this was a bare `TallyDataError`
+    - it already named the locators it could not choose between, and that is the
+    part a person needs.
+    """
+
+    outcome = ReadBackOutcome.MULTIPLE_MATCHES
+
+
+class TallyWriteUnverified(TallyRejected):
+    """A write went out and the read-back did NOT prove our voucher is stored.
+
+    Under `TallyRejected` deliberately: everything upstream that already fails
+    closed on a rejection keeps failing closed, and nothing can read one of these
+    as a success. The subclasses are what a caller branches on.
+
+    `safe_to_retry` is False on every one of them, and it is False as a fact
+    rather than as caution: this exception cannot exist unless a create was
+    already sent, so a retry risks a SECOND statutory entry.
+    """
+
+    safe_to_retry = False
+
+    def __init__(self, message: str, verdict: ReadBackVerdict) -> None:
+        super().__init__(message)
+        self.verdict = verdict
+
+    @property
+    def outcome(self) -> ReadBackOutcome:
+        return self.verdict.outcome
+
+
+class TallyWriteMismatch(TallyWriteUnverified):
+    """DEFINITE. Tally stored something, and it is not what we sent.
+
+    The marker is on a voucher in the register and one or more of company,
+    party, date, amount, debit or credit disagrees. The message names every
+    field that differs - "something is wrong" sends a person through their whole
+    ledger; "the amount and the party are wrong" does not.
+    """
+
+
+class TallyWriteUnknown(TallyWriteUnverified):
+    """UNDECIDED, and it must never be flattened into a failure.
+
+    Tally's import answer said a voucher was created and the read-back cannot
+    confirm it. Two worlds fit that evidence: the write landed and we cannot see
+    it, or it never happened. They are not the same, and reporting the second
+    one invites a retry - which, in the first world, writes the entry TWICE.
+
+    So this is its own class, its message says UNKNOWN rather than failed, and
+    `safe_to_retry` is False. A person has to look in Tally.
+    """
+
+
+class MalformedRegisterResponse(TallyWriteUnverified):
+    """The read-back answered with something we could not read.
+
+    A body that will not parse, a voucher with no ledger entries, an unreadable
+    date. It is not proof the voucher is missing and it is not proof it is
+    there. The original parser message is carried through verbatim, because that
+    sentence is what a person debugging this actually needs.
     """
 
 
@@ -699,9 +839,39 @@ def _ledger_entry(leg: OutgoingLeg) -> str:
     )
 
 
+def check_amount_is_paise(voucher: Voucher) -> None:
+    """A4, FIXED 2026-08-09. The amount is an `int`, by name, or it is refused.
+
+    `_check_writable` tested `<= 0` and never tested the TYPE. A float survived
+    to `rupees_from_paise` and was caught one line later by the `:02d` format
+    code, whose message - "Unknown format code 'd' for object of type 'float'"
+    - names no voucher, no field and no amount. Whoever reads that log at 9pm
+    learns nothing about which entry to look at.
+
+    A bool was not caught at all. `bool` IS an `int` in Python, so
+    `rupees_from_paise(True)` returns "0.01" without complaint and one paise
+    goes on the wire. `isinstance(x, int)` alone would let it through, which is
+    why the bool is rejected before the int is accepted.
+    """
+    # pyright reads `amount_paise: int` and calls both checks unnecessary. It
+    # is right about the annotation and wrong about the world: an annotation is
+    # not enforced at runtime, this is the boundary to somebody's statutory
+    # books, and a float has already reached it once in this repo's history.
+    if isinstance(voucher.amount_paise, bool) or not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
+        voucher.amount_paise, int
+    ):
+        raise TallyRejected(
+            f"refusing to write voucher {voucher.id!r}: amount_paise is "
+            f"{voucher.amount_paise!r}, a {type(voucher.amount_paise).__name__}. "
+            "Amounts are integer paise, and anything else has already lost "
+            "precision by the time it reaches the wire."
+        )
+
+
 def _check_writable(voucher: Voucher) -> None:
     """Refuse at the boundary. An entry that cannot be represented faithfully
     must never reach the wire, whatever ran upstream."""
+    check_amount_is_paise(voucher)
     if voucher.amount_paise <= 0:
         raise ValueError(
             f"refusing to write voucher {voucher.id!r}: amount_paise is "
@@ -960,10 +1130,15 @@ class VoucherPage:
 
     A voucher with NO ledger entries is not counted here at all: that is an
     unreadable export and it raises (A3).
+
+    `company` is the company TALLY said it answered for, read off the static
+    variables it echoes back (A12). `None` means this build did not say, which
+    is "we cannot check", never "it matched".
     """
 
     exported: tuple[ExportedVoucher, ...] = ()
     skipped: int = 0
+    company: str | None = None
 
     @property
     def vouchers(self) -> tuple[Voucher, ...]:
@@ -1211,6 +1386,7 @@ def parse_vouchers(
     """
     root = parse_xml(payload, limit)
     _refuse_mixed_entry_tags(root)
+    answered_for = _text_of(root.find(".//SVCURRENTCOMPANY"))
     exported: list[ExportedVoucher] = []
     skipped = 0
     for node in _voucher_nodes(root):
@@ -1227,7 +1403,7 @@ def parse_vouchers(
                 "debit and one credit. It was edited in Tally; reversal "
                 "arithmetic over it cannot be trusted."
             )
-    return VoucherPage(exported=tuple(exported), skipped=skipped)
+    return VoucherPage(exported=tuple(exported), skipped=skipped, company=answered_for)
 
 
 def parse_import_response(
@@ -1247,6 +1423,182 @@ def parse_import_response(
         status=_optional_counter(root, "STATUS"),
         last_vch_id=_text_of(root.find(".//LASTVCHID")),
         line_errors=line_errors,
+    )
+
+
+# ---------------------------------------------------------------------------
+# proving a write - W1's twin
+# ---------------------------------------------------------------------------
+
+#: What must come back UNCHANGED for a write to count as ours. Money, party,
+#: date and both legs - every field a person would be harmed by if Tally stored
+#: something else. This is the same list `pipeline.VERIFIED_FIELDS` uses, and it
+#: is deliberately duplicated rather than imported: the connector must not
+#: depend on the pipeline, and a caller that skips the pipeline is exactly the
+#: caller this check exists for.
+#:
+#: `narration` is absent on purpose - we stamp the marker into it, so it is
+#: EXPECTED to differ from what the draft carried. `id` and `tally_id` are
+#: absent because they are Tally's to assign, not ours to dictate.
+VERIFIED_FIELDS: tuple[str, ...] = (
+    "party",
+    "date",
+    "amount_paise",
+    "debit_account",
+    "credit_account",
+)
+
+#: Which named outcome each field's disagreement produces. `party` is a LEDGER
+#: name in Tally (`PARTYLEDGERNAME`), so it lands under WRONG_LEDGER with the
+#: other two - and the message still names `party` specifically.
+_FIELD_OUTCOMES: Mapping[str, ReadBackOutcome] = {
+    "party": ReadBackOutcome.WRONG_LEDGER,
+    "date": ReadBackOutcome.WRONG_DATE,
+    "amount_paise": ReadBackOutcome.WRONG_AMOUNT,
+    "debit_account": ReadBackOutcome.WRONG_LEDGER,
+    "credit_account": ReadBackOutcome.WRONG_LEDGER,
+}
+
+#: When several fields disagree the verdict carries ONE name, and it is the
+#: worst one - ordered by what it costs the person who does not notice.
+#: Wrong company: the entry is in somebody else's book. Wrong amount: the money
+#: is wrong. Wrong date: the filing period is wrong. Wrong ledger: the
+#: classification is wrong. Every differing field is named in the text either
+#: way; only the headline is ranked.
+_OUTCOME_SEVERITY: tuple[ReadBackOutcome, ...] = (
+    ReadBackOutcome.WRONG_COMPANY,
+    ReadBackOutcome.WRONG_AMOUNT,
+    ReadBackOutcome.WRONG_DATE,
+    ReadBackOutcome.WRONG_LEDGER,
+)
+
+
+@dataclass(frozen=True)
+class ReadBackVerdict:
+    """What Tally's own answer proves about one write, and how sure we are.
+
+    `outcome` is the name. `fields` are the bare field names that disagreed, for
+    a caller that wants to branch. `detail` is the same information in the words
+    a person reads, and it always names the fields rather than saying that
+    something is wrong.
+    """
+
+    outcome: ReadBackOutcome
+    company: str
+    operation_id: str
+    fields: tuple[str, ...] = ()
+    detail: str = ""
+    tally_id: str | None = None
+
+    @property
+    def confirmed(self) -> bool:
+        """True only for EXACT_MATCH. There is no partial proof."""
+        return self.outcome is ReadBackOutcome.EXACT_MATCH
+
+    @property
+    def safe_to_retry(self) -> bool:
+        """Always False, and it is a fact rather than caution.
+
+        A verdict only exists once a create has already gone to Tally. Every
+        outcome other than EXACT_MATCH therefore sits somewhere between "it
+        landed" and "it did not", and an automatic retry across that gap is how
+        one bill becomes two statutory entries.
+        """
+        return False
+
+
+def _shown(value: object) -> str:
+    """A value as a person reads it. Dates go out ISO, not as a constructor call."""
+    if isinstance(value, datetime.date):
+        return value.isoformat()
+    return repr(value)
+
+
+def _field_text(name: str, sent: object, back: object) -> str:
+    return f"{name}: sent {_shown(sent)}, Tally has {_shown(back)}"
+
+
+def verify_read_back(
+    *,
+    company: str,
+    sent: Voucher,
+    operation_id: str,
+    found: Voucher | None,
+    found_in_company: str | None = None,
+    tally_id: str | None = None,
+    unmarked_lookalikes: tuple[str, ...] = (),
+) -> ReadBackVerdict:
+    """Decide what Tally's answer proves about the voucher we sent. Pure.
+
+    `found` is the voucher the marker lookup returned, or None. `found_in_company`
+    is the company Tally SAID it answered for (A12); None means the build did not
+    say, which is "cannot check", never "wrong". `unmarked_lookalikes` are
+    locators of vouchers in the same register that match our content but carry no
+    marker - they are never accepted as proof, and naming them saves somebody a
+    manual search.
+
+    Nothing here is a presence check. `found is not None` is where the old
+    read-back stopped, and it is the reason a Tally that stored a different date
+    or a different amount reported a clean success.
+    """
+    if found is None:
+        detail = f"no voucher in {company!r} carries operation {operation_id!r}"
+        if unmarked_lookalikes:
+            detail += (
+                f". An unmarked voucher in {company!r} matches what we sent field "
+                f"for field ({'; '.join(unmarked_lookalikes)}). It is NOT accepted "
+                "as proof - the narration marker is this system's identity (A5), "
+                "and a voucher that merely matches on content could be somebody's "
+                "own hand-typed entry for the same bill. It is named here so a "
+                "person knows where to look"
+            )
+        return ReadBackVerdict(
+            outcome=ReadBackOutcome.NO_MATCH,
+            company=company,
+            operation_id=operation_id,
+            detail=detail,
+            tally_id=tally_id,
+        )
+
+    mismatches: list[tuple[str, str]] = []
+    if found_in_company is not None and found_in_company != company:
+        mismatches.append(
+            (
+                "company",
+                f"company: wrote to {company!r}, Tally answered for "
+                f"{found_in_company!r}",
+            )
+        )
+    mismatches.extend(
+        (field, _field_text(field, getattr(sent, field), getattr(found, field)))
+        for field in VERIFIED_FIELDS
+        if getattr(sent, field) != getattr(found, field)
+    )
+
+    if not mismatches:
+        return ReadBackVerdict(
+            outcome=ReadBackOutcome.EXACT_MATCH,
+            company=company,
+            operation_id=operation_id,
+            detail=(
+                f"operation {operation_id!r} is in {company!r} with the party, "
+                "date, amount and both ledgers we sent"
+            ),
+            tally_id=tally_id,
+        )
+
+    fields = tuple(name for name, _ in mismatches)
+    named = {
+        ReadBackOutcome.WRONG_COMPANY if name == "company" else _FIELD_OUTCOMES[name]
+        for name in fields
+    }
+    return ReadBackVerdict(
+        outcome=next(o for o in _OUTCOME_SEVERITY if o in named),
+        company=company,
+        operation_id=operation_id,
+        fields=fields,
+        detail="; ".join(text for _, text in mismatches),
+        tally_id=tally_id,
     )
 
 
@@ -1640,6 +1992,26 @@ class HttpTransport:
 # ---------------------------------------------------------------------------
 
 
+def _unmarked_lookalikes(page: VoucherPage, sent: Voucher) -> tuple[str, ...]:
+    """Vouchers in the same register that match ours field for field and carry
+    no marker of ours.
+
+    Never proof - the marker is the identity (A5) and an unmarked match could
+    just as easily be the person's own hand-typed entry for the same bill. It is
+    collected so a refusal can point at it instead of sending somebody through
+    the whole ledger.
+    """
+    return tuple(
+        _locators_text(item)
+        for item in page.exported
+        if operation_id_in(item.voucher.narration) is None
+        and all(
+            getattr(item.voucher, field) == getattr(sent, field)
+            for field in VERIFIED_FIELDS
+        )
+    )
+
+
 def _locators_text(item: ExportedVoucher) -> str:
     if not item.locators:
         return "no locators"
@@ -1778,31 +2150,40 @@ class RealTally:
             self._limit,
         )
 
-    def _read_exported_by_operation_id(
+    def _marker_lookup(
         self, company: str, operation_id: str
-    ) -> ExportedVoucher | None:
+    ) -> tuple[ExportedVoucher | None, VoucherPage]:
         """A5. The marker must identify at most one voucher.
 
         None means not found. One match is a safe candidate. Two or more is an
         ambiguity, and every destructive action is refused rather than aimed at
         a coin flip.
+
+        The whole page comes back with the answer, because the read-back needs
+        two more things off the SAME read: the company Tally answered for, and
+        any unmarked voucher that matches our content. Both come free from a
+        read already taken; neither is worth a second request.
         """
+        page = self.read_vouchers_page(company)
         matches = [
             item
-            for item in self.read_vouchers_page(company).exported
+            for item in page.exported
             if operation_id_in(item.voucher.narration) == operation_id
         ]
-        if not matches:
-            return None
         if len(matches) > 1:
             where = "; ".join(_locators_text(item) for item in matches)
-            raise TallyDataError(
+            raise AmbiguousMarker(
                 f"operation {operation_id!r} matches {len(matches)} vouchers in "
                 f"{company!r} ({where}). The narration marker is this system's "
                 "identity and it has to be unique. Refusing to read one back or "
                 "delete any of them: a person has to decide which is real."
             )
-        return matches[0]
+        return (matches[0] if matches else None), page
+
+    def _read_exported_by_operation_id(
+        self, company: str, operation_id: str
+    ) -> ExportedVoucher | None:
+        return self._marker_lookup(company, operation_id)[0]
 
     def read_by_operation_id(self, company: str, operation_id: str) -> Voucher | None:
         found = self._read_exported_by_operation_id(company, operation_id)
@@ -1842,10 +2223,83 @@ class RealTally:
                 "Tally first."
             )
 
+    def _prove_it_is_ours(
+        self,
+        company: str,
+        voucher: Voucher,
+        operation_id: str,
+        result: ImportResult,
+    ) -> tuple[ReadBackVerdict, Voucher | None]:
+        """Read the register back and say what it PROVES. W1's twin, fixed.
+
+        This used to be four lines that asked whether anything at all carried
+        our marker, and reported success on any answer that was not None. It
+        checked the label on the box and never opened it. A Tally that accepted
+        the write and stored a different date - which is exactly what a
+        TallyPrime in Educational mode does to a bill dated the 7th - came back
+        as a clean write.
+
+        The box is opened here. The read is the same `Export`/`Collection` the
+        connector already makes; no new request shape is introduced, because a
+        custom TDL report wedged a live TallyPrime on 2026-08-09 and identity
+        checking is not worth a third request family.
+
+        A response we cannot read is MALFORMED_RESPONSE, never absence: "the
+        register did not parse" and "the voucher is not there" are different
+        facts and only one of them is grounds for anything.
+        """
+        try:
+            found, page = self._marker_lookup(company, operation_id)
+        except AmbiguousMarker:
+            # MULTIPLE_MATCHES. Already named, already refuses every destructive
+            # action, and its message already says which vouchers it could not
+            # choose between. Nothing to add.
+            raise
+        except (TallyResponseError, TallyDataError) as exc:
+            raise MalformedRegisterResponse(
+                f"MALFORMED_RESPONSE for operation {operation_id!r}: Tally "
+                f"answered the write, and the register read afterwards could "
+                f"not be read - {exc} That is not evidence the voucher is "
+                "missing and not evidence it is there, so nothing is recorded "
+                "as posted and this must not be written again until a person "
+                f"has looked in {company!r}.",
+                ReadBackVerdict(
+                    outcome=ReadBackOutcome.MALFORMED_RESPONSE,
+                    company=company,
+                    operation_id=operation_id,
+                    detail=str(exc),
+                ),
+            ) from exc
+
+        written = None if found is None else found.voucher
+        verdict = verify_read_back(
+            company=company,
+            sent=voucher,
+            operation_id=operation_id,
+            found=written,
+            found_in_company=page.company,
+            tally_id=(written.tally_id if written is not None else None)
+            or result.last_vch_id,
+            unmarked_lookalikes=_unmarked_lookalikes(page, voucher),
+        )
+        return verdict, written
+
     def write_voucher(
         self, company: str, voucher: Voucher, operation_id: str
     ) -> WriteResult:
-        """Write one marked voucher, then prove it exists by reading it back."""
+        """Write one marked voucher, then prove TALLY STORED OURS by reading it
+        back.
+
+        The read-back is an IDENTITY check, not a presence check. See
+        `_prove_it_is_ours`. Three named refusals can come out of it:
+
+          * `TallyWriteMismatch` - a voucher carrying our marker is there and it
+            is a different voucher. Definite, and every differing field is named.
+          * `TallyWriteUnknown` - Tally said it created one and the register does
+            not show it. UNDECIDED, and never to be retried automatically.
+          * `MalformedRegisterResponse` - the register answered with something
+            unreadable, which is evidence of nothing.
+        """
         if not self._backups.has_backup(company):
             raise CompanyNotBackedUp(
                 f"{company!r} has no recorded backup; refusing to write"
@@ -1885,14 +2339,36 @@ class RealTally:
                 f"what was dropped: {result.summary()}"
             )
 
-        written = self.read_by_operation_id(company, operation_id)
-        if written is None:
-            raise TallyRejected(
-                f"operation {operation_id!r} was not found in {company!r} after "
-                "the write. The voucher does not exist, whatever HTTP said."
+        verdict, written = self._prove_it_is_ours(
+            company, voucher, operation_id, result
+        )
+        if verdict.outcome is ReadBackOutcome.NO_MATCH:
+            raise TallyWriteUnknown(
+                f"UNKNOWN_OUTCOME for operation {operation_id!r}: it was not "
+                f"found in {company!r} after the write. Tally's import answer "
+                f"said a voucher was created ({result.summary()}) and the "
+                "register does not show it, so - whatever HTTP said - this is "
+                "not proof either way. The voucher may have landed somewhere "
+                "this connector cannot read it, or it may never have been "
+                "written. That is UNKNOWN, and it is NOT the same as failed: it "
+                "must never be retried automatically, because a retry after a "
+                "write that DID land puts two statutory entries in somebody's "
+                f"books. A person has to look in {company!r}. {verdict.detail}",
+                replace(verdict, outcome=ReadBackOutcome.UNKNOWN_OUTCOME),
+            )
+        if not verdict.confirmed:
+            raise TallyWriteMismatch(
+                f"{verdict.outcome.value} for operation {operation_id!r}: a "
+                f"voucher carrying our marker is in {company!r} and it is NOT "
+                f"the one we sent - {verdict.detail}. Nothing is recorded as "
+                "posted. The entry is in Tally and has to be checked by hand; "
+                "writing it again would add a second one.",
+                verdict,
             )
 
-        tally_id = written.tally_id or result.last_vch_id
+        tally_id = (
+            written.tally_id if written is not None else None
+        ) or result.last_vch_id
         if tally_id is None:
             raise TallyDataError(
                 f"operation {operation_id!r} was written but Tally reported no "

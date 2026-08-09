@@ -28,12 +28,29 @@ the recorded backend identity, the `ActionLog` row if one exists, the sentence
 the person is shown, the cleanup result, and the run id. A test that checks
 only the verdict passes happily while a voucher is being written behind it.
 
-FOUR TESTS HERE PIN A DEFECT RATHER THAN AN INTENTION
-------------------------------------------------------
-They are named `..._today_...` and each carries a DEFECT block naming the file,
-the line, what happens, and what should happen. They assert what the code does
-now so the suite stays green and the behaviour cannot change unnoticed. They
-are not endorsements. Nothing here is skipped and nothing is xfailed.
+ONE TEST HERE STILL PINS A DEFECT RATHER THAN AN INTENTION
+-----------------------------------------------------------
+It is named `..._today_...` and carries a DEFECT block naming the file, the
+line, what happens, and what should happen. It asserts what the code does now
+so the suite stays green and the behaviour cannot change unnoticed. It is not
+an endorsement. Nothing here is skipped and nothing is xfailed.
+
+    D1 accented NFC/NFD  FIXED 2026-08-09, `index.py` folds to NFC
+    D2 LLP keyed as Ltd  FIXED 2026-08-09, legal forms left in the name
+    D3 bracketed company FIXED 2026-08-09, both companies refused
+    D4 stale index       STILL OPEN, `..._today_...`
+
+TWO SMALLER DEFECTS ARE REPORTED HERE AND FIXED NOWHERE
+--------------------------------------------------------
+Both are named in the test that found them, and asserted so they cannot drift:
+
+    `accountant/memory/identity.py` keys COMPANIES with the same substitution
+    that caused D1 and no NFC fold, so NFD "Café Supplies" still collides with
+    a different company's key.
+
+    `normalise_vendor` still folds "Acme Ltd", "Acme Private Limited",
+    "Acme & Co" and a bare "Acme" onto one key. Splitting them is blocked on
+    `tests/test_memory.py:994`, which is owned elsewhere.
 """
 
 from __future__ import annotations
@@ -53,7 +70,7 @@ from accountant.memory.company import (
     propose_account,
 )
 from accountant.memory.identity import normalise_company
-from accountant.memory.index import normalise_vendor
+from accountant.memory.index import normalise_phrase, normalise_vendor
 from accountant.memory.store import BootstrapStatus, MemoryStore
 from accountant.schema import ActionLog, Outcome, Voucher
 from accountant.tallyio.fake import FakeTally
@@ -164,15 +181,21 @@ def _assert_one_posted_row(
     company: str = COMPANY,
     detail: str,
 ) -> None:
+    # TWO rows per write since 2026-08-09, not one: `post` records
+    # `write_attempted` BEFORE the socket opens, so a write whose outcome is
+    # never learned still leaves its operation id somewhere findable. Both
+    # rows are checked, because "exactly one posted row" is the claim here and
+    # a second posted row hiding behind a loose count is the failure it guards.
     log = _rows(store, company)
-    assert len(log) == 1
-    assert log[0].action == "posted"
-    assert log[0].outcome == Outcome.VALID.value
-    assert log[0].backend == "FakeTally"
-    assert log[0].run_id == RUN_ID
-    assert log[0].operation_id == draft.operation_id
-    assert log[0].detail == detail
-    assert log[0].reason == "nothing unclear and nothing surprising"
+    assert [r.action for r in log] == [pipeline.WRITE_ATTEMPTED, "posted"]
+    assert {r.operation_id for r in log} == {draft.operation_id}
+    assert {r.backend for r in log} == {"FakeTally"}
+    assert {r.run_id for r in log} == {RUN_ID}
+
+    posted = log[-1]
+    assert posted.outcome == Outcome.VALID.value
+    assert posted.detail == detail
+    assert posted.reason == "nothing unclear and nothing surprising"
 
 
 # ============================================================================
@@ -195,6 +218,12 @@ def test_a_cyrillic_homoglyph_vendor_never_inherits_the_latin_vendors_account() 
 
     Passed on the first run. The system already handles this; `\\w` is Unicode
     aware, so a Cyrillic letter survives normalisation as itself.
+
+    Updated 2026-08-09 for the deletion of `_default_credit`. A stranger now
+    raises TWO questions, not one - "what was it for?" and then "how did you
+    pay?" - because the funding leg is no longer guessed from a hard-coded
+    preference list. The order is asserted, not just the membership: the
+    purpose is the one the person can read off the bill in their hand.
     """
     # the control: the real supplier posts straight through
     t_ok = _tally(_history(LATIN_SHARMA, "Purchases"))
@@ -221,9 +250,17 @@ def test_a_cyrillic_homoglyph_vendor_never_inherits_the_latin_vendors_account() 
 
     # expected decision UNCLEAR (ask), actual decision UNCLEAR, nothing posted
     assert draft.outcome is Outcome.UNCLEAR
-    assert [p.id for p in draft.problems] == ["which_account"]
+    assert [p.id for p in draft.problems] == ["which_account", pipeline.FUNDING_PROBLEM]
     assert draft.voucher.debit_account == ""
+    assert draft.voucher.credit_account == ""
     assert draft.posted_tally_id is None
+
+    # Neither leg was inherited from the real supplier, and neither was
+    # invented. Both say so in the provenance, which is what makes "no field
+    # without a source" checkable rather than a slogan.
+    assert draft.voucher.provenance is not None
+    assert draft.voucher.provenance["debit_account"] == "not_found"
+    assert draft.voucher.provenance["credit_account"] == "not_found"
 
     # the sentence the person is shown, and the key it is really about
     question = pipeline.next_question(draft)
@@ -232,6 +269,14 @@ def test_a_cyrillic_homoglyph_vendor_never_inherits_the_latin_vendors_account() 
     assert draft.problems[0].detail == (
         f"{normalise_vendor(CYRILLIC_SHARMA)} has never been posted before"
     )
+    assert draft.problems[1].detail == "nothing says how this was paid"
+
+    # The funding question is asked SECOND and never instead. The Latin
+    # supplier's forty vouchers are all credited to Cash, so a key that had
+    # collapsed would have proposed Cash here and asked one question fewer -
+    # this assertion fails loudly in exactly that case.
+    assert draft.problems[1].question is not None
+    assert draft.problems[1].question.text != question.text
 
     # write count, backend identity, the log row, the run id
     _assert_nothing_was_written(t, store)
@@ -300,85 +345,159 @@ ACCENTED_NFD = unicodedata.normalize("NFD", "Caf\u00e9 Supplies")
 UNACCENTED = "Cafe Supplies"
 
 
-def test_an_accented_vendor_name_today_decides_two_ways_in_nfc_and_nfd() -> None:
-    """DEFECT, pinned. An invisible byte decides whether a voucher posts.
+def test_an_accented_vendor_name_decides_one_way_in_nfc_and_nfd() -> None:
+    """D1, FIXED 2026-08-09. One visible name, one key, either encoding.
 
-    WROTE THIS TEST EXPECTING `normalise_vendor(NFC) == normalise_vendor(NFD)`.
-    It failed on the first run with:
+    WHAT THIS TEST USED TO PIN
+        `accountant/memory/index.py` compiled `_PUNCT` as `[^\\w\\s&]` and
+        replaced every match with a space. U+0301 COMBINING ACUTE ACCENT is
+        category Mn: neither `\\w` nor `\\s`. So the decomposed spelling lost
+        its accent to a space, the space collapsed, and NFD "Café Supplies"
+        keyed as `cafe_supplies` - the key of a DIFFERENT, unaccented supplier.
+        The precomposed spelling kept U+00E9, which IS `\\w`, and keyed as
+        `café_supplies`.
 
-        AssertionError: assert 'cafe_supplies' == 'café_supplies'
+        Measured then, over identical books: the NFD spelling POSTED to the
+        unaccented supplier's account with no question, and the NFC spelling of
+        the same visible name stopped and asked. One name on the screen, two
+        decisions, chosen by an encoding nobody can see.
 
-    WHAT HAPPENS
-        `accountant/memory/index.py:36` is `_PUNCT = re.compile(r"[^\\w\\s&]")`
-        and `index.py:50` replaces every match with a space. U+0301 COMBINING
-        ACUTE ACCENT is category Mn: not `\\w`, not `\\s`. So the decomposed
-        form loses its accent to a space, the space collapses, and NFD
-        "Café Supplies" keys as `cafe_supplies` - the key of a DIFFERENT,
-        unaccented supplier. The precomposed form keeps U+00E9, which IS `\\w`,
-        and keys as `café_supplies`.
+    WHAT HAPPENS NOW
+        `normalise_vendor` folds the name to NFC before anything else, so both
+        spellings of one visible name give one key - and that key is not the
+        unaccented supplier's. BOTH halves are asserted, because agreeing on
+        the WRONG key would satisfy the first half on its own.
 
-        Consequence, measured below over identical books: the NFD spelling
-        POSTS to the unaccented supplier's account with no question, and the
-        NFC spelling of the same visible name stops and asks. One name on the
-        screen, two decisions, chosen by an encoding nobody can see.
+    THE SAME DEFECT IS STILL LIVE ONE FILE AWAY, and is REPORTED rather than
+    fixed here: `accountant/memory/identity.py` keys COMPANIES with the same
+    substitution and no NFC fold, so `normalise_company(NFD)` still collides
+    with a different company's key. Asserted below so it cannot drift unseen.
 
-    WHAT SHOULD HAPPEN
-        One visible name, one key, whichever normal form arrived.
-
-    SMALLEST FIX
-        `index.py:46`, and the same line in `identity.py:47`: normalise the
-        input first - `s = unicodedata.normalize("NFC", name).casefold().strip()`.
-        NFD then keys as `café_supplies` too, and the collision with the
-        unaccented supplier is gone. Stdlib only, no new dependency.
+    ONE MORE THING THIS TEST RECORDS AND DOES NOT FIX
+        Answering both questions does not make an unknown vendor postable.
+        `which_account` is derived from the memory lookup rather than from the
+        voucher, so it re-appears on the next `evaluate` even though the person
+        has just named the account, and the entry lands on NOT_VALID with
+        "you already answered this and it still is not clear". That is
+        pre-existing and unrelated to the encoding; it is asserted only as
+        `is not Outcome.VALID` so this test does not quietly depend on it.
     """
     assert ACCENTED_NFC != ACCENTED_NFD
     assert unicodedata.normalize("NFC", ACCENTED_NFD) == ACCENTED_NFC
 
-    # pinned: the two forms of one name do NOT share a key today, and the
-    # decomposed one lands on the unaccented supplier's key
-    assert normalise_vendor(ACCENTED_NFC) == "caf\u00e9_supplies"
-    assert normalise_vendor(ACCENTED_NFD) == "cafe_supplies"
-    assert normalise_vendor(ACCENTED_NFD) == normalise_vendor(UNACCENTED)
+    # one visible name, one key, whichever normal form arrived...
+    assert normalise_vendor(ACCENTED_NFC) == "café_supplies"
+    assert normalise_vendor(ACCENTED_NFD) == "café_supplies"
+    assert normalise_vendor(ACCENTED_NFC) == normalise_vendor(ACCENTED_NFD)
+
+    # ...and it is NOT the unaccented supplier's key. An accent is a letter,
+    # not decoration, so those two names may be two different firms.
+    assert normalise_vendor(UNACCENTED) == "cafe_supplies"
     assert normalise_vendor(ACCENTED_NFC) != normalise_vendor(UNACCENTED)
+    assert normalise_vendor(ACCENTED_NFD) != normalise_vendor(UNACCENTED)
 
-    # the safe half: precomposed asks, because this company never used it
-    t_nfc = _tally(_history(UNACCENTED, "Sundry Expenses"))
-    store_nfc = MemoryStore(":memory:")
-    mem_nfc = bootstrap(t_nfc, COMPANY, store_nfc)
-    nfc = _run(t_nfc, store_nfc, mem_nfc, ACCENTED_NFC)
+    # PINNED and REPORTED, not fixed: companies are still keyed the old way.
+    assert normalise_company(ACCENTED_NFC) == "café_supplies"
+    assert normalise_company(ACCENTED_NFD) == "cafe_supplies"
+    assert normalise_company(ACCENTED_NFD) == normalise_company(UNACCENTED)
 
-    assert nfc.outcome is Outcome.UNCLEAR
-    assert nfc.voucher.debit_account == ""
-    assert nfc.posted_tally_id is None
-    assert [p.id for p in nfc.problems] == ["which_account"]
-    _assert_nothing_was_written(t_nfc, store_nfc)
-    assert _rows(store_nfc)[0].action == "blocked"
-    assert _rows(store_nfc)[0].run_id == RUN_ID
-    assert pipeline.reverse(nfc, t_nfc) is False
+    # Books that know only the UNACCENTED supplier. Both accented spellings
+    # must ask, and neither may borrow that supplier's account.
+    for label, spelling in (("NFC", ACCENTED_NFC), ("NFD", ACCENTED_NFD)):
+        t = _tally(_history(UNACCENTED, "Sundry Expenses"))
+        store = MemoryStore(":memory:")
+        memory = bootstrap(t, COMPANY, store)
 
-    # the defect half: the SAME visible name, decomposed, posts silently
-    t_nfd = _tally(_history(UNACCENTED, "Sundry Expenses"))
-    store_nfd = MemoryStore(":memory:")
-    mem_nfd = bootstrap(t_nfd, COMPANY, store_nfd)
-    nfd = _run(t_nfd, store_nfd, mem_nfd, ACCENTED_NFD)
+        assert memory.lookup(spelling).status is CompanyMatchStatus.NO_MATCH, label
+        assert memory.lookup(spelling).accounts == (), label
+        assert propose_account(memory, spelling) is None, label
 
-    assert nfd.outcome is Outcome.VALID
-    assert nfd.voucher.debit_account == "Sundry Expenses"
-    assert nfd.problems == []
-    assert nfd.posted_tally_id == "TALLY-1"
-    assert len(t_nfd.list_our_vouchers(COMPANY)) == 1
+        draft = _run(t, store, memory, spelling)
+
+        assert draft.outcome is Outcome.UNCLEAR, label
+        assert draft.outcome is not Outcome.VALID, label
+        assert draft.voucher.debit_account == "", label
+        assert draft.voucher.credit_account == "", label
+        assert draft.posted_tally_id is None, label
+
+        # A stranger owes TWO questions since `_default_credit` was deleted:
+        # what it was for, then how it was paid. Both are asserted in order.
+        assert [p.id for p in draft.problems] == [
+            "which_account",
+            pipeline.FUNDING_PROBLEM,
+        ], label
+        assert draft.problems[0].detail == (
+            "café_supplies has never been posted before"
+        ), label
+        assert draft.problems[1].detail == "nothing says how this was paid", label
+
+        question = pipeline.next_question(draft)
+        assert question is not None, label
+        assert question.text == f"What did you get from {spelling}?", label
+
+        _assert_nothing_was_written(t, store)
+        log = _rows(store)
+        assert len(log) == 1, label
+        assert log[0].action == "blocked", label
+        assert log[0].outcome == Outcome.UNCLEAR.value, label
+        assert log[0].backend == "FakeTally", label
+        assert log[0].run_id == RUN_ID, label
+        assert log[0].detail == f"(none proposed) {AMOUNT_PAISE} paise", label
+        assert pipeline.reverse(draft, t) is False, label
+
+        # Answering both questions writes the answers onto the legs the
+        # QUESTIONS name, not both onto the expense side, and neither leg ever
+        # becomes the unaccented supplier's account. The entry does not reach
+        # VALID here and that is not this test's business: the vendor is still
+        # a stranger to memory, so `which_account` re-derives from the lookup.
+        # See the note at the end of this test.
+        pipeline.answer(draft, "Purchases")
+        pipeline.answer(draft, "Cash", problem_id=pipeline.FUNDING_PROBLEM)
+        pipeline.evaluate(draft, ACCOUNTS, t.read_vouchers(COMPANY), memory)
+
+        assert draft.voucher.debit_account == "Purchases", label
+        assert draft.voucher.credit_account == "Cash", label
+        assert draft.voucher.debit_account != "Sundry Expenses", label
+        assert draft.voucher.provenance is not None, label
+        assert draft.voucher.provenance["debit_account"] == "human_answer", label
+        assert draft.voucher.provenance["credit_account"] == "human_answer", label
+
+        # still not posted, and still nothing of ours in the books
+        assert draft.outcome is not Outcome.VALID, label
+        assert draft.posted_tally_id is None, label
+        _assert_nothing_was_written(t, store)
+
+    # The positive control, and the half that proves this is ONE SHARED KEY
+    # rather than two refusals: books seeded under the PRECOMPOSED spelling
+    # answer a DECOMPOSED invoice, and it posts.
+    t_ok = _tally(_history(ACCENTED_NFC, "Sundry Expenses"))
+    store_ok = MemoryStore(":memory:")
+    mem_ok = bootstrap(t_ok, COMPANY, store_ok)
+
+    assert mem_ok.report.status is BootstrapStatus.READY
+    assert mem_ok.lookup(ACCENTED_NFD).status is CompanyMatchStatus.MATCH
+    assert mem_ok.lookup(ACCENTED_NFD).accounts == ("Sundry Expenses",)
+    assert propose_account(mem_ok, ACCENTED_NFD) == "Sundry Expenses"
+
+    posted = _run(t_ok, store_ok, mem_ok, ACCENTED_NFD)
+
+    assert posted.outcome is Outcome.VALID
+    assert posted.voucher.debit_account == "Sundry Expenses"
+    assert posted.problems == []
+    assert posted.posted_tally_id == "TALLY-1"
+    assert len(t_ok.list_our_vouchers(COMPANY)) == 1
     _assert_one_posted_row(
-        store_nfd, nfd, detail=f"Sundry Expenses {AMOUNT_PAISE} paise"
+        store_ok, posted, detail=f"Sundry Expenses {AMOUNT_PAISE} paise"
     )
 
-    # the two visibly identical names reached opposite decisions
-    assert nfc.outcome is not nfd.outcome
+    # ...and the UNACCENTED name is still a stranger to those same books
+    assert mem_ok.lookup(UNACCENTED).status is CompanyMatchStatus.NO_MATCH
+    assert propose_account(mem_ok, UNACCENTED) is None
 
-    # cleanup: the wrong voucher is at least reversible by operation id
-    assert pipeline.reverse(nfd, t_nfd) is True
-    assert t_nfd.list_our_vouchers(COMPANY) == ()
-    assert t_nfd.trial_balance(COMPANY) == _tally(
-        _history(UNACCENTED, "Sundry Expenses")
+    assert pipeline.reverse(posted, t_ok) is True
+    assert t_ok.list_our_vouchers(COMPANY) == ()
+    assert t_ok.trial_balance(COMPANY) == _tally(
+        _history(ACCENTED_NFC, "Sundry Expenses")
     ).trial_balance(COMPANY)
 
 
@@ -501,13 +620,21 @@ def test_posting_sharma_trader_never_returns_sharma_traders_account() -> None:
     assert memory.lookup("Sharma Traders.").accounts == ("Purchases",)
 
     log = _rows(store)
-    assert [r.action for r in log] == ["posted", "posted"]
-    assert [r.vendor_id for r in log] == [SINGULAR_SHARMA, LATIN_SHARMA]
+    assert [r.action for r in log] == [
+        pipeline.WRITE_ATTEMPTED,
+        "posted",
+        pipeline.WRITE_ATTEMPTED,
+        "posted",
+    ]
+    # Posted rows only. Each write also leaves a `write_attempted` row carrying
+    # the same vendor, and counting both would say four suppliers were paid.
+    posted = [r for r in log if r.action == "posted"]
+    assert [r.vendor_id for r in posted] == [SINGULAR_SHARMA, LATIN_SHARMA]
     assert {r.backend for r in log} == {"FakeTally"}
     assert {r.run_id for r in log} == {RUN_ID}
-    assert log[0].detail == f"Repairs & Maintenance {AMOUNT_PAISE} paise"
-    assert log[1].detail == f"Purchases {AMOUNT_PAISE} paise"
-    assert log[0].operation_id != log[1].operation_id
+    assert posted[0].detail == f"Repairs & Maintenance {AMOUNT_PAISE} paise"
+    assert posted[1].detail == f"Purchases {AMOUNT_PAISE} paise"
+    assert posted[0].operation_id != posted[1].operation_id
 
     assert pipeline.reverse(singular, t) is True
     assert pipeline.reverse(plural, t) is True
@@ -519,82 +646,236 @@ ACME_LTD = "Acme Ltd"
 ACME_LLP = "Acme LLP"
 
 
-def test_an_llp_invoice_today_posts_to_the_limited_companys_account() -> None:
-    """DEFECT, pinned. Two legal entities, one vendor key, no question asked.
+def test_an_llp_invoice_is_never_posted_to_the_limited_companys_account() -> None:
+    """D2, FIXED 2026-08-09. A legal form is not name noise.
 
-    WROTE THIS TEST EXPECTING `normalise_vendor("Acme Ltd") != "Acme LLP"`.
-    It failed on the first run with:
-
-        AssertionError: assert 'acme' != 'acme'
-         +  where 'acme' = normalise_vendor('Acme Ltd')
-         +  and   'acme' = normalise_vendor('Acme LLP')
-
-    WHAT HAPPENS
-        `accountant/memory/index.py:20-34` lists "llp", "ltd", "limited",
-        "private limited", "inc", "corporation", "corp", "company", "& co" and
-        "and co" as noise, and `index.py:52-58` strips them off the end in a
-        loop. So "Acme Ltd", "Acme LLP", "Acme Private Limited" and "Acme & Co"
-        all key as `acme`. A company that has only ever bought from the Ltd has
-        an LLP invoice posted to the Ltd's account, VALID, silently.
+    WHAT THIS TEST USED TO PIN
+        `_SUFFIXES` in `accountant/memory/index.py` listed "llp", "inc",
+        "corporation" and "corp" beside "ltd" and "limited", and every one of
+        them was stripped off the end. So "Acme Ltd", "Acme LLP", "Acme Inc"
+        and "Acme Corp" all keyed as `acme`. A company that had only ever
+        bought from the Ltd got an LLP invoice posted to the Ltd's account,
+        VALID, silently.
 
         `accountant/memory/identity.py:16-21` says the opposite in its own
         words for COMPANY names: "'Acme Ltd' and 'Acme LLP' are two companies,
         two sets of books". A supplier is no different - separate GSTIN,
-        separate returns, separate invoices. The two modules disagree, and only
-        one of them is enforced.
+        separate returns, separate invoices. Two modules disagreed and only one
+        of them was enforced.
 
-    WHAT SHOULD HAPPEN
-        A legal-form suffix distinguishes entities and must not be stripped.
-        Worst case the pair conflicts and the person is asked, which costs one
-        question; today it costs a voucher in the wrong ledger.
+    WHAT HAPPENS NOW
+        "llp", "inc", "corporation" and "corp" are gone from `_SUFFIXES`, so
+        each names a distinct legal person and each gets its own key. The LLP
+        invoice is a stranger to books that only know the Ltd, and a stranger
+        is a question. That costs one question; the old behaviour cost a
+        voucher in the wrong ledger.
 
-    SMALLEST FIX
-        Remove the entity-distinguishing forms from `_SUFFIXES`
-        (`index.py:20-34`): "llp", "inc", "corporation", "corp". Keep the
-        Ltd/Limited family only if the owner accepts that "Acme Ltd" and
-        "Acme Limited" are one supplier - they are - but "llp" next to "ltd" in
-        the same list is the part that merges two taxpayers. Owner decision:
-        this is a deliberate design trade-off documented at `index.py:18-19`,
-        not an oversight, so it is reported rather than changed.
+    THE RESIDUAL, PINNED AND REPORTED, NOT FIXED
+        The Ltd/Limited family and the "& Co" family are STILL stripped, so
+        "Acme Ltd", "Acme Private Limited", "Acme & Co" and a bare "Acme" all
+        remain one key. In law those are four different persons. This is not an
+        oversight and it is not mine to change here: `tests/test_memory.py:994`
+        requires `normalise_vendor("M/s Sharma Traders Pvt Ltd")`,
+        `"Messrs Sharma Traders Private Limited"` and `"Ms. Sharma Traders & Co"`
+        to equal `sharma_traders`, and that file is owned elsewhere. Splitting
+        them needs an owner decision on that test first. Asserted below so the
+        gap is a recorded fact rather than a surprise.
     """
+    # Four legal forms, four keys. Distinctness is asserted pairwise, not just
+    # against `acme`, because two of them sharing a key is the same defect.
+    keys = {
+        ACME_LLP: "acme_llp",
+        "Acme Inc": "acme_inc",
+        "Acme Corp": "acme_corp",
+        "Acme Corporation": "acme_corporation",
+    }
+    for name, expected in keys.items():
+        assert normalise_vendor(name) == expected, name
+        assert normalise_vendor(name) != normalise_vendor(ACME_LTD), name
+    assert len(set(keys.values())) == len(keys)
+
+    # PINNED and REPORTED: the Ltd/&Co families still collapse onto the bare
+    # name. See the docstring - blocked on tests/test_memory.py:994.
+    assert normalise_vendor(ACME_LTD) == "acme"
+    assert normalise_vendor("Acme Private Limited") == "acme"
+    assert normalise_vendor("Acme & Co") == "acme"
+    assert normalise_vendor("Acme") == "acme"
+
     t = _tally(_history(ACME_LTD, "Purchases"))
     store = MemoryStore(":memory:")
     memory = bootstrap(t, COMPANY, store)
 
-    # pinned: four distinct legal forms, one key
-    assert normalise_vendor(ACME_LTD) == "acme"
-    assert normalise_vendor(ACME_LLP) == "acme"
-    assert normalise_vendor("Acme Private Limited") == "acme"
-    assert normalise_vendor("Acme & Co") == "acme"
+    assert memory.report.status is BootstrapStatus.READY
 
-    # and the lookup answers for a supplier this company has never traded with
+    # the LLP has never traded with this company, and memory says so
     answer = memory.lookup(ACME_LLP)
-    assert answer.status is CompanyMatchStatus.MATCH
-    assert answer.status is not CompanyMatchStatus.NO_MATCH
-    assert answer.accounts == ("Purchases",)
-    assert propose_account(memory, ACME_LLP) == "Purchases"
+    assert answer.status is CompanyMatchStatus.NO_MATCH
+    assert answer.status is not CompanyMatchStatus.MATCH
+    assert answer.accounts == ()
+    assert propose_account(memory, ACME_LLP) is None
 
     draft = _run(t, store, memory, ACME_LLP)
 
-    # expected decision UNCLEAR (never traded with this entity).
-    # actual decision VALID, and a voucher is written.
-    assert draft.outcome is Outcome.VALID
-    assert draft.problems == []
+    # expected decision UNCLEAR (never traded with this entity). actual UNCLEAR.
+    assert draft.outcome is Outcome.UNCLEAR
+    assert draft.outcome is not Outcome.VALID
+
+    # TWO questions, in this order. The Ltd's forty vouchers are all credited
+    # to Cash, so a key that had collapsed would have proposed Cash for the
+    # funding leg too and asked one question fewer - this list is the tell.
+    assert [p.id for p in draft.problems] == ["which_account", pipeline.FUNDING_PROBLEM]
+    assert draft.problems[1].detail == "nothing says how this was paid"
+    assert draft.voucher.credit_account == ""
+    assert draft.voucher.provenance is not None
+    assert draft.voucher.provenance["debit_account"] == "not_found"
+    assert draft.voucher.provenance["credit_account"] == "not_found"
     assert draft.voucher.party == ACME_LLP
-    assert draft.voucher.debit_account == "Purchases"
-    assert draft.posted_tally_id == "TALLY-1"
+    assert draft.voucher.debit_account == ""
+    assert draft.posted_tally_id is None
+    assert draft.problems[0].detail == "acme_llp has never been posted before"
+
+    question = pipeline.next_question(draft)
+    assert question is not None
+    assert question.text == f"What did you get from {ACME_LLP}?"
+
+    _assert_nothing_was_written(t, store)
+    log = _rows(store)
+    assert len(log) == 1
+    assert log[0].action == "blocked"
+    assert log[0].outcome == Outcome.UNCLEAR.value
+    assert log[0].backend == "FakeTally"
+    assert log[0].run_id == RUN_ID
+    assert log[0].vendor_id == ACME_LLP
+    assert log[0].voucher_id == ""
+    assert log[0].detail == f"(none proposed) {AMOUNT_PAISE} paise"
+    assert pipeline.reverse(draft, t) is False
+
+    # The positive control: the Ltd it DOES know still posts, so this test
+    # cannot pass by refusing everything that arrives.
+    good = _run(t, store, memory, ACME_LTD)
+    assert good.outcome is Outcome.VALID
+    assert good.voucher.debit_account == "Purchases"
+    assert good.problems == []
+    assert good.posted_tally_id == "TALLY-1"
     assert len(t.list_our_vouchers(COMPANY)) == 1
-    assert pipeline.next_question(draft) is None
+    assert [r.action for r in _rows(store)] == [
+        "blocked",
+        pipeline.WRITE_ATTEMPTED,
+        "posted",
+    ]
+    assert _rows(store)[-1].detail == f"Purchases {AMOUNT_PAISE} paise"
 
-    _assert_one_posted_row(store, draft, detail=f"Purchases {AMOUNT_PAISE} paise")
-    assert _rows(store)[0].vendor_id == ACME_LLP
-
-    # cleanup: reversible by operation id, and the books return to seeded state
-    assert pipeline.reverse(draft, t) is True
+    assert pipeline.reverse(good, t) is True
     assert t.list_our_vouchers(COMPANY) == ()
     assert t.trial_balance(COMPANY) == _tally(
         _history(ACME_LTD, "Purchases")
     ).trial_balance(COMPANY)
+
+
+# The policy in one table. `accountant/memory/index.py` states it in prose;
+# this states it as arithmetic. If the two ever disagree, one of them is a lie.
+
+PRESENTATION_ONLY: dict[str, str] = {
+    "case only, upper": "SHARMA TRADERS",
+    "case only, lower": "sharma traders",
+    "case only, mixed": "sHaRmA tRaDeRs",
+    "leading and trailing spaces": "   Sharma Traders   ",
+    "repeated internal spaces": "Sharma    Traders",
+    "tab instead of space": "Sharma\tTraders",
+    "newline instead of space": "Sharma\nTraders",
+    "non-breaking space U+00A0": "Sharma\u00a0Traders",
+    "trailing full stop": "Sharma Traders.",
+    "internal comma": "Sharma, Traders",
+    "hyphen between words": "Sharma-Traders",
+    "wrapped in brackets": "(Sharma Traders)",
+    "M/s prefix": "M/s Sharma Traders",
+    "Messrs prefix": "Messrs Sharma Traders",
+    "Ms. prefix": "Ms. Sharma Traders",
+    "everything at once": "  MESSRS   sharma-traders.  ",
+}
+
+LEGALLY_MEANINGFUL: dict[str, str] = {
+    "LLP is not a private limited company": ACME_LLP,
+    "Inc is not a private limited company": "Acme Inc",
+    "Corp is not a private limited company": "Acme Corp",
+}
+
+DIFFERENT_PARTY: dict[str, str] = {
+    "one character shorter": SINGULAR_SHARMA,
+    "Cyrillic homoglyph U+0405": CYRILLIC_SHARMA,
+    "full-width homoglyph U+FF33": FULLWIDTH_SHARMA,
+    "a different firm entirely": "Verma Traders",
+}
+
+
+def test_only_presentation_differences_collapse_and_meaning_never_does() -> None:
+    """The whole vendor-key policy, asserted as a table rather than described.
+
+    Three claims, and the third is the expensive one:
+
+        presentation differences MUST collapse   - else a needless question
+        a legal form MUST NOT collapse           - else a wrong voucher
+        a different party MUST NOT collapse      - else a wrong voucher
+
+    The direction matters. Failing to collapse costs one question, which the
+    person answers in a second. Collapsing wrongly costs a voucher in somebody
+    else's ledger, and nobody finds it until the year end. So the second and
+    third groups are asserted pairwise - every entry distinct from `Sharma
+    Traders`/`Acme Ltd` AND from each other - while the first is asserted only
+    in the safe direction.
+
+    This test proves the KEY only. It says nothing about what Tally would do
+    with any of these names; see the file docstring.
+    """
+    latin = normalise_vendor(LATIN_SHARMA)
+    assert latin == "sharma_traders"
+
+    # deterministic: the same input twice is the same key, always
+    for spelling in (LATIN_SHARMA, ACME_LTD, ACCENTED_NFD, CYRILLIC_SHARMA):
+        assert normalise_vendor(spelling) == normalise_vendor(spelling), spelling
+
+    # 1. presentation collapses
+    for label, spelling in PRESENTATION_ONLY.items():
+        assert normalise_vendor(spelling) == latin, label
+
+    # NFC and NFD of one visible name are one supplier - the same claim, but it
+    # needs its own line because both spellings render identically.
+    assert normalise_vendor(ACCENTED_NFD) == normalise_vendor(ACCENTED_NFC)
+
+    # 2. a legal form never collapses, onto the Ltd or onto each other
+    ltd = normalise_vendor(ACME_LTD)
+    legal = {label: normalise_vendor(n) for label, n in LEGALLY_MEANINGFUL.items()}
+    for label, key in legal.items():
+        assert key != ltd, label
+        assert key, label
+    assert len(set(legal.values())) == len(legal)
+
+    # 3. a different party never collapses, onto Sharma Traders or each other
+    others = {label: normalise_vendor(n) for label, n in DIFFERENT_PARTY.items()}
+    for label, key in others.items():
+        assert key != latin, label
+        assert key, label
+    assert len(set(others.values())) == len(others)
+
+    # an accented name and its unaccented spelling are two suppliers
+    assert normalise_vendor(ACCENTED_NFC) != normalise_vendor(UNACCENTED)
+    assert normalise_vendor(ACCENTED_NFD) != normalise_vendor(UNACCENTED)
+
+    # ...and no key from group 2 or 3 has quietly landed on any other
+    everything = set(legal.values()) | set(others.values()) | {latin, ltd}
+    assert len(everything) == len(legal) + len(others) + 2
+
+    # The narration key obeys the same Unicode rule, because it feeds the same
+    # kind of decision: `CompanyMemory.lookup_phrase` (`company.py:197-205`)
+    # answers "this phrase was posted to that account" from it. Two encodings
+    # of one narration must not be two phrases, and an accented word must not
+    # become its unaccented spelling.
+    phrase_nfc = unicodedata.normalize("NFC", "Café latte for the office")
+    phrase_nfd = unicodedata.normalize("NFD", "Café latte for the office")
+    assert phrase_nfc != phrase_nfd
+    assert normalise_phrase(phrase_nfc) == "café_latte_for_the_office"
+    assert normalise_phrase(phrase_nfd) == normalise_phrase(phrase_nfc)
+    assert normalise_phrase("Cafe latte for the office") != normalise_phrase(phrase_nfd)
 
 
 # ============================================================================
@@ -772,48 +1053,35 @@ PAREN_UNIT = "Acme Traders (Unit 1)"
 PLAIN_UNIT = "Acme Traders Unit 1"
 
 
-def test_two_tally_companies_differing_only_by_brackets_today_share_one_scope() -> None:
-    """DEFECT, pinned. The company key that isolates everything is not unique.
+def test_two_tally_companies_differing_only_by_brackets_are_both_refused() -> None:
+    """D3, FIXED 2026-08-09. This test pinned the DEFECT until then.
 
-    WROTE THIS TEST EXPECTING
-    `normalise_company(PAREN_UNIT) != normalise_company(PLAIN_UNIT)`.
-    It failed on the first run with:
+    WHAT IT USED TO PIN
+        `identity.py:37-47` replaces every punctuation character with a space
+        and joins on "_", so brackets, hyphens, dots and slashes carry no
+        information. Two DIFFERENT companies open in one Tally shared one scope
+        key, and everything followed: the second `bootstrap` called
+        `store.forget(key)` and erased the first company's whole index; the
+        first company's LIVE handle then answered with the second's account;
+        `resume` came back READY under the OTHER company's name; the guard at
+        `pipeline.py:116-121` compared keys so it could not see the difference;
+        and `store.actions()` returned one merged trail.
 
-        AssertionError: assert 'acme_traders_unit_1' != 'acme_traders_unit_1'
-         +  where 'acme_traders_unit_1' = normalise_company('Acme Traders (Unit 1)')
-         +  and   'acme_traders_unit_1' = normalise_company('Acme Traders Unit 1')
+    WHAT HAPPENS NOW, AND IT IS STRICTER THAN THE RECORDED FIX
+        The recorded fix said "a collision check at `bootstrap.py:197`". That
+        siting was WRONG: `store.forget()` ran FOUR LINES EARLIER, so a check
+        there fired only after the first company's rows were already deleted.
+        Every refusal now precedes `forget()`, and the collision path uses
+        `_refused`, which writes nothing at all - because `_incomplete` calls
+        `save_bootstrap`, and on a collision that write IS the damage.
 
-    WHAT HAPPENS
-        `accountant/memory/identity.py:37-47` replaces every punctuation
-        character with a space and then joins on "_", so brackets, hyphens,
-        dots and slashes carry no information. Two DIFFERENT companies open in
-        one Tally therefore share one scope key, and everything downstream
-        follows:
+        And BOTH companies are refused, not just the second. While two names
+        that reduce to one key are both open, no reading of either can say
+        whose books it read.
 
-          * the second `bootstrap` calls `store.forget(key)`
-            (`bootstrap.py:193`) and erases the first company's whole index;
-          * the first company's LIVE handle then answers with the second
-            company's account;
-          * `resume(store, "Acme Traders (Unit 1)")` comes back READY carrying
-            `display_name` "Acme Traders Unit 1" - the other company's name;
-          * `build_draft`'s guard at `pipeline.py:116-121` compares keys, so it
-            cannot see the difference and lets the draft through;
-          * `store.actions()` returns one merged trail for both companies.
-
-        This is the exact cross-company leak `identity.py` exists to prevent.
-        Its docstring at `identity.py:16-21` reasons only about removing WORDS
-        being dangerous; removing punctuation is treated as free, and it is
-        not.
-
-    WHAT SHOULD HAPPEN
-        Two distinct Tally company names never share a memory scope. Refusing
-        is enough - nobody needs the two merged, they need the merge noticed.
-
-    SMALLEST FIX
-        A collision check in `bootstrap` at `accountant/memory/bootstrap.py:197`,
-        where `client.list_companies()` is already in hand: if any OTHER open
-        company normalises to this key, return `_incomplete(...)` naming both
-        names. That fails closed with no schema change and no new dependency.
+    The normalisation rule is deliberately UNCHANGED. Tightening it only
+    reshuffles which pairs collide; the key is a many-to-one map and always
+    will be. See tests/test_company_collision.py.
     """
     t = FakeTally()
     t.add_company(
@@ -829,49 +1097,46 @@ def test_two_tally_companies_differing_only_by_brackets_today_share_one_scope() 
         backed_up=True,
     )
 
-    # pinned: two companies, one key
+    # The collision itself is unchanged - the key still cannot tell them apart.
     assert normalise_company(PAREN_UNIT) == "acme_traders_unit_1"
     assert normalise_company(PLAIN_UNIT) == "acme_traders_unit_1"
 
     store = MemoryStore(":memory:")
     mem_paren = bootstrap(t, PAREN_UNIT, store)
-    assert mem_paren.lookup(LATIN_SHARMA).accounts == ("Purchases",)
-
     mem_plain = bootstrap(t, PLAIN_UNIT, store)
-    assert mem_plain.lookup(LATIN_SHARMA).accounts == ("Repairs & Maintenance",)
 
-    # the first company's own live handle now answers with the SECOND
-    # company's account. Its books say Purchases; it has been overwritten.
-    assert mem_paren.identity.key == mem_plain.identity.key
-    assert mem_paren.lookup(LATIN_SHARMA).accounts == ("Repairs & Maintenance",)
-    assert mem_paren.lookup(LATIN_SHARMA).accounts != ("Purchases",)
+    # Neither is admitted, and each refusal names the OTHER company.
+    for mem, asked, other in (
+        (mem_paren, PAREN_UNIT, PLAIN_UNIT),
+        (mem_plain, PLAIN_UNIT, PAREN_UNIT),
+    ):
+        assert mem.report.status is BootstrapStatus.COMPANY_KEY_COLLISION
+        assert not mem.report.ready
+        assert asked in mem.report.detail
+        assert other in mem.report.detail
 
-    # re-opening the first company from the store hands back the OTHER name
-    reopened = resume(store, PAREN_UNIT)
-    assert reopened.report.status is BootstrapStatus.READY
-    assert reopened.identity.name == PLAIN_UNIT
-    assert reopened.identity.name != PAREN_UNIT
-    assert reopened.lookup(LATIN_SHARMA).accounts == ("Repairs & Maintenance",)
+    # Nothing was written, so each name resumes as NEVER_RUN carrying ITS OWN
+    # name. Before the fix, `resume(PAREN_UNIT)` came back READY under
+    # PLAIN_UNIT - the other company's display name, stamped on by the second
+    # bootstrap's write.
+    for name in (PAREN_UNIT, PLAIN_UNIT):
+        again = resume(store, name)
+        assert again.report.status is BootstrapStatus.NEVER_RUN
+        assert again.identity.name == name
 
-    # and the cross-company guard cannot fire, because the keys really are equal
-    draft = _run(t, store, reopened, LATIN_SHARMA, company=PAREN_UNIT)
-    assert draft.outcome is Outcome.VALID
-    assert draft.voucher.debit_account == "Repairs & Maintenance"
-    assert draft.posted_tally_id == "TALLY-1"
-    assert len(t.list_our_vouchers(PAREN_UNIT)) == 1
-    assert t.list_our_vouchers(PLAIN_UNIT) == ()
-
-    # one merged audit trail: asking about either company returns the same row
-    assert len(_rows(store, PAREN_UNIT)) == 1
-    assert _rows(store, PAREN_UNIT) == _rows(store, PLAIN_UNIT)
-    assert _rows(store, PAREN_UNIT)[0].backend == "FakeTally"
-    assert _rows(store, PAREN_UNIT)[0].run_id == RUN_ID
-    assert _rows(store, PAREN_UNIT)[0].company_key == "acme_traders_unit_1"
-
-    # cleanup: the voucher went into the bracketed company and reverses there
-    assert pipeline.reverse(draft, t) is True
+    # No proposal, no post, no audit row, and Tally is untouched on both sides.
+    # `lookup` RETURNS a not-ready match; the raise is in `as_match_result`,
+    # which is what keeps "we have not read your books" from arriving at the
+    # decision as "no match". Both halves asserted.
+    for mem in (mem_paren, mem_plain):
+        assert not mem.lookup(LATIN_SHARMA).accounts
+        with pytest.raises(MemoryNotReady):
+            mem.lookup(LATIN_SHARMA).as_match_result()
     assert t.list_our_vouchers(PAREN_UNIT) == ()
+    assert t.list_our_vouchers(PLAIN_UNIT) == ()
+    assert _rows(store, PAREN_UNIT) == ()
     assert len(t.read_vouchers(PAREN_UNIT)) == SEEDED
+    assert len(t.read_vouchers(PLAIN_UNIT)) == SEEDED
 
 
 # ============================================================================
@@ -894,10 +1159,21 @@ def test_an_account_missing_from_the_chart_is_asked_about_and_never_posted() -> 
 
     The behaviour was already correct - UNCLEAR, asked, nothing posted. What
     the failure exposed is that `Problem.id` and the id carried by that
-    problem's own `Question` disagree: `problems.py:55` answers the failed
-    `accounts_exist` check with `Q.which_purpose`, whose `problem_id` is hard
-    coded to "which_account" (`questions.py:143`). Both ids are asserted below
-    so the mismatch is written down rather than discovered again.
+    problem's own `Question` disagreed: the failed `accounts_exist` check was
+    answered with `Q.which_purpose`, whose `problem_id` was hard coded to
+    "which_account". An answer filed under a name nothing looks for never
+    retires the problem, so the person is asked the same thing until the run
+    budget is spent.
+
+    FIXED upstream 2026-08-09. `problems._from_check` now stamps
+    `question.problem_id` with the check's own name for every check, so a new
+    check cannot reintroduce the split. Both ids are still asserted here, and
+    now asserted EQUAL, because "they agree" is the property that matters and
+    it is cheap to keep watching.
+
+    The words are still `which_purpose`'s - shared wording, separate id.
+    "which_account" remains the id of the memory NO_MATCH/CONFLICTED problem,
+    which is a different problem reached a different way.
     """
     chart = ("Purchases", "Cash")
     t = _tally(_history(LATIN_SHARMA, GHOST_LEDGER), accounts=chart)
@@ -924,8 +1200,14 @@ def test_an_account_missing_from_the_chart_is_asked_about_and_never_posted() -> 
     assert question is not None
     assert question.text == f"What did you get from {LATIN_SHARMA}?"
     assert GHOST_LEDGER not in question.text
-    assert question.problem_id == "which_account"
-    assert question.problem_id != draft.problems[0].id
+
+    # The question is filed under the id of the problem that raised it, so the
+    # answer can retire that problem. Asserted both ways round: the literal id,
+    # and that it matches the problem - either one alone can be true while the
+    # other rots.
+    assert question.problem_id == "accounts_exist"
+    assert question.problem_id == draft.problems[0].id
+    assert question.problem_id != "which_account"
 
     _assert_nothing_was_written(t, store)
     log = _rows(store)

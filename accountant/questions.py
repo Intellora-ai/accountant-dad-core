@@ -43,6 +43,10 @@ def is_jargon(account: str) -> bool:
     return not all(_has_phrase(plain, w) for w in account.split() if len(w) > 2)
 
 
+class NoAnswerableOption(ValueError):
+    """A question whose options would all be invented. Never asked."""
+
+
 RETYPE = "__retype__"
 YES = "__yes__"
 HANDOVER = "__handover__"
@@ -238,11 +242,30 @@ def who_was_it(_: str = "") -> Question:
 
 
 def how_paid(accounts: Sequence[str]) -> Question:
+    """How the money left the business. Options come from the real chart.
+
+    Raises when the company has neither ledger, because a question with no
+    answerable options is worse than no question: it strands the person. The
+    caller turns that into an unanswerable problem, which is NOT_VALID and
+    honest.
+    """
+    # ONLY ledgers this company actually has. The old code fell back to
+    # `Answer(label="cash", value="Cash")` when the chart contained neither
+    # Cash nor Bank - offering an account that does not exist, so the person
+    # clicks it and we post to a ledger Tally will refuse. An option is a
+    # promise that the thing exists.
     opts = [Answer(label=PLAIN[a], value=a) for a in ("Cash", "Bank") if a in accounts]
     if not opts:
-        opts = [Answer(label="cash", value="Cash")]
+        raise NoAnswerableOption(
+            "this company has no Cash and no Bank ledger, so there is no "
+            "honest way to ask how the money was paid"
+        )
     return Question(
-        problem_id="how_paid",
+        # NOT "how_paid". `Problem.id` for a check-derived problem is the check
+        # name, and `decide_problems` and `next_question` both filter answered
+        # problems by that id. A question carrying a different string would be
+        # answered, never matched, and asked again forever.
+        problem_id="funding_is_named",
         text="How did you pay?",
         answers=tuple(opts),
     )

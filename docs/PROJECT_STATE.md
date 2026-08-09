@@ -1922,7 +1922,7 @@ voucher to the wrong place, silently, with no flag and no question.
 |---|---|---|---|
 | **D1** | An accented name in NFD form keys to a *different* supplier. `_PUNCT = [^\w\s&]` at `memory/index.py:36` — U+0301 is category Mn, so a decomposed accent becomes a space and collapses. | `normalise_vendor(NFD "Café Supplies") == "cafe_supplies"`. The NFD spelling **posts VALID**; the NFC spelling of the identical visible name asks. | `index.py:46` → `unicodedata.normalize("NFC", name).casefold().strip()`, and the same at `identity.py:47`. Stdlib. |
 | **D2** | `Acme Ltd` and `Acme LLP` are one vendor key. `_SUFFIXES` at `index.py:20-34` strips `llp` beside `ltd`. | An LLP invoice **posts VALID** against Ltd-only history. Contradicts `identity.py:19-21`, which states those are separate entities. | drop `llp`, `inc`, `corp`, `corporation` from `_SUFFIXES`. **Owner call** — it is a documented trade-off. |
-| **D3** | Two Tally companies can share one memory scope. `identity.py:37-47` turns punctuation into a separator, so `Acme Traders (Unit 1)` and `Acme Traders Unit 1` both key `acme_traders_unit_1`. | The second bootstrap's `forget()` erases the first company's index; the first company's live handle then answers with the **second company's account**; the cross-company guard at `pipeline.py:116-121` compares keys so it **cannot fire**; `store.actions()` merges both trails. | collision check in `bootstrap.py:197`, where `list_companies()` is already in hand. Fails closed, no schema change. |
+| ~~**D3**~~ **FIXED 2026-08-09, see §33** | Two Tally companies could share one memory scope. `identity.py:37-47` turns punctuation into a separator, so `Acme Traders (Unit 1)` and `Acme Traders Unit 1` both key `acme_traders_unit_1`. | The second bootstrap's `forget()` erases the first company's index; the first company's live handle then answers with the **second company's account**; the cross-company guard at `pipeline.py:116-121` compares keys so it **cannot fire**; `store.actions()` merges both trails. | collision check in `bootstrap.py:197`, where `list_companies()` is already in hand. Fails closed, no schema change. |
 | **D4** | A stale index outvotes the live ledger. `resume()` at `bootstrap.py:255-272` never tests freshness; `bootstrapped_at` is written and read by no decision. | Memory says Purchases, all 40 live vouchers say Repairs & Maintenance → **VALID, zero flags, zero problems, posted**, reason recorded as *"nothing unclear and nothing surprising"*. | compare the proposal against the party's accounts in the `history` already passed to `pipeline.evaluate:180`, or a detector reading `history` — `detectors.py:63` already carries it. |
 
 **D3 is the most serious: it is a cross-company write**, and it defeats the exact
@@ -2012,7 +2012,9 @@ From `tests/test_adversarial_amounts_and_states.py` (+21 tests, 0 skips, 0 xfail
 | **A5** | ordering, `pipeline.py:273` | Tally is read before memory readiness, so a not-ready company with a flaky connector reports the connector's error instead of `MemoryNotReady`. Fails closed; only the diagnosis is wrong |
 | **A6** | 9 of 13 state names in the brief do not exist in the code | `BOOTSTRAPPING`, `POSTING`, `READ_BACK_VERIFIED`, `CLEANED` and others are absences or field values, not states. `POSTING` matters: **a crash mid-write leaves no trace that a write was started** — the same hole as W2 |
 
-Pinned by `test_nine_of_the_thirteen_state_names_do_not_exist_in_the_shipped_package`.
+Pinned by `test_eight_of_the_thirteen_state_names_do_not_exist_in_the_shipped_package`.
+Eight, not nine, since 2026-08-09: `POSTING` now exists as a durable
+`write_attempted` row. See §37.
 
 ---
 
@@ -2176,3 +2178,595 @@ Mutants, all now dead: revert to presence-only (1 fail) · drop the register che
 tests   1023 -> 1026 passed, 4 xfailed (was 6), 0 failed, 0 skipped
 guards  12/12      pyright 0      accidental deletions 0
 ```
+
+---
+
+## 33. D3 FIXED — two companies can no longer share one memory scope
+
+**2026-08-09.** Phase 4 P4.0. The first bottleneck, fixed before anything was
+built on the memory layer.
+
+### 33.1 The recorded fix was sited WRONG
+
+§29 said "collision check in `bootstrap.py:197`, where `list_companies()` is
+already in hand". Measured: `store.forget(identity.key)` sat at **line 193**,
+four lines earlier and unconditional. A check at :197 fails closed only *after*
+the other company's `vendor_account`, `phrase_account`, `chart_account` and
+`company` rows are deleted — and `_incomplete()` then writes a row under the
+shared key carrying **this** company's `display_name`, so `resume(the other one)`
+returns INCOMPLETE under the wrong name.
+
+**Every refusal now precedes `forget()`.** Destroying an index is the last thing
+`bootstrap` does, not the first.
+
+### 33.2 What changed
+
+| change | where |
+|---|---|
+| `BootstrapStatus.COMPANY_KEY_COLLISION` — the measurable failure code | `memory/store.py` |
+| `_colliding_company()` — checks the LIVE open-company list, returns the other **original** name | `memory/bootstrap.py` |
+| `_refused()` — a refusal that writes **nothing**, unlike `_incomplete` | `memory/bootstrap.py` |
+| `forget()` moved below every check | `memory/bootstrap.py` |
+| plain-English banner for the new status | `web/app.py` |
+
+`_refused` exists because `_incomplete` calls `save_bootstrap`, and on a
+collision **that write is the damage**: it stamps one company's name onto the
+other's row. A refusal whose own record corrupts what it is refusing to touch is
+not a refusal.
+
+The check reads the **live open-company list**, not the store, because the store
+can only ever hold one of a colliding pair — `company_key` is the sole primary
+key and the writer is `INSERT OR REPLACE`.
+
+### 33.3 Stricter than designed, and correctly so
+
+The first draft of the test expected the FIRST company to bootstrap fine and only
+the second to be refused. It failed, and **the code was right**: while two names
+that reduce to one key are both open, no reading of *either* can say whose books
+it read. **Both are refused.**
+
+### 33.4 The normalisation rule is deliberately UNCHANGED
+
+Tightening it only reshuffles which pairs collide. `Ganesh  Textiles` and
+`Ganesh Textiles` alias under **any** rule that collapses whitespace, and the key
+is re-derived from a free-text name in `store.state()` and `store.actions()`, so
+whitespace collapsing cannot be dropped. The map is many-to-one; some pair always
+aliases. The fix is a **uniqueness proof at the point of admission**, not a better
+guess at which characters matter.
+
+### 33.5 Measured
+
+`tests/test_company_collision.py`, 17 tests. Six real-world Indian colliders,
+each with a premise test proving the collision is real — so the refusal tests
+cannot pass because there was nothing to catch:
+
+```
+M/s Sharma Traders             == M.S. Sharma Traders
+Kumar Motors - Pune            == Kumar Motors Pune
+Dev Enterprises (Unit-II)      == Dev Enterprises Unit II
+Bharat Steel Pvt. Ltd.         == Bharat Steel Pvt Ltd
+Shree Balaji Enterprises [Old] == Shree Balaji Enterprises Old
+Ganesh  Textiles               == Ganesh Textiles
+```
+
+Two controls, both required: re-reading **one** company stays READY, and two
+**non**-colliding companies both bootstrap fine — otherwise "refuse every second
+bootstrap" would pass.
+
+| metric | actual | expected | evidence |
+|---|---|---|---|
+| tests | **1043 passed, 4 xfailed, 0 failed, 0 skipped** | ≥ 1026 | `pytest -q` |
+| guards | 12/12 | 12/12 | `./scripts/guards` |
+| pyright | 0 | 0 | `pyright` |
+| mutant: remove the check | **10 failed** | red | by hand |
+| mutant: `forget()` back above the check | **2 failed** | red | by hand |
+| mutant: `_incomplete` instead of `_refused` | **9 failed** | red | by hand |
+
+`test_two_tally_companies_differing_only_by_brackets_today_share_one_scope` was
+**flipped** from pinning the defect to proving the fix, and renamed
+`..._are_both_refused`. A vacuous `assert survivor is not None` was caught and
+replaced while flipping it — `resume` never returns `None`.
+
+---
+
+## 34. Phase 4 exit 2 made structural, and a stranding bug found on the way
+
+**2026-08-09.** Phase 4 P4.1.
+
+### 34.1 `answer()` left a stale decision
+
+`pipeline.answer()` rewrites `debit_account` and used to leave `draft.decision`
+untouched. Its docstring said *"the caller must re-run evaluate()"* — a comment,
+not a guarantee. After answering, the draft carried a decision describing a
+**different voucher** from the one it now held.
+
+Safe only by accident: `answer` is reached only from UNCLEAR, and `post` refuses
+anything not VALID. Change either and a mutated voucher posts against a stale
+approval.
+
+`answer()` now sets `draft.decision = None`, so `post` fails closed with
+*"draft has not been evaluated"*. **Measured first:** all six existing call sites
+already re-evaluated on the next line, so nothing had to change around it.
+
+### 34.2 A stranding bug, found while testing the above
+
+`decide_problems` chose `answerable[0]` **without** skipping already-answered
+problems; `next_question` **did** skip them. The two disagreed, and the
+disagreement reached the screen. Measured before the fix:
+
+```
+outcome:        unclear
+next_question:  None
+STRANDED:       True
+```
+
+The page renders *"needs an answer"* with **no question and no buttons**. The
+person cannot act and the question budget never advances.
+
+**Fix:** one rule, two readers. `decide_problems` takes the answered ids —
+the same list `next_question` filters on — and when every answerable problem has
+already been answered and is still firing, the entry is **handed over** rather
+than left UNCLEAR. UNCLEAR is a promise to ask something; if there is nothing
+left to ask, saying UNCLEAR is a lie.
+
+### 34.3 What closes the loop, stated so it is not confused
+
+`answer()` alone does **not** make the next pass VALID. It sets
+`debit_account`, but memory still returns NO_MATCH for the vendor, so the same
+problem is found again. `web/app.py` also calls `record_correction`, and that is
+what teaches memory. Both halves are now asserted separately.
+
+### 34.4 Measured
+
+| metric | actual | expected | evidence |
+|---|---|---|---|
+| tests | **1049 passed, 4 xfailed, 0 failed, 0 skipped** | ≥ 1043 | `pytest -q` |
+| guards | 12/12 | 12/12 | `./scripts/guards` |
+| pyright | 0 | 0 | `pyright` |
+| regressions from the decision-order change | **0** | 0 | full suite |
+| mutant: `answer()` keeps the decision | **1 failed** | red | by hand |
+| mutant: `decide_problems` ignores answered ids | **2 failed** | red | by hand |
+| mutant: `evaluate` stops passing them | **2 failed** | red | by hand |
+
+---
+
+## 35. Phase 4 exit 4 — PROVEN FALSE, guard landed, fix designed and NOT shipped
+
+**2026-08-09.** Phase 4 P4.2/P4.3.
+
+### 35.1 Exit 4 was already false, and had never been checked
+
+`docs/ARCHITECTURE.md` says `NO fallback account exists anywhere in the
+codebase`. `PROJECT_STATE.md:128` recorded it as *"VERIFIED — no fallback exists
+in `accountant/decide.py`"* — **one file**. `pipeline.py` was never in scope of
+that verification, and no CI gate covers it.
+
+`accountant/pipeline.py:81-85`:
+
+```python
+def _default_credit(accounts: tuple[str, ...]) -> str:
+    for preferred in ("Cash", "Bank", "Sundry Creditors"):
+        if preferred in accounts:
+            return preferred
+    return accounts[0] if accounts else "Cash"
+```
+
+It runs on **every entry**, including an unknown vendor. Line 85 returns the
+literal `"Cash"` **even when the company has no such ledger**. `credit_account`
+carries **no provenance** — and by this codebase's own definition
+(`ingest/spend.py`), *a field with no source is a hallucination by definition*.
+
+**Why it stayed invisible:** every test chart in the repo contains `"Cash"`, so
+the first loop iteration always matched and lines 83–85 never ran once.
+
+### 35.2 The guard, and two wrong versions of it before the right one
+
+`tests/test_phase4_exits.py`. Two drafts were discarded:
+
+1. **Too narrow** — checked for a bare `return "constant"`. `_default_credit`
+   returns `accounts[0] if accounts else "Cash"`, an `IfExp`, and the scan
+   walked straight past it. **A fallback hides in a conditional; that is what
+   makes it a fallback.**
+2. **Too broad** — "any function whose name mentions an account returning a
+   string" flagged five innocents: `accounts_differ`, `accounts_exist`,
+   `build_ledger_list_request`, `_ledger_entry`, `parse_ledger_names`.
+
+The landed version states the invariant exactly: **a ledger leg may come from
+the document, from this company's own memory, or from a person's answer — never
+from a literal we wrote, and never from a function that can produce one.**
+Result: **exactly one offender, zero false positives.**
+
+It carries its own control (`test_the_guard_catches_a_fallback_that_is_...`),
+which runs the forbidden shapes AND the honest shapes through the real
+detectors — an absence test nobody has seen fail is indistinguishable from one
+that cannot fail.
+
+### 35.3 The fix is designed and was PROVEN END TO END. It is not shipped.
+
+Measured working, before being reverted:
+
+```
+1st: unclear | nothing says how this was paid
+     question: "How did you pay?"  ->  ['cash', 'from the bank']
+2nd: valid   | Dr Purchases | Cr Cash
+provenance: credit_account 'human_answer', debit_account 'company_history'
+```
+
+Four parts:
+
+1. `checks.funding_is_named` — an absent funding leg is a **question**, not a guess
+2. `problems.py` maps it to `Q.how_paid`, which **already existed and was dead
+   code**, never wired to anything
+3. `_funding_from_history(party, history)` — read the funding leg from this
+   company's own past vouchers, **unanimous or nothing**, exactly like the
+   expense leg. Asking "how did you pay?" about a vendor whose last forty
+   vouchers all say Cash is the same failure `bootstrap` exists to prevent
+4. `pipeline.answer` routes by problem id, so the funding answer lands on the
+   **credit** leg instead of overwriting the expense leg
+
+### 35.4 Why it was reverted rather than shipped
+
+It turns **21 tests red**, and they are not wrong — the behaviour genuinely
+changed. An unknown vendor now correctly asks **two** questions (which purpose,
+and how paid) where the tests answer one.
+
+Blast radius measured in stages: 50 red with the naive absence → 28 once the
+funding leg is read from history → **21** once the web path passes history too.
+
+Those 21 need considering individually. Bulk-editing them at the end of a long
+session is exactly the *"batch many unverified changes and hope the final suite
+explains them"* the mandate forbids, so the tree was returned to a verified
+green state and the defect **pinned as a strict xfail** carrying the whole
+diagnosis.
+
+**Status: NOT YET MEASURABLE as passing. Exit 4 remains FALSE.** The next
+session starts with a working design, a precise guard, and a known list of 21.
+
+### 35.5 One further fallback found, not yet addressed
+
+`accountant/questions.py:242-243` — `how_paid` offers `Answer(label="cash",
+value="Cash")` when the chart contains neither Cash nor Bank. Offering a ledger
+the company does not have means the person clicks it and we post to a
+nonexistent account. The AST guard does not catch it because it is an answer
+option, not a ledger-leg assignment. Recorded, not fixed.
+
+### 35.6 Measured
+
+| metric | actual | expected | evidence |
+|---|---|---|---|
+| tests | **1052 passed, 5 xfailed, 0 failed, 0 skipped** | ≥ 1049 | `pytest -q` |
+| guards | 12/12 | 12/12 | `./scripts/guards` |
+| pyright | 0 | 0 | `pyright` |
+| exit 4 | **FALSE, pinned** | true | `test_no_ledger_leg_is_ever_set_from_a_literal_or_a_chooser` |
+| fallback offenders found | **1** (`pipeline.py:134`) | 0 | AST scan |
+| false positives | **0** | 0 | AST scan |
+
+---
+
+## §36 Phase 4 exit 4 — the funding guess, deleted and replaced
+
+2026-08-09. Follows §35, which pinned this as a strict xfail. **The xfail is
+gone: it passes.**
+
+### 36.1 What was deleted
+
+`accountant/pipeline.py:81-85`, in full:
+
+```python
+def _default_credit(accounts: tuple[str, ...]) -> str:
+    for preferred in ("Cash", "Bank", "Sundry Creditors"):
+        if preferred in accounts:
+            return preferred
+    return accounts[0] if accounts else "Cash"
+```
+
+It ran on **every** entry. It read nothing about the vendor and nothing about
+the company's history. It wrote no provenance, which by this project's own
+Hallucinate definition makes it a hallucination on every voucher. Its last line
+returned the literal string `"Cash"` for a company with no such ledger.
+
+**Why 1,026 green tests and a 94.34% mutation score did not catch it:** every
+test chart in the repository contains `"Cash"`, so the first loop iteration
+always matched and the three later branches never executed once. A guess that
+agrees with every fixture is indistinguishable from knowledge until somebody
+writes the fixture where they disagree. `tests/test_funding_leg.py` is those
+fixtures — 13 tests, including the disconfirming one: a chart containing Cash,
+a vendor whose history says Bank, and the answer is Bank.
+
+### 36.2 What replaced it
+
+`pipeline._funding_from_history(party, history)` — the credit accounts THIS
+company has used for THIS vendor. **Unanimous or nothing.** Two different
+funding accounts is a conflict, and a conflict is a question, never a majority
+vote. Nine Cash and one Bank produces a question, not "Cash".
+
+Sited in `evaluate`, not in `build_draft`, and the siting is the guarantee:
+`evaluate` is the only function that gives a draft a decision, and `post`
+refuses a draft without one. So **no voucher can be posted whose credit leg was
+not either read from this company's own history or answered by a person.**
+It fills an EMPTY leg only, so a human answer is never overwritten.
+
+`checks.funding_is_named` turns the absence into a question;
+`questions.how_paid` offers only ledgers present in this company's chart and
+raises `NoAnswerableOption` when the company has neither Cash nor Bank, which
+becomes an unanswerable problem and therefore NOT_VALID. That closes §35.5.
+
+### 36.3 Five further defects the change exposed, each fixed
+
+| # | Defect | Where | Consequence before |
+|---|---|---|---|
+| 1 | `Problem.id` and `Question.problem_id` allowed to disagree | `problems._from_check` | The answer is filed under a name nothing looks for, the problem is never retired, and the person is asked the same question until the budget of 5 is spent. **Three live mismatches measured:** `amount_is_positive` asked as `amount`, `party_is_named` as `party`, `gst_not_larger_than_amount` as `gst_too_big`. Now forced to the check name in one place, so a new check cannot repeat it. |
+| 2 | The funding answer taught the vendor→expense map | `web/app.py` `/answer` | "I paid in cash" wrote `Gupta Hardware → Cash` next to `Gupta Hardware → Purchases`, making the vendor CONFLICTED, re-raising the question just answered, and ending a fully-answered entry at NOT_VALID. |
+| 3 | `accounts_differ` treated two absent legs as one sameness failure | `checks.py` | Unreachable while `_default_credit` existed. Without it an unknown vendor produced the refusal `"both sides are "` — naming no ledger — ahead of the two questions actually owed. |
+| 4 | Every answer was written to `debit_account` | `pipeline.answer` | The funding answer would silently overwrite the expense account the person had just chosen. Routing is now by problem id. |
+| 5 | `_funding_from_history` guarded on `party`, not on the normalised key | `pipeline.py` | `"   "` is truthy and normalises to `""`, the key every blank-party history row shares. Thirty such rows would make "the vendor nobody named" the most consistently-paid supplier in the books. |
+
+### 36.4 Blast radius, and what was NOT weakened
+
+50 tests red with a naive absence → 28 once the funding leg reads from history
+→ 21 once `evaluate` owns the proposal → **0** after updating them.
+
+Every updated test asserts the two-question sequence explicitly and then
+finishes the draft. None was trimmed back to the old single-answer shape. Two
+web tests gained a helper, `answer_purpose_and_funding`, which **asserts the
+funding question was asked** before answering it, so deleting the question turns
+them red rather than green.
+
+### 36.5 Retained, on purpose, and recorded rather than hidden
+
+`build_draft(..., accounts, ...)` is now unused. Its only reader was
+`_default_credit`. It is kept because it is positional in roughly thirty call
+sites including test files owned by concurrent work, and a mechanical signature
+change across those is a merge conflict rather than an improvement. Marked
+`# noqa: ARG001` with the reason in the docstring. **Open item, not done.**
+
+`build_draft` also does not validate a proposed ledger against the chart, and
+that is deliberate: emptying a leg the chart no longer contains would delete the
+evidence. `checks.accounts_exist` names the missing ledger instead. A guard was
+written, measured against
+`test_an_account_missing_from_the_chart_is_asked_about_and_never_posted`, found
+to hide the problem, and reverted.
+
+### 36.6 Measured
+
+| metric | actual | expected | evidence |
+|---|---|---|---|
+| exit 4 | **TRUE** | true | `test_no_ledger_leg_is_ever_set_from_a_literal_or_a_chooser` passes; the strict xfail is deleted |
+| fallback offenders, AST scan | **0** | 0 | `tests/test_phase4_exits.py` |
+| new tests | **13** | — | `tests/test_funding_leg.py` |
+| pyright | 0 | 0 | `pyright accountant/` |
+| ruff | clean | clean | `ruff check accountant/ tests/` |
+
+**Evidence class: FakeTally implementation.** Every test in
+`tests/test_funding_leg.py` runs against a double. Nothing here is evidence
+about a real TallyPrime, and it is not merged with the RealTally record.
+
+---
+
+## §37 W2 and A6 — the write nobody could find afterwards
+
+2026-08-09. Closes **W2** (§29) and the `POSTING` half of **A6**.
+
+### 37.1 The hole
+
+`pipeline.run` recorded the decision **after** `post` returned. When `post`
+raised, the exception left `run`, `record_decision` was never reached, and
+**zero** ActionLog rows existed for a write that had already gone out. The
+operation id survived in a traceback and nowhere else. Measured: write count 1,
+trial balance moved, rows 0. The same hole existed on the web path.
+
+An `except` clause would have closed most of it and none of the worst of it. No
+handler runs when the process dies between the request and the response, and
+that is exactly the case where a voucher exists in somebody's statutory books
+and nobody knows.
+
+### 37.2 The fix: write ahead of the socket
+
+`pipeline.post` now writes a `write_attempted` row **before** anything is sent,
+and a `write_outcome_unknown` row naming the exception on any `BaseException`
+before re-raising.
+
+```
+write_attempted   + posted                  → the voucher is in the books
+write_attempted   + write_outcome_unknown   → it may be; here is the operation id
+write_attempted   + nothing                 → the process did not survive; check by hand
+```
+
+The third line is the one an exception handler cannot produce, and it is the
+reason the row is written ahead rather than in a `finally`.
+
+`BaseException`, not `Exception`: a `KeyboardInterrupt` or `SystemExit` arriving
+between the write and the read-back leaves precisely the uncertainty this row
+exists to record.
+
+The row's `outcome` is the action name, never the decision's `valid`. A row
+saying `valid` is a row somebody reads as posted.
+
+`log` and `memory` are keyword-optional on `post` so the many tests calling
+`post(draft, client)` still work; both real callers pass them, and that is
+asserted rather than assumed.
+
+### 37.3 Consequence recorded honestly
+
+`POSTING` leaves `INVENTED_STATE_NAMES` in
+`tests/test_adversarial_amounts_and_states.py`. It is no longer a name the
+brief invented: it now has a durable representation. It is a **row, not a
+field**, because the case that matters is the process not surviving to update a
+field. The census count in that file drops from nine to eight, and the count
+itself is asserted so the list cannot be quietly shortened to silence a failure.
+
+### 37.4 Alarms that fired, as designed
+
+Three tests pinned this defect on purpose and went red the moment it was fixed.
+All three are flipped to assert the fix and keep their evidence — that the write
+really did go out, that the books really did move, and that the stranded voucher
+is reversible by the operation id now on the record. One strict xfail,
+`test_an_unknown_write_outcome_still_records_its_operation_id`, was an
+aspiration; it passes and the marker is deleted.
+
+### 37.5 W5 / D5 — the page and the audit trail could name different backends
+
+Fixed in the same session. `backend_state()` and the page read
+`identity.backend`; every ActionLog row writes `type(client).__name__`. Nothing
+compared them, so a runtime built from a fake client and a real-sounding
+identity rendered *"This is your real Tally"* while the person's own audit
+trail said `RecordingTally`. Measured: page `real-licence-unknown`, log row
+`RecordingTally`.
+
+`configure()` now refuses the pair. Compared by **class name, not
+`isinstance`** — a double behaves like a real Tally, which is the point of it;
+the question is whether the word about to be printed matches the object about
+to be used, and only a string comparison answers that. A wrapper is its own
+backend: `RecordingTally` around a `FakeTally` declares `RecordingTally`.
+
+**The defect was load-bearing for 22 tests**, which is why it survived.
+`tests/test_backend_states.py` rendered the three real-backend states by
+declaring a real identity over a `FakeTally`. Those states are now produced by
+a real `RealTally` speaking real XML to the in-process simulator the repo
+already owns — a better fixture than the one it replaces, because the state the
+page renders is now produced by the class the page names. The licence mode
+stays constructed: it is a fact about the Tally at the far end, not about the
+client class.
+
+One strict xfail, `test_the_runtime_refuses_an_identity_that_contradicts_the_client_it_names`,
+was an aspiration and now holds.
+
+### 37.6 Still open, not fixed here
+
+`POST /reverse` still bypasses `pipeline.reverse` and verifies no trial balance.
+`DRAFTS` is still unpruned. `build_draft`'s `accounts` parameter is unused.
+`Ltd` / `Pvt Ltd` / `& Co` still collapse to one vendor key, blocked on an owner
+decision about `tests/test_memory.py:994-1001`. `normalise_company` has the same
+NFD fold that `normalise_vendor` just gained. None is a wrong-write risk on the
+gated path; all are recorded.
+
+---
+
+## §38 A1–A4 — money is integer paise, or it is refused
+
+2026-08-09. Closes **A1, A2, A3, A4** (§30).
+
+### 38.1 One rule, two components, opposite behaviour
+
+`tallyio.paise_from_rupees` has parsed with `Decimal` and **refused** sub-paise
+precision since it was written, because rounding invoice arithmetic is how a
+reconciliation breaks three months later.
+
+`extract/adapter.py` did neither. `_to_paise` was
+`round(float(text.replace(",", "")) * 100)`, and `_AMOUNT` captured at most two
+decimal places. The lenient component was the one a person's typing reaches
+first.
+
+| # | Measured before | After |
+|---|---|---|
+| A1 | `"92233720368547.75"` → 9223372036854776 paise, one adrift; `"99999999999999.99"` one paise short, `"999999999999999.99"` one long | exact, via `Decimal` |
+| A2 | `"10.005"` → 1000 paise, **VALID, POSTED**, and the log row said "1000 paise" so the truncation was unrecoverable from the trail | no amount is read; `amount_is_positive` asks the person |
+| A3 | `rupees(-420050)` → `"-4,201.50"`; `rupees(-1)` → `"-1.99"`. `//` and `%` both floor toward −∞, so every negative in the trial balance was a rupee further from zero — and the paise did not move with it, which is what makes it read like a rounding style | sign split off first, exactly as `rupees_from_paise` always did |
+| A4 | a float was caught one line later by a `:02d` format code — `"Unknown format code 'd' for object of type 'float'"` — naming no voucher, no field and no amount. A **bool was not caught at all**: `bool` is an `int`, so `rupees_from_paise(True)` returns `"0.01"` and one paise goes on the wire | `check_amount_is_paise` refuses by name, bool before int |
+
+The GST split also came out of `float(pct)`. 18% of ₹1,180 is exactly ₹180; in
+binary floating point it is 179.99999999999997, and `round` hides that until the
+amount where it does not. Now `Decimal`.
+
+### 38.2 A3's other half — the screen that could not draw a refusal
+
+`amount_is_integer_paise` is the only unanswerable check in the codebase, so a
+float amount is the clearest route to NOT_VALID there is — and it was the one
+draft the screen could not render at all.
+
+`rupees` stays strict: a money formatter that quietly renders a float as rupees
+is how a lost paise stops being visible. The page degrades instead. A new
+`app.money()` prints `4200.5 (not an amount)` and the reason appears on the same
+screen. Strictness where the number is, tolerance where the person is.
+
+### 38.3 Why the reader returns None rather than raising
+
+An unreadable amount is a question, not a crash. `checks.amount_is_positive`
+already turns a missing total into one. Raising inside the extractor would be a
+500 in the web app for a typo.
+
+### 38.4 Alarms
+
+Five tests in `tests/test_adversarial_amounts_and_states.py` pinned these on
+purpose and fired. All five are flipped to assert the fix and keep their
+disconfirming halves — including a new one on A2: two decimal places still read
+exactly, so the refusal is about precision and not about decimals.
+
+New: `tests/test_money.py`, 17 cases, including the cross-check that the reader
+and the connector now return the same integer for the same string.
+
+---
+
+## §39 Lifecycle — the undo, the order, and the drafts
+
+2026-08-09. Closes **A5**, the `POST /reverse` bypass and the unpruned `DRAFTS`
+recorded in §35's "Noted, not fixed here".
+
+### 39.1 The undo said "reversed" without looking
+
+`POST /reverse` called `client.reverse_by_operation_id` with whatever `op`
+string the form carried and reported success on the strength of a boolean.
+`pipeline.reverse` did the same one layer up. Neither looked at the trial
+balance — although criterion **#6.5**, *"post N vouchers, run bulk reverse, and
+Tally's trial balance returns to its exact prior value in paise"*, is the
+rollback the entire project rests on. It was verified only inside tests, never
+on the path a person uses.
+
+`pipeline.reverse_operation(client, company, operation_id)` is now the single
+doorway:
+
+```
+read the voucher back      what should move, and by how much
+trial balance BEFORE
+reverse
+trial balance AFTER
+compare                    exact paise, both legs, nothing else moved
+```
+
+Three outcomes are now distinguishable where a boolean saw one:
+
+| | before | now |
+|---|---|---|
+| unknown operation id | `False`, indistinguishable from a refusal | `Reversal(reversed_=False)` naming the id, nothing touched |
+| Tally says yes, books do not move | reported **reversed** | raises; the books are named |
+| Tally says yes, wrong amount moves | reported **reversed** | raises, naming what moved and what should have |
+
+The middle one is the worst of the three, because it is the one that gets
+believed. `pipeline.reverse(draft, client)` is now three lines delegating here,
+so the web path and the draft path cannot drift into two definitions of
+"reversed". An AST guard asserts `accountant/web/app.py` makes **zero** direct
+calls to `reverse_by_operation_id`.
+
+### 39.2 A5 — the order of two lines decided which truth the caller heard
+
+`pipeline.run` read the chart and the voucher history out of Tally *before*
+anything checked whether this company's books had ever been read. On a flaky
+connector against a never-bootstrapped company, both facts are true and the
+connector's error won every time. Nothing was written either way — it failed
+closed — but "your network is down" and "we have not read your books" send
+somebody to completely different places.
+
+`memory.require_usable()` now runs first. It raises the **same sentence**
+`propose_account` raises, plus the status and the detail: one condition, two
+call sites, and a caller matching on one of them cannot miss the other.
+
+### 39.3 The drafts were the unbounded thing
+
+`DRAFTS` held every entry anybody ever typed — voucher, checks, flags, problems
+— for the life of the process, sitting next to `EVENTS`, which was capped at
+forty. The audit trail was the bounded one and the live state was not.
+
+`DRAFT_LIMIT = 200`, oldest evicted first. 200 rather than 40 because a draft is
+only useful while somebody might still answer its question, and taking one away
+mid-question is a worse failure than holding a few more. **The draft is not the
+record**: every decision is already durable in the action log, so eviction loses
+a form in progress and nothing else.
+
+### 39.4 Measured
+
+| metric | actual | evidence |
+|---|---|---|
+| tests | **1147 passed, 1 xfailed, 0 failed** | `pytest -q` |
+| new tests | 9 | `tests/test_lifecycle.py` |
+| direct `reverse_by_operation_id` calls in the web app | **0** | AST scan |
+| ruff / pyright | clean / 0 | `ruff check .`, `pyright` |
