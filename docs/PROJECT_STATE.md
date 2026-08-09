@@ -2013,3 +2013,62 @@ From `tests/test_adversarial_amounts_and_states.py` (+21 tests, 0 skips, 0 xfail
 | **A6** | 9 of 13 state names in the brief do not exist in the code | `BOOTSTRAPPING`, `POSTING`, `READ_BACK_VERIFIED`, `CLEANED` and others are absences or field values, not states. `POSTING` matters: **a crash mid-write leaves no trace that a write was started** — the same hole as W2 |
 
 Pinned by `test_nine_of_the_thirteen_state_names_do_not_exist_in_the_shipped_package`.
+
+---
+
+## 31. Phase 3 delivery — commit, PR, and the final audit
+
+| item | value |
+|---|---|
+| branch | `phase3/action-log` |
+| HEAD at delivery | `899fd29` |
+| merge base with `main` | `6867ca9` |
+| PR | [#15](https://github.com/Intellora-ai/accountant-dad-core/pull/15) |
+| CI | `pr-fast` pass · `pr-full` pass · `ci-gate` pass |
+| **merge** | **NOT MERGED — blocked, see 31.2** |
+
+### 31.1 Final audit
+
+| check | result |
+|---|---|
+| tests | **1023 passed, 6 xfailed, 0 failed, 0 skipped** |
+| guards | **12/12** |
+| pyright | **0 errors** |
+| accidental deletions | **0** files, **0** net test definitions |
+| frozen `2026-08-07` fixture | unchanged, verified by `git diff` and by `test_evidence_classes.py` |
+| stale worktrees | 0 |
+| working tree | clean |
+| secrets / credentials / private data / temp artefacts in the diff | none |
+| FakeTally in a live path | none — 0 imports, AST-verified |
+| Phase 4 work | none |
+| read-back failure mutant | **killed** (1 fail) |
+| ungated-write mutant | **killed** (2 fail) |
+| fake-live-message mutant | **killed** (11 fail) |
+| serve-without-connect mutant | **killed** (5 fail) |
+
+### 31.2 OWNER ACTION — the merge is blocked, and not by CI
+
+All three required checks are green. `gh pr merge` was **refused by the local
+permission classifier**, not by GitHub and not by branch protection. The merge
+therefore has to be performed by the owner, or the permission granted.
+
+```
+gh pr merge 15 --squash --delete-branch
+```
+
+Nothing else is outstanding for Phase 3. **This is recorded rather than worked
+around, and the PR is NOT described as merged.**
+
+### 31.3 Evidence classification, final
+
+| class | obtained? |
+|---|---|
+| FakeTally implementation evidence | **YES** — 1023 tests |
+| Educational-mode RealTally compatibility evidence | **YES** — run `edu_0d42b3a30d79461b8d25ad414040d6e5`, 20/21 metrics, Tally identifier 13 |
+| regular licensed RealTally evidence | **NO** — owner Option 2 (§24) stands |
+
+```
+Phase 3 implementation:        COMPLETE
+Phase 3 live validation:       ENVIRONMENT-LIMITED
+RealTally 2026-08-07 evidence: NOT PROVEN
+```
