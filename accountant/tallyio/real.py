@@ -2384,7 +2384,17 @@ class RealTally:
         False means it was not there. True means it was there and is verifiably
         gone. Anything else raises: reversal is never reported as succeeding
         because Tally said so.
+
+        The backup gate was added here 2026-08-09, G5.2. `write_voucher` has
+        enforced it since this file was written; this path never did. A delete
+        is the more destructive of the two operations, so the ungated one was
+        the dangerous one — a bulk reverse could empty a company nobody had
+        backed up while a single write to that same company was refused.
         """
+        if not self._backups.has_backup(company):
+            raise CompanyNotBackedUp(
+                f"{company!r} has no recorded backup; refusing to reverse"
+            )
         # This read IS the fresh read the delete is built from - taken here,
         # immediately before the delete, and never carried in from a caller, a
         # cache or an earlier call. Another user can move a voucher under us.
@@ -2412,3 +2422,11 @@ class RealTally:
                 f"operation {operation_id!r}, but the voucher is still there"
             )
         return True
+
+    def backed_up(self, company: str) -> bool:
+        """Whether a backup has been recorded for this company. Read-only.
+
+        Reads the same `BackupLog` both write paths gate on, so the answer a
+        preview reports and the answer the write enforces cannot drift.
+        """
+        return self._backups.has_backup(company)

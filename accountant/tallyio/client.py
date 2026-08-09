@@ -121,3 +121,24 @@ class TallyClient(Protocol):
     def list_our_vouchers(self, company: str) -> tuple[Voucher, ...]:
         """Every voucher we wrote, found by marker. Powers bulk reverse."""
         ...
+
+    def backed_up(self, company: str) -> bool:
+        """Whether a backup has been RECORDED for this company. Read-only.
+
+        The ninth method, added 2026-08-09 for G5.2. Until then the backup gate
+        existed only inside `write_voucher`, which had two consequences:
+
+          * nothing could ASK. Phase 5 requires the evidence bundle to state the
+            backup identity before a batch runs, and a fact only discoverable by
+            attempting a write is not a fact a preview can report.
+          * `reverse_by_operation_id` was NOT gated at all. A delete is the more
+            destructive of the two operations and it was the ungated one — a
+            batch could remove ten vouchers from a company nobody had backed up,
+            while a single write to the same company was refused.
+
+        Both are closed by this method plus the gate now on the delete path. A
+        missing backup RECORD and a missing backup are treated as the same
+        thing, which is the fail-closed reading and the one already used by
+        `RecordedBackups`.
+        """
+        ...

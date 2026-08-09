@@ -270,6 +270,10 @@ def evaluate(
         # The SAME answered-ids `next_question` filters on, so the decision
         # and the question can never disagree about what is outstanding.
         answered=[pid for pid, _ in draft.answers],
+        # G5.1. The decision is born carrying the identity of the operation it
+        # decides. `answer` clears the decision and this rebuilds it, so the
+        # id survives every question without ever being minted again.
+        operation_id=draft.operation_id,
     )
     return draft
 
@@ -406,6 +410,29 @@ def post(
     if draft.decision.outcome is not Outcome.VALID:
         raise ValueError(f"refusing to post: outcome is {draft.decision.outcome.value}")
 
+    # G5.1. The approval must belong to THIS operation. Both halves matter and
+    # they fail for different reasons:
+    #
+    #   empty     a decision that names no operation authorises no write. The
+    #             write-ahead row would then be the only thing carrying the id,
+    #             and nothing would tie the voucher back to the reasoning.
+    #   mismatch  a decision built for a DIFFERENT draft. `DRAFTS` holds up to
+    #             200 at once, so two live drafts is the ordinary case; an
+    #             approval granted to one of them must not post the other.
+    #
+    # Checked before the write-ahead row, because neither case is a write that
+    # started — it is a write that was never entitled to start.
+    if not draft.decision.operation_id:
+        raise ValueError(
+            f"refusing to post {draft.operation_id!r}: the decision carries no "
+            "operation id, so nothing ties this approval to this write"
+        )
+    if draft.decision.operation_id != draft.operation_id:
+        raise ValueError(
+            f"refusing to post {draft.operation_id!r}: the decision authorised a "
+            f"different operation, {draft.decision.operation_id!r}"
+        )
+
     _record_write(log, draft, memory, client, run_id, WRITE_ATTEMPTED, "")
 
     try:
@@ -457,6 +484,24 @@ def post(
     # Tally's identifier, not ours. What Tally says it stored is the evidence.
     draft.posted_tally_id = back.tally_id
     return draft
+
+
+class ReversalMismatch(RuntimeError):
+    """Tally's answer and Tally's own books disagree about a reversal.
+
+    A `RuntimeError` subclass rather than a new exception hierarchy, so every
+    existing `pytest.raises(RuntimeError)` around this path keeps working and
+    nothing that catches broadly changes behaviour.
+
+    It exists because `accountant/reversal.py` must tell two failures apart and
+    the message text is not a safe discriminator. This one is WRONG_MOVEMENT —
+    the books moved by something other than what undoing the voucher should
+    have moved them by, in either direction. Any OTHER exception out of the
+    same call is UNKNOWN_OUTCOME: a dropped connection or a malformed response
+    says nothing about whether the books moved, and the two demand opposite
+    responses. WRONG_MOVEMENT stops the batch dead; UNKNOWN_OUTCOME stops it
+    pending a read-only reconciliation.
+    """
 
 
 @dataclass(frozen=True)
@@ -513,7 +558,7 @@ def reverse_operation(client: TallyClient, company: str, operation_id: str) -> R
 
     if not ok:
         if moved:
-            raise RuntimeError(
+            raise ReversalMismatch(
                 f"reversing {operation_id!r} in {company!r} reported failure but "
                 f"the trial balance moved by {moved}. The books and the answer "
                 "disagree; nothing here can be trusted until a person looks."
@@ -530,7 +575,7 @@ def reverse_operation(client: TallyClient, company: str, operation_id: str) -> R
         voucher.credit_account: voucher.amount_paise,
     }
     if moved != expected:
-        raise RuntimeError(
+        raise ReversalMismatch(
             f"reversing {operation_id!r} in {company!r} reported success, but "
             f"the trial balance moved by {moved} and undoing this voucher "
             f"should have moved it by {expected}. Nothing is recorded as "

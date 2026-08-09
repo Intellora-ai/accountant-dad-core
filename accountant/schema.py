@@ -114,15 +114,34 @@ class Decision:
     """The result of applying the decision order to one entry.
 
     `post` is the only thing the Tally write path is allowed to read.
+
+    `operation_id` added 2026-08-09, G5.1. Phase 5 requires one identity carried
+    by all five of the draft, the decision, the Tally narration, the action log
+    and the reversal request. Four carried it; this one did not, so the artefact
+    that AUTHORISES a write could not be tied to the write it authorised.
+
+    It defaults to empty rather than being required positionally, because
+    `decide_problems` is also called by the scoring harness and by unit tests
+    that reach no write path and have no operation to name. The requirement is
+    enforced where it matters instead: an unidentified decision is not
+    `post`-able, and `pipeline.post` refuses both an empty id and one belonging
+    to a different operation. A decision that authorises nothing cannot leak.
     """
 
     outcome: Outcome
     reason: str
     question_options: tuple[str, ...] = ()
+    operation_id: str = ""
 
     @property
     def post(self) -> bool:
-        return self.outcome is Outcome.VALID
+        """Valid AND identified. Both, because the write path reads only this.
+
+        The identity requirement lives here as well as in `pipeline.post` so a
+        second reader added later inherits it rather than having to remember
+        it. An anonymous approval is not an approval.
+        """
+        return self.outcome is Outcome.VALID and bool(self.operation_id)
 
 
 @dataclass(frozen=True)

@@ -33,7 +33,7 @@ import urllib.parse
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from accountant import pipeline
+from accountant import pipeline, reversal
 from accountant import questions as Q
 from accountant.extract.adapter import TypedTextExtractor
 from accountant.memory.bootstrap import bootstrap
@@ -75,6 +75,24 @@ def remember_draft(draft: pipeline.Draft) -> None:
     DRAFTS[draft.id] = draft
     while len(DRAFTS) > DRAFT_LIMIT:
         DRAFTS.pop(next(iter(DRAFTS)))
+
+
+# Previewed bulk reversals, waiting for a yes. Bounded for the same reason
+# `DRAFTS` is, and small because a preview is answered in seconds or abandoned:
+# nobody comes back to one an hour later, and if they do, taking a fresh
+# preview is the correct thing to make them do.
+#
+# The batch is held rather than recomputed because the candidate list is the
+# thing being confirmed. Re-listing at confirmation time would mean a voucher
+# posted in the gap gets reversed by a click that never showed it.
+BATCHES: dict[str, reversal.Batch] = {}
+BATCH_LIMIT = 20
+
+
+def remember_batch(batch: reversal.Batch) -> None:
+    BATCHES[batch.batch_id] = batch
+    while len(BATCHES) > BATCH_LIMIT:
+        BATCHES.pop(next(iter(BATCHES)))
 
 
 # How many log rows the page shows. The log itself is unbounded and append-only;
@@ -694,6 +712,56 @@ def render_decision(d: pipeline.Draft) -> str:
 </div>"""
 
 
+def render_bulk_preview(batch: reversal.Batch) -> bytes:
+    """What would be undone, named one voucher at a time, before anything is.
+
+    The page states the count and every operation id, because "undo everything"
+    is the one action in this app whose blast radius the person cannot see from
+    the button. Confirming is a second request carrying the batch id, so the
+    list that gets reversed is the list that was shown and not whatever is in
+    the books a minute later.
+    """
+    rows = "".join(
+        f"<tr><td><code>{esc(o.operation_id)}</code></td></tr>" for o in batch.outcomes
+    )
+    return page(f"""<div class=warn>
+<b>Undo {len(batch.outcomes)} voucher(s)?</b> Nothing has been reversed yet.
+This removes only entries Accountant Dad wrote. Anything typed by hand in Tally
+is left exactly as it is.</div>
+<h2>These would be undone</h2>
+<table>{rows}</table>
+<form method=post action=/reverse-all>
+<input type=hidden name=batch value="{esc(batch.batch_id)}">
+<input type=hidden name=confirm value="yes">
+<button class=primary>Yes, undo these {len(batch.outcomes)}</button></form>
+<p><a href="/">&larr; no, leave them alone</a></p>""")
+
+
+def render_bulk_result(batch: reversal.Batch) -> bytes:
+    """What actually happened, per voucher, in the state machine's own words.
+
+    The states are printed verbatim rather than translated into a friendlier
+    sentence. `partial_failure` and `unknown_outcome` mean different things and
+    demand different next steps, and a screen that renders both as "some
+    entries could not be undone" is the same defect as a boolean reversal: it
+    throws away the distinction the person needs.
+    """
+    cls = "valid" if batch.state is reversal.BatchState.COMPLETED else "notvalid"
+    rows = "".join(
+        f"<tr><td><code>{esc(o.operation_id)}</code></td>"
+        f"<td>{esc(o.state.value)}</td><td>{esc(o.detail)}</td></tr>"
+        for o in batch.outcomes
+    )
+    return page(f"""<div class="card {cls}">
+<span class="badge b-{cls}">{esc(batch.state.value)}</span>
+<p class=reason>{esc(batch.detail)}</p>
+<p class=reason class=muted>every paise accounted for: {batch.accounted}</p>
+</div>
+<h2>Each voucher</h2>
+<table><tr><th>Operation<th>Result<th>Detail</tr>{rows}</table>
+<p><a href="/">&larr; back</a></p>""")
+
+
 def render_home(banner: str = "") -> bytes:
     live = runtime()
     ours = live.client.list_our_vouchers(COMPANY)
@@ -713,6 +781,16 @@ def render_home(banner: str = "") -> bytes:
         f"<tr><td>{esc(k)}</td><td class=num>₹{rupees(abs(val))} "
         f"{'Dr' if val > 0 else 'Cr'}</td></tr>"
         for k, val in sorted(tb.items())
+    )
+
+    # #14.7, second half. Offered only when there is something to undo: an
+    # undo-everything button over an empty list is an invitation to a mistake
+    # and cannot be anything else.
+    undo_all = (
+        "<form method=post action=/reverse-all>"
+        f"<button>Undo everything we posted ({len(ours)})</button></form>"
+        if ours
+        else ""
     )
 
     # Read off the persisted log, newest first. The old renderer iterated
@@ -744,6 +822,7 @@ def render_home(banner: str = "") -> bytes:
 <h2>What we posted</h2>
 <table><tr><th>Party<th>Account<th class=num>Amount<th>Operation</tr>
 {posted_rows}</table>
+{undo_all}
 
 <h2>Trial balance</h2>
 <table>{tb_rows}</table>
@@ -937,6 +1016,48 @@ class Handler(BaseHTTPRequestHandler):
                 operation_id=op,
             )
             self._send(render_home())
+            return
+
+        if self.path == "/reverse-all":
+            # #14.7. Two requests on purpose: the first shows the exact list and
+            # writes nothing, the second reverses the list that was shown. A
+            # single-request version would have to re-read `list_our_vouchers`
+            # at confirmation time, which means reversing vouchers the person
+            # was never shown.
+            live = runtime()
+            if form.get("confirm") != "yes":
+                batch = reversal.preview(live.client, COMPANY)
+                remember_batch(batch)
+                self._send(render_bulk_preview(batch))
+                return
+
+            shown = BATCHES.pop(form.get("batch", ""), None)
+            if shown is None:
+                # No preview, or one that has aged out. Not an error to hide:
+                # confirming a list nobody has seen is the exact thing the two
+                # steps exist to prevent, so the person is sent back to look.
+                self._send(
+                    render_home(
+                        "<div class=warn>That undo-everything request had no "
+                        "preview, so nothing was reversed. Start again and "
+                        "check the list.</div>"
+                    )
+                )
+                return
+
+            result = reversal.execute(
+                reversal.confirm(shown),
+                live.client,
+                log=live.store,
+                company_key=live.memory.identity.key,
+                run_id=live.identity.run_id,
+            )
+            note(
+                "bulk_reversed",
+                result.state.value,
+                f"the person asked to undo everything: {result.detail}",
+            )
+            self._send(render_bulk_result(result))
             return
 
         self._send(render_home(), 404)

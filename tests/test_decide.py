@@ -53,7 +53,14 @@ FLAG = Flag(
 
 
 def test_clean_entry_is_valid_and_posts():
-    d = decide([PASSING], MATCH, [])
+    """`operation_id` supplied because G5.1 made `.post` mean valid AND identified.
+
+    The claim under test is unchanged — a clean entry is Valid and authorises a
+    write. What changed on 2026-08-09 is that an approval naming no operation
+    authorises nothing, so the identity is now part of what a postable decision
+    is. `tests/test_operation_identity.py` owns the anonymous case.
+    """
+    d = decide([PASSING], MATCH, [], operation_id="ad_clean")
     assert d.outcome is Outcome.VALID
     assert d.post is True
 
@@ -135,8 +142,13 @@ def test_no_checks_and_a_match_still_posts():
 def test_outcomes_are_exhaustive_and_mutually_exclusive(
     checks: list[CheckResult], match: MatchResult, flags: list[Flag]
 ):
-    """Every input lands in exactly one of the three outcomes."""
-    d = decide(checks, match, flags)
+    """Every input lands in exactly one of the three outcomes.
+
+    Identified on purpose: with an operation id supplied, `.post` is exactly
+    "the outcome is VALID", which is the equivalence this test exists to pin.
+    Leaving it out would make the assertion pass for the wrong reason.
+    """
+    d = decide(checks, match, flags, operation_id="ad_exhaustive")
     assert d.outcome in set(Outcome)
     assert d.post is (d.outcome is Outcome.VALID)
 

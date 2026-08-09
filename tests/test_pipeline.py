@@ -420,6 +420,12 @@ class LosesTheWriteTally:
     def list_our_vouchers(self, company: str) -> tuple[Voucher, ...]:
         return self.inner.list_our_vouchers(company)
 
+    def backed_up(self, company: str) -> bool:
+        # The ninth TallyClient method, added 2026-08-09 for G5.2. Delegated
+        # like the rest: this double wraps a real FakeTally and has no opinion
+        # about backups.
+        return self.inner.backed_up(company)
+
 
 def test_a_write_that_cannot_be_read_back_raises_and_never_records_a_tally_id():
     """C6. The draft must not claim a posted ID it could not confirm.

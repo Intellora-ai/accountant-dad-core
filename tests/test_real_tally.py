@@ -501,6 +501,49 @@ def test_the_contract_tests_are_actually_bound_to_the_real_client(
     assert isinstance(client, real.RealTally)
 
 
+def test_the_real_connector_refuses_to_delete_without_a_recorded_backup(
+    sim: TallySim,
+) -> None:
+    """#6.7, on the DELETE path. Added 2026-08-09 with G5.2.
+
+    `write_voucher` has enforced the backup gate since this file was written.
+    `reverse_by_operation_id` never did — the more destructive of the two
+    operations was the ungated one, so a bulk reversal could empty a company
+    nobody had backed up while a single write to it was refused.
+
+    Evidence class: SIMULATOR. `RealTally` over the XML double, one layer below
+    the `TallyClient` interface, so this is the real connector's own behaviour.
+    """
+    writable = real.RealTally(
+        transport=sim, backups=real.RecordedBackups(frozenset({COMPANY}))
+    )
+    op = new_operation_id()
+    writable.write_voucher(COMPANY, contract.a_voucher(), op)
+    before = writable.trial_balance(COMPANY)
+
+    unbacked = real.RealTally(transport=sim, backups=real.RecordedBackups())
+
+    with pytest.raises(CompanyNotBackedUp, match="refusing to reverse"):
+        unbacked.reverse_by_operation_id(COMPANY, op)
+
+    assert writable.trial_balance(COMPANY) == before
+    assert len(writable.list_our_vouchers(COMPANY)) == 1
+
+
+def test_the_real_connector_reports_whether_a_backup_is_recorded(
+    sim: TallySim,
+) -> None:
+    """The ninth `TallyClient` method. Read-only, and the same `BackupLog` both
+    write paths gate on — so what a preview reports and what a write enforces
+    cannot drift apart."""
+    assert real.RealTally(
+        transport=sim, backups=real.RecordedBackups(frozenset({COMPANY}))
+    ).backed_up(COMPANY)
+    assert not real.RealTally(transport=sim, backups=real.RecordedBackups()).backed_up(
+        COMPANY
+    )
+
+
 def test_bulk_reverse_leaves_the_hand_typed_voucher_alone(
     sim: TallySim, client: TallyClient
 ) -> None:
