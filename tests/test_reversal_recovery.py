@@ -39,8 +39,20 @@ one company at once. The web tests run a real HTTP server against an in-memory
 double; they prove the route refuses, not that a browser renders the refusal
 well.
 
-Two things asserted here are DEFECT CLAIMS and are expected to fail until the
-source is fixed. Both are named in `artifacts/reversal_report.md`.
+WHAT WAS A DEFECT CLAIM HERE AND IS NOW A REQUIREMENT
+-----------------------------------------------------
+Defect D3 in `artifacts/reversal_report.md` was pinned here by a strict xfail:
+`reconcile` returned `reconciled=True` even when every read had failed, and the
+approved resume that flag admitted then deleted six more vouchers — nine of ten
+gone from a company where one voucher's fate was unknown.
+
+Owner decision D-03, 2026-08-10: REFUSE THE WHOLE BATCH while any voucher is
+UNKNOWN_OUTCOME. Safety beats partial cleanup. So the xfail is off
+`test_a_resume_writes_nothing_more_when_the_reconciliation_settled_nothing` and
+`test_an_unknown_outcome_voucher_is_never_retried_by_a_resume`, which required
+the opposite reading, was REWRITTEN rather than quietly kept or deleted — its
+docstring says what it used to require and why that changed. No defect claim is
+left in this file.
 
 HOUSE RULE APPLIED THROUGHOUT
 -----------------------------
@@ -583,6 +595,12 @@ def test_a_resume_deletes_nothing_when_the_backup_record_is_gone():
     assert resumed.state is not BatchState.COMPLETED
     assert markers_in(t) == survivors_before
     assert t.trial_balance(COMPANY) == before
+    assert resumed.unresolved, "the withdrawn backup left a fresh unknown"
+    assert resumed.reconciled is False, (
+        "a resume is not a reconciliation. The batch it hands back holds an "
+        "unknown nobody has read, so it must not claim to be reconciled — the "
+        "second interruption is the one that gets waved through otherwise"
+    )
 
 
 def test_reconciliation_needs_no_backup_because_it_deletes_nothing():
@@ -1376,6 +1394,20 @@ def test_an_unknown_outcome_voucher_is_never_retried_by_a_resume():
     resume must not send a second delete for it: in the world where the first
     one landed, that is a delete aimed at a voucher that is already gone, and in
     a real Tally the two worlds are not distinguishable afterwards.
+
+    WHAT THIS TEST USED TO REQUIRE, AND WHY IT CHANGED
+    --------------------------------------------------
+    Until 2026-08-10 this test required the resume to PROCEED — to skip the
+    unknown voucher and finish the rest of the outstanding cleanup — and it
+    asserted a returned batch rather than a refusal. That reading is exactly
+    what defect D3 measured going wrong: six further vouchers deleted from a
+    company holding one voucher whose fate nobody could name.
+
+    Owner decision D-03, 2026-08-10, refused that reading outright: the whole
+    batch stops while any voucher is UNKNOWN_OUTCOME, because safety beats
+    partial cleanup. The rule this test exists for is unchanged and is still
+    asserted below — the uncertain voucher never reaches the connector a second
+    time — but the refusal, not a skip, is now how that is enforced.
     """
     t, stopped, ops = stopped_at_four(_DropsTheConnection, n=6)
 
@@ -1386,11 +1418,12 @@ def test_an_unknown_outcome_voucher_is_never_retried_by_a_resume():
     assert reconciled.outcomes[3].state is VoucherState.UNKNOWN_OUTCOME
 
     t.deletes.clear()
-    resumed = reversal.resume(reconciled, t, approved=True, company_key=KEY)
+    with pytest.raises(ValueError, match=re.escape(ops[3])):
+        reversal.resume(reconciled, t, approved=True, company_key=KEY)
 
-    assert ops[3] not in t.deletes, "the uncertain voucher was retried"
-    assert resumed.outcomes[3].state is VoucherState.UNKNOWN_OUTCOME
-    assert resumed.state is not BatchState.COMPLETED
+    assert t.deletes == [], "the uncertain voucher was retried"
+    assert reconciled.outcomes[3].state is VoucherState.UNKNOWN_OUTCOME
+    assert reconciled.state is not BatchState.COMPLETED
     assert ops[3] in markers_in(t), "and it is still in the books, for a person"
 
 
@@ -1565,47 +1598,44 @@ def test_a_resume_that_finishes_the_work_writes_its_own_durable_rows(
     assert [r.outcome for r in second_run[1::2]] == [VoucherState.REVERSED_VERIFIED] * 3
 
 
-# ---- DEFECT CLAIM ----------------------------------------------------------
+# ===========================================================================
+# D-03 - fail-closed resume. One unknown voucher refuses the WHOLE batch.
+#
+# Owner decision, 2026-08-10, in answer to defect D3 in
+# `artifacts/reversal_report.md`:
+#
+#     REFUSE THE WHOLE BATCH WHEN ANY VOUCHER HAS UNKNOWN_OUTCOME.
+#     Safety beats partial cleanup. Never delete six known vouchers while one
+#     voucher's fate is unknown.
+#
+# The rejected alternative was to skip the unknown voucher so the rest of the
+# cleanup could finish. It is the reading the code shipped with, and it is what
+# left nine of ten vouchers deleted from an uncertain company.
+# ===========================================================================
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Defect D3, OPEN OWNER DECISION. `reconcile` sets reconciled=True even "
-        "when every read failed. Fixing it by deriving the flag from the "
-        "remaining UNKNOWN outcomes makes `resume` refuse the whole batch, "
-        "which the existing "
-        "test_an_unknown_outcome_voucher_is_never_retried_by_a_resume forbids: "
-        "it requires resume to proceed and skip the unknown voucher. Refuse the "
-        "batch, or skip the voucher - both are defensible, they are mutually "
-        "exclusive, and the choice is the owner's. See accountant/reversal.py "
-        "reconcile()."
-    ),
-)
 def test_a_resume_writes_nothing_more_when_the_reconciliation_settled_nothing():
-    """DEFECT CLAIM. `reconcile` sets `reconciled=True` even when it settled
-    nothing, and that flag is the gate `resume` checks.
+    """Was a strict xfail pinning defect D3 until 2026-08-10. It now holds.
 
-    `reversal.py:546-548` says, in as many words: "If the read itself fails, the
-    voucher stays unknown - a reconciliation that cannot read has not reconciled
-    anything." `reversal.py:596-599` then sets `reconciled=True` unconditionally,
-    on every return path, including the one where every single read raised.
+    `reconcile` used to set `reconciled=True` even when it settled nothing, and
+    that flag is the gate `resume` checks.
 
-    `resume` refuses an unreconciled batch with this sentence
-    (`reversal.py:627-632`):
+    `reconcile`'s docstring says, in as many words: "If the read itself fails,
+    the voucher stays unknown - a reconciliation that cannot read has not
+    reconciled anything." The function then set `reconciled=True` on every
+    return path, including the one where every single read raised. `resume`
+    refuses an unreconciled batch with the sentence "call reconcile() first so
+    every unknown outcome is settled by a read BEFORE ANYTHING ELSE IS WRITTEN",
+    and that flag was the only thing it asked.
 
-        "call reconcile() first so every unknown outcome is settled by a read
-         BEFORE ANYTHING ELSE IS WRITTEN"
+    Measured before the fix: after a reconciliation in which every read failed,
+    the gate opened and the resume removed six more vouchers from a company
+    where one voucher's fate was unknown. Nine of ten gone; the batch's own
+    claim is that it stops at the first unresolved voucher.
 
-    Measured: after a reconciliation in which every read failed, that gate opens
-    and the resume removes six more vouchers from a company where one voucher's
-    fate is unknown. Nine of ten are gone; the batch's own claim is that it stops
-    at the first unresolved voucher.
-
-    The narrow fix is one of two lines: do not set `reconciled` when an unknown
-    survives, or make the `resume` gate ask the question its message claims to
-    ask. Which one is the owner's call; this test asserts only the consequence,
-    so either fix satisfies it.
+    This test asserts only the CONSEQUENCE — no further voucher leaves the
+    books — so it is satisfied by either half of the fix, and the two halves are
+    pinned separately by the tests below.
     """
     t, stopped, _ops = stopped_at_four(_DropsTheConnection, n=10)
     assert stopped.outcomes[3].state is VoucherState.UNKNOWN_OUTCOME
@@ -1629,3 +1659,173 @@ def test_a_resume_writes_nothing_more_when_the_reconciliation_settled_nothing():
         "company holding one voucher whose fate is unknown"
     )
     assert t.trial_balance(COMPANY) == before
+
+
+def an_unsettled_batch() -> tuple[_DropsTheConnection, reversal.Batch, list[str]]:
+    """The premise every D-03 test below shares, built once.
+
+    Ten vouchers; voucher 4's connection dropped mid-delete; the reconciliation
+    that followed could not read either, so nothing was settled:
+
+        1-3   REVERSED_VERIFIED    already cleaned up, never to be re-touched
+        4     UNKNOWN_OUTCOME      and no read has named its fate
+        5-10  NOT_ATTEMPTED        outstanding cleanup
+
+    Both faults are switched OFF and `deletes` is cleared before returning, so
+    what each test measures afterwards is the REFUSAL and not a Tally that is
+    still broken. A test that left the connection dropping would prove only that
+    a broken Tally deletes nothing.
+    """
+    t, stopped, ops = stopped_at_four(_DropsTheConnection, n=10)
+    assert stopped.outcomes[3].state is VoucherState.UNKNOWN_OUTCOME
+
+    t.reads_fail = True
+    reconciled = reversal.reconcile(stopped, t)
+    t.reads_fail = False
+    t.target = ""
+
+    assert reconciled.outcomes[3].state is VoucherState.UNKNOWN_OUTCOME, (
+        "the reconciliation settled nothing, which is the premise"
+    )
+    t.deletes.clear()
+    return t, reconciled, ops
+
+
+def test_one_unknown_voucher_blocks_the_resume_of_the_whole_batch():
+    """Owner decision D-03, 2026-08-10, in one assertion.
+
+    Not "the unknown voucher is skipped" — the BATCH stops. The refusal has to
+    name the voucher by its operation id, because "something is unresolved" sends
+    a person to read ten rows to find out which, and the operation id is the only
+    handle the register, the log and Tally all agree on.
+    """
+    t, reconciled, ops = an_unsettled_batch()
+
+    assert set(reversal.UNRESOLVED) == {
+        VoucherState.UNKNOWN_OUTCOME,
+        VoucherState.REQUEST_SENT,
+    }
+    assert [o.operation_id for o in reconciled.unresolved] == [ops[3]]
+    assert reconciled.reconciled is False, (
+        "a reconciliation that could not read has not reconciled anything, and "
+        "the flag has to say so or the gate it feeds is decoration"
+    )
+
+    with pytest.raises(ValueError, match=re.escape(ops[3])) as raised:
+        reversal.resume(reconciled, t, approved=True, company_key=KEY)
+
+    assert "reconcile" in str(raised.value), "and it says what to do about it"
+    assert t.deletes == [], "not one delete reached the connector"
+    assert markers_in(t) == set(ops[3:])
+    assert len(t.list_our_vouchers(COMPANY)) == 7
+
+
+def test_no_known_voucher_is_deleted_while_one_outcome_is_unknown():
+    """The measured damage D-03 exists to prevent, stated as counts and paise.
+
+    Before the fix this exact run left nine of ten vouchers deleted: the six
+    NOT_ATTEMPTED ones were cleaned up around voucher 4 while nobody could say
+    whether voucher 4 had been reversed once, twice or not at all.
+    """
+    t, reconciled, ops = an_unsettled_batch()
+    before = t.trial_balance(COMPANY)
+    assert before == {"Purchases": 700_042, "Cash": -700_042}, (
+        "seven vouchers of ours are still in the books, to the paise"
+    )
+
+    with pytest.raises(ValueError, match="cannot be resumed"):
+        reversal.resume(reconciled, t, approved=True, company_key=KEY)
+
+    assert t.deletes == []
+    assert markers_in(t) == set(ops[3:]), "all seven survive, not just the unknown"
+    assert t.trial_balance(COMPANY) == before
+    assert [o.state for o in reconciled.outcomes[:3]] == [
+        VoucherState.REVERSED_VERIFIED
+    ] * 3, "and the three already cleaned up were not put back either"
+    assert [o.state for o in reconciled.outcomes[4:]] == [
+        VoucherState.NOT_ATTEMPTED
+    ] * 6
+
+
+def test_a_second_reconciliation_resolves_the_voucher_the_refusal_named():
+    """The refusal is a door, not a wall, and reconciliation is the handle.
+
+    A separate operation, and a read-only one: the voucher's fate is settled by
+    looking, not by sending a second delete and seeing what happens.
+    """
+    t, reconciled, ops = an_unsettled_batch()
+    with pytest.raises(ValueError) as raised:
+        reversal.resume(reconciled, t, approved=True, company_key=KEY)
+    assert ops[3] in str(raised.value)
+
+    settled = reversal.reconcile(reconciled, t)
+
+    assert settled.outcomes[3].state is VoucherState.NOT_ATTEMPTED
+    assert "still in Tally" in settled.outcomes[3].detail
+    assert settled.unresolved == ()
+    assert settled.reconciled is True
+    assert t.deletes == [], "settled by reading, and by nothing else"
+    assert markers_in(t) == set(ops[3:])
+
+
+def test_a_resume_is_permitted_once_every_voucher_has_a_state_a_read_established():
+    """The other side of the gate. Fail-closed is not fail-stuck.
+
+    The refusal costs one reconciliation, not the batch: once every voucher has a
+    state somebody read, the same approved resume finishes all seven outstanding
+    vouchers and the books come back to the paise.
+    """
+    t, reconciled, ops = an_unsettled_batch()
+    with pytest.raises(ValueError):
+        reversal.resume(reconciled, t, approved=True, company_key=KEY)
+
+    settled = reversal.reconcile(reconciled, t)
+    finished = reversal.resume(settled, t, approved=True, company_key=KEY)
+
+    assert finished.state is BatchState.COMPLETED
+    assert all(o.state is VoucherState.REVERSED_VERIFIED for o in finished.outcomes)
+    assert finished.accounted is True
+    assert t.deletes == ops[3:], "the seven outstanding, once each, in order"
+    assert t.list_our_vouchers(COMPANY) == ()
+    assert t.trial_balance(COMPANY) == {}
+
+
+def test_the_exact_evidence_survives_the_refusal_unchanged():
+    """A refusal that edited the record would be worse than one that wrote a
+    voucher: the voucher is findable and the edited record is not.
+
+    So every field of every outcome is captured before the refusal and compared
+    after — state, detail, the movement in paise, and whether it was measured —
+    and the durable log is checked for rows the refused run had no business
+    writing.
+    """
+    t, reconciled, ops = an_unsettled_batch()
+    evidence = [
+        (o.operation_id, o.state, o.detail, dict(o.moved), o.measured)
+        for o in reconciled.outcomes
+    ]
+    expected_final = reconciled.expected_final
+    store = MemoryStore(":memory:")
+
+    with pytest.raises(ValueError):
+        reversal.resume(
+            reconciled,
+            t,
+            approved=True,
+            log=store,
+            company_key=KEY,
+            run_id="run-refused",
+        )
+
+    rows = [r for r in store.actions(KEY) if r.action == reversal.BATCH_ACTION]
+    store.close()
+
+    assert rows == [], "a refused resume writes no durable row, because it did nothing"
+    assert [
+        (o.operation_id, o.state, o.detail, dict(o.moved), o.measured)
+        for o in reconciled.outcomes
+    ] == evidence
+    assert reconciled.expected_final == expected_final
+    assert "could not read Tally" in reconciled.outcomes[3].detail
+    assert [o.operation_id for o in reconciled.outcomes] == ops
+    assert markers_in(t) == set(ops[3:])
