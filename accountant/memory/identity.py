@@ -15,11 +15,54 @@ the thing that stops company A's history answering a question about company B.
 
 WHY THIS NORMALISATION IS DELIBERATELY CONSERVATIVE
 ---------------------------------------------------
-`normalise_vendor` strips "Pvt Ltd", "M/s" and friends, because two spellings
-of one supplier are one supplier. The opposite is true here. "Acme Ltd" and
-"Acme LLP" are two companies, two sets of books and possibly two customers.
-Collapsing them would merge two ledgers, so this function removes punctuation
-and nothing else.
+"Acme Ltd" and "Acme LLP" are two companies, two sets of books and possibly two
+customers. Collapsing them would merge two ledgers, so `normalise_company`
+removes punctuation and nothing else. No word is ever deleted.
+
+D-05, DECIDED BY THE OWNER 2026-08-10: SUPPLIERS FOLLOW THE SAME RULE
+---------------------------------------------------------------------
+    Treat legal forms as meaningful by default. Do not silently merge Ltd,
+    Pvt Ltd, LLP, Inc, Corp, or & Co. If identity is ambiguous, ask or hand
+    over.
+
+    Separate technical Unicode/whitespace normalisation from business
+    identity. Do not destroy legal-form information during normalisation.
+
+`normalise_vendor` in `index.py` is the opposite of that: it deletes whole
+words, the Ltd/Limited and "& Co"/Company families among them. It cannot stop
+- three assertions in two files owned elsewhere require the merge, one of them
+at the lookup level - so D-05 is served here instead, by a second layer that
+answers a different question:
+
+    normalise_company / normalise_vendor   what KEY does this name get?
+    compare_suppliers                      are these two names one supplier?
+
+The second never deletes a word. `normalise_text` folds Unicode form, case,
+punctuation and spacing and stops there, so the legal form is still standing
+when `legal_form` reads it. That ordering is the whole of the owner's second
+sentence: "Bharat Steel Pvt. Ltd." and "Bharat Steel Pvt Ltd" only agree once
+punctuation has folded, and "Bharat Steel Pvt Ltd" and "Bharat Steel Ltd" only
+disagree if the fold left the form behind.
+
+THREE ANSWERS, NOT TWO
+----------------------
+"Acme & Co" and "Acme" are not provably different and not provably the same: a
+partnership written short and a sole proprietor of that name produce the same
+string. The owner named that case and said what to do with it, so
+`compare_suppliers` has an AMBIGUOUS answer and `same_supplier` treats it as
+"no". Ambiguity asks; it never posts.
+
+WHAT THIS MODULE DOES NOT PROVE
+-------------------------------
+That the LIVE pipeline honours D-05 for the Ltd/&Co families. It does not.
+`accountant/memory/company.py:300` builds the index from `Observation.subject`
+- the already-stripped key - and the store keeps no raw name, so by the time a
+live lookup happens the legal form is gone and every comparison it could make
+is AMBIGUOUS rather than DIFFERENT. `compare_suppliers` bites wherever the raw
+name survives and is a no-op where it does not.
+
+Nothing here is evidence about TallyPrime. It does not prove that Tally folds a
+ledger name this way, or that a legal form survives Tally's own round trip.
 
 WHY NFC IS THE FIRST THING THAT HAPPENS
 ---------------------------------------
@@ -58,9 +101,131 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
+from enum import StrEnum
 
 _PUNCT = re.compile(r"[^\w\s]")
 _SPACE = re.compile(r"\s+")
+
+# Punctuation OR an underscore. `_PUNCT` leaves `_` alone because `_` is `\w`,
+# which is right for a key - `normalise_company` JOINS on it - and wrong for a
+# comparison, where an arriving `acme_llp` is a key that has already been built
+# and must still compare equal to the "Acme LLP" it was built from.
+_SEPARATOR = re.compile(r"[^\w\s]|_")
+
+#: Legal form -> the canonical name of the legal person it denotes. Keyed by
+#: the trailing WORDS of the folded name, longest first, because a legal form
+#: sits at the end and "private limited" must be read before "limited".
+#:
+#: Only the six families the owner named in D-05, plus the spellings a firm
+#: uses for its own form on its own invoices. PLC, LLC and the rest are
+#: deliberately absent: inventing a form the owner did not name would start
+#: refusing matches on a policy nobody decided.
+_FORM_BY_TRAILING_WORDS: dict[tuple[str, ...], str] = {
+    ("private", "limited"): "pvt_ltd",
+    ("private", "ltd"): "pvt_ltd",
+    ("pvt", "limited"): "pvt_ltd",
+    ("pvt", "ltd"): "pvt_ltd",
+    ("and", "co"): "and_co",
+    ("and", "company"): "and_co",
+    ("ltd",): "ltd",
+    ("limited",): "ltd",
+    ("llp",): "llp",
+    ("inc",): "inc",
+    ("incorporated",): "inc",
+    ("corp",): "corp",
+    ("corporation",): "corp",
+    ("co",): "and_co",
+    ("company",): "and_co",
+}
+
+_LONGEST_FORM = max(len(words) for words in _FORM_BY_TRAILING_WORDS)
+
+
+class SupplierVerdict(StrEnum):
+    """Are two written names one supplier? D-05 allows three answers.
+
+    SAME       differ only in Unicode form, case, punctuation or spacing.
+    DIFFERENT  the name differs, or both state a legal form and the forms
+               differ. Two legal persons.
+    AMBIGUOUS  one states a legal form and the other does not, or one of them
+               is not a name at all. Cannot be told apart, so it is a question
+               or a handover - never a silent post.
+    """
+
+    SAME = "same"
+    DIFFERENT = "different"
+    AMBIGUOUS = "ambiguous"
+
+
+def normalise_text(name: str) -> str:
+    """Fold everything a person cannot see, and delete no word.
+
+    This is the TECHNICAL half of D-05 and the whole of it: Unicode normal
+    form, case, punctuation, underscores and runs of whitespace. Every word
+    that went in comes out, in order, separated by single spaces.
+
+    Deterministic and idempotent: folding a folded name does not move it.
+
+    NFC first, before `_SEPARATOR` can turn a combining mark into a space and
+    hand one visible name two answers. Same reason as `normalise_company`.
+    """
+    folded = unicodedata.normalize("NFC", name).casefold()
+    return _SPACE.sub(" ", _SEPARATOR.sub(" ", folded)).strip()
+
+
+def _split_legal_form(name: str) -> tuple[str, str]:
+    """The name without its trailing legal form, and that form's canonical name.
+
+    Longest match wins, so "Acme Private Limited" is a pvt_ltd and not a ltd
+    called "Acme Private". Only the trailing form is read: "Smith & Co Ltd" is
+    a limited company, which is what its last word says.
+    """
+    words = normalise_text(name).split()
+    for width in range(min(_LONGEST_FORM, len(words)), 0, -1):
+        form = _FORM_BY_TRAILING_WORDS.get(tuple(words[-width:]))
+        if form is not None:
+            return " ".join(words[:-width]), form
+    return " ".join(words), ""
+
+
+def legal_form(name: str) -> str:
+    """The canonical legal form this name states, or "" if it states none.
+
+    "" means UNSTATED, never "sole proprietor". The difference is the whole of
+    the AMBIGUOUS verdict.
+    """
+    return _split_legal_form(name)[1]
+
+
+def compare_suppliers(a: str, b: str) -> SupplierVerdict:
+    """Are these two written names one supplier? D-05, the rule in one place.
+
+    A difference in legal form is meaningful. A difference in punctuation,
+    spacing, case or Unicode form is not. When only one side states a form,
+    the honest answer is neither yes nor no.
+
+    A name that is nothing but a legal form - "Ltd" - is not a supplier name,
+    and two of them are not one supplier. Without that guard the empty stem
+    matches the empty stem and every junk row in the book answers for every
+    other one.
+    """
+    stem_a, form_a = _split_legal_form(a)
+    stem_b, form_b = _split_legal_form(b)
+
+    if not stem_a or not stem_b:
+        return SupplierVerdict.AMBIGUOUS
+    if stem_a != stem_b:
+        return SupplierVerdict.DIFFERENT
+    if form_a == form_b:
+        return SupplierVerdict.SAME
+    if form_a and form_b:
+        return SupplierVerdict.DIFFERENT
+    return SupplierVerdict.AMBIGUOUS
+
+
+def same_supplier(a: str, b: str) -> bool:
+    """True only when we are SURE. Ambiguity is not a match, by construction."""
+    return compare_suppliers(a, b) is SupplierVerdict.SAME
 
 
 def normalise_company(name: str) -> str:

@@ -70,11 +70,51 @@ THE ONE COLLAPSE THAT IS A TRADE-OFF AND NOT A RULE
 ---------------------------------------------------
 The Ltd/Limited family and the "& Co"/"Company" family are still stripped, so
 "Sharma Traders", "M/s Sharma Traders Pvt Ltd" and "Sharma Traders & Co" are
-one key. In law those are different persons. This is a deliberate bet that one
-supplier written three ways is commoner in a small Indian book than a sole
-proprietor and a private limited company of the same name both selling to the
-same customer. It is pinned by `tests/test_memory.py:994`, so changing it is an
-owner decision, not a code decision.
+one key. In law those are different persons.
+
+THE OWNER HAS NOW DECIDED AGAINST THAT BET. D-05, 2026-08-10
+------------------------------------------------------------
+    Treat legal forms as meaningful by default. Do not silently merge Ltd,
+    Pvt Ltd, LLP, Inc, Corp, or & Co. If identity is ambiguous, ask or hand
+    over.
+
+    Separate technical Unicode/whitespace normalisation from business
+    identity. Do not destroy legal-form information during normalisation.
+
+`normalise_vendor` STILL STRIPS THEM, and that is not the owner being ignored.
+Three assertions in two files owned elsewhere require exactly this merge, and
+one of them requires it at the LOOKUP level rather than on the key:
+
+    tests/test_memory.py:1001-1006  "M/s Sharma Traders Pvt Ltd", "Messrs
+        Sharma Traders Private Limited" and "Ms. Sharma Traders & Co" must all
+        key as `sharma_traders`
+    tests/test_memory.py:646-653    company B's "Sharma Traders" and "M/s
+        Sharma Traders Pvt Ltd" must be ONE vendor with two postings
+    tests/test_adversarial_identity.py:772-775  the same merge, already
+        reported there as blocked on an owner decision
+
+So the decision is served by a SECOND LAYER instead, which answers a different
+question and deletes no word: `identity.compare_suppliers`. The key still says
+which bucket a name falls in; the comparison says whether two names in that
+bucket are one supplier. `lookup` keeps the name it was recorded under and
+refuses to answer with an account belonging to a DIFFERENT legal person, so
+"Bharat Steel Pvt Ltd" and "Bharat Steel Ltd" share a bucket and not an answer.
+
+WHY THE REFUSAL STOPS AT DIFFERENT AND DOES NOT COVER AMBIGUOUS
+----------------------------------------------------------------
+AMBIGUOUS is "one side states a legal form and the other does not". Refusing on
+it would be closer to what the owner wrote, and it is not available here:
+`accountant/memory/company.py:300` builds the live index out of
+`Observation.subject`, which is the already-stripped key, and the store keeps
+no raw name. Every live row therefore states NO form, so every live comparison
+would be AMBIGUOUS and the index would refuse every lookup it has ever
+answered.
+
+The consequence is worth stating plainly rather than burying: this filter is
+real wherever the raw name reaches the index - `from_vouchers`, and every
+caller that passes `Voucher.party` - and a no-op on the path that runs in
+production. Closing that needs `company.py` and the store to carry the name
+Tally gave, and both are owned elsewhere.
 """
 
 from __future__ import annotations
@@ -84,6 +124,7 @@ import unicodedata
 from collections import defaultdict
 from collections.abc import Iterable
 
+from accountant.memory.identity import SupplierVerdict, compare_suppliers
 from accountant.schema import MatchResult, MatchStatus, Voucher
 from accountant.tallyio.client import marker_for, operation_id_in
 
@@ -152,10 +193,18 @@ def normalise_phrase(narration: str) -> str:
 
 
 class MemoryIndex:
-    """vendor key -> the set of accounts that vendor has been posted to."""
+    """vendor key -> the accounts that vendor has been posted to.
+
+    Rows are held under the NAME THEY WERE RECORDED WITH, not only under the
+    key, because the key has had the legal form deleted out of it and D-05 says
+    the legal form decides who was paid. Two legal persons can share a key;
+    they never share an answer. See the module docstring.
+    """
 
     def __init__(self) -> None:
-        self._by_vendor: dict[str, dict[str, int]] = defaultdict(
+        # (name as recorded, account) -> times. Keyed by the raw name so the
+        # legal form is still there to compare at lookup.
+        self._by_vendor: dict[str, dict[tuple[str, str], int]] = defaultdict(
             lambda: defaultdict(int)
         )
 
@@ -176,11 +225,28 @@ class MemoryIndex:
         return idx
 
     def record(self, vendor: str, account: str) -> None:
-        self._by_vendor[normalise_vendor(vendor)][account] += 1
+        self._by_vendor[normalise_vendor(vendor)][(vendor, account)] += 1
+
+    def _accounts_for(self, vendor: str) -> dict[str, int]:
+        """This vendor's own accounts, with the other legal persons' left out.
+
+        Only DIFFERENT is dropped. AMBIGUOUS still answers, because on the live
+        path every recorded name is a stripped key that states no legal form,
+        and refusing on AMBIGUOUS would refuse everything. The module docstring
+        says why that is a reported gap and not a design.
+        """
+        totals: dict[str, int] = {}
+        for (recorded, account), times in self._by_vendor.get(
+            normalise_vendor(vendor), {}
+        ).items():
+            if compare_suppliers(recorded, vendor) is SupplierVerdict.DIFFERENT:
+                continue
+            totals[account] = totals.get(account, 0) + times
+        return totals
 
     def lookup(self, vendor: str) -> MatchResult:
         key = normalise_vendor(vendor)
-        accounts = self._by_vendor.get(key)
+        accounts = self._accounts_for(vendor)
 
         if not accounts:
             return MatchResult(status=MatchStatus.NO_MATCH, vendor_key=key)
@@ -199,10 +265,11 @@ class MemoryIndex:
         )
 
     def times_posted(self, vendor: str, account: str) -> int:
-        return self._by_vendor.get(normalise_vendor(vendor), {}).get(account, 0)
+        return self._accounts_for(vendor).get(account, 0)
 
     def accounts_ever_used(self) -> frozenset[str]:
-        return frozenset(a for accts in self._by_vendor.values() for a in accts)
+        """Every account in the book. Not scoped to one vendor, so not filtered."""
+        return frozenset(a for rows in self._by_vendor.values() for _, a in rows)
 
     def vendors(self) -> frozenset[str]:
         return frozenset(self._by_vendor)
