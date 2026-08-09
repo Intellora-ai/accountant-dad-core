@@ -1478,6 +1478,72 @@ def test_both_backends_answer_a_marker_the_same_way_at_zero_one_and_two_matches(
     assert client.trial_balance(COMPANY) == before
 
 
+@BOTH_BACKENDS
+@pytest.mark.parametrize(
+    "ledger",
+    ["Nonexistent Ledger", "purchases"],
+    ids=["absent_from_the_chart", "differs_only_in_case"],
+)
+def test_both_backends_refuse_to_write_to_a_ledger_the_company_does_not_have(
+    make_backend: Callable[[], Backend], ledger: str
+) -> None:
+    """W6, FIXED 2026-08-09. The double was SOFTER than the thing it stands in for.
+
+    `RealTally._check_ledgers_exist` has always refused this: a ledger name
+    that is not in the company's chart, exactly, is not a ledger, and Tally
+    creates one silently if you send it. `FakeTally` never looked at
+    `co.accounts` on the write path at all - it happily returned a
+    `WriteResult` for "Nonexistent Ledger", and for "purchases" against a chart
+    holding "Purchases".
+
+    That is the failure mode `accountant/tallyio/fake.py`'s own docstring
+    forbids in as many words: the double may be softer about HOW a voucher is
+    fetched, never about WHAT to do with what it found, because "a double that
+    makes an easier call than the thing it stands in for does not merely fail
+    to catch a bug; it issues an alibi". Here the alibi was available on the
+    write path, which is the one that touches somebody's books.
+
+    No contract test could see it. `tests/test_tally_contract.py` is frozen and
+    never writes to a ledger outside the chart, and the missing-ledger case
+    lived only in the RealTally-side tests. So it goes here, in the
+    both-backends section, driven against each backend by hand.
+
+    The case-only variant is asserted separately because it is the one that
+    happens by accident. "Nonexistent Ledger" is a typo somebody notices;
+    "purchases" for "Purchases" is what an extractor or a copy-paste produces,
+    and Tally would have made a SECOND ledger next to the real one.
+    """
+    client, _ = make_backend()
+    before = client.trial_balance(COMPANY)
+    voucher = replace(contract.a_voucher(), debit_account=ledger)
+
+    with pytest.raises(real.TallyDataError) as raised:
+        client.write_voucher(COMPANY, voucher, "ad_missing_ledger_probe")
+
+    said = str(raised.value)
+    assert ledger in said, "the refusal must name the ledger it could not find"
+    assert "do not exist" in said, said
+
+    # pytest.raises is never the whole proof: nothing was written and the books
+    # did not move.
+    assert client.list_our_vouchers(COMPANY) == ()
+    assert client.trial_balance(COMPANY) == before
+    assert client.read_by_operation_id(COMPANY, "ad_missing_ledger_probe") is None
+
+
+@BOTH_BACKENDS
+def test_both_backends_still_write_to_a_ledger_the_company_really_has(
+    make_backend: Callable[[], Backend],
+) -> None:
+    """The control. A backend that refused every write would pass the test above."""
+    client, _ = make_backend()
+
+    written = client.write_voucher(COMPANY, contract.a_voucher(), "ad_present_ledger")
+
+    assert written.operation_id == "ad_present_ledger"
+    assert len(client.list_our_vouchers(COMPANY)) == 1
+
+
 # ---------------------------------------------------------------------------
 # 9. Tally says yes and its own register does not agree
 # ---------------------------------------------------------------------------

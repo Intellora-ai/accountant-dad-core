@@ -2877,18 +2877,64 @@ returns `UNKNOWN`.
 
 ### 40.7 `OWNER-BLOCKED` and `NOT YET MEASURABLE`, carried forward
 
-- `Ltd` / `Pvt Ltd` / `& Co` still collapse to one vendor key — blocked on
-  `tests/test_memory.py:994-1001` (unchanged from §37.6)
-- `normalise_company` still lacks the NFD fold `normalise_vendor` has
-- `build_draft`'s `accounts` parameter is still unused
-- **NEW, found 2026-08-09 and not fixed:** `COMPANY = "Accountant Dad Final"` is
-  hardcoded in every request handler (`accountant/web/app.py:52`), while startup
-  honours `ACCOUNTANT_COMPANY` (`:1194`). A person setting their own company name
-  gets memory keyed to their company and handlers asking for the constant, so
-  `pipeline.build_draft`'s cross-company guard raises. **It fails closed —
-  nothing is written to the wrong books** — but the app today only works for a
-  company literally named `Accountant Dad Final`. Out of Phase 5/6 scope;
-  recorded rather than fixed.
+Four of these were carried into 2026-08-09 and three are now closed. What is
+left is the one that needs an owner, plus one newly measured.
+
+**STILL OWNER-BLOCKED**
+
+- `Ltd` / `Limited` / `Pvt Ltd` / `Private Limited` / `Company` / `& Co` still
+  collapse to one vendor key — blocked on
+  `tests/test_memory.py:1000-1007`, and it is a POLICY question, not a code one.
+  Measured 2026-08-09: `LLP`, `Inc`, `Corp` and `Corporation` are KEPT and do
+  NOT collide; the six above are stripped, so a sole proprietor
+  `Sharma Traders`, a private limited `Sharma Traders Pvt Ltd` and a
+  partnership `Sharma Traders & Co` are one key, and an invoice from any of
+  them posts to whichever one the books already know, with no question. Two
+  GSTINs, two taxpayers, two TDS treatments, one ledger.
+
+  The rule is therefore already inconsistent with itself — the legal form is
+  treated as meaning for four suffixes and as noise for six — so whichever way
+  the owner decides, one half is wrong today.
+
+  **The question the owner must answer:** in a small Indian book, is one
+  supplier written three ways commoner than two legally distinct entities
+  sharing a base name? **The cheap measurement that settles it, and it can be
+  run today against their own Tally:** count the party names in
+  `read_vouchers` that differ ONLY by a stripped suffix. Zero such pairs means
+  the strip costs them nothing; one such pair means it is already merging two
+  of their own suppliers.
+
+**NEWLY MEASURED 2026-08-09, NOT FIXED — needs an owner**
+
+- A memory index built at bootstrap OUTVOTES the live ledger for the whole life
+  of the process. Reproduced: bootstrap `Sharma Traders -> Purchases` from 40
+  vouchers, then post 60 `Sharma Traders -> Repairs & Maintenance` by hand in
+  Tally; the next entry proposes `Purchases`, posts straight through, and
+  raises no flag and no question. `vendor_switch`
+  (`accountant/detect/detectors.py:85`) is the ONLY active detector
+  (`SLICE_4_DETECTORS`), it names its history parameter `_history`, and it
+  never reads it — so the live ledger is passed into `evaluate` and discarded.
+  Nothing re-bootstraps: `configure()` runs it once.
+
+  **The bug is objective** — the function holds contradicting evidence and does
+  not look at it. **The response is policy:** re-read on a schedule, compare the
+  proposal against live history, flag or block, and at what threshold. Not
+  decided here.
+
+**CLOSED 2026-08-09**
+
+- ~~`normalise_company` still lacks the NFD fold~~ — FIXED. It folds to NFC
+  first, like `normalise_vendor`. Decomposed `Café Supplies` keyed as
+  `cafe_supplies`, a DIFFERENT company's key, and a shared company key merges
+  two indexes rather than one voucher.
+- ~~`build_draft`'s `accounts` parameter is still unused~~ — REMOVED, all 32
+  call sites.
+- ~~`COMPANY = "Accountant Dad Final"` is hardcoded in every request handler~~ —
+  FIXED. Every handler reads `runtime().company`, measured off the live
+  connection; `COMPANY` is the configuration default and an AST test forbids any
+  handler from reading it. The five company identities — startup, memory,
+  request, Tally, audit — are checked against each other on every request, and
+  a disagreement is a 503 plus an action-log row.
 
 ### 40.8 What is explicitly NOT claimed
 

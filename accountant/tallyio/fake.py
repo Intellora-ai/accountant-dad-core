@@ -26,6 +26,13 @@ both backends. The import direction is deliberate - the fake depends on the real
 connector's refusal, never the reverse, and `tests/test_runtime_backend.py`
 forbids any shipped module from importing this one.
 
+W6, fixed 2026-08-09, was the same shape on the WRITE path, which is worse:
+`RealTally` refuses a ledger that is not in the company's chart, and this file
+never looked at the chart at all. A voucher to "Nonexistent Ledger", or to
+"purchases" against a chart holding "Purchases", returned a clean
+`WriteResult` here and a `TallyDataError` there. Now both refuse, with the same
+class and the same wording.
+
 The agreement is pinned by
 `tests/test_adversarial_write_path.py::test_both_backends_*`, and not by
 `tests/test_tally_contract.py`, which is frozen; that file says why.
@@ -137,6 +144,27 @@ class FakeTally:
         if not co.backed_up:
             raise CompanyNotBackedUp(
                 f"{company!r} has no recorded backup; refusing to write"
+            )
+
+        # W6, 2026-08-09. `RealTally._check_ledgers_exist` has always refused a
+        # ledger that is not in the company's chart, EXACTLY - Tally creates one
+        # silently if you send it a name it does not have, so "purchases"
+        # against a chart holding "Purchases" makes a second ledger next to the
+        # real one. This file never looked at `co.accounts` on the write path
+        # at all, which made the double softer than the connector on the one
+        # path that touches somebody's books. See the module docstring: a
+        # double that makes an easier call does not merely fail to catch a bug,
+        # it issues an alibi. Same refusal, same class, same wording.
+        missing = [
+            ledger
+            for ledger in (voucher.debit_account, voucher.credit_account)
+            if ledger and ledger not in co.accounts
+        ]
+        if missing:
+            raise TallyDataError(
+                f"refusing to write operation {operation_id!r} to {company!r}: "
+                f"the ledger(s) {', '.join(repr(m) for m in missing)} do not "
+                f"exist there"
             )
 
         if self.read_by_operation_id(company, operation_id) is not None:
