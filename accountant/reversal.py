@@ -64,6 +64,7 @@ from dataclasses import dataclass, field, replace
 from enum import StrEnum
 
 from accountant import pipeline
+from accountant.memory.identity import normalise_company
 from accountant.schema import ActionLog
 from accountant.tallyio.client import TallyClient, operation_id_in
 
@@ -124,9 +125,24 @@ _ESCALATION: tuple[tuple[VoucherState, BatchState], ...] = (
     (VoucherState.NOT_ATTEMPTED, BatchState.PARTIAL_FAILURE),
 )
 
-#: The states a resume may retry. Everything else is either finished or is a
-#: question for a person.
-_RETRYABLE = (VoucherState.NOT_ATTEMPTED,)
+#: The states an explicit resume may retry, and the owner's reason for each:
+#:
+#:   NOT_ATTEMPTED       never tried; the batch stopped before reaching it
+#:   PRECHECK_REFUSED    "allow explicit resume after the local cause is
+#:                       corrected" — no request was ever sent, so nothing is
+#:                       uncertain about Tally's state
+#:   EXPLICIT_REJECTION  "do not blindly retry; require explicit resume" —
+#:                       Tally said clearly that it did not happen, so retrying
+#:                       after a person has looked is not blind
+#:
+#: Everything else is deliberately absent. UNKNOWN_OUTCOME must be reconciled
+#: into one of these first; WRONG_MOVEMENT is CRITICAL and cannot be resumed at
+#: all; READBACK_FAILED needs a person; REVERSED_VERIFIED is done.
+RETRYABLE = (
+    VoucherState.NOT_ATTEMPTED,
+    VoucherState.PRECHECK_REFUSED,
+    VoucherState.EXPLICIT_REJECTION,
+)
 
 
 @dataclass(frozen=True)
@@ -138,6 +154,12 @@ class VoucherOutcome:
     detail: str = ""
     #: Ledger -> paise, AFTER minus BEFORE. Empty unless something moved.
     moved: Mapping[str, int] = field(default_factory=dict[str, int])
+    #: Whether this outcome's movement was MEASURED. False for anything settled
+    #: by reconciliation: a read can prove the voucher is gone, but the trial
+    #: balance moved while nobody was watching and no snapshot brackets it.
+    #: The batch must then decline to claim conservation rather than claim it
+    #: wrongly in either direction.
+    measured: bool = True
 
 
 @dataclass(frozen=True)
@@ -192,6 +214,11 @@ class Batch:
         """
         if self.final is None:
             return None
+        if any(not o.measured for o in self.outcomes):
+            # A reconciled voucher moved the books between two snapshots that
+            # nobody took. UNKNOWN is the honest answer; asserting either way
+            # would be inventing a measurement.
+            return None
         return dict(self.final) == self.expected_final
 
     def in_state(self, *states: VoucherState) -> tuple[VoucherOutcome, ...]:
@@ -223,7 +250,13 @@ def _record(
         ActionLog(
             ts=datetime.datetime.now(datetime.UTC),
             action=BATCH_ACTION,
-            company_key=company_key,
+            # Normalised HERE, not trusted from the caller. `MemoryStore.actions`
+            # normalises before reading, so a caller passing a display name
+            # would write rows nothing could ever read back — which is exactly
+            # what happened on the first Phase 5B run: ten rows written, zero
+            # found after the restart. Idempotent, so a caller that already
+            # normalised (the web app, via memory.identity.key) is unaffected.
+            company_key=normalise_company(company_key),
             outcome=outcome.state.value,
             reason=outcome.detail or f"batch {batch_id}: {outcome.state.value}",
             run_id=run_id,
@@ -457,8 +490,8 @@ def _drive(
     stopped = False
 
     for i, outcome in enumerate(outcomes):
-        if outcome.state is not VoucherState.NOT_ATTEMPTED:
-            continue  # already dealt with; a resume never re-touches it
+        if outcome.state not in RETRYABLE:
+            continue  # done, or a question for a person; never re-touched
         if stopped:
             continue
 
@@ -534,6 +567,7 @@ def reconcile(batch: Batch, client: TallyClient) -> Batch:
                 replace(
                     outcome,
                     state=VoucherState.REVERSED_VERIFIED,
+                    measured=False,
                     detail=(
                         f"reconciled: operation {outcome.operation_id!r} is no "
                         f"longer in Tally, so the reversal did land and only "
@@ -596,7 +630,7 @@ def resume(
             f"batch {batch.batch_id} needs explicit approval to resume; "
             "reconciling is a read and resuming is a write"
         )
-    if not batch.in_state(*_RETRYABLE):
+    if not batch.in_state(*RETRYABLE):
         return batch
     return replace(
         _drive(batch, client, log=log, company_key=company_key, run_id=run_id),
