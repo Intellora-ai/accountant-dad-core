@@ -226,6 +226,25 @@ def answer_on(base: str, page: str, value: str) -> str:
     )
 
 
+def answer_under(base: str, page: str, problem: str, value: str) -> tuple[int, str]:
+    """Answer under a problem id of OUR choosing, and keep the status.
+
+    Two differences from `answer_on`, both needed by the closed route G below.
+    The problem id is supplied rather than read off the page, because naming a
+    question the page is not asking is the whole request being measured. And
+    `post` raises on any non-2xx, while the REFUSAL is the measurement here, so
+    the status has to survive the call.
+    """
+    data = urllib.parse.urlencode(
+        {"draft": draft_on(page), "problem": problem, "value": value}
+    ).encode()
+    try:
+        with urllib.request.urlopen(base + "/answer", data=data, timeout=5) as r:  # noqa: S310
+            return r.status, r.read().decode()
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read().decode()
+
+
 def dismissals_in(path: pathlib.Path) -> tuple[ActionLog, ...]:
     """Read the way a SECOND PROCESS would: a new store opened on the file."""
     reopened = MemoryStore(str(path))
@@ -593,41 +612,59 @@ def test_the_detectors_own_question_offers_only_answers_that_silence_it():
         assert set(offered_on(after)) == {Q.YES, SAME_LEG}
 
 
-def test_a_hand_made_post_can_reach_the_detector_through_the_unvalidated_problem():
-    """ROUTE G. The last route, and the only one no browser can produce.
+def test_the_hand_made_post_that_was_route_g_is_refused_before_the_detector():
+    """ROUTE G, CLOSED 2026-08-10. It was never a route. It was a defect.
 
-    `/answer` validates the VALUE against `Decision.question_options` and does
-    not validate the PROBLEM at all — and the problem id is what decides which
-    ledger leg `pipeline.answer` writes. So a request carrying an offered value
-    under a different problem id writes it to the other leg.
+    WHAT THIS TEST USED TO PROVE
+    ----------------------------
+    That a hand-made POST reached the detector. `/answer` validated the VALUE
+    against `Decision.question_options` and did not validate the PROBLEM at all,
+    and the problem id is what `pipeline.answer` reads to choose which ledger
+    leg to write. So the request below — the funding question's "Bank", filed
+    under `which_account` — put an offered value on the leg nobody offered it
+    for, contradicted six postings of Purchases, and fired the flag.
 
-    Here the outstanding question is "how did you pay?", whose options are Cash
-    and Bank. Filed under `which_account`, "Bank" lands on the DEBIT leg,
-    contradicts six postings of Purchases, and fires the detector. Nothing is
-    written: the funding leg is still empty, so the entry stays UNCLEAR.
+    Its own words are the argument for this change. It said the mirror image
+    "IS NOT HARMLESS", reported it as an `accountant/web/app.py` defect rather
+    than a detector one, and said that pinning a hole as correct is how a hole
+    survives a review. It was right on all three counts, and it was doing the
+    pinning: the enumeration counted a hole as a way in.
 
-    Included because an enumeration that stops at what the UI can generate is
-    an enumeration of the happy path. THE MIRROR IMAGE OF THIS IS NOT HARMLESS
-    and is reported separately — it is an `accountant/web/app.py` defect, not a
-    detector one, and it is not pinned here because pinning a hole as correct
-    is how a hole survives a review.
+    WHY IT IS NOW THE OPPOSITE ASSERTION
+    ------------------------------------
+    The hole is closed. `Decision.question_problem_id` binds every answer to the
+    question that offered it, and the handler refuses before a ledger leg, a
+    memory correction or a read of Tally. So route G leaves the enumeration and
+    this test guards its absence: remove the binding and the route reopens, and
+    this goes red along with the file that replaced it.
+
+    The enumeration is SHORTER BY ONE and no weaker for it. Routes E and F still
+    reach the detector on books a real company can have, through a question the
+    app really asked — which is the question this file exists to answer.
+
+    The behaviour that replaced route G lives in `tests/test_answer_binding.py`:
+    the refusal in six shapes, each asserting the status, the draft unchanged
+    and still answerable, an empty register, and a trial balance equal in paise.
     """
     tally = company_of(COMPLETE_CHART, rows("Kumar Stationers", "Purchases", "", 6))
     with running(tally) as base:
         page = post(base, "/entry", text="paid Kumar Stationers 4200 for pens")
         assert problem_on(page) == pipeline.FUNDING_PROBLEM
         assert set(offered_on(page)) == {"Cash", "Bank"}
+        before = app.DRAFTS[draft_on(page)].voucher
+        assert before.debit_account == "Purchases", "the vendor's own indexed account"
+        balance = tally.trial_balance(app.COMPANY)
 
-        after = post(
-            base, "/answer", draft=draft_on(page), problem="which_account", value="Bank"
-        )
+        code, body = answer_under(base, page, "which_account", "Bank")
+
         held = app.DRAFTS[draft_on(page)]
-
-        assert flag_fired(after), "an offered value on a leg nobody offered it for"
-        assert held.voucher.debit_account == "Bank"
-        assert held.voucher.credit_account == "", "the leg that was asked about"
-        assert held.outcome is Outcome.UNCLEAR
+        assert code == 400, "the request that used to be route G is refused"
+        assert not flag_fired(body), "and never reaches the detector at all"
+        assert held.voucher == before, "no ledger leg moved"
+        assert held.answers == [], "and nothing was recorded as an answer"
+        assert held.outcome is Outcome.UNCLEAR, "the entry is still answerable"
         assert tally.list_our_vouchers(app.COMPANY) == ()
+        assert tally.trial_balance(app.COMPANY) == balance
 
 
 # =============================================================================
