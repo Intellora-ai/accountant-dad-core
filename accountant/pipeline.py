@@ -55,6 +55,16 @@ class Draft:
     checks: list[CheckResult] = field(default_factory=list[CheckResult])
     flags: list[Flag] = field(default_factory=list[Flag])
     dropped_flags: int = 0
+    #: The concerns the display cap kept off the screen. NOT discarded.
+    #:
+    #: `detectors.run` returns the capped list and a count, and used to be the
+    #: only thing that saw the rest - so a DISPLAY decision was deleting
+    #: findings from the evidence record. The owner's rule when setting
+    #: `flag_cap = 3` was explicit: "never lose concerns from the audit/evidence
+    #: record" and "the cap affects display only, not detection, storage,
+    #: safety, or posting". `flags` is what a person sees; `flags +
+    #: suppressed_flags` is what the system found.
+    suppressed_flags: list[Flag] = field(default_factory=list[Flag])
     problems: list[Problem] = field(default_factory=list[Problem])
     decision: Decision | None = None
     posted_tally_id: str | None = None
@@ -274,9 +284,21 @@ def evaluate(
 
     index = memory.index()
     draft.checks = checks.run(draft.voucher, accounts)
-    draft.flags, draft.dropped_flags = detectors.run(
-        draft.voucher, history, index, detectors=detector_set, cap=flag_cap
+    # Detect everything, THEN decide what fits on the screen. Running with the
+    # cap would give the same `flags` and the same count, and would throw the
+    # overflow away - which is the one thing the owner's decision forbids. The
+    # slice below is the same arithmetic `detectors.run` applies, kept honest by
+    # `check_cap` refusing the negative cap that would silently invert it.
+    detectors.check_cap(flag_cap)
+    found, _ = detectors.run(
+        draft.voucher, history, index, detectors=detector_set, cap=None
     )
+    if flag_cap is None or len(found) <= flag_cap:
+        draft.flags, draft.suppressed_flags, draft.dropped_flags = found, [], 0
+    else:
+        draft.flags = found[:flag_cap]
+        draft.suppressed_flags = found[flag_cap:]
+        draft.dropped_flags = len(found) - flag_cap
     match = memory.lookup(draft.voucher.party).as_match_result()
     draft.problems = problems.find(
         draft.voucher, draft.checks, match, draft.flags, accounts, history, index

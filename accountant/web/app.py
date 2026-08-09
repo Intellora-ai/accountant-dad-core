@@ -74,6 +74,23 @@ from accountant.tallyio.real import RecordedBackups, TallyConfig
 # scans the AST and fails if that ever changes.
 COMPANY = "Accountant Dad Final"
 
+# OWNER DECISION, 2026-08-10: flag_cap = 3
+#
+#     decision owner = project owner
+#     reason = show the first three concerns while preserving all concerns in
+#              evidence and avoiding an overloaded review screen
+#
+# Display only. It changes nothing about detection, storage, safety or posting:
+# `evaluate` detects every concern, shows the top three, keeps the rest in
+# `Draft.suppressed_flags`, and the screen says how many it did not show.
+#
+# Not configurable here on purpose. `flag_cap` existed as a parameter on
+# `pipeline.evaluate` for the whole of Phase 6 and was never passed from the
+# web, so `dropped_flags` was permanently zero in production and the overflow
+# line could not render however many concerns an entry raised. A parameter no
+# caller supplies is not a feature.
+FLAG_CAP = 3
+
 DRAFTS: dict[str, pipeline.Draft] = {}
 
 # How many drafts stay answerable at once. `DRAFTS` was unbounded: every entry
@@ -977,9 +994,14 @@ def render_decision(d: pipeline.Draft) -> str:
     # reported as a count, never silently dropped" was true inside the Draft and
     # false on the page. Nothing is rendered at zero: "0 more concerns are not
     # shown" is noise on every clean entry.
+    # The count is exactly total - displayed, and `data-overflow` carries it so
+    # a test matches the number rather than the sentence. "concern(s)" was the
+    # old wording and it is the kind of detail that tells a customer nobody read
+    # this screen, so one and many are spelled properly.
     overflow = (
-        f"<p class=reason class=muted>{d.dropped_flags} further concern(s) "
-        f"are not shown here.</p>"
+        f'<p class="reason muted" data-overflow="{d.dropped_flags}">'
+        f"{d.dropped_flags} more "
+        f"{'concern' if d.dropped_flags == 1 else 'concerns'}</p>"
         if d.dropped_flags
         else ""
     )
@@ -1166,7 +1188,7 @@ def _run(text: str) -> pipeline.Draft:
         TypedTextExtractor(),
         live.memory,
     )
-    d = pipeline.evaluate(d, accounts, history, live.memory)
+    d = pipeline.evaluate(d, accounts, history, live.memory, flag_cap=FLAG_CAP)
     if d.outcome is Outcome.VALID:
         d = pipeline.post(
             d,
@@ -1390,7 +1412,7 @@ class Handler(BaseHTTPRequestHandler):
                 # comment at the call site.
                 learn = problem != pipeline.FUNDING_PROBLEM
 
-            d = pipeline.evaluate(d, accounts, history, live.memory)
+            d = pipeline.evaluate(d, accounts, history, live.memory, flag_cap=FLAG_CAP)
 
             # THE ORDER HERE IS THE WHOLE OF G6.3, and it was wrong until
             # 2026-08-09.

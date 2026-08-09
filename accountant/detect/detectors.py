@@ -367,6 +367,23 @@ def _one_flag_per_concern(alert: Alert) -> Flag:
     return replace(alert.lead, reason=f"{alert.lead.reason}; also {also}")
 
 
+def check_cap(cap: int | None) -> None:
+    """Refuse a cap that Python would accept and misread.
+
+    `flags[:-1]` is a legal slice and a wrong answer: a negative cap hides the
+    LAST concern instead of the tail, and reports a dropped count larger than
+    the number of concerns that exist. Both callers - `run` here, and
+    `pipeline.evaluate`, which slices the same way - go through this, so there
+    is one definition of a valid cap rather than two that can drift.
+
+    Zero is allowed and means "show none, count all". That is a strange thing
+    to configure but it is not incoherent, and refusing it would be inventing a
+    rule nobody asked for.
+    """
+    if cap is not None and cap < 0:
+        raise ValueError(f"a flag cap cannot be negative; got {cap!r}")
+
+
 def run(
     proposed: Voucher,
     history: Sequence[Voucher],
@@ -386,6 +403,8 @@ def run(
     alerts, never findings: pass `dedupe=False` for the raw list, which is what
     the scoring harness counts duplicates from.
     """
+    check_cap(cap)
+
     flags: list[Flag] = []
     for d in detectors:
         flags.extend(d(proposed, history, index))
