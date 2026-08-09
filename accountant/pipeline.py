@@ -21,15 +21,36 @@ from dataclasses import dataclass, field, replace
 from typing import Protocol
 
 from accountant import checks, problems
+from accountant import questions as Q
 from accountant.decide import decide_problems
 from accountant.detect import detectors
 from accountant.extract.adapter import NOT_FOUND, ExtractedRecord, Extractor
-from accountant.memory.company import CompanyMemory, propose_account
+from accountant.memory.company import (
+    FROM_HUMAN_ANSWER,
+    CompanyMemory,
+    LiveDisagreement,
+    disagrees_with_live_history,
+    propose_account,
+)
 from accountant.memory.identity import normalise_company
 from accountant.memory.index import normalise_vendor
 from accountant.problems import FUNDING_PROBLEM, Problem
 from accountant.schema import ActionLog, CheckResult, Decision, Flag, Outcome, Voucher
 from accountant.tallyio.client import TallyClient, new_operation_id
+
+#: What `provenance` says about a leg that came out of this company's own books.
+#: A literal in three places until 2026-08-10, and one of them is now read as a
+#: gate rather than only written, so it is named once.
+FROM_COMPANY_HISTORY = "company_history"
+
+#: D-06. The vendor whose remembered account the CURRENT ledger contradicts.
+#:
+#: A distinct problem id, not `which_account`. The two are asked in opposite
+#: situations - `which_account` fires when memory has no single answer, this one
+#: fires when memory has one and the live ledger no longer backs it - and
+#: `decide_problems` retires an answered problem by id. Sharing an id would let
+#: an answer to one silently retire the other.
+LIVE_HISTORY_DISAGREES = "live_history_disagrees_with_memory"
 
 
 class ActionLogSink(Protocol):
@@ -78,6 +99,14 @@ class Draft:
     #: the entry, and that is the version that posts a wrong voucher because
     #: somebody clicked to make a warning go away.
     dismissed: list[str] = field(default_factory=list[str])
+    #: D-06. Set by `evaluate` whenever memory and the live ledger disagree
+    #: about this vendor, carrying BOTH sources and BOTH counts.
+    #:
+    #: Recorded even after a person has answered and the question has stopped
+    #: being asked, because "your books used to say one thing and now say
+    #: another" is a fact about the entry that a reader needs afterwards, and an
+    #: evidence record that erases itself on resolution is not one.
+    memory_conflict: LiveDisagreement | None = None
 
     @property
     def outcome(self) -> Outcome:
@@ -144,7 +173,7 @@ def _leg_source(proposed: str) -> str:
     a field with no source is a hallucination by definition. Both legs now
     carry one.
     """
-    return "company_history" if proposed else NOT_FOUND
+    return FROM_COMPANY_HISTORY if proposed else NOT_FOUND
 
 
 def build_draft(
@@ -236,6 +265,97 @@ def build_draft(
     )
 
 
+def memory_still_owns_the_leg(voucher: Voucher, conflict: LiveDisagreement) -> bool:
+    """Is the debit leg still memory's unreviewed answer? D-06's ask-or-not gate.
+
+    The conflict is RECORDED whenever the two sources disagree. Whether it is
+    also ASKED about turns on this, and only this: is the account this voucher
+    is about to be posted to the one memory remembered, and did it get there
+    without a person looking at it.
+
+    Both halves are the point of the feature. `answer` stamps
+    `human_answer` onto the leg it rewrites, so a person who has been shown both
+    numbers and has chosen is not asked the same question again — which is what
+    makes the answer able to resolve the conflict at all. And a leg carrying
+    anything other than the remembered account is not memory winning, so there
+    is nothing here to stop.
+
+    Public rather than `_private` because it is the exact boundary between
+    "recorded" and "asked", and a boundary worth stating is worth asserting
+    directly.
+    """
+    if (voucher.provenance or {}).get("debit_account", "") == FROM_HUMAN_ANSWER:
+        return False
+    return voucher.debit_account == conflict.remembered_account
+
+
+def which_is_it_now(
+    conflict: LiveDisagreement, party: str, accounts: Sequence[str]
+) -> Q.Question:
+    """The D-06 question. Both counts, no ledger name, S7.
+
+    Built here rather than in `accountant/questions.py` for one reason and it is
+    not a good one: the phrasebook module is owned elsewhere this cycle. The
+    S7 rule it enforces is obeyed all the same, and
+    `tests/test_stale_memory_conflict.py` runs this question through the same
+    `Question.mentions_any` guard the phrasebook's own questions are run
+    through, so the rule is checked rather than promised.
+
+    The two numbers are the whole content. "Your books changed" is not
+    actionable; "you did this 40 times and then that 60 times" is the sentence
+    a person can recognise or reject in a second.
+    """
+    who = party.strip() or "them"
+    options = [
+        Q.Answer(label=Q.PLAIN[account], value=account)
+        # Live first, most-used first, because the live ledger is the current
+        # truth and D-06 is that it wins. Then the remembered one, if the live
+        # ledger has stopped naming it at all.
+        for account in (*conflict.live_accounts, conflict.remembered_account)
+        # An option is a promise that the thing exists — the lesson `how_paid`
+        # is written around. An account the chart no longer holds, or one we
+        # have no plain words for, is not offered.
+        if account in accounts and account in Q.PLAIN
+    ]
+    seen: set[str] = set()
+    unique = [o for o in options if not (o.value in seen or seen.add(o.value))]
+    unique.append(Q.Answer(label="something else", value=Q.HANDOVER))
+    return Q.Question(
+        problem_id=LIVE_HISTORY_DISAGREES,
+        text=(
+            f"With {who}, your books used to say one thing — "
+            f"{conflict.remembered_times} times. They now say something else "
+            f"{conflict.changed_times} times. Which is this one?"
+        ),
+        answers=tuple(unique),
+    )
+
+
+def _with_conflict_question(
+    found: list[Problem],
+    conflict: LiveDisagreement,
+    party: str,
+    accounts: Sequence[str],
+) -> list[Problem]:
+    """Add the D-06 problem, keeping 'how did you pay?' last.
+
+    `problems.find` deliberately asks the purpose of the entry before the
+    funding of it, and this question is about the purpose. Appending would put
+    it after the funding question and quietly invert that order, so it goes in
+    front of the funding problem when there is one.
+    """
+    if any(p.id == LIVE_HISTORY_DISAGREES for p in found):
+        return found
+    problem = Problem(
+        id=LIVE_HISTORY_DISAGREES,
+        answerable=True,
+        detail=conflict.detail,
+        question=which_is_it_now(conflict, party, accounts),
+    )
+    at = next((i for i, p in enumerate(found) if p.id == FUNDING_PROBLEM), len(found))
+    return [*found[:at], problem, *found[at:]]
+
+
 def evaluate(
     draft: Draft,
     accounts: tuple[str, ...],
@@ -255,6 +375,29 @@ def evaluate(
     NO_MATCH. Those two look alike and mean opposite things: no-match means ask
     the person, not-ready means we have not read their books and have no
     standing to ask anything yet.
+
+    D-06, 2026-08-10. MEMORY IS CHECKED AGAINST THE LIVE LEDGER, HERE.
+
+    `history` is what the connector returned moments ago. `memory` was built
+    once, by `bootstrap`, when the company was opened, and nothing re-reads it.
+    Until now the two never met: `build_draft` proposed the debit leg out of the
+    snapshot, `evaluate` judged the proposal against the snapshot's own index,
+    and the live rows sitting in this function's own arguments were used for the
+    funding leg and the detectors and never for the one question that matters —
+    does the ledger still say this?
+
+    The reproduced case, in the owner's words: memory learned Purchases 40
+    times, the live ledger later contains Repairs 60 times, and the next entry
+    still posts Purchases without a flag or a question. `vendor_switch` cannot
+    catch it, and it is worth saying why rather than assuming: that detector
+    compares the proposed leg against the SAME snapshot index the leg was
+    proposed from, so it agrees with itself by construction and stays silent.
+
+    So the live evidence is compared against the remembered answer, at the exact
+    point the proposal is judged, which is the smallest place this could be
+    fixed. A disagreement is UNCLEAR and not NOT_VALID, because an answer fixes
+    it — and the answer is new information, not authorisation: `answer` clears
+    the decision and the entry re-enters this function at step 1.
     """
     if memory.identity.key != normalise_company(draft.company):
         raise ValueError(
@@ -303,6 +446,20 @@ def evaluate(
     draft.problems = problems.find(
         draft.voucher, draft.checks, match, draft.flags, accounts, history, index
     )
+
+    # D-06. Recorded on every evaluation, asked about only while memory is
+    # still the one deciding. The two are separated on purpose: see
+    # `memory_still_owns_the_leg` and `Draft.memory_conflict`.
+    draft.memory_conflict = disagrees_with_live_history(
+        memory, draft.voucher.party, history
+    )
+    if draft.memory_conflict is not None and memory_still_owns_the_leg(
+        draft.voucher, draft.memory_conflict
+    ):
+        draft.problems = _with_conflict_question(
+            draft.problems, draft.memory_conflict, draft.voucher.party, accounts
+        )
+
     draft.decision = decide_problems(
         draft.problems,
         asked=len(draft.answers),

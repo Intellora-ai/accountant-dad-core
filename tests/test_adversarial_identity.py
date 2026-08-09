@@ -1298,43 +1298,57 @@ def test_an_account_missing_from_the_chart_is_asked_about_and_never_posted() -> 
 # ============================================================================
 
 
-def test_a_stale_index_today_posts_an_account_the_live_history_contradicts() -> None:
-    """DEFECT, pinned. Cached memory outvotes the customer's current ledger.
+def test_a_stale_index_today_asks_instead_of_posting_what_the_live_books_deny() -> None:
+    """Cached memory no longer outvotes the customer's current ledger.
 
-    WROTE THIS TEST EXPECTING `draft.outcome is not Outcome.VALID`.
-    It failed on the first run with:
+    RENAMED 2026-08-10, from
+    `test_a_stale_index_today_posts_an_account_the_live_history_contradicts` -
+    the name to grep for in anything written before that date. The old name was
+    a true claim about a defect. It is now false, and a test whose name asserts
+    the bug is a test nobody can read twice.
 
-        AssertionError: assert <Outcome.VALID: 'valid'> is not <Outcome.VALID: 'valid'>
+    WHAT THIS USED TO ASSERT
+        This was a DEFECT PIN. It was written expecting `draft.outcome is not
+        Outcome.VALID`, failed on its first run, and was then committed
+        asserting the failure so the bug could not drift out of sight:
 
-    WHAT HAPPENS
-        Bootstrap reads a history in which this supplier is always Purchases.
-        The accountant then reclassifies the supplier in Tally, so all forty
-        live vouchers now say Repairs & Maintenance. Memory is not rebuilt.
+            assert draft.outcome is Outcome.VALID
+            assert draft.problems == []
+            assert draft.reason == "nothing unclear and nothing surprising"
+            assert draft.posted_tally_id == "TALLY-1"
+            assert balance["Purchases"] == AMOUNT_PAISE
 
-        `resume` (`accountant/memory/bootstrap.py:255-272`) hands back the
-        stored report unchanged: READY, no freshness test of any kind.
-        `bootstrapped_at` is recorded at `bootstrap.py:237` and never read
-        again by any decision.
+        Bootstrap read a history in which this supplier is always Purchases.
+        The accountant then reclassified the supplier in Tally, so all forty
+        live vouchers say Repairs & Maintenance. `resume` handed the stored
+        report back unchanged - READY, with no freshness test of any kind - and
+        `pipeline.evaluate` held BOTH halves of the contradiction in one call,
+        the fresh `history` argument and the stale `memory.index()`, and never
+        compared them. `vendor_switch` reads only the index, so the index and
+        the proposal agreed and it stayed silent. Zero flags, zero problems,
+        VALID, posted, and the recorded reason was "nothing unclear and nothing
+        surprising" while the live ledger contradicted it forty to nil.
 
-        `pipeline.evaluate` (`accountant/pipeline.py:175-184`) then holds BOTH
-        halves of the contradiction in one call - the fresh `history` argument
-        and the stale `memory.index()` - and never compares them. `vendor_switch`
-        reads only the index (`detectors.py:98`), so index and proposal agree
-        and it stays silent. Zero flags, zero problems, VALID, posted, and the
-        recorded reason is "nothing unclear and nothing surprising" while the
-        live ledger contradicts it forty to nil.
+    WHY THAT CHANGED
+        Owner decision D-06, answered 2026-08-10: live Tally wins over stale
+        memory. Where live Tally and memory disagree the entry becomes UNCLEAR
+        and asks instead of silently posting, the conflict is shown, both
+        sources are recorded, and stale memory never overrides contradictory
+        current Tally data.
 
-    WHAT SHOULD HAPPEN
-        A proposal the live history unanimously contradicts is a question, not
-        a post.
+        The pin asked for exactly this. Its own WHAT SHOULD HAPPEN read "A
+        proposal the live history unanimously contradicts is a question, not a
+        post", and its own SMALLEST FIX read "In `evaluate`, after the lookup,
+        compare the proposed debit against the accounts this party actually
+        carries in the `history` already passed in; on disagreement raise an
+        answerable problem." That is what landed, as
+        `accountant/memory/company.py::disagrees_with_live_history` called from
+        `pipeline.evaluate`. So the assertions below are the ones this test
+        asked for rather than new ones invented to make it pass.
 
-    SMALLEST FIX
-        In `evaluate`, after the lookup at `pipeline.py:180`, compare the
-        proposed debit against the accounts this party actually carries in the
-        `history` already passed in; on disagreement raise an answerable
-        problem. Equivalently, add a `vendor_switch`-shaped detector that reads
-        `history` rather than `index` - the signature already carries it
-        (`detectors.py:63`), so no plumbing changes.
+        The rule's definition, its false-alarm argument and the N1 numbers live
+        in `tests/test_stale_memory_conflict.py`. This stays here, unmoved,
+        because a pin belongs where the defect was found.
     """
     before = _tally(_history(LATIN_SHARMA, "Purchases"))
     store = MemoryStore(":memory:")
@@ -1344,38 +1358,85 @@ def test_a_stale_index_today_posts_an_account_the_live_history_contradicts() -> 
     live = after.read_vouchers(COMPANY)
     assert {v.debit_account for v in live} == {"Repairs & Maintenance"}
     assert len([v for v in live if v.debit_account == "Purchases"]) == 0
+    seeded_balance = after.trial_balance(COMPANY)
 
     stale = resume(store, COMPANY)
     assert stale.report.status is BootstrapStatus.READY
     assert stale.lookup(LATIN_SHARMA).accounts == ("Purchases",)
+    # Memory would still answer, instantly and confidently. That is the point:
+    # the proposal was available and was not taken.
+    assert propose_account(stale, LATIN_SHARMA) == "Purchases"
 
     draft = _run(after, store, stale, LATIN_SHARMA)
 
-    # expected decision UNCLEAR (the live books say otherwise, unanimously).
-    # actual decision VALID, and a voucher is written to the stale account.
-    assert draft.outcome is Outcome.VALID
-    assert draft.voucher.debit_account == "Purchases"
-    assert draft.flags == []
-    assert draft.problems == []
-    assert draft.reason == "nothing unclear and nothing surprising"
-    assert draft.posted_tally_id == "TALLY-1"
-    assert len(after.list_our_vouchers(COMPANY)) == 1
-
-    # the wrong account is now a line in the trial balance that was not there
-    balance = after.trial_balance(COMPANY)
-    assert balance["Purchases"] == AMOUNT_PAISE
-    assert "Purchases" not in _tally(
-        _history(LATIN_SHARMA, "Repairs & Maintenance")
-    ).trial_balance(COMPANY)
-
-    _assert_one_posted_row(store, draft, detail=f"Purchases {AMOUNT_PAISE} paise")
-
-    # cleanup: reversible by operation id, and the books return to seeded state
-    assert pipeline.reverse(draft, after) is True
+    # UNCLEAR and not NOT_VALID, because an answer fixes this.
+    assert draft.outcome is Outcome.UNCLEAR
+    assert draft.outcome is not Outcome.VALID
+    assert [p.id for p in draft.problems] == [pipeline.LIVE_HISTORY_DISAGREES]
+    assert draft.posted_tally_id is None
     assert after.list_our_vouchers(COMPANY) == ()
+
+    # Still no flag, and none is expected: `vendor_switch` reads the stale index,
+    # agrees with the proposal it came from, and is silent. What stopped this is
+    # a comparison against the live history, not a detector.
+    assert draft.flags == []
+
+    # both sources and both counts, recorded on the draft
+    conflict = draft.memory_conflict
+    assert conflict is not None
+    assert (conflict.remembered_account, conflict.remembered_times) == (
+        "Purchases",
+        SEEDED,
+    )
+    assert (conflict.live_accounts, conflict.live_times) == (
+        ("Repairs & Maintenance",),
+        (SEEDED,),
+    )
+    assert draft.reason == conflict.detail
+
+    # the sentence the person is shown, and S7: it names neither ledger
+    question = pipeline.next_question(draft)
+    assert question is not None
+    assert question.problem_id == pipeline.LIVE_HISTORY_DISAGREES
+    assert question.problem_id == draft.problems[0].id
+    assert question.mentions_any(ACCOUNTS) == []
+    assert "Purchases" not in question.text
+    assert "Repairs & Maintenance" not in question.text
+    # both counts, so what changed is visible without reading a log
+    assert question.text.count(str(SEEDED)) == 2
+    # and both ledgers are still offered, in plain words, live one first
+    assert [a.value for a in question.answers][:2] == [
+        "Repairs & Maintenance",
+        "Purchases",
+    ]
+    assert question.answers[-1].label == "something else"
+
+    # the stale account never became a line in the trial balance
+    assert "Purchases" not in after.trial_balance(COMPANY)
+    assert after.trial_balance(COMPANY) == seeded_balance
     assert after.trial_balance(COMPANY) == _tally(
         _history(LATIN_SHARMA, "Repairs & Maintenance")
     ).trial_balance(COMPANY)
+
+    _assert_nothing_was_written(after, store)
+
+    # What the durable trail records instead of a posted row: one `blocked` row
+    # carrying both accounts and both counts, and NO `write_attempted` - `post`
+    # was never reached, so there was never a write in flight to be uncertain
+    # about.
+    log = _rows(store)
+    assert [r.action for r in log] == ["blocked"]
+    assert log[0].outcome == Outcome.UNCLEAR.value
+    assert log[0].reason == conflict.detail
+    assert "Purchases" in log[0].reason
+    assert "Repairs & Maintenance" in log[0].reason
+    assert f"{SEEDED} time(s)" in log[0].reason
+    assert log[0].backend == "FakeTally"
+    assert log[0].run_id == RUN_ID
+    # The draft still CARRIED the stale proposal. It simply never posted it.
+    assert log[0].detail == f"Purchases {AMOUNT_PAISE} paise"
+    assert log[0].voucher_id == ""
+    assert pipeline.reverse(draft, after) is False
 
 
 def test_rebuilding_from_the_new_history_replaces_the_old_index_and_never_merges() -> (
