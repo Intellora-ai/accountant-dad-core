@@ -270,6 +270,10 @@ def evaluate(
         # The SAME answered-ids `next_question` filters on, so the decision
         # and the question can never disagree about what is outstanding.
         answered=[pid for pid, _ in draft.answers],
+        # G5.1. The decision is born carrying the identity of the operation it
+        # decides. `answer` clears the decision and this rebuilds it, so the
+        # id survives every question without ever being minted again.
+        operation_id=draft.operation_id,
     )
     return draft
 
@@ -405,6 +409,29 @@ def post(
         raise ValueError("draft has not been evaluated")
     if draft.decision.outcome is not Outcome.VALID:
         raise ValueError(f"refusing to post: outcome is {draft.decision.outcome.value}")
+
+    # G5.1. The approval must belong to THIS operation. Both halves matter and
+    # they fail for different reasons:
+    #
+    #   empty     a decision that names no operation authorises no write. The
+    #             write-ahead row would then be the only thing carrying the id,
+    #             and nothing would tie the voucher back to the reasoning.
+    #   mismatch  a decision built for a DIFFERENT draft. `DRAFTS` holds up to
+    #             200 at once, so two live drafts is the ordinary case; an
+    #             approval granted to one of them must not post the other.
+    #
+    # Checked before the write-ahead row, because neither case is a write that
+    # started — it is a write that was never entitled to start.
+    if not draft.decision.operation_id:
+        raise ValueError(
+            f"refusing to post {draft.operation_id!r}: the decision carries no "
+            "operation id, so nothing ties this approval to this write"
+        )
+    if draft.decision.operation_id != draft.operation_id:
+        raise ValueError(
+            f"refusing to post {draft.operation_id!r}: the decision authorised a "
+            f"different operation, {draft.decision.operation_id!r}"
+        )
 
     _record_write(log, draft, memory, client, run_id, WRITE_ATTEMPTED, "")
 

@@ -1109,7 +1109,12 @@ def test_an_ambiguous_marker_stops_the_pipeline_instead_of_picking_one() -> None
         voucher=contract.a_voucher(),
         record=TypedTextExtractor().extract(ENTRY.encode(), "text/plain"),
         operation_id=op,
-        decision=Decision(outcome=Outcome.VALID, reason="nothing unclear"),
+        # G5.1: the decision must name the operation it authorises, or `post`
+        # refuses before it ever reaches the marker ambiguity this test is
+        # about. Supplying it keeps the test pointed at the thing it pins.
+        decision=Decision(
+            outcome=Outcome.VALID, reason="nothing unclear", operation_id=op
+        ),
     )
     assert draft.outcome is Outcome.VALID
 

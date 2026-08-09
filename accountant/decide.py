@@ -40,8 +40,15 @@ def decide_problems(
     problems: Sequence[Problem],
     asked: int = 0,
     answered: Sequence[str] = (),
+    operation_id: str = "",
 ) -> Decision:
     """Apply the decision order to a list of problems.
+
+    `operation_id` is stamped onto every Decision this returns, G5.1. It is
+    passed in rather than set afterwards so there is no window in which a
+    decision exists without the identity of the operation it decides. Callers
+    that reach no write path — the scoring harness, unit tests — leave it empty,
+    and an empty one authorises nothing (`Decision.post`).
 
     `asked` is how many questions have already been put to the person. Once the
     budget is spent the entry is handed over rather than asked about again.
@@ -64,6 +71,7 @@ def decide_problems(
         return Decision(
             outcome=Outcome.NOT_VALID,
             reason="; ".join(f"{p.id}: {p.detail}" for p in unanswerable),
+            operation_id=operation_id,
         )
 
     answerable = [p for p in problems if p.answerable]
@@ -78,6 +86,7 @@ def decide_problems(
                 "saved for you to finish. Still unresolved: "
                 + "; ".join(p.id for p in answerable)
             ),
+            operation_id=operation_id,
         )
 
     if outstanding:
@@ -91,6 +100,7 @@ def decide_problems(
                     f"saved for you to finish. Left over: "
                     + "; ".join(p.id for p in outstanding)
                 ),
+                operation_id=operation_id,
             )
         nxt = outstanding[0]
         # Problem.__post_init__ refuses to construct an answerable problem
@@ -101,11 +111,13 @@ def decide_problems(
             outcome=Outcome.UNCLEAR,
             reason=nxt.detail,
             question_options=tuple(a.value for a in question.answers),
+            operation_id=operation_id,
         )
 
     return Decision(
         outcome=Outcome.VALID,
         reason="nothing unclear and nothing surprising",
+        operation_id=operation_id,
     )
 
 
@@ -118,6 +130,7 @@ def decide(
     history: Sequence[Voucher] = (),
     index: MemoryIndex | None = None,
     asked: int = 0,
+    operation_id: str = "",
 ) -> Decision:
     """Convenience wrapper: build the problems, then decide.
 
@@ -134,4 +147,4 @@ def decide(
             amount_paise=0,
         )
     problems = find(voucher, checks, match, flags, accounts, history, index)
-    return decide_problems(problems, asked=asked)
+    return decide_problems(problems, asked=asked, operation_id=operation_id)
