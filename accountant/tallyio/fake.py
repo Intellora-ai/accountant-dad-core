@@ -77,6 +77,20 @@ class FakeTally:
         """Place a voucher we did NOT write, as if the accountant typed it."""
         self._co(company).vouchers.append(voucher)
 
+    def close_company(self, name: str) -> None:
+        """Take a company out of the open list, exactly as Tally would.
+
+        The books are DISCARDED, not hidden, which is the honest simulation:
+        Tally serves nothing at all for a company that is not open, so a fake
+        that kept answering for it would make a closed company look like an
+        open one to every read.
+
+        Added 2026-08-09 for `tests/test_company_identity.py`. Closing a
+        company mid-session is the one way the runtime's company can stop being
+        the company Tally has, and there was no way to stage it.
+        """
+        self._companies.pop(name, None)
+
     def set_backup(self, company: str, recorded: bool) -> None:
         """Change the backup record without disturbing the books.
 
