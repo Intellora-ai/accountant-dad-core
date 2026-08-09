@@ -2163,3 +2163,102 @@ def test_reversal_ignores_a_lookalike_in_another_company(sim: TallySim) -> None:
 
     assert client.reverse_by_operation_id("Other Co", op) is False
     assert client.read_by_operation_id(COMPANY, op) is not None
+
+
+# ---------------------------------------------------------------------------
+# A live TallyPrime was WEDGED on 2026-08-09, and this is the guard against it.
+#
+# While probing for a licence-mode read, a hand-written request containing a
+# custom TDL <REPORT>/<FORM>/<PART>/<LINE>/<FIELD> construct was sent to the
+# real TallyPrime 7 at 192.168.64.2:9000. Tally accepted the TCP connection and
+# then never answered — not that request and not any request after it. The
+# gateway stayed wedged through 10 polls over three minutes. TCP kept accepting;
+# HTTP was dead. Recovering it needs the application restarted, which is a GUI
+# action nobody could take remotely (`utmctl exec` produced no output at all).
+#
+# The request came from a probe, not from this connector. The connector has
+# never sent that shape. But "has never" is not "cannot", and the cost of
+# finding out the hard way is somebody's Tally becoming unresponsive mid-post.
+#
+# So the shapes are pinned. Two families, and no third:
+#     Export + Collection   the four reads
+#     Import + Data         the two writes
+# Anything else — a REPORT, a FORM, a Function export, a TDL report definition —
+# must be a deliberate, reviewed change that turns this test red first.
+# ---------------------------------------------------------------------------
+
+_PINNED_VOUCHER = Voucher(
+    id="v1",
+    # 2026-08-31, not the 2026-08-07 contract fixture. Nothing here is a claim
+    # about that fixture; these tests only inspect the SHAPE of the XML we emit
+    # and never send it anywhere.
+    date=datetime.date(2026, 8, 31),
+    party="Sharma Traders",
+    narration="cement",
+    debit_account="Purchases",
+    credit_account="Cash",
+    amount_paise=118000,
+)
+
+_ALL_BUILDERS = (
+    real.build_company_list_request(),
+    real.build_ledger_list_request("Demo Co"),
+    real.build_closing_balance_request("Demo Co"),
+    real.build_voucher_list_request("Demo Co"),
+    real.build_voucher_create(
+        "Demo Co",
+        _PINNED_VOUCHER,
+        "cement [ACCOUNTANT_DAD:ad_probe]",
+        "ad_probe",
+        "Journal",
+    ),
+    real.build_voucher_delete(
+        "Demo Co",
+        real.ExportedVoucher(
+            voucher=_PINNED_VOUCHER,
+            locators={"MASTERID": "3", "VCHTYPE": "Journal"},
+        ),
+        "ad_probe",
+    ),
+)
+
+
+@pytest.mark.parametrize("xml", _ALL_BUILDERS)
+def test_no_request_we_can_build_contains_a_tdl_report_definition(xml: str) -> None:
+    """The exact construct that wedged a live Tally. Never ours to send."""
+    lowered = xml.lower()
+    for tag in ("<report", "<form", "<part ", "<part>", "<line", "<field"):
+        assert tag not in lowered, (
+            f"a request builder emits {tag!r}. A custom TDL report definition "
+            "wedged a live TallyPrime 7 on 2026-08-09 and it had to be "
+            "restarted by hand. If this is deliberate, it needs a live "
+            "soak test before it ships."
+        )
+
+
+@pytest.mark.parametrize("xml", _ALL_BUILDERS)
+def test_every_request_is_one_of_the_two_permitted_shapes(xml: str) -> None:
+    """Export+Collection to read, Import+Data to write. No third family.
+
+    Pinned as a whitelist rather than a blacklist on purpose: a blacklist only
+    forbids the harmful shapes somebody has already thought of, and the one
+    that wedged Tally was not on anybody's list until it happened.
+    """
+    if "<TALLYREQUEST>Export</TALLYREQUEST>" in xml:
+        assert "<TYPE>Collection</TYPE>" in xml, "an Export that is not a Collection"
+    elif "<TALLYREQUEST>Import</TALLYREQUEST>" in xml:
+        assert "<TYPE>Data</TYPE>" in xml, "an Import that is not Data"
+    else:
+        raise AssertionError(f"neither Export nor Import: {xml[:120]}")
+
+
+def test_a_function_export_is_not_something_this_connector_can_produce() -> None:
+    """`<TYPE>Function</TYPE>` is how the licence probe was attempted.
+
+    Every shape of it was refused by the live Tally ("Could not find:
+    $$LicenseInfo:IsEducationalMode"), and the TDL-report workaround is what
+    wedged it. Recorded as a measured dead end so nobody re-derives it, and
+    pinned so it cannot arrive by accident.
+    """
+    for xml in _ALL_BUILDERS:
+        assert "<TYPE>Function</TYPE>" not in xml

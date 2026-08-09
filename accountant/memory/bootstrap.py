@@ -146,6 +146,38 @@ def _incomplete(
     return CompanyMemory(report, store)
 
 
+def _readiness(counts: BootstrapCounts) -> tuple[BootstrapStatus, str]:
+    """Which state the counts actually justify. Owner decision, 2026-08-09.
+
+    Reading succeeded in all three cases here — that is exactly why the reads
+    cannot be the test. The question is what we LEARNED, and the answer is two
+    integers:
+
+        vouchers == 0                -> EMPTY_SOURCE       nothing to learn from
+        vouchers > 0, mappings == 0  -> EMPTY_VENDOR_INDEX should have learned
+        mappings > 0                 -> READY
+
+    The middle case is the one that used to be READY. A company with history
+    that yields no usable mapping is not a company we understand; it is a
+    signal that the read, the data or the derivation is wrong, and the safe
+    response is to do nothing rather than to serve confident answers about
+    books we could not parse.
+    """
+    if counts.vouchers == 0:
+        return (
+            BootstrapStatus.EMPTY_SOURCE,
+            "read this company and found no posted history at all, so it may "
+            "be asked about an entry but nothing may be proposed",
+        )
+    if counts.mappings == 0:
+        return (
+            BootstrapStatus.EMPTY_VENDOR_INDEX,
+            "read this company's history and derived no usable vendor mapping "
+            "from it, so nothing here is trustworthy enough to act on",
+        )
+    return (BootstrapStatus.READY, "loaded")
+
+
 def bootstrap(
     client: TallyClient,
     company: str,
@@ -189,16 +221,20 @@ def bootstrap(
             conflicts=sum(1 for seen in per_vendor.values() if seen > 1),
             unusable=unusable,
         )
+        status, why = _readiness(counts)
         report = BootstrapReport(
             identity=identity,
-            status=BootstrapStatus.READY,
+            status=status,
             detail=(
-                f"loaded {counts.vouchers} voucher(s), {counts.vendors} vendor(s), "
-                f"{counts.accounts} account(s), {counts.mappings} mapping(s) "
-                f"for {company!r}"
+                f"{why}: {counts.vouchers} voucher(s), {counts.vendors} "
+                f"vendor(s), {counts.accounts} account(s), {counts.mappings} "
+                f"mapping(s), {counts.unusable} unusable for {company!r}"
             ),
             attempted_at=attempted_at,
-            bootstrapped_at=attempted_at,
+            # Only a genuine READY records a successful read. EMPTY_SOURCE and
+            # EMPTY_VENDOR_INDEX must not update "when did we last really read
+            # this company", because neither of them did.
+            bootstrapped_at=attempted_at if status is BootstrapStatus.READY else "",
             counts=counts,
             steps=(*done, "index"),
         )

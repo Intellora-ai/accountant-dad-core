@@ -313,14 +313,20 @@ def test_every_mapping_records_the_voucher_ids_it_came_from() -> None:
 def test_empty_memory_cannot_auto_post() -> None:
     """A real, successful bootstrap of a company with no history at all.
 
-    Status is READY - we did read the books - and every lookup still refuses to
-    propose, because there is nothing in them to propose from.
+    This test asserted `memo.ready` until 2026-08-09. Reading succeeded, so the
+    status was READY — but READY is a claim that we LEARNED something, and here
+    we learned nothing because there was nothing to learn. Owner decision that
+    day split the two: EMPTY_SOURCE reads honestly, may be ASKED, and can never
+    propose. `ready` is now false and the refusal to propose is unchanged,
+    which is the point — the behaviour was always right, the status was not.
     """
     client = FakeTally()
     client.add_company(A_NAME, accounts=A_ACCOUNTS, vouchers=())
     memo, _ = opened(client, A_NAME)
 
-    assert memo.ready
+    assert memo.report.status is st.BootstrapStatus.EMPTY_SOURCE
+    assert not memo.ready
+    assert memo.report.askable, "a new customer may still be asked a question"
     assert memo.report.counts.vouchers == 0
     assert memo.lookup(SHARED_VENDOR).status is co.CompanyMatchStatus.NO_MATCH
     assert co.propose_account(memo, SHARED_VENDOR) is None
@@ -531,19 +537,41 @@ def test_a_companys_own_index_holds_only_its_own_rows() -> None:
 
 
 def test_every_table_is_keyed_by_company() -> None:
-    """Structural, read off the live schema rather than promised in a comment."""
+    """Structural, read off the live schema rather than promised in a comment.
+
+    Two table SHAPES, and the difference is deliberate rather than an
+    inconsistency to be tidied away.
+
+    A lookup table keys on `company_key` first in a composite primary key,
+    which scopes it AND makes each row unique. `action_log` cannot: two
+    identical decisions are not a duplicate to be collapsed, they are two
+    things that happened, and a primary key would silently drop the second.
+    Its scoping is `company_key NOT NULL` plus an index, and its uniqueness is
+    SQLite's rowid.
+
+    Both shapes are asserted here. What must hold for EVERY table, whatever its
+    shape, is that `company_key` is present — that is what makes a query
+    without a company impossible to write by accident.
+    """
     store = st.MemoryStore()
 
-    tables = store.table_names()
-    assert set(tables) == {
-        "company",
-        "vendor_account",
-        "phrase_account",
-        "chart_account",
-    }
+    lookups = {"company", "vendor_account", "phrase_account", "chart_account"}
+    append_only = {"action_log"}
+
+    tables = set(store.table_names())
+    assert tables == lookups | append_only
+
     for table in tables:
         assert "company_key" in store.columns_of(table), table
+
+    for table in lookups:
         assert store.primary_key_of(table)[0] == "company_key", table
+
+    for table in append_only:
+        assert store.primary_key_of(table) == (), (
+            f"{table} is append-only; a primary key would drop a repeated "
+            "decision that genuinely happened twice"
+        )
 
 
 def test_the_store_refuses_an_observation_carrying_another_companys_key() -> None:
@@ -953,7 +981,9 @@ def test_the_package_exports_what_it_documents() -> None:
     for name in memory.__all__:
         assert hasattr(memory, name)
     assert memory.STEPS == STEPS
-    assert len(memory.SCHEMA) == 4
+    # 5 tables + 1 index on the append-only log. Counted rather than
+    # described, so a table added without a thought here fails.
+    assert len(memory.SCHEMA) == 6
 
 
 # ---------------------------------------------------------------------------

@@ -1,8 +1,24 @@
 """Child 14 — the web app, Slice 1.
 
-Runs against FakeTally. NOTHING here touches real Tally, because there is no
-Tally on this machine. Swap the client for the real connector when the VM
-exists; no other code changes. That is what the TallyClient boundary is for.
+RUNS AGAINST REAL TALLY. THERE IS NO FAKE PATH HERE.
+----------------------------------------------------
+Owner decision, 2026-08-09: `RealTally` is the only runtime backend. This module
+imports NEITHER implementation. It asks `accountant.tallyio.factory` for a
+`TallyClient` and depends on that interface alone, so "which Tally are we
+talking to" has exactly one answer and it is enforceable in one place.
+
+Until 2026-08-09 this file imported `FakeTally` and built its own client, and
+the docstring said "NOTHING here touches real Tally". Both are now false and
+both were a hazard: an app that can name a fake can post into one and report it
+as evidence.
+
+NOTHING CONNECTS AT IMPORT TIME.
+--------------------------------
+There is no live state until `connect()` fills it from the factory, or
+`configure()` injects one directly, which is how tests supply a
+double without this module ever naming one. Connecting at import would mean the
+module could not be imported at all while Tally was down — including by the
+tests that are supposed to prove it fails closed.
 
 Stdlib only. No framework, no build step, no install.
 """
@@ -12,90 +28,288 @@ from __future__ import annotations
 import datetime
 import html
 import json
+import os
 import urllib.parse
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from accountant import pipeline
 from accountant import questions as Q
 from accountant.extract.adapter import TypedTextExtractor
 from accountant.memory.bootstrap import bootstrap
-from accountant.memory.store import MemoryStore
-from accountant.schema import Outcome, Voucher
-from accountant.tallyio.client import operation_id_in
-from accountant.tallyio.fake import FakeTally
-
-COMPANY = "Demo Traders Pvt Ltd"
-ACCOUNTS = (
-    "Purchases",
-    "Repairs & Maintenance",
-    "Sundry Expenses",
-    "Printing & Stationery",
-    "Rent",
-    "Electricity Charges",
-    "Cash",
-    "Bank",
+from accountant.memory.company import CompanyMemory
+from accountant.memory.store import BootstrapReport, BootstrapStatus, MemoryStore
+from accountant.schema import ActionLog, Outcome
+from accountant.tallyio.client import TallyClient, operation_id_in
+from accountant.tallyio.factory import (
+    BackendIdentity,
+    LicenceMode,
+    RealTallyRequired,
+    real_tally,
 )
+from accountant.tallyio.real import RecordedBackups, TallyConfig
 
+COMPANY = "Accountant Dad Final"
 
-def seed() -> FakeTally:
-    """A demo company with real-shaped history.
-
-    Sharma Traders is consistent -> known vendor, posts straight through.
-    Verma Cement is inconsistent -> conflicted, asks which account.
-    Gupta Hardware is absent      -> unseen, asks.
-    """
-    hist: list[Voucher] = []
-
-    def add(party: str, account: str, amount: int, n: int, note: str) -> None:
-        for i in range(n):
-            hist.append(
-                Voucher(
-                    id=f"h{len(hist)}",
-                    date=datetime.date(2026, 1 + (i % 6), 1 + (i % 27)),
-                    party=party,
-                    narration=note,
-                    debit_account=account,
-                    credit_account="Cash",
-                    amount_paise=amount + i * 1000,
-                )
-            )
-
-    add("Sharma Traders", "Purchases", 380000, 40, "cement supply")
-    add("Verma Cement", "Purchases", 250000, 6, "cement")
-    add("Verma Cement", "Repairs & Maintenance", 90000, 4, "site repair")
-    add("Kumar Stationers", "Printing & Stationery", 45000, 12, "office supplies")
-    add("City Power Board", "Electricity Charges", 720000, 12, "monthly power")
-    add("Landlord", "Rent", 2000000, 12, "monthly rent")
-
-    t = FakeTally()
-    t.add_company(COMPANY, accounts=ACCOUNTS, vouchers=tuple(hist), backed_up=True)
-    return t
-
-
-TALLY = seed()
 DRAFTS: dict[str, pipeline.Draft] = {}
-EVENTS: list[tuple[str, str]] = []
 
-# Memory is bootstrapped ONCE, from this company's own Tally, and reused.
+# How many log rows the page shows. The log itself is unbounded and append-only;
+# this is a rendering choice and nothing more. `EVENTS`, the forty-row in-memory
+# list this replaced, was the opposite: the cap WAS the retention policy, so row
+# 41 stopped existing anywhere.
+SHOWN = 40
+
+# outcome -> the word the log calls it. A total map rather than an if/elif/else
+# chain, and the difference matters: NOT_VALID is currently UNREACHABLE from a
+# typed entry, because the only unanswerable check is `amount_is_integer_paise`
+# and the extractor cannot produce a non-integer. Written as branches, that arm
+# is dead code no test can enter; written as data, it is one line that executes
+# on every path, and `test_every_outcome_has_a_log_word` proves the map is
+# total over the enum - a stronger claim than a branch test could make.
+ACTION_FOR: dict[Outcome, str] = {
+    Outcome.VALID: "posted",
+    Outcome.UNCLEAR: "asked",
+    Outcome.NOT_VALID: "blocked",
+}
+
+
+@dataclass(frozen=True)
+class Runtime:
+    """Everything the request handlers need, resolved once and held together.
+
+    One object rather than four mutable globals, so a half-connected state
+    cannot exist: either every field is present or `runtime()` refuses. A client
+    without its memory, or memory without its identity, would be exactly the
+    ambiguity principle 9 forbids.
+    """
+
+    client: TallyClient
+    identity: BackendIdentity
+    memory: CompanyMemory
+    store: MemoryStore
+
+
+_runtime_state: Runtime | None = None
+
+
+# One spelling of the refusal, so the handler can recognise its own and the
+# tests can assert on something that cannot drift out of sync.
+REFUSAL = "REAL TALLY REQUIRED"
+
+
+def runtime() -> Runtime:
+    """The live runtime, or a refusal. Never a silently absent one."""
+    if _runtime_state is None:
+        raise RuntimeError(
+            f"{REFUSAL}: no operation performed. "
+            "connect() or configure() has not been called, so no company has "
+            "been read and nothing may be proposed or posted."
+        )
+    return _runtime_state
+
+
+def health() -> dict[str, object]:
+    """Measured readiness. Every value read from the live runtime.
+
+    This returned a hardcoded `{"ok": true}` until 2026-08-09 and therefore
+    kept reporting healthy after a disconnect or a failed bootstrap. A
+    readiness endpoint that cannot say "not ready" is a constant with a
+    misleading name, and it is believed precisely because it looks like a
+    measurement.
+
+    `ready` is the bootstrap's own gate, so an EMPTY_SOURCE or
+    EMPTY_VENDOR_INDEX company reports not-ready here for the same reason it
+    refuses to propose: readiness means safe to receive work.
+    """
+    if _runtime_state is None:
+        return {
+            "ready": False,
+            "bootstrap_status": "not_connected",
+            "failure_code": "NO_RUNTIME",
+            "backend": None,
+            "backend_state": BACKEND_UNAVAILABLE,
+            "licence_mode": None,
+            "company": COMPANY,
+            "detail": (
+                f"{REFUSAL}: no operation performed. "
+                "connect() or configure() has not been called."
+            ),
+        }
+
+    live = _runtime_state
+    report = live.memory.report
+    counts = report.counts
+    return {
+        "ready": report.ready,
+        # The SAME function the page uses. Two answers to "which Tally are we
+        # on" is how the screen and the monitoring end up disagreeing, and the
+        # one nobody is watching is always the one that stays wrong.
+        "backend_state": backend_state(),
+        "bootstrap_status": report.status.value,
+        "failure_code": None if report.ready else report.status.value.upper(),
+        "detail": report.detail,
+        "company_exists": live.identity.company_exists,
+        "accounts_read": counts.accounts,
+        "vouchers_read": counts.vouchers,
+        "vendor_mappings_derived": counts.mappings,
+        "index_entries": counts.mappings,
+        "conflicts": counts.conflicts,
+        "unusable_rows": counts.unusable,
+        "last_bootstrap": report.bootstrapped_at,
+        **live.identity.as_metrics(),
+    }
+
+
+# ---- "have we actually read this company's books?" --------------------------
 #
-# It used to be `MemoryIndex.from_vouchers(history)` rebuilt inside every
-# request handler. That was the product failure in miniature: no company key,
-# so nothing stopped one company's history answering another's question; no
-# persistence, so an answer the person gave was forgotten by the next request;
-# and no bootstrap record, so "we have not read your books yet" was
-# indistinguishable from "your books say nothing about this vendor". The first
-# asks a question; the second must not.
+# G6. A failure to read the books has to be visible to the PERSON, not only to
+# whoever reads /health. Before this, a company whose history had not been read
+# served either a normal-looking entry form — so the app looked fine and simply
+# never suggested anything — or a stack trace out of `pipeline.build_draft`.
+# Neither says the one thing that matters: we have not read your books yet.
 #
-# An in-memory SQLite store is right for this demo server because the seeded
-# FakeTally is itself rebuilt on every start; a real deployment passes a file
-# path so the index survives a restart.
-MEMORY_STORE = MemoryStore(":memory:")
-MEMORY = bootstrap(TALLY, COMPANY, MEMORY_STORE)
+# `report.detail` is never shown. It is written for us; it names steps and says
+# "6 mapping(s)". The person gets sentences instead, and the five are worded so
+# a reader can tell which one they are looking at without knowing any of this.
+#
+# Every message ends its first sentence with CANNOT_HELP. That is deliberate:
+# it gives the tests one stable thing to assert on, so "a banner appeared" can
+# be checked without matching prose that is meant to be edited freely.
+
+CANNOT_HELP = "cannot suggest anything"
+
+BOOTSTRAP_TROUBLE: dict[BootstrapStatus, str] = {
+    BootstrapStatus.NEVER_RUN: (
+        f"<b>We have not read your Tally books yet, so we {CANNOT_HELP}.</b> "
+        "Nothing has been read out of Tally for this company. Until it is, "
+        "every entry you type will come back as a question."
+    ),
+    BootstrapStatus.INCOMPLETE: (
+        f"<b>We started reading your Tally books but did not get to the end, "
+        f"so we {CANNOT_HELP}.</b> Something went wrong part way through. "
+        "Check the company is open in Tally, then start this app again."
+    ),
+    BootstrapStatus.EMPTY_SOURCE: (
+        f"<b>We read your Tally books and there are no past entries in them "
+        f"at all, so we {CANNOT_HELP}.</b> There is nothing for us to learn "
+        "from yet. We will ask you about every entry until you have built up "
+        "some history."
+    ),
+    BootstrapStatus.EMPTY_VENDOR_INDEX: (
+        f"<b>We read your Tally books, but not one past entry says who you "
+        f"paid, so we {CANNOT_HELP}.</b> With no name on a past entry there is "
+        "nothing for us to learn from. We will ask you about every entry."
+    ),
+}
 
 
-def log(kind: str, msg: str) -> None:
-    EVENTS.insert(0, (kind, msg))
-    del EVENTS[40:]
+def bootstrap_banner(report: BootstrapReport) -> str:
+    """The warning box, or "" when the books were read AND were useful.
+
+    Returning "" for READY is the whole point. A banner that is always there
+    is not a banner, it is decoration, and the test that proves a READY
+    company shows nothing is what keeps it honest.
+    """
+    trouble = BOOTSTRAP_TROUBLE.get(report.status, "")
+    return f"<div class=warn>{trouble}</div>" if trouble else ""
+
+
+def connected() -> bool:
+    """Whether a backend is installed. For /health, which must not raise."""
+    return _runtime_state is not None
+
+
+def configure(
+    client: TallyClient,
+    identity: BackendIdentity,
+    *,
+    store: MemoryStore | None = None,
+) -> Runtime:
+    """Install an already-built client and bootstrap this company's memory.
+
+    The injection seam. Tests hand a double in here, which is why this module
+    never needs to import one — principle 6 is about what the SHIPPED code can
+    reach, not about forbidding doubles in tests.
+
+    Memory is bootstrapped ONCE, from this company's own Tally, and reused. It
+    used to be `MemoryIndex.from_vouchers(history)` rebuilt inside every request
+    handler: no company key, so nothing stopped one company's history answering
+    another's question; no persistence, so an answer the person gave was
+    forgotten by the next request; and no bootstrap record, so "we have not read
+    your books yet" was indistinguishable from "your books say nothing about
+    this vendor". The first asks a question; the second must not.
+    """
+    global _runtime_state
+    owned = store if store is not None else MemoryStore(":memory:")
+    _runtime_state = Runtime(
+        client=client,
+        identity=identity,
+        memory=bootstrap(client, identity.company, owned),
+        store=owned,
+    )
+    return _runtime_state
+
+
+def connect(
+    config: TallyConfig,
+    company: str = COMPANY,
+    *,
+    backups: RecordedBackups | None = None,
+    store: MemoryStore | None = None,
+) -> Runtime:
+    """The real path: ask the factory for a real client, then bootstrap.
+
+    Raises `RealTallyRequired` when Tally is unreachable, unlicensed or the
+    company identity is uncertain. It never falls back — see the factory's
+    docstring for why "unreachable" and "empty" must not collapse into one
+    another.
+    """
+    client, identity = real_tally(config, company, backups=backups)
+    return configure(client, identity, store=store)
+
+
+def disconnect() -> None:
+    """Drop the runtime. Tests use this to prove the app fails closed."""
+    global _runtime_state
+    _runtime_state = None
+
+
+def record(draft: pipeline.Draft, action: str) -> None:
+    """A draft-shaped decision, through the same function `pipeline.run` uses.
+
+    Not a second implementation of logging. The web app reaches its decisions
+    across several HTTP requests rather than in one `run` call, so it cannot
+    use `run`, but it must produce identical rows - same fields, same reason,
+    same backend. Calling the pipeline's own recorder is what guarantees that
+    rather than promising it.
+    """
+    live = runtime()
+    pipeline.record_decision(
+        live.store, draft, live.memory, live.client, action, live.identity.run_id
+    )
+
+
+def note(action: str, outcome: str, reason: str, **fields: str) -> None:
+    """An action of the app's own that is not a decision about a draft.
+
+    Reversal, handover and retype happen at the screen, not in the pipeline, so
+    the pipeline has nothing to say about them. They are still things that were
+    done to somebody's books or on their behalf, and `reason` is required here
+    for the same reason it is required everywhere else.
+    """
+    live = runtime()
+    live.store.record_action(
+        ActionLog(
+            ts=datetime.datetime.now(datetime.UTC),
+            action=action,
+            company_key=live.memory.identity.key,
+            outcome=outcome,
+            reason=reason,
+            run_id=live.identity.run_id,
+            backend=type(live.client).__name__,
+            **fields,
+        )
+    )
 
 
 # ---- rendering --------------------------------------------------------------
@@ -149,14 +363,142 @@ def esc(s: object) -> str:
     return html.escape(str(s))
 
 
+# ---- which Tally are we on, and is it safe to work? -------------------------
+#
+# Until 2026-08-09 every page carried a hardcoded "Demo mode. This is talking to
+# a fake Tally running in memory... Nothing here touches any real books." True
+# while the app built its own FakeTally; a LIE from the moment P3.1 wired it to
+# somebody's real statutory books. Both directions of that lie are dangerous and
+# the false-reassurance direction is worse: a person told nothing is real will
+# type freely into books that are.
+#
+# So the notice is MEASURED. There are FOUR states and a reader has to be able
+# to tell which one they are looking at:
+#
+#   real-ok         a real Tally whose licence was measured as fully licensed.
+#   unavailable     nothing is connected. Nothing works, and the page says why.
+#   real-practice   a REAL TallyPrime in Educational mode. Real books, but it
+#                   accepts only the 1st, 2nd and 31st, so an entry dated the
+#                   7th is turned away by Tally itself.
+#   not-real        not accounting software at all.
+#
+# And a fifth, which is where this instance actually lives (A11): the gateway
+# will not tell us the licence mode at all. That is `real-licence-unknown`. It
+# is NOT folded into real-ok - that is the exact false reassurance above - and
+# it is NOT folded into real-practice, because calling a licence Educational
+# without measuring it is inventing a result.
+#
+# Every state carries a `data-backend-state="..."` attribute and assertions
+# match THAT, not the prose. The marker appears in exactly one place in the
+# document; the sentences are meant to be edited freely. Two tests written
+# earlier today were green and vacuous because they searched a whole page for a
+# common word the stylesheet already contained.
+
+BACKEND_REAL_OK = "real-ok"
+BACKEND_UNAVAILABLE = "unavailable"
+BACKEND_REAL_PRACTICE = "real-practice"
+BACKEND_NOT_REAL = "not-real"
+BACKEND_LICENCE_UNKNOWN = "real-licence-unknown"
+
+# state -> the words a person reads. A total map rather than an if/elif chain,
+# for the same reason `ACTION_FOR` is one: a state with no words renders a blank
+# notice, and a map can be proved total over the state list while a chain
+# cannot. `{backend}` and `{endpoint}` are filled from the live identity, both
+# escaped before they go in.
+BACKEND_WORDS: dict[str, str] = {
+    BACKEND_UNAVAILABLE: (
+        '<div class=warn data-backend-state="unavailable">'
+        "<b>We are not connected to Tally, so nothing here works.</b> "
+        "We cannot read your books and we cannot save anything into them. "
+        "Check that Tally is open and that your company is open inside it, "
+        "then start this app again."
+        "</div>"
+    ),
+    BACKEND_NOT_REAL: (
+        '<div class=warn data-backend-state="not-real">'
+        "<b>Not real accounting software.</b> This is talking to "
+        "<b>{backend}</b> at {endpoint}, not to TallyPrime. "
+        "Nothing here reaches any real books."
+        "</div>"
+    ),
+    BACKEND_REAL_PRACTICE: (
+        '<div class=warn data-backend-state="real-practice">'
+        "<b>This is your real Tally, but it is a practice copy.</b> "
+        "Tally calls this Educational mode. A practice copy only accepts "
+        "entries dated the <b>1st, 2nd or 31st</b> of a month. Type any other "
+        "date and Tally will turn the entry away, even though everything here "
+        "will look fine. "
+        "writing into <b>{backend}</b> at {endpoint}"
+        "</div>"
+    ),
+    BACKEND_LICENCE_UNKNOWN: (
+        '<div class=warn data-backend-state="real-licence-unknown">'
+        "<b>This is your real Tally, but we could not tell which licence mode "
+        "this Tally is in.</b> So we cannot promise it will accept what you "
+        "type. Some copies of Tally are practice copies, and a practice copy "
+        "only accepts entries dated the 1st, 2nd or 31st of a month. Ask "
+        "whoever set Tally up which kind this one is. "
+        "writing into <b>{backend}</b> at {endpoint}"
+        "</div>"
+    ),
+    BACKEND_REAL_OK: (
+        '<p class=sub data-backend-state="real-ok">'
+        "<b>This is your real Tally and it is ready.</b> Anything you save "
+        "here goes into your real books. "
+        "writing into <b>{backend}</b> at {endpoint}"
+        "</p>"
+    ),
+}
+
+
+def backend_state() -> str:
+    """Which state we are in, measured off the live identity. Never guessed.
+
+    The ORDER of these checks is the safety property, so it is worth reading
+    rather than skimming:
+
+      * nothing connected wins first, because there is no identity to read;
+      * anything that is not RealTally wins next, because a fake's licence mode
+        is meaningless;
+      * Educational is reported only when the licence read SAID so;
+      * and the last test is `!= LICENSED`, not `== UNKNOWN`. Written that way,
+        every value nobody anticipated - a typo, a new Tally mode, a field that
+        never got filled in - lands on the warning rather than on the
+        all-clear. A default has to fall somewhere and this is the only side it
+        may fall on.
+    """
+    if _runtime_state is None:
+        return BACKEND_UNAVAILABLE
+    ident = _runtime_state.identity
+    if ident.backend != "RealTally":
+        return BACKEND_NOT_REAL
+    if ident.licence_mode == LicenceMode.EDUCATIONAL.value:
+        return BACKEND_REAL_PRACTICE
+    if ident.licence_mode != LicenceMode.LICENSED.value:
+        return BACKEND_LICENCE_UNKNOWN
+    return BACKEND_REAL_OK
+
+
+def backend_notice() -> str:
+    """The state, in words a person can act on. On every page, always.
+
+    Rendered even when nothing is connected. That page is the 503, and it is
+    exactly the page on which "why is nothing working" needs answering.
+    """
+    ident = _runtime_state.identity if _runtime_state is not None else None
+    return BACKEND_WORDS[backend_state()].format(
+        backend=esc(ident.backend) if ident is not None else "",
+        endpoint=esc(ident.endpoint) if ident is not None else "",
+    )
+
+
 def page(body: str) -> bytes:
     return f"""<!doctype html><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>Accountant Dad</title><style>{CSS}</style>
 <h1>Accountant Dad</h1>
 <p class=sub>{esc(COMPANY)} &middot; posting into Tally</p>
-<div class=warn><b>Demo mode.</b> This is talking to a <b>fake Tally</b> running in
-memory, not real accounting software. Nothing here touches any real books.</div>
+{backend_notice()}
 {body}""".encode()
 
 
@@ -239,8 +581,9 @@ def render_decision(d: pipeline.Draft) -> str:
 
 
 def render_home(banner: str = "") -> bytes:
-    ours = TALLY.list_our_vouchers(COMPANY)
-    tb = TALLY.trial_balance(COMPANY)
+    live = runtime()
+    ours = live.client.list_our_vouchers(COMPANY)
+    tb = runtime().client.trial_balance(COMPANY)
 
     posted_rows = (
         "".join(
@@ -258,12 +601,23 @@ def render_home(banner: str = "") -> bytes:
         for k, val in sorted(tb.items())
     )
 
+    # Read off the persisted log, newest first. The old renderer iterated
+    # `for _, m in EVENTS`, which threw the outcome away at the last moment -
+    # the page could tell you a sentence had happened but not whether the
+    # entry was posted, refused or merely asked about.
+    rows = live.store.actions(COMPANY)[-SHOWN:]
     events = (
-        "".join(f"<div class=ev>{esc(m)}</div>" for _, m in EVENTS)
+        "".join(
+            f'<div class=ev data-outcome="{esc(r.outcome)}" '
+            f'data-action="{esc(r.action)}"><b>{esc(r.outcome)}</b> '
+            f"<span class=muted>{esc(r.ts.strftime('%d %b %H:%M'))}</span><br>"
+            f"{esc(r.reason)}</div>"
+            for r in reversed(rows)
+        )
         or '<div class="ev muted">nothing yet</div>'
     )
 
-    return page(f"""{banner}
+    return page(f"""{bootstrap_banner(live.memory.report)}{banner}
 <form class=entry method=post action=/entry>
 <input type=text name=text autofocus
  placeholder="paid Sharma Traders 4200 for cement including 18% GST">
@@ -280,41 +634,72 @@ def render_home(banner: str = "") -> bytes:
 <h2>Trial balance</h2>
 <table>{tb_rows}</table>
 
-<h2>Activity</h2>{events}""")
+<h2>Activity</h2><section id=log>{events}</section>""")
 
 
 # ---- server -----------------------------------------------------------------
 
 
 def _run(text: str) -> pipeline.Draft:
-    accounts = TALLY.read_accounts(COMPANY)
-    history = TALLY.read_vouchers(COMPANY)
+    live = runtime()
+    accounts = live.client.read_accounts(COMPANY)
+    history = live.client.read_vouchers(COMPANY)
     d = pipeline.build_draft(
-        COMPANY, text.encode(), "text/plain", TypedTextExtractor(), accounts, MEMORY
+        COMPANY,
+        text.encode(),
+        "text/plain",
+        TypedTextExtractor(),
+        accounts,
+        live.memory,
     )
-    d = pipeline.evaluate(d, accounts, history, MEMORY)
+    d = pipeline.evaluate(d, accounts, history, live.memory)
     if d.outcome is Outcome.VALID:
-        d = pipeline.post(d, TALLY)
-        log(
-            "post",
-            f"posted {d.voucher.party} ₹{rupees(d.voucher.amount_paise)} "
-            f"to {d.voucher.debit_account}",
-        )
-    elif d.outcome is Outcome.UNCLEAR:
-        log("ask", f"asked about {d.voucher.party or 'unknown party'}")
-    else:
-        log("block", f"refused: {d.reason}")
+        d = pipeline.post(d, runtime().client)
+    record(d, ACTION_FOR[d.outcome])
     DRAFTS[d.id] = d
     return d
 
 
 class Handler(BaseHTTPRequestHandler):
-    def _send(self, body: bytes, code: int = 200) -> None:
+    def _send(
+        self,
+        body: bytes,
+        code: int = 200,
+        content_type: str = "text/html; charset=utf-8",
+    ) -> None:
         self.send_response(code)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def handle_one_request(self) -> None:
+        """Turn an unusable runtime into an answer instead of a dropped socket.
+
+        `runtime()` raises when nothing is connected. Before 2026-08-09 that
+        escaped the handler, so `socketserver` logged a traceback and closed the
+        connection: the request DID fail closed, which was correct, but the
+        person saw a browser error and could not tell a broken app from an
+        unreachable Tally. Failing safely and failing legibly are two
+        properties and only the first was present.
+
+        503 is the honest code. The service exists and is not available, which
+        is exactly what a readiness failure is — and it is what stops a caller
+        retrying against a machine that cannot serve them.
+
+        Only `RuntimeError` is caught, and only the refusal it carries. Any
+        other exception still surfaces, because swallowing unknown failures
+        here would hide real defects behind a tidy error page.
+        """
+        try:
+            super().handle_one_request()
+        except RuntimeError as exc:
+            if not str(exc).startswith(REFUSAL):
+                raise
+            self._send(
+                page(f"<div class=warn><b>{esc(exc)}</b></div>"),
+                code=503,
+            )
 
     def _form(self) -> dict[str, str]:
         n = int(self.headers.get("Content-Length", 0))
@@ -326,7 +711,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path.startswith("/health"):
-            self._send(json.dumps({"ok": True, "company": COMPANY}).encode())
+            body = json.dumps(health(), indent=1).encode()
+            code = 200 if health()["ready"] else 503
+            self._send(body, code=code, content_type="application/json")
             return
         self._send(render_home())
 
@@ -350,16 +737,30 @@ class Handler(BaseHTTPRequestHandler):
             value = form.get("value", "")
             problem = form.get("problem", "which_account")
 
-            accounts = TALLY.read_accounts(COMPANY)
-            history = TALLY.read_vouchers(COMPANY)
+            accounts = runtime().client.read_accounts(COMPANY)
+            history = runtime().client.read_vouchers(COMPANY)
 
             if value == Q.HANDOVER:
                 d.answers.extend((f"gave_up_{i}", "") for i in range(Q.QUESTION_CAP))
-                log("saved", f"saved {d.voucher.party or 'entry'} for you to finish")
+                note(
+                    "handed_over",
+                    "saved",
+                    "the person stopped answering, so it was saved as a draft "
+                    "for them to finish rather than guessed at",
+                    operation_id=d.operation_id,
+                    vendor_id=d.voucher.party,
+                )
             elif value in (Q.YES,):
                 d.answers.append((problem, "yes"))
             elif value == Q.RETYPE:
-                log("retype", "asked to type it again")
+                note(
+                    "retype",
+                    "abandoned",
+                    "the numbers were wrong, so the entry was thrown away and "
+                    "the person asked to type it again",
+                    operation_id=d.operation_id,
+                    vendor_id=d.voucher.party,
+                )
                 self._send(
                     render_home(
                         "<div class=warn>Type it again with the right numbers.</div>"
@@ -371,33 +772,166 @@ class Handler(BaseHTTPRequestHandler):
                 # The correction is recorded against THIS company and no other,
                 # and it is evidence, not an override: a vendor with genuinely
                 # contradictory history stays CONFLICTED and keeps asking.
-                MEMORY.record_correction(d.voucher.party, value)
+                runtime().memory.record_correction(d.voucher.party, value)
 
-            d = pipeline.evaluate(d, accounts, history, MEMORY)
+            d = pipeline.evaluate(d, accounts, history, runtime().memory)
 
             if d.outcome is Outcome.VALID:
-                d = pipeline.post(d, TALLY)
-                log("post", f"answered {d.voucher.party}, posted")
-            else:
-                log("block", f"answer did not clear it: {d.reason}")
+                d = pipeline.post(d, runtime().client)
+            record(d, ACTION_FOR[d.outcome])
             DRAFTS[d.id] = d
             self._send(page(render_decision(d) + '<p><a href="/">&larr; back</a></p>'))
             return
 
         if self.path == "/reverse":
             op = form.get("op", "")
-            ok = TALLY.reverse_by_operation_id(COMPANY, op)
-            log("undo", f"reversed {op}" if ok else f"nothing to reverse for {op}")
+            ok = runtime().client.reverse_by_operation_id(COMPANY, op)
+            note(
+                "reversed",
+                "reversed" if ok else "not_found",
+                f"the person asked to undo {op}"
+                + ("" if ok else ", and no voucher of ours carries that id"),
+                operation_id=op,
+            )
             self._send(render_home())
             return
 
         self._send(render_home(), 404)
 
 
-def serve(host: str = "127.0.0.1", port: int = 8000) -> None:
-    print(f"Accountant Dad (demo, fake Tally) -> http://{host}:{port}")
+# ---- where IS Tally, and may we write to it? --------------------------------
+#
+# `TallyConfig()` defaults to localhost:9000, and until 2026-08-09 `serve()` had
+# no way to be told anything else. On this project that default can never work:
+# TallyPrime runs inside a Windows VM, and `localhost` on the Mac is a DIFFERENT
+# MACHINE from `localhost` in the guest. The app could not be pointed at the one
+# Tally that exists without editing source.
+#
+# Environment variables rather than a config file or a flag: no new dependency,
+# nothing to parse, nothing to keep in sync, and it works identically from a
+# terminal, a launcher and a packaged .exe.
+#
+# Principle 9 - defaults must be EXPLICIT. Every resolved value is printed at
+# startup, including which ones came from the environment and which are
+# defaults, so "which Tally am I talking to" is never a guess.
+
+ENV_HOST = "ACCOUNTANT_TALLY_HOST"
+ENV_PORT = "ACCOUNTANT_TALLY_PORT"
+ENV_COMPANY = "ACCOUNTANT_COMPANY"
+ENV_BACKED_UP = "ACCOUNTANT_BACKED_UP_COMPANIES"
+
+
+def config_from_environment() -> tuple[TallyConfig, str, RecordedBackups, list[str]]:
+    """Resolve where Tally is, and which companies we are permitted to write to.
+
+    Returns the config, the company, the backup record, and a human-readable
+    list of what came from WHERE - because a resolved value with no provenance
+    is the same ambiguity as no value at all.
+
+    `RecordedBackups` stays EMPTY unless the operator names companies in
+    ACCOUNTANT_BACKED_UP_COMPANIES. That is deliberate and it fails closed: an
+    empty record refuses every write, so a person who has not said "I have a
+    backup of this company" cannot post into it by starting the app. Declaring
+    it is a decision, and decisions should be typed out, not defaulted into.
+    """
+    provenance: list[str] = []
+
+    def read(name: str, fallback: str) -> str:
+        raw = os.environ.get(name)
+        if raw is None or not raw.strip():
+            provenance.append(f"{name}={fallback!r} (default)")
+            return fallback
+        provenance.append(f"{name}={raw.strip()!r} (environment)")
+        return raw.strip()
+
+    host = read(ENV_HOST, TallyConfig.host)
+    port_text = read(ENV_PORT, str(TallyConfig.port))
+    company = read(ENV_COMPANY, COMPANY)
+    backed_up_text = read(ENV_BACKED_UP, "")
+
+    try:
+        port = int(port_text)
+    except ValueError as exc:
+        # Not a fallback to 9000. A port that cannot be parsed is a typo, and
+        # silently using a different one is how you connect to the wrong thing.
+        raise RealTallyRequired(
+            f"{REFUSAL}: no operation performed. {ENV_PORT}={port_text!r} is not "
+            f"a number. Set it to the port Tally's HTTP server listens on, or "
+            f"unset it to use {TallyConfig.port}."
+        ) from exc
+
+    backed_up = frozenset(
+        name.strip() for name in backed_up_text.split(",") if name.strip()
+    )
+    return (
+        TallyConfig(host=host, port=port),
+        company,
+        RecordedBackups(backed_up),
+        provenance,
+    )
+
+
+def serve(
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    *,
+    tally: TallyConfig | None = None,
+    company: str | None = None,
+    backups: RecordedBackups | None = None,
+) -> None:
+    """Connect to the real Tally FIRST, then serve. Refuse loudly otherwise.
+
+    Two separate defects lived in the four lines this replaced.
+
+    It printed "(demo, fake Tally)", which stopped being true the moment the
+    fake path was removed. A banner naming the wrong backend is the cheapest
+    possible way to mistake a test run for a real one.
+
+    Worse, it never called `connect()`. P3.1 deleted the old `seed()` FakeTally
+    path and nothing replaced it, so `python -m accountant.web.app` — the exact
+    command in README.md — started a server on which EVERY page answered
+    "REAL TALLY REQUIRED". Failing closed is correct; never being able to open
+    is not, and it made the whole product unrunnable while every test passed.
+    No test could have caught it: the tests inject a client through
+    `configure()` and so never take this path at all.
+
+    Refusing here rather than per-request is deliberate. If Tally is not there,
+    the person finds out in the terminal in one second, not by opening a page
+    that looks like an app and refuses everything they type.
+    """
+    env_tally, env_company, env_backups, provenance = config_from_environment()
+    tally = tally if tally is not None else env_tally
+    company = company if company is not None else env_company
+    backups = backups if backups is not None else env_backups
+
+    # Printed BEFORE connecting, so a wrong address is visible even when the
+    # connection then fails. A refusal that does not say where it tried to go
+    # sends the reader to check Tally when the real fault is a typo here.
+    print("Accountant Dad, resolving configuration:")
+    for line in provenance:
+        print(f"  {line}")
+    if not backups.companies:
+        print(
+            f"  no company is recorded as backed up, so WRITES WILL BE REFUSED. "
+            f"Set {ENV_BACKED_UP} to a comma-separated list once you have a backup."
+        )
+
+    live = connect(tally, company, backups=backups)
+    print(
+        f"Accountant Dad -> http://{host}:{port}\n"
+        f"  backend {live.identity.backend} at {live.identity.endpoint}\n"
+        f"  company {live.identity.company!r}\n"
+        f"  books    {live.memory.report.status.value}\n"
+        f"  writable {sorted(backups.companies) or 'NOTHING - reads only'}\n"
+        f"  run      {live.identity.run_id}"
+    )
     HTTPServer((host, port), Handler).serve_forever()
 
 
-if __name__ == "__main__":
-    serve()
+if __name__ == "__main__":  # pragma: no cover - the process entry point
+    try:
+        serve()
+    except RealTallyRequired as exc:
+        # Exit non-zero so a launcher, a script or a packaged .exe can tell the
+        # difference between "stopped" and "never started".
+        raise SystemExit(f"{REFUSAL}: no operation performed. {exc}") from exc

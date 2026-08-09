@@ -127,7 +127,37 @@ class Decision:
 
 @dataclass(frozen=True)
 class ActionLog:
+    """One decision, recorded durably, with the reason it went that way.
+
+    Declared here from the start and NEVER CONSTRUCTED until 2026-08-09. What
+    the product used instead was a forty-row in-memory list of
+    `(kind, message)` pairs in the web app: no timestamp, no way to tie a row
+    to its voucher, a reason only on refusals, the outcome discarded when
+    rendering, and everything lost on restart.
+
+    `reason` is required on EVERY path. "Why did you refuse" is the obvious
+    question; "why did you POST" is the one asked six months later by somebody
+    looking at a voucher in their books.
+
+    `backend` is recorded because a row that cannot say which Tally it came
+    from cannot be used as evidence about any of them.
+    """
+
     ts: datetime.datetime
     action: str
-    voucher_id: str
-    detail: str
+    company_key: str
+    outcome: str
+    reason: str
+    run_id: str
+    backend: str
+    operation_id: str = ""
+    voucher_id: str = ""
+    vendor_id: str = ""
+    detail: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.reason.strip():
+            raise ValueError(
+                f"action {self.action!r} for {self.company_key!r} must state "
+                "WHY it happened; a log row without a reason is a timestamp"
+            )

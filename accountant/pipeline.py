@@ -18,6 +18,7 @@ import datetime
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
+from typing import Protocol
 
 from accountant import checks, problems
 from accountant.decide import decide_problems
@@ -26,8 +27,19 @@ from accountant.extract.adapter import ExtractedRecord, Extractor
 from accountant.memory.company import CompanyMemory, propose_account
 from accountant.memory.identity import normalise_company
 from accountant.problems import Problem
-from accountant.schema import CheckResult, Decision, Flag, Outcome, Voucher
+from accountant.schema import ActionLog, CheckResult, Decision, Flag, Outcome, Voucher
 from accountant.tallyio.client import TallyClient, new_operation_id
+
+
+class ActionLogSink(Protocol):
+    """Somewhere durable to append a decision.
+
+    A Protocol rather than `MemoryStore` so the pipeline does not depend on
+    SQLite. `accountant/memory/store.py` satisfies it today; anything that can
+    append and never mutate would.
+    """
+
+    def record_action(self, entry: ActionLog) -> None: ...
 
 
 @dataclass
@@ -199,18 +211,60 @@ def answer(draft: Draft, account: str, problem_id: str = "which_account") -> Dra
     return draft
 
 
+# What must come back UNCHANGED for a write to count as ours. Money, party,
+# date and both legs - every field a person would be harmed by if Tally stored
+# something else. `narration` is deliberately absent: we stamp the marker into
+# it, so it is expected to differ from what the draft carried.
+VERIFIED_FIELDS = (
+    "amount_paise",
+    "party",
+    "date",
+    "debit_account",
+    "credit_account",
+)
+
+
+def _identity_mismatches(sent: Voucher, back: Voucher) -> list[str]:
+    """Every field Tally returned differently, named one per line."""
+    return [
+        f"{field}: sent {getattr(sent, field)!r}, Tally has {getattr(back, field)!r}"
+        for field in VERIFIED_FIELDS
+        if getattr(sent, field) != getattr(back, field)
+    ]
+
+
 def post(draft: Draft, client: TallyClient) -> Draft:
     """Write to Tally, but only if the outcome is Valid, then read it back.
 
     Raises if called on a draft that is not Valid. The gate lives here, server
     side, so no caller can bypass it.
+
+    W1, FIXED 2026-08-09. The read-back used to be a PRESENCE check: it asked
+    Tally "is there a voucher with my operation id", and on any answer that was
+    not None it reported success and THREW THE VOUCHER AWAY. It checked the
+    label on the box and never opened it.
+
+    Two agents found the same hole independently. A voucher carrying our marker
+    with a different amount, party or date was accepted as proof, and so was
+    one that existed in the marker view but was ABSENT from `read_vouchers` and
+    the trial balance. That defeated G3 - the register guarantee this phase
+    exists to deliver - in the one code path that actually posts. The guarantee
+    was only ever enforced by a standalone script.
+
+    So the box is opened. Every field in `VERIFIED_FIELDS` must come back
+    unchanged, and `posted_tally_id` is taken from what TALLY returned rather
+    than from our own write result, because Tally's answer is the evidence and
+    ours is only a claim.
+
+    This can only ever refuse MORE, never post more. There is no input for
+    which the old code refused and this one accepts.
     """
     if draft.decision is None:
         raise ValueError("draft has not been evaluated")
     if draft.decision.outcome is not Outcome.VALID:
         raise ValueError(f"refusing to post: outcome is {draft.decision.outcome.value}")
 
-    result = client.write_voucher(draft.company, draft.voucher, draft.operation_id)
+    client.write_voucher(draft.company, draft.voucher, draft.operation_id)
 
     # C6: read back. HTTP 200 is not proof the voucher exists.
     back = client.read_by_operation_id(draft.company, draft.operation_id)
@@ -219,7 +273,27 @@ def post(draft: Draft, client: TallyClient) -> Draft:
             f"wrote operation {draft.operation_id} but could not read it back"
         )
 
-    draft.posted_tally_id = result.tally_id
+    mismatches = _identity_mismatches(draft.voucher, back)
+    if mismatches:
+        raise RuntimeError(
+            f"wrote operation {draft.operation_id} and read back a DIFFERENT "
+            f"voucher: " + "; ".join(mismatches) + ". Nothing is recorded as "
+            "posted. The entry may exist in Tally and must be checked by hand."
+        )
+
+    # G3: our own marker filter found it. Tally's UNFILTERED register is what
+    # a person would see, and the two can disagree - a voucher can carry the
+    # marker and still be absent from the register and the trial balance.
+    register = client.read_vouchers(draft.company)
+    if not any(v.tally_id == back.tally_id for v in register):
+        raise RuntimeError(
+            f"operation {draft.operation_id} was readable by its marker but is "
+            f"NOT in Tally's own register (tally_id {back.tally_id!r}). "
+            "Nothing is recorded as posted."
+        )
+
+    # Tally's identifier, not ours. What Tally says it stored is the evidence.
+    draft.posted_tally_id = back.tally_id
     return draft
 
 
@@ -239,6 +313,8 @@ def run(
     detector_set: Sequence[detectors.Detector] = detectors.SLICE_4_DETECTORS,
     flag_cap: int | None = None,
     today: datetime.date | None = None,
+    log: ActionLogSink | None = None,
+    run_id: str = "",
 ) -> Draft:
     """One entry, all the way through. Posts if Valid, stops otherwise.
 
@@ -266,5 +342,56 @@ def run(
 
     if draft.decision and draft.decision.outcome is Outcome.VALID:
         draft = post(draft, client)
+        record_decision(log, draft, memory, client, "posted", run_id)
+    else:
+        record_decision(log, draft, memory, client, "blocked", run_id)
 
     return draft
+
+
+def record_decision(
+    log: ActionLogSink | None,
+    draft: Draft,
+    memory: CompanyMemory,
+    client: TallyClient,
+    action: str,
+    run_id: str,
+) -> None:
+    """One durable row per decision, written HERE rather than by a caller.
+
+    Public because the web app does not go through `run` - it builds a draft,
+    shows it, asks a question, and re-evaluates across several HTTP requests.
+    It therefore reaches the same decisions by a different route, and must
+    produce the same rows. Sharing this function is what keeps the two paths
+    from drifting into two different definitions of what a decision is.
+
+    The web app used to keep its own forty-row list, which meant the audit
+    trail existed only while somebody had a browser open and vanished on
+    restart. A decision is made here, so the record of it belongs here: every
+    caller of `run` gets the same trail without having to remember to write
+    one.
+
+    The reason comes from the decision itself on EVERY path, including the
+    posted one. "Why did you refuse" is the obvious question; "why did you
+    post" is the one asked six months later by somebody looking at the voucher
+    in their books.
+    """
+    if log is None or draft.decision is None:
+        return
+
+    log.record_action(
+        ActionLog(
+            ts=datetime.datetime.now(datetime.UTC),
+            action=action,
+            company_key=memory.identity.key,
+            outcome=draft.decision.outcome.value,
+            reason=draft.decision.reason,
+            run_id=run_id,
+            backend=type(client).__name__,
+            operation_id=draft.operation_id,
+            voucher_id=draft.posted_tally_id or "",
+            vendor_id=draft.voucher.party,
+            detail=f"{draft.voucher.debit_account or '(none proposed)'} "
+            f"{draft.voucher.amount_paise} paise",
+        )
+    )

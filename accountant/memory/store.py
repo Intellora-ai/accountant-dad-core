@@ -37,6 +37,7 @@ A test reads the live schema back through `table_names`, `columns_of` and
 
 from __future__ import annotations
 
+import datetime
 import json
 import sqlite3
 from collections.abc import Sequence
@@ -46,6 +47,7 @@ from pathlib import Path
 from typing import cast
 
 from accountant.memory.identity import CompanyIdentity, normalise_company
+from accountant.schema import ActionLog
 
 IN_MEMORY = ":memory:"
 
@@ -96,13 +98,68 @@ SCHEMA: tuple[str, ...] = (
         PRIMARY KEY (company_key, account)
     )
     """,
+    # The action log. Company-keyed like every other table here, and APPEND
+    # ONLY — there is deliberately no update or delete path, because a record
+    # that can be edited after the fact is not a record of what happened.
+    #
+    # `rowid` orders it rather than the timestamp: two decisions inside the
+    # same clock tick would otherwise be unorderable, and "which came first"
+    # is exactly what an audit trail is asked.
+    """
+    CREATE TABLE IF NOT EXISTS action_log (
+        company_key  TEXT NOT NULL,
+        ts           TEXT NOT NULL,
+        action       TEXT NOT NULL,
+        outcome      TEXT NOT NULL,
+        reason       TEXT NOT NULL,
+        run_id       TEXT NOT NULL,
+        backend      TEXT NOT NULL,
+        operation_id TEXT NOT NULL,
+        voucher_id   TEXT NOT NULL,
+        vendor_id    TEXT NOT NULL,
+        detail       TEXT NOT NULL
+    )
+    """,
+    # The other four tables key on `company_key` FIRST in a composite primary
+    # key, which both scopes them and makes each row unique. A log cannot use
+    # that shape: two identical decisions are not a mistake to be deduplicated,
+    # they are two things that happened, and a primary key would silently drop
+    # the second. So scoping is carried by NOT NULL plus this index, and
+    # uniqueness by SQLite's rowid.
+    """
+    CREATE INDEX IF NOT EXISTS action_log_by_company
+        ON action_log (company_key)
+    """,
 )
 
 
 class BootstrapStatus(StrEnum):
-    """What we know about this company's history. Three states, no fourth."""
+    """What we know about this company's history.
+
+    Owner decision, 2026-08-09. Reading the books successfully is NOT the same
+    as understanding them, and an empty customer is NOT the same as a failed
+    read. Collapsing any of these into READY is how a system ends up guessing
+    on behalf of a company it knows nothing about.
+
+        READY               history read AND mappings derived. May propose.
+        EMPTY_SOURCE        history read, there was none. May ASK, never
+                            proposes, never writes, until onboarding creates a
+                            measurable mapping. A legitimate new customer.
+        EMPTY_VENDOR_INDEX  history read and NOTHING usable came out. Something
+                            is wrong with the read, the data or the derivation.
+                            Does nothing at all.
+        INCOMPLETE          a step failed outright. Does nothing at all.
+        NEVER_RUN           no bootstrap has ever been attempted.
+
+    Until 2026-08-09 the first three were one state. A company with forty
+    vouchers whose every row was unusable was READY with zero mappings —
+    recorded in `docs/PROJECT_STATE.md` as "PRODUCT INVARIANT - NOT YET
+    ENFORCED".
+    """
 
     READY = "ready"
+    EMPTY_SOURCE = "empty_source"
+    EMPTY_VENDOR_INDEX = "empty_vendor_index"
     INCOMPLETE = "incomplete"
     NEVER_RUN = "never_run"
 
@@ -152,6 +209,20 @@ class BootstrapReport:
     def ready(self) -> bool:
         """The single gate. Nothing proposes an account while this is False."""
         return self.status is BootstrapStatus.READY
+
+    @property
+    def askable(self) -> bool:
+        """Whether we may put a question to the person about this company.
+
+        Wider than `ready` by exactly one state. EMPTY_SOURCE means we read
+        their books and there was nothing in them — a fact about the customer,
+        not about us — so asking is honest and a proposal is still impossible.
+
+        EMPTY_VENDOR_INDEX, INCOMPLETE and NEVER_RUN mean we cannot vouch for
+        what we read, so we have no standing to ask anything either. That is
+        the difference the two properties exist to keep apart.
+        """
+        return self.status in (BootstrapStatus.READY, BootstrapStatus.EMPTY_SOURCE)
 
 
 @dataclass(frozen=True)
@@ -244,6 +315,24 @@ _COMPANY_UPSERT = (
     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 )
 
+_ACTION_INSERT = """
+    INSERT INTO action_log (
+        company_key, ts, action, outcome, reason, run_id,
+        backend, operation_id, voucher_id, vendor_id, detail
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+_ACTION_SELECT = """
+    SELECT company_key, ts, action, outcome, reason, run_id,
+           backend, operation_id, voucher_id, vendor_id, detail
+      FROM action_log
+     WHERE company_key = ?
+     ORDER BY rowid
+"""
+
+# `action_log` is NOT here, and that is the point. `forget()` runs on every
+# rebuild; the index is a statement about our memory and may be rebuilt, but
+# what we already did to somebody's books is a different fact and survives.
 _DELETES: tuple[str, ...] = (
     _VENDOR.delete,
     _PHRASE.delete,
@@ -346,6 +435,58 @@ class MemoryStore:
     def chart(self, company_key: str) -> tuple[str, ...]:
         rows = self._db.execute(_CHART_SELECT, (company_key,)).fetchall()
         return tuple(str(row[0]) for row in rows)
+
+    def record_action(self, entry: ActionLog) -> None:
+        """Append one decision. There is no update and no delete.
+
+        Deliberately absent from `_DELETES`, so `forget()` — which runs on
+        every rebuild — cannot erase it. Re-reading a company's index is a
+        statement about our memory; what we already did to their books is a
+        different fact and stays true regardless.
+        """
+        with self._db:
+            self._db.execute(
+                _ACTION_INSERT,
+                (
+                    entry.company_key,
+                    entry.ts.isoformat(),
+                    entry.action,
+                    entry.outcome,
+                    entry.reason,
+                    entry.run_id,
+                    entry.backend,
+                    entry.operation_id,
+                    entry.voucher_id,
+                    entry.vendor_id,
+                    entry.detail,
+                ),
+            )
+
+    def actions(self, company: str) -> tuple[ActionLog, ...]:
+        """This company's decisions, oldest first. Never anybody else's.
+
+        Ordered by `rowid`, not by timestamp: two decisions inside one clock
+        tick would otherwise be unorderable, and their order is precisely what
+        a trail is asked for.
+        """
+        key = normalise_company(company)
+        rows = self._db.execute(_ACTION_SELECT, (key,)).fetchall()
+        return tuple(
+            ActionLog(
+                company_key=str(row[0]),
+                ts=datetime.datetime.fromisoformat(str(row[1])),
+                action=str(row[2]),
+                outcome=str(row[3]),
+                reason=str(row[4]),
+                run_id=str(row[5]),
+                backend=str(row[6]),
+                operation_id=str(row[7]),
+                voucher_id=str(row[8]),
+                vendor_id=str(row[9]),
+                detail=str(row[10]),
+            )
+            for row in rows
+        )
 
     def vendors(self, company_key: str) -> tuple[Observation, ...]:
         return self._all(_VENDOR, company_key)

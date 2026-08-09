@@ -16,6 +16,21 @@ So vendor history is seeded into the FakeTally company and picked up by
 `bootstrap`, rather than poked into an index by hand. That is the difference
 between a test that exercises the real path and a test that exercises a fixture
 which happens to resemble it.
+
+WHAT THIS FILE DOES NOT PROVE
+-----------------------------
+Every test here runs against FakeTally. None of it proves real TallyPrime
+behaves the same way. In particular the read-back failure below is SIMULATED by
+a wrapper that returns None on demand; it is not evidence that real Tally ever
+loses a write, only that we handle it if it does.
+
+`test_posting_a_not_valid_draft_is_refused` is named for an outcome it does not
+produce. Measured 2026-08-09: the draft it builds evaluates to UNCLEAR, not
+NOT_VALID. It still proves the gate refuses a non-Valid draft, which is what it
+asserts, but it does not prove anything specific to NOT_VALID. The NOT_VALID
+path is covered by `test_a_handed_over_entry_is_never_posted` in
+`tests/test_questions.py`. The name is left alone here because renaming it is
+outside this change.
 """
 
 from __future__ import annotations
@@ -32,8 +47,9 @@ from accountant.extract.adapter import (
 )
 from accountant.memory.bootstrap import bootstrap
 from accountant.memory.company import CompanyMemory
-from accountant.memory.store import MemoryStore
+from accountant.memory.store import BootstrapStatus, MemoryStore
 from accountant.schema import Outcome, Voucher
+from accountant.tallyio.client import WriteResult
 from accountant.tallyio.fake import FakeTally
 
 COMPANY = "Demo Co"
@@ -286,6 +302,44 @@ def test_posting_a_not_valid_draft_is_refused():
         pipeline.post(d, t)
 
 
+def test_an_unclear_draft_is_refused_and_leaves_the_books_byte_identical():
+    """The gate refuses UNCLEAR, not just NOT_VALID, and refusing changes nothing.
+
+    Both halves are needed. `pytest.raises` on its own would pass if `post` threw
+    after writing, so the trial balance and our own voucher list are compared
+    across the call. The balance is asserted non-empty first: comparing two empty
+    dicts would be a test that cannot fail.
+    """
+    t = tally(past("Sharma Traders", "Purchases", n=40))
+    accounts = t.read_accounts(COMPANY)
+    history = t.read_vouchers(COMPANY)
+    memory = memory_for(t)
+
+    # Gupta Hardware appears nowhere in this company's books, so it is unseen.
+    d = pipeline.build_draft(
+        COMPANY,
+        typed("paid Gupta Hardware 1500 for tools"),
+        "text/plain",
+        TypedTextExtractor(),
+        accounts,
+        memory,
+        today=TODAY,
+    )
+    d = pipeline.evaluate(d, accounts, history, memory)
+    assert d.outcome is Outcome.UNCLEAR
+
+    before_ours = t.list_our_vouchers(COMPANY)
+    before_balance = t.trial_balance(COMPANY)
+    assert before_balance, "no balance to preserve would make the comparison vacuous"
+
+    with pytest.raises(ValueError):
+        pipeline.post(d, t)
+
+    assert t.list_our_vouchers(COMPANY) == before_ours == ()
+    assert t.trial_balance(COMPANY) == before_balance
+    assert d.posted_tally_id is None
+
+
 def test_posting_an_unevaluated_draft_is_refused():
     t = tally([])
     memory = memory_for(t)
@@ -300,6 +354,94 @@ def test_posting_an_unevaluated_draft_is_refused():
     )
     with pytest.raises(ValueError):
         pipeline.post(d, t)
+
+
+# ---- C6: a write we cannot read back is not a success ----------------------
+
+
+class LosesTheWriteTally:
+    """FakeTally whose write succeeds but whose read-back finds nothing.
+
+    Wraps a real FakeTally and delegates everything except
+    `read_by_operation_id`, so the only behavioural difference from the fake is
+    the one under test. Reimplementing the client instead would let the test
+    pass for reasons unrelated to the read-back branch.
+
+    This is the C6 failure in the form that actually costs money: Tally accepts
+    the write and hands back an ID, and the voucher is not there afterwards. An
+    HTTP 200 is not proof a statutory entry exists.
+
+    Note the inner fake still sees the write, so `t.list_our_vouchers` grows.
+    That is correct - the write really did happen. What must not happen is the
+    draft recording it as posted.
+    """
+
+    def __init__(self, inner: FakeTally) -> None:
+        self.inner = inner
+        self.write_calls = 0
+        self.readback_asked_for: list[tuple[str, str]] = []
+
+    def list_companies(self) -> tuple[str, ...]:
+        return self.inner.list_companies()
+
+    def read_accounts(self, company: str) -> tuple[str, ...]:
+        return self.inner.read_accounts(company)
+
+    def read_vouchers(self, company: str) -> tuple[Voucher, ...]:
+        return self.inner.read_vouchers(company)
+
+    def trial_balance(self, company: str) -> dict[str, int]:
+        return self.inner.trial_balance(company)
+
+    def write_voucher(
+        self, company: str, voucher: Voucher, operation_id: str
+    ) -> WriteResult:
+        self.write_calls += 1
+        return self.inner.write_voucher(company, voucher, operation_id)
+
+    def read_by_operation_id(self, company: str, operation_id: str) -> Voucher | None:
+        self.readback_asked_for.append((company, operation_id))
+        return None
+
+    def reverse_by_operation_id(self, company: str, operation_id: str) -> bool:
+        return self.inner.reverse_by_operation_id(company, operation_id)
+
+    def list_our_vouchers(self, company: str) -> tuple[Voucher, ...]:
+        return self.inner.list_our_vouchers(company)
+
+
+def test_a_write_that_cannot_be_read_back_raises_and_never_records_a_tally_id():
+    """C6. The draft must not claim a posted ID it could not confirm.
+
+    `write_calls == 1` is load-bearing: without it this test would also pass if
+    `post` raised BEFORE writing, which is a different branch entirely and would
+    leave the read-back check unproven.
+    """
+    t = tally(past("Sharma Traders", "Purchases", n=40))
+    accounts = t.read_accounts(COMPANY)
+    history = t.read_vouchers(COMPANY)
+    memory = memory_for(t)
+
+    d = pipeline.build_draft(
+        COMPANY,
+        typed("paid Sharma Traders 4200 for cement"),
+        "text/plain",
+        TypedTextExtractor(),
+        accounts,
+        memory,
+        today=TODAY,
+    )
+    d = pipeline.evaluate(d, accounts, history, memory)
+    assert d.outcome is Outcome.VALID  # the Valid gate is not what stops this one
+
+    blind = LosesTheWriteTally(t)
+    with pytest.raises(RuntimeError) as raised:
+        pipeline.post(d, blind)
+
+    assert blind.write_calls == 1
+    assert blind.readback_asked_for == [(COMPANY, d.operation_id)]
+    assert d.operation_id in str(raised.value)
+    assert d.posted_tally_id is None
 
 
 # ---- Slice 4: the detector blocks a post -----------------------------------
@@ -399,10 +541,17 @@ def test_a_brand_new_company_never_posts_silently():
     company's history was read and found empty, which is a fact about their
     books. `tests/test_pipeline_isolation.py` covers the other one, where the
     fact is about us.
+
+    That distinction was prose here before it was a state. Since 2026-08-09 it
+    has a name: EMPTY_SOURCE — read honestly, askable, never proposes. This
+    line asserted `ready is True` until then, which claimed we had learned
+    something from books that were empty.
     """
     t = tally([])
     memory = memory_for(t)
-    assert memory.ready is True
+    assert memory.report.status is BootstrapStatus.EMPTY_SOURCE
+    assert memory.ready is False
+    assert memory.report.askable is True
     for text in (
         "paid Sharma Traders 4200 cement",
         "paid Verma Cement 900 bags",
