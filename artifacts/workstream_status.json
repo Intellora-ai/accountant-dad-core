@@ -1,0 +1,136 @@
+{
+  "base_commit": "3445992b98295a6658542f5d9211c91ab91480de",
+  "branch": "closure/flag-cap-and-truth",
+  "allowed_statuses": [
+    "PASSED",
+    "NOT_PASSED",
+    "PARTIALLY_VERIFIED",
+    "BLOCKED_ENVIRONMENT",
+    "OWNER_DECISION_REQUIRED",
+    "NOT_STARTED",
+    "RUNNING"
+  ],
+  "coordinator_error": {
+    "what": "Decision ids D-07, D-08 and D-11 were handed to agents as if free; they are already used in docs/DECISIONS.md for different decisions.",
+    "caught_by": "cloud-architecture agent",
+    "action": "agent 4 allocated from the next free ids; agent 10 was sent a correction before writing; the mistake is recorded rather than silently fixed",
+    "owner_action": "confirm the final id map once the control plane lands"
+  },
+  "agents": [
+    {
+      "name": "detector-measurement",
+      "assignment": "reproduce 27.59 / 6.29 / 2.90 / 33.33 or prove they do not reproduce",
+      "status": "PASSED",
+      "files_owned": ["artifacts/detector_evidence.md", "artifacts/detector_evidence.json"],
+      "files_changed": ["artifacts/detector_evidence.md", "artifacts/detector_evidence.json"],
+      "tests_added": 0,
+      "tests_run": 1357,
+      "metrics": [
+        {"id": "N1_OLD_BEFORE", "current": 27.59, "desired": null, "gap": null, "result": "reproduced exactly", "basis": "8 of 29"},
+        {"id": "N1_AGGREGATE_CURRENT", "current": 6.29, "desired": 10, "comparison": "<=", "gap": -3.71, "result": "PASSED", "basis": "9 of 143"},
+        {"id": "N1_HELD_OUT_CURRENT", "current": 2.9, "desired": 10, "comparison": "<=", "gap": -7.1, "result": "PASSED", "basis": "2 of 69"},
+        {"id": "N1_WORST_DEPARTMENT_CURRENT", "current": 33.33, "desired": 10, "comparison": "<=", "gap": 23.33, "result": "NOT_PASSED", "basis": "7 of 21, DHSC"}
+      ],
+      "determinism": "identical sha256 over 2 runs and 5 PYTHONHASHSEED values",
+      "evidence": "artifacts/detector_evidence.md",
+      "blocker": null,
+      "next_action": "root-cause the DHSC Additions NCB PDC ceiling; six of nine false alarms are that one account. No threshold tuned."
+    },
+    {
+      "name": "taxonomy",
+      "assignment": "classify all 12 published error types, remove unsupported coverage claims",
+      "status": "PASSED",
+      "files_owned": ["docs/TAXONOMY.md", "tests/test_taxonomy_matrix.py"],
+      "files_changed": ["docs/TAXONOMY.md", "tests/test_taxonomy_matrix.py"],
+      "tests_added": 27,
+      "tests_run": 27,
+      "metrics": [
+        {"id": "PUBLISHED_ERROR_TYPES", "current": 12, "desired": 12, "gap": 0, "result": "PASSED"},
+        {"id": "VERIFIED_COVERAGE", "current": 0, "desired": 0, "gap": 0, "result": "PASSED"},
+        {"id": "PARTIAL_HYPOTHESIS_COVERAGE", "current": 2, "desired": 2, "gap": 0, "result": "PASSED"},
+        {"id": "HISTORY_ONLY_REACHABLE_CEILING", "current": 4, "desired": 4, "gap": 0, "result": "PASSED", "caveat": "3 if the suspense-account list counts as external input"},
+        {"id": "UNCITED_MAPPINGS", "current": 0, "desired": 0, "gap": 0, "result": "PASSED"}
+      ],
+      "classification_totals": {"VERIFIED": 0, "PARTIAL": 2, "UNREACHABLE": 4, "UNSUPPORTED": 6},
+      "evidence": "docs/TAXONOMY.md",
+      "blocker": null,
+      "next_action": "agent 10 must correct 'covered 2 of 12' in docs/BOTTLENECKS.md A1 and docs/PROJECT_STATE.md section 22"
+    },
+    {
+      "name": "realtally-preparation",
+      "assignment": "settle the canonical test count, write the acceptance runbook, audit readiness",
+      "status": "BLOCKED_ENVIRONMENT",
+      "files_owned": ["docs/RUNBOOK_PHASE5_ACCEPTANCE.md", "artifacts/realtally_readiness.md"],
+      "files_changed": ["docs/RUNBOOK_PHASE5_ACCEPTANCE.md", "artifacts/realtally_readiness.md"],
+      "tests_added": 0,
+      "tests_run": 24,
+      "metrics": [
+        {"id": "TALLY_CONTRACT_TESTS_TOTAL", "current": 24, "desired": 24, "gap": 0, "result": "PASSED"},
+        {"id": "TALLY_CONTRACT_CLIENT_FIXTURE_TESTS", "current": 19, "desired": 19, "gap": 0, "result": "PASSED", "note": "docs state 15 in 13 places; 15 is the alias count in tests/test_real_tally.py:428-466"},
+        {"id": "REALTALLY_LIVE_ACCEPTANCE", "current": 0, "desired": 15, "gap": 15, "result": "BLOCKED_ENVIRONMENT"}
+      ],
+      "evidence": "artifacts/realtally_readiness.md",
+      "blocker": "B-01 Demo Co and four ledgers must be created in the TallyPrime GUI; B-02 non-Educational licence",
+      "next_action": "owner: ~10 minutes in the TallyPrime GUI. Also fix three tests that cannot pass against any real Tally regardless of licence."
+    },
+    {
+      "name": "cloud-architecture",
+      "assignment": "cloud architecture, threat model, connector protocol, data policy. Design only, no code.",
+      "status": "OWNER_DECISION_REQUIRED",
+      "files_owned": ["docs/CLOUD_ARCHITECTURE.md", "docs/CLOUD_THREAT_MODEL.md", "docs/CONNECTOR_PROTOCOL.md", "docs/DATA_POLICY.md"],
+      "files_changed": ["docs/CLOUD_ARCHITECTURE.md", "docs/CLOUD_THREAT_MODEL.md", "docs/CONNECTOR_PROTOCOL.md", "docs/DATA_POLICY.md"],
+      "tests_added": 0,
+      "tests_run": 0,
+      "evidence": "docs/CLOUD_ARCHITECTURE.md",
+      "residual_risks": [
+        "port 9000 has no authentication and never will; anything on the LAN that reaches it owns the books, invisible to every marker-based safety mechanism",
+        "a compromised connector is total for that customer; every defence is prevention, none is runtime",
+        "a compromised cloud server can write because it is the legitimate authority",
+        "one owner means no separation of duties",
+        "every cloud mitigation today is POLICY, not MECHANISM, because none of it is built"
+      ],
+      "blocker": "owner decisions on data policy, retention, key model, backups, legal position, update policy, launch caps",
+      "next_action": "owner answers the cloud decisions; no cloud code until then"
+    },
+    {
+      "name": "flag-cap",
+      "assignment": "implement flag_cap = 3 end to end",
+      "status": "PASSED",
+      "commit": "a19a100",
+      "files_owned": ["accountant/detect/detectors.py", "accountant/pipeline.py", "accountant/web/app.py", "tests/test_flag_cap.py", "tests/test_first_detector.py"],
+      "files_changed": ["accountant/detect/detectors.py", "accountant/pipeline.py", "accountant/web/app.py", "tests/test_flag_cap.py", "tests/test_first_detector.py"],
+      "tests_added": 28,
+      "tests_run": 1435,
+      "metrics": [
+        {"id": "FLAG_CAP", "current": 3, "desired": 3, "gap": 0, "result": "PASSED"},
+        {"id": "FLAG_CAP_TESTS", "current": 28, "desired": 7, "gap": -21, "result": "PASSED"},
+        {"id": "FLAG_CAP_MUTANTS_KILLED", "current": 5, "desired": 5, "gap": 0, "result": "PASSED"}
+      ],
+      "evidence": "tests/test_flag_cap.py; owner table asserted on the rendered page",
+      "blocker": null,
+      "next_action": null
+    },
+    {"name": "company-safety", "assignment": "company identity, Unicode, wrong-company routes", "status": "RUNNING", "files_owned": ["tests/test_company_routes.py", "tests/test_company_unicode.py", "artifacts/company_safety_report.md"], "blocker": null},
+    {"name": "idempotency", "assignment": "entry idempotency, replay, Tally error envelopes", "status": "RUNNING", "files_owned": ["tests/test_idempotency.py", "tests/test_error_responses.py", "artifacts/idempotency_report.md"], "blocker": null},
+    {"name": "reversal-recovery", "assignment": "backup gates, reconciliation, contract parity", "status": "RUNNING", "files_owned": ["tests/test_reversal_recovery.py", "tests/test_contract_differences.py", "artifacts/reversal_report.md"], "blocker": null},
+    {"name": "phase6-exits", "assignment": "re-verify every Phase 6 exit clause from evidence", "status": "RUNNING", "files_owned": ["tests/test_phase6_exits.py", "artifacts/phase6_report.md"], "blocker": null},
+    {"name": "control-plane", "assignment": "one source of truth, 21 contradictions, phase truth table", "status": "RUNNING", "files_owned": ["docs/CONTROL_PLANE.yaml", "docs/PROJECT_STATE.md", "docs/ARCHITECTURE.md", "docs/DECISIONS.md", "docs/OWNER_ACTIONS.md", "docs/BLOCKERS.md", "docs/CLAUDE_CONTEXT.md", "docs/LAUNCH_GATES.md", "artifacts/phase_truth_table.md", "artifacts/document_contradictions.md", "artifacts/launch_baseline.md", "artifacts/launch_baseline.json"], "blocker": null},
+    {"name": "truth-validator", "assignment": "validate_project_truth.py and its test", "status": "RUNNING", "files_owned": ["scripts/validate_project_truth.py", "tests/test_project_truth.py"], "blocker": "depends on control-plane landing docs/CONTROL_PLANE.yaml"}
+  ],
+  "held_not_started": {
+    "agents": ["cloud-website", "local-connector", "cloud-security-isolation", "installation", "release-integration"],
+    "reason": "The owner's mandate says no cloud code until the architecture is internally consistent. Cloud code also needs a runtime dependency; dependencies is [] today and the frozen plan forbids adding one without explicit approval.",
+    "status": "OWNER_DECISION_REQUIRED"
+  },
+  "blockers": [
+    {"id": "B-01", "kind": "ENVIRONMENT", "text": "Demo Co and four ledgers (Purchases, Sundry Expenses, Cash, Sharma Traders) must be created in the TallyPrime GUI. The XML gateway refuses: <RESPONSE>Unknown Request, cannot be processed</RESPONSE>", "unblocked_by": "owner, ~10 minutes in the GUI", "workstreams_blocked": ["phase-5-live", "realtally-contract-tests"]},
+    {"id": "B-02", "kind": "OWNER", "text": "A legitimate non-Educational TallyPrime licence. Educational mode accepts vouchers only on the 1st, 2nd and 31st, so the frozen 2026-08-07 fixture cannot pass there. The fixture is never edited to make it pass.", "unblocked_by": "owner decision, and the records currently contradict each other on whether to buy one", "workstreams_blocked": ["licensed-realtally-evidence"]},
+    {"id": "B-03", "kind": "ENVIRONMENT", "text": "The Phase 5 live acceptance run", "unblocked_by": "B-01 and B-02", "workstreams_blocked": ["phase-5-live-validation"]}
+  ],
+  "phase_status": {
+    "phase_5_implementation": "PASSED",
+    "phase_5_live_validation": "BLOCKED_ENVIRONMENT",
+    "phase_6": "PASSED",
+    "cloud_launch": "NOT_PASSED"
+  }
+}

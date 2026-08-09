@@ -244,8 +244,12 @@ def test_the_dropped_flag_count_is_shown_and_never_implies_zero():
 
     html = app.render_decision(draft)
 
-    assert "3" in html
-    assert "not shown" in html.lower()
+    # Wording set by the owner on 2026-08-10 alongside `flag_cap = 3`: the line
+    # reads "N more concerns", and the count also travels as `data-overflow` so
+    # a test can match the number without matching the sentence. The claim this
+    # test makes is unchanged - the count is shown, and it is the real count.
+    assert 'data-overflow="3"' in html
+    assert "3 more concerns" in html
 
 
 def test_no_dropped_flags_says_nothing_rather_than_saying_zero():

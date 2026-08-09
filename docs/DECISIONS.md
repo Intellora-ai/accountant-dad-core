@@ -5,12 +5,23 @@ an agent.** Each entry is a question that has a real consequence either way, and
 where picking one side is a business or risk judgement rather than an
 engineering one.
 
+> **Authority, from 2026-08-10.** The machine-readable copy of every decision —
+> id, status, options, the owner's own words, evidence and next action — lives in
+> **[`CONTROL_PLANE.yaml`](./CONTROL_PLANE.yaml)**. This file is the human
+> write-up. If the two disagree, the control plane is right and this file is the
+> bug. `scripts/validate_project_truth.py` fails the build if a `D-` id appears
+> here that the control plane does not declare.
+>
+> The open actions, sorted by what to do first, are in
+> [`OWNER_ACTIONS.md`](./OWNER_ACTIONS.md).
+
 ## How to use it
 
 Answer in one line in this chat. The answer gets written into the **Owner
-answer** row with the date, and the decision moves to `SETTLED`. Until then it
-stays `OPEN` and everything that depends on it reports `OWNER_BLOCKED` — never
-`PASSED`, never quietly defaulted.
+answer** row with the date, and the decision moves to
+`IMPLEMENTED_AFTER_OWNER_DECISION`. Until then it stays `OPEN` and everything
+that depends on it reports `OWNER_DECISION_REQUIRED` or `BLOCKED_ENVIRONMENT` —
+never `PASSED`, never quietly defaulted.
 
 **A decision is only in here if code cannot safely settle it.** Anything that is
 objectively a defect — a wrong key, a missing gate, an unreachable branch — is
@@ -19,11 +30,40 @@ fixed, not asked about.
 ## Status vocabulary
 
 ```
-OPEN                 the question is live and something is blocked on it
-SETTLED              the owner answered; the date and the words are recorded
-SUPERSEDED           a later decision replaced it; both are kept
-NOT_YET_RELEVANT     real, but nothing is blocked on it today
+OPEN                              the question is live and something waits on it
+ANSWERED                          the owner answered; date and words recorded
+WAITING_FOR_EVIDENCE              the answer needs a measurement first
+BLOCKED_ENVIRONMENT               it cannot be answered from here
+IMPLEMENTED_AFTER_OWNER_DECISION  answered, and the code now matches
+SUPERSEDED                        a later decision replaced it; both are kept
 ```
+
+> *Audit note, 2026-08-10: this list used to be `OPEN · SETTLED · SUPERSEDED ·
+> NOT_YET_RELEVANT`. `SETTLED` maps to `IMPLEMENTED_AFTER_OWNER_DECISION`.
+> `NOT_YET_RELEVANT` is gone — the one entry that carried it, `D-08`, turned out
+> to be live after all.*
+
+## Where the ids come from — read this before allocating one
+
+**Three sources have allocated `D-` numbers, and two of them collided.**
+
+| range | allocated by |
+|---|---|
+| `D-01` … `D-13` | this file, first |
+| `D-14` … `D-21` | [`CLOUD_ARCHITECTURE.md`](./CLOUD_ARCHITECTURE.md) §19 and [`DATA_POLICY.md`](./DATA_POLICY.md) |
+| `D-22` … `D-28` | [`CONTROL_PLANE.yaml`](./CONTROL_PLANE.yaml) |
+
+**Nothing has been renumbered and nothing ever will be.** These ids are linked
+from other documents and from commit messages; a renumbered id is an unauditable
+one. **Take the next free id, and check the control plane first.**
+
+A planning instruction issued on 2026-08-10 used `D-01` to `D-11` for a
+different list of questions. Those numbers were already taken. The full map of
+what that instruction meant versus what each id actually is lives in
+[`artifacts/document_contradictions.md`](../artifacts/document_contradictions.md),
+row 24. The short version: **the launch-rule question is `D-22`, not `D-02`.
+Cloud storage is `D-14`, not `D-07`. Retention is `D-15`, not `D-08`. The
+runtime-dependency question is `D-04`, not `D-11`.**
 
 ---
 
@@ -42,7 +82,7 @@ Two lines in `docs/PROJECT_STATE.md` say opposite things:
 **probably** supersedes. **That is a guess and it is not being acted on.** One of
 these two lines is stale and only the owner can say which.
 
-**What it blocks.** The 15 client-fixture tests in `tests/test_tally_contract.py`
+**What it blocks.** the client-fixture tests (count PENDING_COUNT — 19 by an AST count on 2026-08-10, the docs said 15) in `tests/test_tally_contract.py`
 cannot run against a real Tally. Educational mode accepts vouchers dated only the
 1st, 2nd and 31st; the fixture posts on `2026-08-07` and is refused. That is
 measured, not assumed (`PROJECT_STATE.md` §24, the three-row table).
@@ -51,8 +91,8 @@ measured, not assumed (`PROJECT_STATE.md` §24, the three-row table).
 
 | | Consequence |
 |---|---|
-| **A. Buy a licence** | ₹885 per the earlier price check. The 15 tests can run. Phase 2's exit closes. Live evidence becomes obtainable. |
-| **B. Stay on Educational** | Phase 2 stays `ENVIRONMENT_LIMITED` for good. No live evidence is ever obtainable. Everything downstream keeps reporting `BLOCKED_ENVIRONMENT`. |
+| **A. Buy a licence** | ₹885 per the earlier price check. The contract tests can run. The Tally spine's exit closes. Live evidence becomes obtainable. |
+| **B. Stay on Educational** | The Tally spine stays `BLOCKED_ENVIRONMENT` for good. No live evidence is ever obtainable, and everything downstream keeps reporting it. |
 
 **Default if unanswered:** B, by inaction. Nothing is bought and nothing is
 bypassed.
@@ -100,18 +140,27 @@ narrowed to TallyPrime with the reason recorded.
 
 ---
 
-## D-04 · The frontend's final shape
+## D-04 · The first runtime dependency — the frontend, and now the cloud too
 
 **Status: `OPEN`, deferred by the owner.**
 
 Recorded as open item M-b: *"first figure our tally thing"*. Today the front door
-is stdlib `http.server` rendering HTML on the server, no framework, zero runtime
-dependencies.
+is stdlib `http.server` rendering HTML on the server, no framework, and
+`pyproject.toml` still reads `dependencies = []` — verified 2026-08-10.
 
-**Options:** keep the stdlib app · approve a framework (which would be the first
-runtime dependency the project has ever had).
+**Options:** keep the stdlib app · approve a framework, which would be the first
+runtime dependency the project has ever had.
 
 **Default if unanswered:** the stdlib app. No framework is added.
+
+> **Widened 2026-08-10.** This is now the same question on two fronts.
+> [`CLOUD_ARCHITECTURE.md`](./CLOUD_ARCHITECTURE.md) §5 records that option C for
+> connector authentication — Ed25519 message signatures — needs the
+> `cryptography` package, and calls it *"D-04 territory"*. So answering this one
+> also unblocks option C of `D-16`.
+>
+> A planning instruction called the cloud runtime-dependency question `D-11`.
+> `D-11` is `N = 10` and is settled. It is this entry.
 
 ---
 
@@ -181,19 +230,32 @@ declared-not-measured · keep it `UNKNOWN` and say so.
 
 ## D-08 · When may cloud and multi-user work begin
 
-**Status: `NOT_YET_RELEVANT` — the trigger has not fired.**
+**Status: `OPEN`. Reopened 2026-08-10.**
 
 `ARCHITECTURE.md` §10 defers cloud hosting, multi-user and mobile until **"the
 single-machine vertical slice works end to end"**. That is a documented trigger,
-not a vague intention, and the checklist in §11 is what measures it.
+not a vague intention, and the checklist in §11 is what measures it. **It is not
+ticked.**
 
-**Nothing about cloud is being designed or built.** Tally has no cloud API and
-listens on `localhost:9000` on the customer's own machine, so a hosted version
-would be **two** programs — a website plus a small connector installed next to
-Tally. `docs/EPIC.md:107` is the only line in the repository that says this, and
-it is eleven words long.
+Tally has no cloud API and listens on port 9000 on the customer's own machine,
+so a hosted version would be **two** programs — a website plus a small connector
+installed next to Tally.
 
-**Exact answer needed:** none yet. Ask again when §11 is ticked.
+> **Audit note, 2026-08-10 — this entry was wrong.** It read
+> `NOT_YET_RELEVANT`, on the grounds that *"nothing about cloud is being designed
+> or built"*. Four cloud documents were created on 2026-08-10 —
+> [`CLOUD_ARCHITECTURE.md`](./CLOUD_ARCHITECTURE.md),
+> [`CLOUD_THREAT_MODEL.md`](./CLOUD_THREAT_MODEL.md),
+> [`CONNECTOR_PROTOCOL.md`](./CONNECTOR_PROTOCOL.md) and
+> [`DATA_POLICY.md`](./DATA_POLICY.md) — and eight owner decisions, `D-14` to
+> `D-21`, now sit behind this one. Cloud IS being designed. The gate is live and
+> the entry is `OPEN`.
+>
+> `CLOUD_ARCHITECTURE.md` §19 calls this decision **"the gate"** and states
+> plainly that the gate is not met. Nothing in those documents is being built.
+
+**Exact answer needed:** either confirm the trigger stands — in which case
+`D-14` to `D-21` all wait behind it — or name what may proceed early, and why.
 
 ---
 
@@ -264,18 +326,141 @@ Nothing was renumbered. Phases 6 to 10 keep the numbers they have always had.
 
 ---
 
+## D-14 to D-21 · the cloud decisions
+
+**These eight are written up in [`CLOUD_ARCHITECTURE.md`](./CLOUD_ARCHITECTURE.md)
+§19 and [`DATA_POLICY.md`](./DATA_POLICY.md), which own the wording.** They are
+listed here so the register is complete, and summarised in
+[`CONTROL_PLANE.yaml`](./CONTROL_PLANE.yaml). **All eight sit behind `D-08`.**
+
+| # | Question | Default if unanswered |
+|---|---|---|
+| D-14 | what accounting content may the cloud hold at all | relay only — the cloud holds none of it, and the customer can only work while their PC is on |
+| D-15 | retention and deletion periods, and what deletion means when a backup exists | **none. There is no safe default and none was invented.** |
+| D-16 | connector authentication — a shared secret, or a key only the connector holds | the shared secret, which leaves the stolen-database risk open |
+| D-17 | do cloud backups exist — where, encrypted how, kept how long, restored by whom | **none.** A backup nobody decided on is the worst of both worlds. |
+| D-18 | the legal position — data residency, who owns the audit log, breach notification | **none. This needs a lawyer, not a document.** |
+| D-19 | connector updates — automatic or operator-approved, and the version-support window | operator-approved, one version back |
+| D-20 | who may **clear** the emergency write stop, and what they must see first | anyone may set it; clearing needs zero unresolved operations |
+| D-21 | confirm the reading of the launch caps | the write-lease reading in the design |
+
+---
+
+## D-22 · Does launch use the aggregate false-alarm rate, or the worst book?
+
+**Status: `OPEN`. This is the launch question and it has two opposite answers.**
+
+| slice | rate per 100 clean entries | target | verdict |
+|---|---|---|---|
+| aggregate, all 7 departments | 6.29 | ≤ 10 | PASS |
+| held-out half | 2.90 | ≤ 10 | PASS |
+| **worst single department (DHSC)** | **33.33** | ≤ 10 | **FAIL** |
+
+**A customer does not experience an aggregate. They experience their own book.**
+
+Two more facts worth knowing before answering. The calibration half has **zero
+headroom** — one more false alarm there flips it. And one department (DBT) has
+zero clean entries, so it reports "not measured", which is not a pass either.
+
+**Options:** A, launch on the aggregate · B, launch only when the worst book is
+inside the target · C, a named intermediate rule such as "no book above 20 and
+the aggregate inside 10", written down with its reason.
+
+**Recommendation, not a decision:** B.
+
+**Default if unanswered:** none. The question stays open rather than being
+answered by whichever number gets quoted first.
+
+---
+
+## D-23 · Which input types must work at first launch
+
+**Status: `OPEN`.**
+
+Frozen criterion S1 wants five of five — typed text, PDF, PNG, JPG, DOCX. Today
+only typed text works; `accountant/extract/adapter.py` is a stub with no backend
+connected.
+
+`EPIC.md` also records that bill extraction is now a vendor feature with a free
+price floor, and argues against entering that market at all. So "all five" is a
+real cost with a recorded argument against it.
+
+**Default if unanswered:** typed text only, because it is the only one that
+exists.
+
+**Why it matters:** if the answer is typed text only, the extraction phase leaves
+the critical path entirely.
+
+---
+
+## D-24 · Which Windows and Tally versions are supported at launch
+
+**Status: `OPEN`.**
+
+Everything measured so far was measured against **one** configuration:
+TallyPrime Release 7.0, Series A Release 7.0.0, Build 27974, in Educational mode,
+inside a UTM Windows-on-ARM guest.
+
+**Options:** support only what has been tested · publish a wider list with the
+untested entries labelled untested.
+
+**Default if unanswered:** only what has been tested. Anything wider is a claim
+with no measurement behind it.
+
+**Answer this together with `D-03`.** This is *not* `D-19` — `D-19` is about our
+own connector's protocol versions, which is a different thing.
+
+---
+
+## D-25 to D-28 · answered, recorded so nobody asks twice
+
+| # | Question | Owner answer | Date |
+|---|---|---|---|
+| D-25 | how many concerns may the review screen show at once | **3.** Display only — every concern is kept in evidence and the screen says how many it hid. | 2026-08-10 |
+| D-26 | does the project run under Tally's Educational mode for now | **Option 2, the Educational-mode exception.** Do not purchase, activate, bypass or simulate a licence. Do not edit the fixture. Do not convert an environment limit into a pass. | 2026-08-08 |
+| D-27 | the cached-mutation gate | **Parked.** It stays in the contract and stays counted; it is deliberately not executed, and the gate count does not fall. | 2026-08-08 |
+| D-28 | may Claude merge a pull request | **Yes, when the gates are green** — and never deciding *whether* they passed. GitHub's required checks are the authority. | 2026-08-08 |
+
+`D-26` answers "what do we do today". It does **not** resolve `D-01`, which asks
+which of two contradictory licence instructions is the live one. Both entries are
+kept and cross-linked rather than merged, because merging them would hide the
+contradiction.
+
+---
+
 ## Open at a glance
+
+**19 open, of 28.**
 
 | # | Question | Blocks |
 |---|---|---|
-| D-01 | licence: buy, or stay on Educational | the 15 contract tests, all live evidence |
+| **D-01** | licence: buy, or stay on Educational | the contract tests, and all live evidence |
 | D-02 | fixture date frozen | nothing while it stays frozen |
 | D-03 | Tally.ERP 9 in scope | criterion #6.8 |
-| D-04 | frontend shape | nothing today |
-| D-05 | `Ltd` vs `LLP` — same supplier or not | a real wrong-vendor risk |
-| D-06 | stale index vs live ledger | a real wrong-account risk |
+| D-04 | the first runtime dependency, locally and in the cloud | option C of D-16 |
+| **D-05** | `Ltd` vs `LLP` — same supplier or not | a real wrong-vendor risk |
+| **D-06** | stale index vs live ledger | a real wrong-account risk |
 | D-07 | declared licence mode | what the screen may say |
+| D-08 | may cloud work begin at all | D-14 to D-21, all eight |
 | D-10 | merge-queue numbers | nothing today |
+| D-14 | what the cloud may hold | the whole data policy |
+| D-15 | retention and deletion | every retention cell |
+| D-16 | connector authentication | one named breach scenario |
+| D-17 | do backups exist | the backup column |
+| D-18 | the legal position | anything customer-facing |
+| D-19 | connector update policy | the version-support window |
+| D-20 | who may clear the emergency stop | the recovery path |
+| D-21 | confirm the launch caps | the write-lease reading |
+| **D-22** | aggregate or worst book | **the launch rule itself** |
+| D-23 | launch input types | whether extraction is on the critical path |
+| D-24 | supported Windows and Tally versions | what may be claimed |
 
-**D-01, D-05 and D-06 are the three worth answering first.** The other five cost
-nothing while they wait.
+**Four are worth answering first: `D-01`, `D-05`, `D-06` and `D-22`.**
+
+- `D-01` unsticks four phases at once.
+- `D-05` and `D-06` are each a live wrong-posting risk in code that already runs.
+- `D-22` decides whether the product is launchable at all, and nobody can build
+  their way past it.
+
+Everything else costs nothing while it waits. The eight cloud decisions cost
+nothing because nothing cloud is being built.

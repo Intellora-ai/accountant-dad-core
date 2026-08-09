@@ -485,14 +485,30 @@ def test_vendor_switch_asks_instead_of_posting_and_names_the_evidence():
 
 def test_stub_extractor_drives_the_same_pipeline():
     t = tally(past("Sharma Traders", "Purchases", n=5))
+    # `tax_paise=None`, changed 2026-08-10, and the reason is a finding.
+    #
+    # This used to pass 64068 paise of GST and post it. It only worked because
+    # `FakeTally` was softer than `RealTally`: the real connector builds no tax
+    # lines and REFUSES a voucher carrying GST, because writing it would drop
+    # the tax silently and produce a wrong statutory entry. The double now
+    # mirrors that refusal (defect D1), so the old fixture fails here.
+    #
+    # What this exposes is a product gap, not a test problem: the pipeline takes
+    # a GST bill all the way to VALID, and the write then fails at the
+    # connector. Recorded for the owner rather than papered over - deciding what
+    # this system does with tax is Phase 8 rules work and an accounting policy
+    # question, and neither is mine to answer here. This test's own claim is
+    # that the stub drives the SAME pipeline as typed text, so it uses a bill
+    # this connector can actually write.
     stub = StubExtractor(
-        date=TODAY, party="Sharma Traders", total_paise=420000, tax_paise=64068
+        date=TODAY, party="Sharma Traders", total_paise=420000, tax_paise=None
     )
     d = pipeline.run(
         COMPANY, b"<pretend pdf>", "application/pdf", stub, t, memory_for(t)
     )
     assert d.outcome is Outcome.VALID
     assert d.voucher.amount_paise == 420000
+    assert d.voucher.gst_paise is None
     assert d.record.backend == "stub"
 
 

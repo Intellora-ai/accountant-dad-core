@@ -50,7 +50,11 @@ from accountant.tallyio.client import (
     operation_id_in,
     stamp,
 )
-from accountant.tallyio.real import TallyDataError
+from accountant.tallyio.real import (
+    AmbiguousMarker,
+    TallyDataError,
+    check_writable,
+)
 
 
 @dataclass
@@ -158,7 +162,11 @@ class FakeTally:
         missing = [
             ledger
             for ledger in (voucher.debit_account, voucher.credit_account)
-            if ledger and ledger not in co.accounts
+            # NOT `if ledger and ...`. An empty leg is a ledger named '' that the
+            # chart does not hold, which is exactly how `RealTally` reports it.
+            # Skipping the blank made the double answer with a different
+            # exception class for the same voucher.
+            if ledger not in co.accounts
         ]
         if missing:
             raise TallyDataError(
@@ -166,6 +174,26 @@ class FakeTally:
                 f"the ledger(s) {', '.join(repr(m) for m in missing)} do not "
                 f"exist there"
             )
+
+        # W6 AGAIN, and only half fixed the first time. 2026-08-10.
+        #
+        # W6 taught this file that a double may never make an easier call than
+        # the connector it stands in for, and the fix mirrored ONE of
+        # `RealTally`'s write-path checks - the chart lookup below. It did not
+        # mirror `check_writable`, so seven vouchers `RealTally` refuses were
+        # written here without complaint: an empty ledger leg, a zero amount, a
+        # negative amount, a float amount, a bool amount, one ledger on both
+        # legs, and a voucher carrying GST this connector builds no tax line
+        # for. The empty-leg case wrote into a ledger named '' and the trial
+        # balance came back {'Purchases': 100000, '': -100000}.
+        #
+        # Calling the connector's own function rather than restating its rules
+        # is the point: a restatement can drift, and a drifting double issues
+        # an alibi. The import direction stays fake -> real, never the reverse.
+        check_writable(voucher)
+        # AFTER the chart check, because that is the order `RealTally` uses:
+        # a blank leg is reported as a ledger that does not exist, not as a
+        # missing leg. Same refusal, same class, same order.
 
         if self.read_by_operation_id(company, operation_id) is not None:
             raise DuplicateOperation(
@@ -213,7 +241,10 @@ class FakeTally:
                 f"{vouchers[i].amount_paise} paise)"
                 for i in found
             )
-            raise TallyDataError(
+            # D2: `AmbiguousMarker`, the same class `RealTally` raises. The
+            # wording already matched; the class did not, so a caller that
+            # catches the specific exception behaved differently per backend.
+            raise AmbiguousMarker(
                 f"operation {operation_id!r} matches {len(found)} vouchers in "
                 f"{company!r} ({where}). The narration marker is this system's "
                 "identity and it has to be unique. Refusing to read one back or "

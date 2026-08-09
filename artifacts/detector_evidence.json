@@ -1,0 +1,640 @@
+{
+  "aggregate": {
+    "clean_entries": 143,
+    "distinct_alert_count": 9,
+    "duplicate_views": 0,
+    "flagged_clean_entries": 9,
+    "label": "aggregate: all 7 departments, ACTIVE_DETECTORS",
+    "measured": true,
+    "n1_hundredths": 629,
+    "n1_per_100": "6.29",
+    "raw_flag_count": 9,
+    "verdict": "PASS",
+    "within_target_le_10": true
+  },
+  "calibration_books": [
+    "Department for Business and Trade",
+    "Department for Transport",
+    "Department of Health and Social Care",
+    "Ministry of Housing, Communities and Local Government"
+  ],
+  "calibration_choices": [
+    {
+      "calibration_clean": 74,
+      "calibration_flagged": 1,
+      "calibration_hundredths": 135,
+      "detector": "vendor_switch",
+      "held_out_clean": 69,
+      "held_out_flagged": 1,
+      "held_out_hundredths": 145,
+      "kept": true,
+      "setting": "min_postings=2"
+    },
+    {
+      "calibration_clean": 74,
+      "calibration_flagged": 17,
+      "calibration_hundredths": 2297,
+      "detector": "first_use",
+      "held_out_clean": 69,
+      "held_out_flagged": 27,
+      "held_out_hundredths": 3913,
+      "kept": false,
+      "setting": null
+    },
+    {
+      "calibration_clean": 74,
+      "calibration_flagged": 6,
+      "calibration_hundredths": 811,
+      "detector": "magnitude",
+      "held_out_clean": 69,
+      "held_out_flagged": 1,
+      "held_out_hundredths": 145,
+      "kept": true,
+      "setting": "min_observations=2,over_percent=300"
+    },
+    {
+      "calibration_clean": 74,
+      "calibration_flagged": 0,
+      "calibration_hundredths": 0,
+      "detector": "gst_anomaly",
+      "held_out_clean": 69,
+      "held_out_flagged": 0,
+      "held_out_hundredths": 0,
+      "kept": true,
+      "setting": "no setting to turn"
+    }
+  ],
+  "calibration_half": {
+    "clean_entries": 74,
+    "distinct_alert_count": 7,
+    "duplicate_views": 0,
+    "flagged_clean_entries": 7,
+    "label": "calibration half, ACTIVE_DETECTORS",
+    "measured": true,
+    "n1_hundredths": 946,
+    "n1_per_100": "9.46",
+    "raw_flag_count": 7,
+    "verdict": "PASS",
+    "within_target_le_10": true
+  },
+  "denominator_provenance": {
+    "per_department": [
+      {
+        "code": "MHCLG",
+        "fixture_rows": 57,
+        "history_vouchers": 28,
+        "loaded_rows": 57,
+        "rejected_rows": 0,
+        "scored_entries": 29
+      },
+      {
+        "code": "DHSC",
+        "fixture_rows": 41,
+        "history_vouchers": 20,
+        "loaded_rows": 41,
+        "rejected_rows": 0,
+        "scored_entries": 21
+      },
+      {
+        "code": "DFT",
+        "fixture_rows": 47,
+        "history_vouchers": 23,
+        "loaded_rows": 47,
+        "rejected_rows": 0,
+        "scored_entries": 24
+      },
+      {
+        "code": "DWP",
+        "fixture_rows": 54,
+        "history_vouchers": 27,
+        "loaded_rows": 54,
+        "rejected_rows": 0,
+        "scored_entries": 27
+      },
+      {
+        "code": "DEFRA",
+        "fixture_rows": 38,
+        "history_vouchers": 19,
+        "loaded_rows": 38,
+        "rejected_rows": 0,
+        "scored_entries": 19
+      },
+      {
+        "code": "HMT",
+        "fixture_rows": 46,
+        "history_vouchers": 23,
+        "loaded_rows": 46,
+        "rejected_rows": 0,
+        "scored_entries": 23
+      },
+      {
+        "code": "DBT",
+        "fixture_rows": 28,
+        "history_vouchers": 0,
+        "loaded_rows": 0,
+        "rejected_rows": 28,
+        "scored_entries": 0
+      }
+    ],
+    "totals": {
+      "fixture_rows": 311,
+      "history_vouchers": 140,
+      "loaded_rows": 283,
+      "rejected_rows": 28,
+      "scored_entries": 143
+    }
+  },
+  "formula": {
+    "denominator_source": "accountant/score/calibration.py:169-171 (entries not in ground truth) and accountant/score/harness.py:492",
+    "numerator_source": "accountant/score/calibration.py:173-177 and accountant/score/harness.py:493",
+    "percent_scale": 10000,
+    "percent_scale_source": "accountant/score/harness.py:75",
+    "rate_source": "accountant/score/harness.py:91-93",
+    "rate_text": "(numerator * scale * 2 + denominator) // (denominator * 2)",
+    "verdict_source": "accountant/score/harness.py:382-384 and accountant/score/calibration.py:150-152",
+    "verdict_text": "false_alarms * 100 <= N1_MAX_FALSE_ALARMS_PER_100 * clean"
+  },
+  "harness_cross_check": {
+    "clean_entries": 143,
+    "distinct_problems": 9,
+    "duplicate_flags": 0,
+    "false_alarms": 9,
+    "total_entries": 143
+  },
+  "harness_per_detector_union_run": [
+    {
+      "clean_entries": 143,
+      "detector": "gst_anomaly",
+      "false_alarms": 0,
+      "n1_hundredths": 0
+    },
+    {
+      "clean_entries": 143,
+      "detector": "magnitude",
+      "false_alarms": 7,
+      "n1_hundredths": 490
+    },
+    {
+      "clean_entries": 143,
+      "detector": "vendor_switch",
+      "false_alarms": 2,
+      "n1_hundredths": 140
+    }
+  ],
+  "headroom": {
+    "aggregate": {
+      "flagged_now": 9,
+      "headroom_entries": 5,
+      "max_flagged_still_passing": 14
+    },
+    "calibration_half": {
+      "flagged_now": 7,
+      "headroom_entries": 0,
+      "max_flagged_still_passing": 7
+    },
+    "held_out": {
+      "flagged_now": 2,
+      "headroom_entries": 4,
+      "max_flagged_still_passing": 6
+    }
+  },
+  "held_out": {
+    "clean_entries": 69,
+    "distinct_alert_count": 2,
+    "duplicate_views": 0,
+    "flagged_clean_entries": 2,
+    "label": "held-out half, ACTIVE_DETECTORS",
+    "measured": true,
+    "n1_hundredths": 290,
+    "n1_per_100": "2.90",
+    "raw_flag_count": 2,
+    "verdict": "PASS",
+    "within_target_le_10": true
+  },
+  "held_out_books": [
+    "Department for Environment, Food and Rural Affairs",
+    "Department for Work and Pensions",
+    "HM Treasury"
+  ],
+  "historical": {
+    "all_departments_pre_calibration": {
+      "clean_entries": 143,
+      "distinct_alert_count": 83,
+      "duplicate_views": 30,
+      "flagged_clean_entries": 79,
+      "label": "all 7 departments, pre-calibration detectors",
+      "measured": true,
+      "n1_hundredths": 5524,
+      "n1_per_100": "55.24",
+      "raw_flag_count": 113,
+      "verdict": "NOT_PASSED",
+      "within_target_le_10": false
+    },
+    "mhclg_active": {
+      "clean_entries": 29,
+      "distinct_alert_count": 0,
+      "duplicate_views": 0,
+      "flagged_clean_entries": 0,
+      "label": "MHCLG only, ACTIVE_DETECTORS",
+      "measured": true,
+      "n1_hundredths": 0,
+      "n1_per_100": "0.00",
+      "raw_flag_count": 0,
+      "verdict": "PASS",
+      "within_target_le_10": true
+    },
+    "mhclg_pre_calibration": {
+      "clean_entries": 29,
+      "distinct_alert_count": 8,
+      "duplicate_views": 1,
+      "flagged_clean_entries": 8,
+      "label": "MHCLG only, pre-calibration detectors",
+      "measured": true,
+      "n1_hundredths": 2759,
+      "n1_per_100": "27.59",
+      "raw_flag_count": 9,
+      "verdict": "NOT_PASSED",
+      "within_target_le_10": false
+    }
+  },
+  "owner_stated": {
+    "aggregate": 629,
+    "held_out": 290,
+    "old_mhclg_precalibration": 2759,
+    "target_per_100": 10,
+    "worst_department": 3333
+  },
+  "per_department": [
+    {
+      "clean_entries": 29,
+      "code": "MHCLG",
+      "department": "Ministry of Housing, Communities and Local Government",
+      "flagged_clean_entries": 0,
+      "half": "calibration",
+      "n1_hundredths": 0,
+      "n1_per_100": "0.00",
+      "pre_calibration_flagged": 8,
+      "pre_calibration_n1_hundredths": 2759,
+      "pre_calibration_n1_per_100": "27.59",
+      "verdict": "PASS"
+    },
+    {
+      "clean_entries": 21,
+      "code": "DHSC",
+      "department": "Department of Health and Social Care",
+      "flagged_clean_entries": 7,
+      "half": "calibration",
+      "n1_hundredths": 3333,
+      "n1_per_100": "33.33",
+      "pre_calibration_flagged": 17,
+      "pre_calibration_n1_hundredths": 8095,
+      "pre_calibration_n1_per_100": "80.95",
+      "verdict": "NOT_PASSED"
+    },
+    {
+      "clean_entries": 24,
+      "code": "DFT",
+      "department": "Department for Transport",
+      "flagged_clean_entries": 0,
+      "half": "calibration",
+      "n1_hundredths": 0,
+      "n1_per_100": "0.00",
+      "pre_calibration_flagged": 11,
+      "pre_calibration_n1_hundredths": 4583,
+      "pre_calibration_n1_per_100": "45.83",
+      "verdict": "PASS"
+    },
+    {
+      "clean_entries": 27,
+      "code": "DWP",
+      "department": "Department for Work and Pensions",
+      "flagged_clean_entries": 1,
+      "half": "held_out",
+      "n1_hundredths": 370,
+      "n1_per_100": "3.70",
+      "pre_calibration_flagged": 8,
+      "pre_calibration_n1_hundredths": 2963,
+      "pre_calibration_n1_per_100": "29.63",
+      "verdict": "PASS"
+    },
+    {
+      "clean_entries": 19,
+      "code": "DEFRA",
+      "department": "Department for Environment, Food and Rural Affairs",
+      "flagged_clean_entries": 1,
+      "half": "held_out",
+      "n1_hundredths": 526,
+      "n1_per_100": "5.26",
+      "pre_calibration_flagged": 16,
+      "pre_calibration_n1_hundredths": 8421,
+      "pre_calibration_n1_per_100": "84.21",
+      "verdict": "PASS"
+    },
+    {
+      "clean_entries": 23,
+      "code": "HMT",
+      "department": "HM Treasury",
+      "flagged_clean_entries": 0,
+      "half": "held_out",
+      "n1_hundredths": 0,
+      "n1_per_100": "0.00",
+      "pre_calibration_flagged": 19,
+      "pre_calibration_n1_hundredths": 8261,
+      "pre_calibration_n1_per_100": "82.61",
+      "verdict": "PASS"
+    },
+    {
+      "clean_entries": 0,
+      "code": "DBT",
+      "department": "Department for Business and Trade",
+      "flagged_clean_entries": 0,
+      "half": "calibration",
+      "n1_hundredths": null,
+      "n1_per_100": null,
+      "pre_calibration_flagged": 0,
+      "pre_calibration_n1_hundredths": null,
+      "pre_calibration_n1_per_100": null,
+      "verdict": "NOT_PASSED"
+    }
+  ],
+  "per_detector_solo": [
+    {
+      "active": true,
+      "clean_entries": 143,
+      "clean_entries_flagged": 2,
+      "detector": "vendor_switch",
+      "n1_hundredths_solo": 140,
+      "n1_per_100_solo": "1.40",
+      "raw_flags_on_clean": 2,
+      "withdrawn_reason": null,
+      "within_target_le_10_solo": true
+    },
+    {
+      "active": false,
+      "clean_entries": 143,
+      "clean_entries_flagged": 44,
+      "detector": "first_use",
+      "n1_hundredths_solo": 3077,
+      "n1_per_100_solo": "30.77",
+      "raw_flags_on_clean": 44,
+      "withdrawn_reason": "no threshold exists that separates an account this company has genuinely never used from one this company simply has not loaded yet. Measured on real published ledgers it fires on roughly three clean entries in ten, and it has no knob to turn. It is off by default and its numbers are reported, not hidden.",
+      "within_target_le_10_solo": false
+    },
+    {
+      "active": true,
+      "clean_entries": 143,
+      "clean_entries_flagged": 7,
+      "detector": "magnitude",
+      "n1_hundredths_solo": 490,
+      "n1_per_100_solo": "4.90",
+      "raw_flags_on_clean": 7,
+      "withdrawn_reason": null,
+      "within_target_le_10_solo": true
+    },
+    {
+      "active": true,
+      "clean_entries": 143,
+      "clean_entries_flagged": 0,
+      "detector": "gst_anomaly",
+      "n1_hundredths_solo": 0,
+      "n1_per_100_solo": "0.00",
+      "raw_flags_on_clean": 0,
+      "withdrawn_reason": null,
+      "within_target_le_10_solo": true
+    }
+  ],
+  "per_rule": null,
+  "reproduction": {
+    "aggregate": {
+      "measured_hundredths": 629,
+      "owner_hundredths": 629,
+      "reproduced": true
+    },
+    "held_out": {
+      "measured_hundredths": 290,
+      "owner_hundredths": 290,
+      "reproduced": true
+    },
+    "mhclg_pre_calibration": {
+      "measured_hundredths": 2759,
+      "owner_hundredths": 2759,
+      "reproduced": true
+    },
+    "worst_department": {
+      "measured_code": "DHSC",
+      "measured_hundredths": 3333,
+      "owner_hundredths": 3333,
+      "reproduced": true
+    }
+  },
+  "target_per_100": 10,
+  "top_false_alarms": [
+    {
+      "amount_paise": 59404920,
+      "company": "Department for Work and Pensions",
+      "debit_account": "EXP - PURCHASE OF GOODS/SERVICES - SOCIAL CARE",
+      "detectors_fired": [
+        "vendor_switch"
+      ],
+      "duplicate_views": 0,
+      "max_severity": 3,
+      "party": "G4S FACILITIES MANAGEMENT (UK) LTD",
+      "raw_flags": 1,
+      "reasons": [
+        {
+          "detector": "vendor_switch",
+          "reason": "G4S FACILITIES MANAGEMENT (UK) LTD posted to EXP - PURCHASE OF GOODS/SERVICES - OTHER FACILITIES - CONTACT CENTRES 2 times; this one goes to EXP - PURCHASE OF GOODS/SERVICES - SOCIAL CARE"
+        }
+      ],
+      "voucher_id": "DWP-00037"
+    },
+    {
+      "amount_paise": 33188500,
+      "company": "Department of Health and Social Care",
+      "debit_account": "Research & development",
+      "detectors_fired": [
+        "vendor_switch"
+      ],
+      "duplicate_views": 0,
+      "max_severity": 3,
+      "party": "NHS ENGLAND CBA033",
+      "raw_flags": 1,
+      "reasons": [
+        {
+          "detector": "vendor_switch",
+          "reason": "NHS ENGLAND CBA033 posted to Grant in Aid Funding (Cash) - ENDPBs 2 times; this one goes to Research & development"
+        }
+      ],
+      "voucher_id": "DHSC-00039"
+    },
+    {
+      "amount_paise": 830000000,
+      "company": "Department of Health and Social Care",
+      "debit_account": "Additions NCB PDC",
+      "detectors_fired": [
+        "magnitude"
+      ],
+      "duplicate_views": 0,
+      "max_severity": 2,
+      "party": "BOLTON NHS FOUNDATION TRUST",
+      "raw_flags": 1,
+      "reasons": [
+        {
+          "detector": "magnitude",
+          "reason": "830000000 paise to Additions NCB PDC; highest ever posted to it is 21300000 paise across 10 entries, and this is over 300 percent of that"
+        }
+      ],
+      "voucher_id": "DHSC-00037"
+    },
+    {
+      "amount_paise": 740000000,
+      "company": "Department of Health and Social Care",
+      "debit_account": "Additions NCB PDC",
+      "detectors_fired": [
+        "magnitude"
+      ],
+      "duplicate_views": 0,
+      "max_severity": 2,
+      "party": "NORTHUMBRIA HEALTHCARE NHS FOUNDATION TRUST",
+      "raw_flags": 1,
+      "reasons": [
+        {
+          "detector": "magnitude",
+          "reason": "740000000 paise to Additions NCB PDC; highest ever posted to it is 21300000 paise across 10 entries, and this is over 300 percent of that"
+        }
+      ],
+      "voucher_id": "DHSC-00029"
+    },
+    {
+      "amount_paise": 237382815,
+      "company": "Department for Environment, Food and Rural Affairs",
+      "debit_account": "EXP - PURCHASE OF GOODS/SERVICES - RESEARCH & DEVELOPMENT - OTHER OUTSOURCED",
+      "detectors_fired": [
+        "magnitude"
+      ],
+      "duplicate_views": 0,
+      "max_severity": 2,
+      "party": "WSP UK LTD",
+      "raw_flags": 1,
+      "reasons": [
+        {
+          "detector": "magnitude",
+          "reason": "237382815 paise to EXP - PURCHASE OF GOODS/SERVICES - RESEARCH & DEVELOPMENT - OTHER OUTSOURCED; highest ever posted to it is 5000000 paise across 4 entries, and this is over 300 percent of that"
+        }
+      ],
+      "voucher_id": "DEFRA-00035"
+    },
+    {
+      "amount_paise": 217000000,
+      "company": "Department of Health and Social Care",
+      "debit_account": "Additions NCB PDC",
+      "detectors_fired": [
+        "magnitude"
+      ],
+      "duplicate_views": 0,
+      "max_severity": 2,
+      "party": "TAVISTOCK AND PORTMAN NHS FOUNDATION TRUST",
+      "raw_flags": 1,
+      "reasons": [
+        {
+          "detector": "magnitude",
+          "reason": "217000000 paise to Additions NCB PDC; highest ever posted to it is 21300000 paise across 10 entries, and this is over 300 percent of that"
+        }
+      ],
+      "voucher_id": "DHSC-00036"
+    },
+    {
+      "amount_paise": 187500000,
+      "company": "Department of Health and Social Care",
+      "debit_account": "Additions NCB PDC",
+      "detectors_fired": [
+        "magnitude"
+      ],
+      "duplicate_views": 0,
+      "max_severity": 2,
+      "party": "MID CHESHIRE HOSPITALS NHS FOUNDATION TRUST",
+      "raw_flags": 1,
+      "reasons": [
+        {
+          "detector": "magnitude",
+          "reason": "187500000 paise to Additions NCB PDC; highest ever posted to it is 21300000 paise across 10 entries, and this is over 300 percent of that"
+        }
+      ],
+      "voucher_id": "DHSC-00028"
+    },
+    {
+      "amount_paise": 174400000,
+      "company": "Department of Health and Social Care",
+      "debit_account": "Additions NCB PDC",
+      "detectors_fired": [
+        "magnitude"
+      ],
+      "duplicate_views": 0,
+      "max_severity": 2,
+      "party": "MAIDSTONE & TUNBRIDGE WELLS NHS TRUST",
+      "raw_flags": 1,
+      "reasons": [
+        {
+          "detector": "magnitude",
+          "reason": "174400000 paise to Additions NCB PDC; highest ever posted to it is 21300000 paise across 10 entries, and this is over 300 percent of that"
+        }
+      ],
+      "voucher_id": "DHSC-00035"
+    },
+    {
+      "amount_paise": 81800000,
+      "company": "Department of Health and Social Care",
+      "debit_account": "Additions NCB PDC",
+      "detectors_fired": [
+        "magnitude"
+      ],
+      "duplicate_views": 0,
+      "max_severity": 2,
+      "party": "DORSET COUNTY HOSPITAL NHS FOUNDATION TRUST",
+      "raw_flags": 1,
+      "reasons": [
+        {
+          "detector": "magnitude",
+          "reason": "81800000 paise to Additions NCB PDC; highest ever posted to it is 21300000 paise across 10 entries, and this is over 300 percent of that"
+        }
+      ],
+      "voucher_id": "DHSC-00027"
+    }
+  ],
+  "union_with_first_use_reactivated": {
+    "aggregate": {
+      "clean": 143,
+      "flagged": 52,
+      "n1_hundredths": 3636,
+      "n1_per_100": "36.36",
+      "verdict": "NOT_PASSED"
+    },
+    "calibration_half": {
+      "clean": 74,
+      "flagged": 23,
+      "n1_hundredths": 3108,
+      "n1_per_100": "31.08",
+      "verdict": "NOT_PASSED"
+    },
+    "held_out": {
+      "clean": 69,
+      "flagged": 29,
+      "n1_hundredths": 4203,
+      "n1_per_100": "42.03",
+      "verdict": "NOT_PASSED"
+    }
+  },
+  "worst_department": {
+    "clean_entries": 21,
+    "code": "DHSC",
+    "department": "Department of Health and Social Care",
+    "flagged_clean_entries": 7,
+    "half": "calibration",
+    "n1_hundredths": 3333,
+    "n1_per_100": "33.33",
+    "pre_calibration_flagged": 17,
+    "pre_calibration_n1_hundredths": 8095,
+    "pre_calibration_n1_per_100": "80.95",
+    "verdict": "NOT_PASSED"
+  }
+}

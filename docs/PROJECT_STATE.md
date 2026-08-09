@@ -6,7 +6,7 @@
 |---|---|
 | **Purpose** | The project's operational memory. What was decided, what is built, what is verified, what remains, why. One file. No other progress document exists. |
 | **Repository** | `Intellora-ai/accountant-dad-core` — public — owner type **User** — created `2026-08-07T11:38:55Z` — VERIFIED (GitHub API) |
-| **Branch / commit** | `main` @ **`f7bf5d9`** — "feat: Phase 9 proof track - synthetic books and the scoring harness" — **16 commits** — VERIFIED (`git rev-parse`, `git log`). **Working tree is NOT clean**: `accountant/tallyio/real.py` and `tests/test_real_tally.py` modified; `accountant/ingest/`, `accountant/taxonomy/`, `tests/test_ingest.py`, `tests/test_taxonomy.py` untracked. Work is in flight in other sessions. |
+| **Branch / commit** | `closure/flag-cap-and-truth` @ `3445992` — "the first detector (#17)" — measured 2026-08-10 with `git rev-parse HEAD`. **The working tree is NOT clean**: the `flag_cap = 3` change is in flight in `accountant/detect/detectors.py`, `accountant/pipeline.py` and `accountant/web/app.py`, and several documents and test files are untracked. Several agents are working in this tree at once. <br><br>*Audit note, 2026-08-10: this row said `main @ f7bf5d9`, 16 commits, with `accountant/ingest/` and `accountant/taxonomy/` untracked. Both were committed in `6867ca9`. The row was two days stale.* |
 | **Updated** | 2026-08-08 |
 | **Last verified state** | 2026-08-08. CI evidence is from nightly runs `31237228028` and `31238866032`. **The newest evidence is §21 (first real Tally), §22 (first product-quality measurements) and §23 (documentation drift corrected)** — those three sections supersede any older statement in this file that contradicts them. |
 | **Companion documents** | [`ARCHITECTURE.md`](./ARCHITECTURE.md) — the design. [`BOTTLENECKS.md`](./BOTTLENECKS.md) — what currently costs more than it should, with the smallest guard per class of defect. |
@@ -191,18 +191,54 @@ affect the design, and the phase-by-phase build plan with entry and exit criteri
 
 This section keeps only the facts that are *status*, not design:
 
+**Status is not decided here any more.** Every phase status in this project
+lives in **[`docs/CONTROL_PLANE.yaml`](./CONTROL_PLANE.yaml)**, which is the one
+machine-readable authority. This section is a human-readable rendering of it and
+never overrides it. The row-by-row version, with the exit clauses met out of
+total, is [`artifacts/phase_truth_table.md`](../artifacts/phase_truth_table.md).
+
+| Phase | Status, per the control plane |
+|---|---|
+| 0 repository and safety | `PASSED` — re-verified 2026-08-10 by `gh api`, not by memory |
+| 1 CI foundation | `PASSED` |
+| 2 the Tally spine | `BLOCKED_ENVIRONMENT` — the build is done and has run against a real Tally (§21); the exit has never run |
+| 3 the typed vertical slice | `PARTIALLY_VERIFIED` |
+| 4 the no-match safety path | `PASSED` |
+| 5 idempotency and reversal, the implementation | `PASSED` |
+| 5-LIVE the run against a real Tally | `BLOCKED_ENVIRONMENT` — control-plane id `5-LIVE`, never run |
+| 5B operational readiness | `PARTIALLY_VERIFIED` |
+| 6 the first detector | `PARTIALLY_VERIFIED` — a verification agent is re-checking it |
+| 7 the extraction adapter | `NOT_STARTED` |
+| 8 widen to the frozen criteria | `NOT_STARTED` |
+| 9 the proof track | `PARTIALLY_VERIFIED` |
+| 10 operational hardening | `NOT_STARTED` |
+
 | | |
 |---|---|
-| **Current phase** | **Phase 2 — the Tally spine — ENVIRONMENT-LIMITED, not fully complete** (§21, §24) |
-| **Blocked on** | a **non-Educational TallyPrime licence**. Educational mode rejects voucher dates outside the 1st, 2nd and 31st, so the 15 client-fixture tests in `tests/test_tally_contract.py` — which post on `2026-08-07` — cannot run unmodified. This is the Phase 2 **exit** criterion, and it is the only owner-blocked item left. |
-| **Owner decision, 2026-08-08** | **Option 2 — Educational-mode exception.** No licence is to be purchased, activated, bypassed or simulated. See §24. |
-| **No longer blocked on** | the Windows VM. TallyPrime is installed and answering. The earlier "Windows VM + TallyPrime — NOT INSTALLED — the single blocker" is **superseded** (§17, §21). |
+| **Stopped by** | a **non-Educational TallyPrime licence**. Educational mode rejects voucher dates outside the 1st, 2nd and 31st, so the client-fixture tests in `tests/test_tally_contract.py` — which post on `2026-08-07` — cannot run unmodified. Blocker `B-02`. |
+| **Owner decision, 2026-08-08** | **Option 2 — Educational-mode exception.** No licence is to be purchased, activated, bypassed or simulated. See §24 and decision `D-26`. The separate question of which of two contradictory licence instructions is live is `D-01`, and it is still open. |
+| **No longer stopped by** | the Windows VM. TallyPrime is installed and answering. The earlier "Windows VM + TallyPrime — NOT INSTALLED — the single blocker" is **superseded** (§17, §21). |
 
-Phases 0 and 1 are complete. Phase 2's build is done and proven end to end
-against a real Tally (§21); its formal exit is licence-blocked. Phases 3–8 have
-not started. **Phase 9 has been built and measured** — `generate/`, `score/`,
-`taxonomy/` and `ingest/` all exist, and its numbers are in §22, which is the
-uncomfortable part of this document. Phase 10 is deferred.
+> **Audit note, 2026-08-10 — the largest single correction in this file.**
+> A summary paragraph stood here until today. It said the first two phases were
+> "complete", that the Tally spine's exit was licence-blocked, that **phases
+> three to eight had "not started"**, that the proof track had been built and
+> measured, and that the last one was deferred.
+>
+> **The claim about phases three to eight was false when it was written and
+> stayed false for two days.** The typed vertical slice shipped in commit
+> `3b83e30`, the no-match safety path in `c21127c`, the reversal hardening and
+> the readiness gate in `192e514`, and the first detector in `3445992` — all
+> merged, all on `main`.
+>
+> The line survived because it sat in a summary that nothing re-read, while the
+> per-phase evidence piled up in §25 and §40 underneath it. That is the exact
+> failure `CONTROL_PLANE.yaml` exists to stop — a status asserted in prose in one
+> place, evidenced in another, and nothing comparing the two.
+> `scripts/validate_project_truth.py` is now the thing that compares them.
+>
+> The word `COMPLETE` is gone too. It was never in the status vocabulary; it
+> maps to `PASSED`.
 
 Per-area evidence is in §8; the ordered next actions are in §19; the ranked list
 of what is currently costing more than it should is in
@@ -306,14 +342,14 @@ proved it. Evidence cross-references §9 (gates), §10 (runs), §16 (security).
 | Read-back (C6) | **VERIFIED on real Tally** | `read_by_operation_id()` returned the written voucher, then `None` after reversal (§21) | — |
 | Reversal (#6.5) | **VERIFIED on real Tally** | `reverse_by_operation_id()` → `True`; trial balance restored to the exact prior paise (§21) | — |
 | Memory index #2 | **CODE EXISTS, NOT AUDITED** | `accountant/memory/index.py` | audit vs #2.1–#2.7. **Company-local only; every customer is a permanent cold start** (§22) |
-| Detectors #3 | **BUILT — MEASURED AGAINST THE PUBLISHED RECORD, AND THEY MISS MOST OF IT** | `accountant/detect/detectors.py`, 4 detectors. **2 of 12** published real error types covered; **10 UNCOVERED** (§22) | proof work per uncovered type — [`BOTTLENECKS.md` A1](./BOTTLENECKS.md#a1--detectors-cover-2-of-12-published-real-error-types) |
+| Detectors #3 | **BUILT — MEASURED AGAINST THE PUBLISHED RECORD, AND THEY MISS MOST OF IT** | `accountant/detect/detectors.py`. Five different counts, and they are not the same number: **4 implemented · 3 active · 1 on the production path · 1 mapped to a published error type · 0 verified on real data**. Of 12 published error types, **0 VERIFIED, 2 PARTIAL, 10 UNCOVERED** (§22, [`TAXONOMY.md`](./TAXONOMY.md)) | proof work per uncovered type. *Audit note 2026-08-10: this row said "4 detectors, 2 of 12 covered". One word was doing the work of five counts.* |
 | Rules corpus #9 | **NOT STARTED** | **VERIFIED absent** — `ls accountant/rules` → no such directory, 2026-08-08 | build |
 | Extraction adapter #15 | **STUB ONLY** | `accountant/extract/adapter.py`, `TypedTextExtractor` | connect a backend |
 | Web app #14 | **CODE EXISTS, FAKE-BACKED** | `accountant/web/app.py`, 385 lines, imports `FakeTally`. **Stdlib `http.server` only** — VERIFIED, and `pyproject.toml` still has `dependencies = []` with no web framework anywhere | swap client at M2 |
 | Synthetic generator #1 | **BUILT, TEST-VERIFIED** | `accountant/generate/` — `book.py`, `inject.py`, `serialise.py`. `tests/test_generate.py`, 60 tests, one per acceptance criterion. Branch coverage 100%, 131/131 mutants killed, local run 2026-08-08 | — |
-| Scoring harness #4 | **BUILT — AND N1 IS FAILING** | `accountant/score/` — `book.py`, `harness.py`, `report.py`. **N1 = 27.59 false alarms per 100 clean entries against a target of ≤ 10. FAIL by 2.8x** (§22) | [`BOTTLENECKS.md` A2](./BOTTLENECKS.md#a2--n1-fails-by-28x) |
-| Real error taxonomy #7 | **BUILT — untracked in git** | `accountant/taxonomy/` — `sources.py`, `findings.py`, `coverage.py`, `report.py`. 5 sources, 12 error types, `uncovered_count() == 10` | commit it |
-| UK government ingest #5 | **BUILT — untracked in git** | `accountant/ingest/` — `sources.py`, `fetch.py`, `spend.py`, `crossorg.py`, `report.py`, plus 7 real department fixtures | commit it |
+| Scoring harness #4 | **BUILT — N1 PASSES ON THREE SLICES AND FAILS ON ONE** | `accountant/score/` — `book.py`, `harness.py`, `report.py`, `calibration.py`. Aggregate **6.29** PASS · held-out **2.90** PASS · worst department **33.33** FAIL · historical **27.59**. Target ≤ 10 (§22) | owner decision `D-22` — which slice is the launch gate |
+| Real error taxonomy #7 | **BUILT AND COMMITTED** in `6867ca9` | `accountant/taxonomy/` — `sources.py`, `findings.py`, `coverage.py`, `report.py`. 5 sources, 12 error types, `uncovered_count() == 10`. Written up in [`TAXONOMY.md`](./TAXONOMY.md) | none. *Audit note 2026-08-10: this row said "untracked in git" and "commit it". It was committed two days ago.* |
+| UK government ingest #5 | **BUILT AND COMMITTED** in `6867ca9` | `accountant/ingest/` — `sources.py`, `fetch.py`, `spend.py`, `crossorg.py`, `report.py`, plus 7 real department fixtures | none. *Audit note 2026-08-10: this row said "untracked in git".* |
 | Cross-organisation test #8 | **MEASURED — the answer is 0%** | 16,011 rows, 30 department pairs; within-department best 53.08%, cross-department 0.00% on 29 of 30 (§22) | none — the question is answered |
 | CI contract | **VERIFIED** | `ci/gates.toml`, 20 gates; `ci/gate_names.lock`; 18 contract tests pass | none |
 | Local guard | **VERIFIED** | `scripts/guards` 169 lines, 12 checks, staged mode 0.08s; hook at `.git/hooks/pre-commit` rejected a bad commit | none |
@@ -978,10 +1014,10 @@ scope of the guarantee, and it is what the six refusals above demonstrate.
 | Tally local HTTP has no auth model beyond network reachability | **KNOWN, structural — and now WIDER than loopback** | Tally runs in a Windows 11 ARM64 VM, so the Mac reaches it at `192.168.64.2:9000` over `bridge100`. **macOS `localhost` and guest `localhost` are different machines**, which is exactly why `TallyConfig` takes host and port. The traffic is plain HTTP with no auth and must stay on a private, trusted network. | none — `TallyConfig.is_loopback` exists so a caller or test can assert the tighter rule where it applies |
 | Backup enforcement before writing | **VERIFIED against fake** | `CompanyNotBackedUp`, `client.py:66` | prove against real Tally |
 | TallyPrime vs Tally.ERP 9 compatibility | **PARTLY RESOLVED** | TallyPrime **Release 7.0, Series A Release 7.0.0, Build 27974** is what answered (§21). Tally.ERP 9 remains UNVERIFIED. | decide whether ERP 9 is in scope at all |
-| **Educational-mode voucher-date restriction** | **MEASURED — the current blocker** | `2026-08-07` REJECTED, `2026-08-31` ACCEPTED. `tests/test_tally_contract.py:39` posts on `2026-08-07`, so the 15 client-fixture tests cannot run unmodified. Educational mode does **not** block deletion — that theory was tested and disproven. | **buy a non-Educational licence** — [`BOTTLENECKS.md` A3](./BOTTLENECKS.md#a3--educational-mode-date-restriction-blocks-the-15-contract-tests) |
+| **Educational-mode voucher-date restriction** | **MEASURED — the current blocker** | `2026-08-07` REJECTED, `2026-08-31` ACCEPTED. `tests/test_tally_contract.py:53` posts on `2026-08-07`, so the client-fixture tests — PENDING_COUNT (19 by an AST count on 2026-08-10; the docs said 15) — cannot run unmodified. Educational mode does **not** block deletion — that theory was tested and disproven. | **buy a non-Educational licence** — [`BOTTLENECKS.md` A3](./BOTTLENECKS.md#a3--educational-mode-date-restriction-blocks-the-15-contract-tests) |
 | **`trial_balance()` includes a derived figure** | **MEASURED, OPEN** | `Profit & Loss A/c` is Tally's derived closing figure, not a posting, so the raw sum is not zero. The two real ledgers cancel exactly. Reversal is unaffected — it compares the same dict before and after. | [`BOTTLENECKS.md` A4](./BOTTLENECKS.md#a4--trial_balance-includes-a-derived-figure) |
 | **Detector coverage of real error types** | **MEASURED — 10 of 12 UNCOVERED** | §22 | proof work per uncovered type, [`BOTTLENECKS.md` A1](./BOTTLENECKS.md#a1--detectors-cover-2-of-12-published-real-error-types) |
-| **N1 false-alarm rate** | **MEASURED — FAILING** | 27.59 per 100 against a target of ≤ 10 (§22) | [`BOTTLENECKS.md` A2](./BOTTLENECKS.md#a2--n1-fails-by-28x) |
+| **N1 false-alarm rate** | **MEASURED — three slices pass, one fails** | aggregate 6.29 · held-out 2.90 · worst department 33.33 · historical 27.59. Target ≤ 10 (§22) | owner decision `D-22` |
 | Third-party extraction quality | **UNVERIFIED** | no backend connected; stub only | the 95/100 bar (S2) decides which backend qualifies |
 | Ruleset protection | **VERIFIED** | 6 refusals, 9/9 audit | none |
 | Nightly scheduling | **VERIFIED working, delay documented** | runs `31237228028`, `31238866032` | external dispatch DEFERRED (§12) |
@@ -1043,7 +1079,7 @@ scope of the guarantee, and it is what the six refusals above demonstrate.
 | read back after reversal | `None` | **PASSED** |
 | trial balance after reversal | exact prior value, in paise | **PASSED** — 668456 → 168456. **EXACT RESTORE True, VOUCHER GONE True.** |
 | post the same operation ID again → no second voucher | `DuplicateOperation` | **NOT RUN** — licence-blocked (§21) |
-| 15 client-fixture tests against the real client | all pass | **NOT RUN** — licence-blocked (§21). **Phase 2's exit criterion.** |
+| the client-fixture tests against the real client — count PENDING_COUNT (19 by an AST count on 2026-08-10; the docs said 15) | all pass | **NOT RUN** — stopped by the licence (§21). **The Tally spine's exit criterion.** |
 | post a voucher dated outside the 1st/2nd/31st | Educational mode refuses | **PASSED as a measurement** — `2026-08-07` REJECTED, `2026-08-31` ACCEPTED. Not yet a live negative test in the suite. |
 | trial balance sums to zero | zero | **FAILED — and correctly so.** `Profit & Loss A/c` is a derived figure, not a posting. The two real ledgers cancel exactly. [`BOTTLENECKS.md` A4](./BOTTLENECKS.md#a4--trial_balance-includes-a-derived-figure) |
 
@@ -1076,7 +1112,8 @@ Strict order. Each step is worthless until the one before it holds.
 17      reverse it                                                           ✅ DONE
 18      prove the trial balance returns to its exact prior value, in paise    ✅ DONE
 19  M3  point tests/test_tally_contract.py's client fixture at the real client
-        all 15 client-fixture tests pass → "works on real Tally" is satisfied
+        every client-fixture test passes -> "works on real Tally" is satisfied
+        count is PENDING_COUNT (19 by an AST count on 2026-08-10; the docs said 15)
         ⬜ BLOCKED — Educational mode rejects the 2026-08-07 test date
 
  ─── the current ordered work ───
@@ -1159,7 +1196,8 @@ Detail and exact numbers in §21.
 
 ```
 idempotency on real Tally — the duplicate-operation-ID test is licence-blocked
-the 15 client-fixture tests against the real client — licence-blocked
+the client-fixture tests against the real client — stopped by the licence
+  count is PENDING_COUNT (19 by an AST count on 2026-08-10; the docs said 15)
 Tally.ERP 9 — only TallyPrime 7.0 has answered
 children #2, #3, #14, #15 against their own written acceptance criteria
 S1-S7 — no product measurement has been taken
@@ -1171,11 +1209,20 @@ cache hit/miss as a recorded number from a specific run
 ### What is measured and FAILING — added 2026-08-08
 
 ```
-N1 = 27.59 false alarms per 100 clean entries, target <= 10.  FAIL by 2.8x.
-detector coverage of published real error types: 2 of 12.  10 UNCOVERED.
+N1, worst single department (DHSC)   33.33 per 100 clean entries, target <= 10
+N1, aggregate                         6.29                       PASS
+N1, held-out half                     2.90                       PASS
+N1, MHCLG pre-calibration (HISTORY)  27.59
+detector coverage of published error types:  0 VERIFIED, 2 PARTIAL, 10 UNCOVERED
+detectors verified catching a real error:    0
 ```
 
-**These are the two numbers that matter most in this document.** Detail in §22.
+**The coverage line is the number that matters most in this document.** Detail
+in §22 and in [`TAXONOMY.md`](./TAXONOMY.md).
+
+> *Audit note, 2026-08-10: this block read "N1 = 27.59 ... FAIL by 2.8x" and
+> "2 of 12 covered". Both were stale — 27.59 is the pre-calibration MHCLG
+> figure, and nothing is verified as covered.*
 
 ### What is intentionally deferred
 
@@ -1336,15 +1383,32 @@ exit code is the one signal that cannot detect this.
 **Measured 2026-08-08. These are the first product numbers this project has ever
 had, and they are worse than the targets. They are recorded exactly as measured.**
 
-### The detectors cover 2 of 12 published real error types
+### The detectors cover none of the 12 published real error types, and are aimed at 2
 
 ```
 published real error types                12
-covered by current detectors               2
+VERIFIED on real data                      0
+PARTIAL  — a live detector is aimed at it  2
 UNCOVERED                                 10
+history-only reachable ceiling             4
 ```
 
-Covered: `capital_expenditure_as_revenue`, `revenue_expenditure_as_capital`.
+The two PARTIAL types are `capital_expenditure_as_revenue` and
+`revenue_expenditure_as_capital`. **PARTIAL is not covered.** It means a live
+detector reads the field that type changes. Nothing in this repository shows
+that detector catching a real instance, because no real ledger here carries a
+labelled error.
+
+The full matrix, one row per type, is **[`docs/TAXONOMY.md`](./TAXONOMY.md)**,
+pinned by `tests/test_taxonomy_matrix.py`. It is not copied here.
+
+> **Audit note, 2026-08-10.** This section was headed *"The detectors cover 2 of
+> 12 published real error types"* and printed *"covered by current detectors: 2"*
+> as verified truth. Measured on 2026-08-10,
+> `taxonomy.coverage.status_counts()` returns **COVERED 0, PARTIAL 2,
+> UNCOVERED 10**. The code never claimed 2 were covered; the prose did. Command
+> to check: `.venv/bin/python -c "from accountant.taxonomy import coverage as c;
+> print(dict(c.status_counts()))"`.
 
 **`first_use`, `magnitude` and `gst_anomaly` map to NOTHING in the published
 record.** `taxonomy.detectors_targeting_no_error_type()` returns all three.
@@ -1372,20 +1436,42 @@ one would quietly become the argument for keeping or dropping a detector.
 
 [`BOTTLENECKS.md` A1](./BOTTLENECKS.md#a1--detectors-cover-2-of-12-published-real-error-types).
 
-### N1 = 27.59 — FAILING
+### N1 — three slices pass, one fails, and the old headline number is history
 
-```
-N1  false alarms per 100 clean entries   27.59
-    target                               <= 10
-    verdict                              FAIL by 2.8x
-```
+One number could not be acted on, so N1 is now reported four ways. All four are
+in [`CONTROL_PLANE.yaml`](./CONTROL_PLANE.yaml) and in
+`artifacts/detector_evidence.json`.
 
-**The first N1 ever measured on real data.** Every earlier N1 statement in this
-project was an unmeasured target.
+| slice | rate per 100 clean entries | target | verdict |
+|---|---|---|---|
+| aggregate, all 7 departments | 6.29 | ≤ 10 | PASS |
+| held-out half only | 2.90 | ≤ 10 | PASS |
+| worst single department (DHSC) | 33.33 | ≤ 10 | **FAIL** |
+| MHCLG, pre-calibration — **historical** | 27.59 | ≤ 10 | FAIL |
 
-`accountant/score/harness.py` reports it as an explicit `PASS` or `FAIL`.
-**Do not tune a threshold to make it pass** — that moves the measurement, not the
-product. [`BOTTLENECKS.md` A2](./BOTTLENECKS.md#a2--n1-fails-by-28x).
+**27.59 is history, not the current number.** It was the first N1 ever measured
+on real data, taken on MHCLG only with the pre-calibration detectors. It is kept
+because the improvement is only auditable if the starting point survives.
+`tests/test_n1.py::test_the_number_this_started_from_is_still_reproducible` is
+what keeps it honest.
+
+**Which slice is the launch gate is an open owner decision, `D-22`.** The
+aggregate says ship and the worst department says do not, and a customer
+experiences their own book rather than an aggregate.
+
+Two more facts that are easy to miss. The calibration half has **zero headroom**
+— one more false alarm there flips it. And DBT has **zero clean entries**, so it
+reports "not measured", which is not a pass either.
+
+`accountant/score/harness.py` reports every slice as an explicit `PASS` or
+`FAIL`. **Do not tune a threshold to make a number pass** — that moves the
+measurement, not the product.
+
+> **Audit note, 2026-08-10.** This section was headed *"N1 = 27.59 — FAILING"*
+> and gave one number with the verdict *"FAIL by 2.8x"*. That number is still
+> real but it is the pre-calibration MHCLG figure, and it was being read as the
+> current state of the product two days after calibration moved it. Reproduction
+> of all four figures by an independent measurement agent is **PENDING**.
 
 ### Cross-organisation transfer: 0.00%
 
@@ -1480,15 +1566,25 @@ rule.
 
 ```
 Tally licensing status: Educational mode only.
-Phase 2 status:         ENVIRONMENT-LIMITED, not fully complete.
+Phase 2 status:         BLOCKED_ENVIRONMENT
 Genuine owner blocker:  A legitimate non-Educational Tally licence is unavailable.
 Unchanged fixture:      2026-08-07.
 Limitation:             Educational mode cannot validate the original 2026-08-07
                         contract because its date restrictions reject that fixture.
-Evidence status:        All other Phase 2 work is closed. The original 15-test
-                        contract suite remains blocked by environment licensing.
-                        Do not report Phase 2 as complete.
+Evidence status:        Every other piece of the Tally spine is closed. The
+                        original client-fixture contract suite is stopped by
+                        environment licensing and has never run.
 ```
+
+> **Audit note, 2026-08-10.** Two changes, no change of meaning. The status word
+> was `ENVIRONMENT-LIMITED, not fully complete`, which is not a status this
+> project has; it is `BLOCKED_ENVIRONMENT` in
+> [`CONTROL_PLANE.yaml`](./CONTROL_PLANE.yaml). And the suite was called
+> "the original 15-test contract suite" — an AST count of
+> `tests/test_tally_contract.py` on 2026-08-10 finds **19** of its 24 test
+> functions take the `client` fixture, not 15. The count is marked
+> `PENDING_COUNT` until the RealTally preparation agent confirms it. See
+> [`artifacts/document_contradictions.md`](../artifacts/document_contradictions.md).
 
 **Standing instructions attached to this decision.** Do not purchase, activate,
 bypass or simulate a non-Educational licence. Do not edit `2026-08-07`. Do not
@@ -1517,9 +1613,9 @@ substitute dataset may be used to claim GST or accounting validation.
 ### What would close it
 
 A legitimate non-Educational licence, then the original unmodified
-`tests/test_tally_contract.py` run against `RealTally` with all 15
-client-fixture tests passing. Nothing else closes it, and no amount of local
-green changes that.
+`tests/test_tally_contract.py` run against `RealTally` with **every**
+client-fixture test passing — count PENDING_COUNT (19 by an AST count on 2026-08-10; the docs said 15). Nothing else closes it, and no
+amount of local green changes that.
 
 ---
 
@@ -1724,13 +1820,17 @@ Neither is on the critical path for anything else. All other work continued.
 ### 25.8 Phase 3 status
 
 ```
-Phase 3 implementation complete.
-Phase 3 live validation remains environment-limited.
+Phase 3:  PARTIALLY_VERIFIED     (docs/CONTROL_PLANE.yaml is the authority)
 ```
 
-Not "complete". Not "passing". The implementation is done and proven against
-FakeTally; the live validation is blocked by the licence decision in §24 and now
-also by §25.5 and §25.7.
+Not "passing". The implementation is done and proven against FakeTally; the live
+validation is stopped by the licence decision in §24 and now also by §25.5 and
+§25.7.
+
+> **Audit note, 2026-08-10.** This block read "implementation complete. Live
+> validation remains environment-limited." The two-word verdict was doing the
+> work of a status vocabulary that did not exist yet. Same facts, one word,
+> and that word now lives in one file.
 
 
 ---
@@ -1905,10 +2005,16 @@ rejects that date, and the owner's Option 2 decision (§24) stands. No amount of
 `tests/test_evidence_classes.py`.
 
 ```
-Phase 3 implementation:        COMPLETE
-Phase 3 live validation:       ENVIRONMENT-LIMITED
+Phase 3:                       PARTIALLY_VERIFIED
+  implementation               proven against FakeTally
+  live validation              BLOCKED_ENVIRONMENT
 RealTally 2026-08-07 evidence: NOT PROVEN
 ```
+
+> **Audit note, 2026-08-10.** These three lines read `implementation: COMPLETE`
+> and `live validation: ENVIRONMENT-LIMITED` until today. Neither word is a
+> status this project has. The wording changed; the meaning did not.
+> `docs/CONTROL_PLANE.yaml` is now the one place a status is decided.
 
 ---
 
@@ -2070,10 +2176,16 @@ around, and the PR is NOT described as merged.**
 | regular licensed RealTally evidence | **NO** — owner Option 2 (§24) stands |
 
 ```
-Phase 3 implementation:        COMPLETE
-Phase 3 live validation:       ENVIRONMENT-LIMITED
+Phase 3:                       PARTIALLY_VERIFIED
+  implementation               proven against FakeTally
+  live validation              BLOCKED_ENVIRONMENT
 RealTally 2026-08-07 evidence: NOT PROVEN
 ```
+
+> **Audit note, 2026-08-10.** These three lines read `implementation: COMPLETE`
+> and `live validation: ENVIRONMENT-LIMITED` until today. Neither word is a
+> status this project has. The wording changed; the meaning did not.
+> `docs/CONTROL_PLANE.yaml` is now the one place a status is decided.
 
 ---
 
@@ -2792,11 +2904,28 @@ number. Raised before any code was written; the owner ruled:
 > as Phase 6 in an external planning message. Phase numbering is resolved here
 > by retaining the repository's existing Phase 6 definition.
 
-| Milestone | What it is | Kind | Status |
+| Milestone | What it is | Kind | Status, per [`CONTROL_PLANE.yaml`](./CONTROL_PLANE.yaml) |
 |---|---|---|---|
-| **Phase 5** | controlled Tally write/reversal proof, `N = 10` | capability | implementation `PASSED`, live `BLOCKED_ENVIRONMENT` |
-| **Phase 5B** | operational readiness and repeatability | **release gate** | `PASSED` against FakeTally |
-| **Phase 6** | first detector — `vendor_switch` + dismissal logging | capability | `PASSED` against FakeTally over HTTP |
+| **Phase 5** | controlled Tally write/reversal proof, `N = 10` — the implementation | capability | `PASSED` |
+| control-plane id `5-LIVE` | the same proof run against a real Tally | capability | `BLOCKED_ENVIRONMENT` — never run |
+| **Phase 5B** | operational readiness and repeatability | **release gate** | `PARTIALLY_VERIFIED` |
+| **Phase 6** | first detector — `vendor_switch` + dismissal logging | capability | `PARTIALLY_VERIFIED` |
+
+> **Audit note, 2026-08-10.** This table said the readiness gate was `PASSED`
+> against FakeTally and the first detector was `PASSED` against FakeTally over
+> HTTP. Both are now `PARTIALLY_VERIFIED`, and the reason is in the control
+> plane rather than in a qualifier bolted onto the word.
+>
+> The readiness gate is a **release gate**, and its entry condition is the
+> reversal proof against a real Tally, which has never run. A release gate whose
+> entry condition is unmet has not been passed.
+>
+> The detector row is `PENDING_VERIFICATION` — a verification agent is
+> re-checking it — and two measured facts already argue against a clean pass:
+> `vendor_switch` never reads its history parameter, so a bootstrap-time index
+> can outvote the live ledger (§40.7); and the per-batch cap was never passed
+> from the web app until 2026-08-10, so the overflow count was permanently zero
+> in production.
 
 `ARCHITECTURE.md` §7 gained Phase 5B **between** 5 and 6. Nothing was
 renumbered; Phases 6 to 10 keep the numbers they have always had.
@@ -2821,7 +2950,7 @@ notice.
 | G5.2 bulk reversal, 8+7 states, durable, resumable | `PASSED` | `tests/test_bulk_reversal.py` 41, `_web` 11, `_cli` 9; 10 mutants killed | FAKETALLY + SIMULATOR |
 | G5.3 the `N = 10` conservation proof | `PASSED` | `tests/test_acceptance_n10.py`, 26 tests, 6 mutants killed | FAKETALLY + SIMULATOR |
 | G5.4 the live acceptance command | `PASSED` (the command) | `tests/test_acceptance_cli.py`, 13 tests, 4 mutants killed | FAKETALLY |
-| Phase 5B readiness gate, 12 conditions | `PASSED` | `tests/test_phase5b_readiness.py`, 25 tests | FAKETALLY |
+| the readiness gate, 12 conditions | `PASSED` against FakeTally only | `tests/test_phase5b_readiness.py` | FAKETALLY |
 | G6.1 dismissal logging | `PASSED` | `tests/test_first_detector.py` | FAKETALLY over HTTP |
 | G6.2 dropped-flag count rendered | `PASSED` | same | FAKETALLY |
 | G6.3 `vendor_switch` through the review screen | `PASSED` | same, 16 tests, 5 mutants killed | FAKETALLY over HTTP |
@@ -2856,7 +2985,7 @@ then asked itself whether it was surprised.
 | pyright / ruff | 0 / clean | 0 / clean | — |
 | gate count | **20, unchanged** | 20 | `ci/gates.toml` |
 | `N = 10` run, all 15 conditions | `PASSED` | 15/15 | `ci/acceptance.py` |
-| Phase 5B, 30 of 30 lifecycles | `PASSED` | 30 | `ci/readiness.py` |
+| readiness lifecycles | `PASSED` | 30 of 30 | `ci/readiness.py` |
 | clean-room wheel install | `PASSED` | — | builds, installs `--no-index --no-deps`, imports outside the repo, refuses a Tally that is not there |
 
 ### 40.6 `BLOCKED_ENVIRONMENT` — the live acceptance test

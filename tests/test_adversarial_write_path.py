@@ -1648,9 +1648,22 @@ def test_a_caller_that_skips_the_valid_gate_writes_an_entry_the_pipeline_refuses
     # still refuses, and the entry the hidden caller lands in somebody's books
     # has a real credit leg and no debit leg - which is the damage worth
     # showing.
-    draft.voucher = replace(draft.voucher, credit_account="Cash")
-    assert draft.voucher.debit_account == ""
-    assert draft.voucher.credit_account == "Cash"
+    # BOTH legs, and both real ledgers. Updated 2026-08-10.
+    #
+    # This used to leave the debit leg empty, because a voucher landing with no
+    # debit account was the most legible damage available. It is no longer
+    # available: `FakeTally.write_voucher` now mirrors `RealTally._check_writable`
+    # (defect D1), so the connector refuses a blank leg on BOTH backends and the
+    # hidden caller cannot land that particular entry any more. That is a real
+    # improvement and this test found it.
+    #
+    # The claim is unchanged and the specimen is now worse, not better: a
+    # well-formed voucher that nobody approved, indistinguishable in the books
+    # from one that went through the gate. An entry that looks correct is harder
+    # to find afterwards than one with an empty leg.
+    draft.voucher = replace(
+        draft.voucher, debit_account="Sundry Expenses", credit_account="Cash"
+    )
     assert draft.outcome is Outcome.UNCLEAR, "still not postable, and that is the point"
 
     balance_before = client.trial_balance(COMPANY)
@@ -1666,7 +1679,7 @@ def test_a_caller_that_skips_the_valid_gate_writes_an_entry_the_pipeline_refuses
     assert client.write_count == 1
     assert written.operation_id == draft.operation_id
     assert len(client.list_our_vouchers(COMPANY)) == 1
-    assert client.list_our_vouchers(COMPANY)[0].debit_account == ""
+    assert client.list_our_vouchers(COMPANY)[0].debit_account == "Sundry Expenses"
     assert client.trial_balance(COMPANY) != balance_before
     assert store.actions(COMPANY) == (), "and nothing recorded that it happened"
 
