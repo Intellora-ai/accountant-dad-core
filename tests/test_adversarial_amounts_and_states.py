@@ -328,18 +328,19 @@ def test_a_zero_amount_asks_how_much_and_writes_nothing() -> None:
     assert rows[0].detail.endswith("0 paise")
 
 
-def test_a_negative_amount_asks_how_much_and_is_shown_to_the_person_wrongly() -> None:
-    """Expected UNCLEAR, actual UNCLEAR, write count 0 - and a wrong number.
+def test_a_negative_amount_asks_how_much_and_is_shown_to_the_person_correctly() -> None:
+    """Expected UNCLEAR, actual UNCLEAR, write count 0, and the right number.
 
-    DEFECT: accountant/web/app.py:357-358. `rupees()` is
+    DEFECT, FIXED 2026-08-09. `rupees()` was
     `f"{paise // 100:,}.{paise % 100:02d}"`, and Python floors both operators
     towards negative infinity. -420050 paise is ₹-4,200.50 and renders as
     "-4,201.50"; -1 paise renders as "-1.99". `real.rupees_from_paise` splits
     the sign off first and gets it right, so the two renderers in this system
     disagree about every negative that is not a whole rupee.
 
-    Smallest fix: render the magnitude and prepend the sign, exactly as
-    `accountant/tallyio/real.py:319-321` already does.
+    Fixed by rendering the magnitude and prepending the sign, exactly as
+    `real.rupees_from_paise` already did. The two renderers in this system now
+    agree on every negative.
 
     Asserted here rather than in isolation because this is the user-facing
     message for this case, and the case is the one where a negative reaches the
@@ -364,15 +365,11 @@ def test_a_negative_amount_asks_how_much_and_is_shown_to_the_person_wrongly() ->
     )
 
     card = _card(draft)
-    assert card.count("₹-4,200.50") == 0, (
-        "app.rupees has been fixed; delete the defect note in this docstring"
-    )
-    assert card.count("₹-4,201.50") == 1, (
-        "the screen shows one rupee less than the entry carries"
-    )
-    assert app.rupees(-1) == "-1.99", "₹-0.01 renders as ₹-1.99"
+    assert card.count("₹-4,200.50") == 1, "the screen shows what the entry carries"
+    assert card.count("₹-4,201.50") == 0, "the old floored rendering is gone"
+    assert app.rupees(-1) == "-0.01"
     assert real.rupees_from_paise(-420_050) == "-4200.50", (
-        "the connector's renderer is the one that is right"
+        "and the two renderers agree, which is the property that was broken"
     )
 
     # The gate refuses it as well as the screen mis-stating it, and the refusal
@@ -386,24 +383,23 @@ def test_a_negative_amount_asks_how_much_and_is_shown_to_the_person_wrongly() ->
 def test_a_sub_paise_amount_is_truncated_by_the_reader_and_refused_by_the_wire() -> (
     None
 ):
-    """Two components disagree about the same string, and only one is right.
+    """Both components refuse the same string now. FIXED 2026-08-09.
 
-    DEFECT: accountant/extract/adapter.py:66 and :79. `_AMOUNT` matches at most
-    two decimal places, so "10.005" matches as "10.00" and the third digit is
-    dropped without a word; `_to_paise` then multiplies a FLOAT by 100.
-    `real.paise_from_rupees` refuses the identical string - "carries sub-paise
-    precision; refusing to round it away" - because rounding invoice arithmetic
-    is how reconciliation breaks later.
+    DEFECT, until then: `_AMOUNT` matched at most two decimal places, so
+    "10.005" matched as "10.00" and the third digit was dropped without a word;
+    `_to_paise` then multiplied a FLOAT by 100. `real.paise_from_rupees`
+    refused the identical string - "carries sub-paise precision; refusing to
+    round it away" - because rounding invoice arithmetic is how reconciliation
+    breaks later.
 
-    So a sub-paise amount typed by a person is silently rounded, while the same
-    amount arriving from Tally is refused. Expected: both refuse. Actual: the
-    reader rounds. Write count 0 only because the vendor is unseen, NOT because
-    anything noticed the truncation - so this test also pins that the truncated
-    amount is what would have been written.
+    So a sub-paise amount typed by a person was silently rounded and POSTED,
+    while the same amount arriving from Tally was refused. Measured then:
+    amount 1000 paise, outcome VALID, one write, and the log row said "1000
+    paise" so the truncation was unrecoverable from the trail.
 
-    Smallest fix: give `TypedTextExtractor` the `Decimal` path
-    `paise_from_rupees` already has, and make a third decimal place a
-    not_found with a stated reason rather than a silent 10.00.
+    Now the reader returns no amount at all, which `amount_is_positive` turns
+    into a question. Refusing rather than raising, because an unreadable amount
+    is a question for the person and an exception here would be a 500.
 
     backend RecordingTally | cleanup not attempted.
     """
@@ -412,35 +408,36 @@ def test_a_sub_paise_amount_is_truncated_by_the_reader_and_refused_by_the_wire()
 
     draft = _run(client, store, "paid Sharma Traders 10.005 for cement")
 
-    assert draft.voucher.amount_paise == 1000, (
-        "the reader kept ₹10.00 out of ₹10.005 and said nothing"
+    assert draft.voucher.amount_paise == 0, (
+        "no amount was read, so none is carried - never a rounded one"
     )
     assert int(Decimal("10.005") * 100) == 1000, (
         "1000 paise is the truncation, and 1000.5 paise is not representable - "
-        "which is why the connector refuses the string instead of picking one"
+        "which is why both components refuse the string instead of picking one"
     )
     with pytest.raises(real.TallyDataError, match="sub-paise"):
         real.paise_from_rupees("10.005")
 
-    assert draft.outcome is Outcome.VALID, (
-        "the truncated amount was otherwise perfectly postable"
-    )
-    assert len(client.writes) == 1
-    assert client.writes[0][2] == 1000, "the truncated amount is what got written"
+    assert draft.outcome is Outcome.UNCLEAR
+    assert draft.reason == "amount is 0 paise"
+    assert client.writes == [], "nothing is written and nothing is truncated"
+    assert client.inner.list_our_vouchers(COMPANY) == ()
 
     rows = _rows(store)
-    assert [r.action for r in rows] == [pipeline.WRITE_ATTEMPTED, "posted"]
-    assert rows[-1].detail.endswith("1000 paise")
+    assert [r.action for r in rows] == ["blocked"], (
+        "no write was attempted, so there is no write-ahead row either"
+    )
     assert {r.run_id for r in rows} == {RUN_ID}
     assert {r.backend for r in rows} == {"RecordingTally"}
-    assert "10.005" not in rows[-1].detail, (
-        "the log records what we wrote and never what the person typed, so the "
-        "truncation is unrecoverable from the trail"
-    )
 
-    op = draft.operation_id
+    # The disconfirming case, on the same reader and the same sentence shape:
+    # two decimal places still read exactly, so the refusal is about precision
+    # and not about decimals.
+    fine = _run(client, store, "paid Sharma Traders 10.50 for cement")
+    assert fine.voucher.amount_paise == 1050
+    assert fine.outcome is Outcome.VALID
+    op = fine.operation_id
     assert client.reverse_by_operation_id(COMPANY, op) is True
-    assert client.reversals == [(op, True)]
     assert client.inner.trial_balance(COMPANY) == {
         "Purchases": 4_000_000,
         "Cash": -4_000_000,
@@ -537,10 +534,10 @@ def test_a_tenth_plus_two_tenths_of_a_rupee_lands_on_the_exact_paise() -> None:
 def test_a_rupee_amount_a_float_cannot_hold_loses_a_paise_before_it_reaches_tally() -> (
     None
 ):
-    """The typed-text reader still multiplies a float by 100.
+    """The typed-text reader no longer multiplies a float by 100. FIXED 2026-08-09.
 
-    DEFECT: accountant/extract/adapter.py:79.
-    `_to_paise` is `round(float(text.replace(",", "")) * 100)`. A float64 holds
+    DEFECT, until then: `_to_paise` was
+    `round(float(text.replace(",", "")) * 100)`. A float64 holds
     about sixteen significant digits, so from ₹99,999,999,999,999.99 upward the
     paise it produces is simply the wrong integer - here one paise short, and
     at ₹999,999,999,999,999.99 one paise long. `real.paise_from_rupees` uses
@@ -550,8 +547,7 @@ def test_a_rupee_amount_a_float_cannot_hold_loses_a_paise_before_it_reaches_tall
     everywhere and that a float in a money field is a correctness bug. This is
     that bug, in the one component that reads what a person typed.
 
-    Smallest fix: `int(Decimal(cleaned) * 100)` in `_to_paise`, which is the
-    expression `paise_from_rupees` already uses.
+    Fixed with `Decimal`, the expression `paise_from_rupees` already used.
 
     Write count 0 - nothing is posted here, the reader is called directly.
     ActionLog and the rendered message are not applicable at this layer.
@@ -559,11 +555,12 @@ def test_a_rupee_amount_a_float_cannot_hold_loses_a_paise_before_it_reaches_tall
     exact_low = int(Decimal("99999999999999.99") * 100)
     exact_high = int(Decimal("999999999999999.99") * 100)
 
-    assert _read_amount("99999999999999.99") == exact_low - 1, (
-        "the reader is one paise short; if this now equals the exact value the "
-        "defect is fixed and this test should say so instead"
+    assert _read_amount("99999999999999.99") == exact_low, (
+        "one paise short before the fix; exact now"
     )
-    assert _read_amount("999999999999999.99") == exact_high + 1
+    assert _read_amount("999999999999999.99") == exact_high, (
+        "one paise long before the fix; exact now"
+    )
 
     assert real.paise_from_rupees("99999999999999.99") == exact_low
     assert real.paise_from_rupees("999999999999999.99") == exact_high
@@ -576,12 +573,11 @@ def test_a_rupee_amount_a_float_cannot_hold_loses_a_paise_before_it_reaches_tall
     record = TypedTextExtractor().extract(
         b"paid Sharma Traders 99999999999999.99 for cement", "text/plain"
     )
-    assert record.total_paise == exact_low - 1, (
-        "the wrong integer is what the pipeline would go on to write"
+    assert record.total_paise == exact_low, (
+        "the exact integer is what the pipeline goes on to write"
     )
     assert record.per_field_source["total_paise"] == "typed_text", (
-        "the record claims the reader supplied this number, so nothing "
-        "downstream has any reason to doubt it"
+        "the record claims the reader supplied this number, and now it can"
     )
 
 
@@ -1192,14 +1188,21 @@ def test_a_not_valid_entry_is_refused_by_the_post_gate_and_moves_no_money() -> N
     assert client.inner.trial_balance(COMPANY) == before
     assert client.inner.list_our_vouchers(COMPANY) == ()
 
-    with pytest.raises(ValueError, match="Unknown format code"):
-        _card(draft)
-    assert app.ACTION_FOR[Outcome.NOT_VALID] == "blocked", (
-        "the log word exists for an outcome the screen cannot draw"
-    )
+    # FIXED 2026-08-09. `_card(draft)` raised `ValueError: Unknown format code
+    # 'd' for object of type 'float'` out of `app.rupees`, so the ONE outcome
+    # that means "nothing was posted" was the one outcome the screen could not
+    # draw. The person got a traceback instead of the reason.
+    #
+    # `rupees` stays strict - a money formatter that renders a float as rupees
+    # is how a lost paise stops being visible - and the page degrades instead,
+    # printing the value as it actually is and saying it is not an amount.
+    card = _card(draft)
+    assert card.count("4200.5 (not an amount)") == 1
+    assert card.count("₹") == 0, "nothing here is rendered as a rupee figure"
+    assert "amount is float" in card, "and the reason is on the same screen"
+    assert app.ACTION_FOR[Outcome.NOT_VALID] == "blocked"
 
-    # The refusal is still recorded, which is why the defect above is a missing
-    # message rather than a missing audit trail.
+    # The refusal is recorded as well as shown.
     pipeline.record_decision(store, draft, memory, client, "blocked", RUN_ID)
     rows = _rows(store)
     assert len(rows) == 1
@@ -1350,29 +1353,39 @@ def test_invalid_input_never_reaches_a_real_write() -> None:
     client = _real(sim)
     bad = dataclasses.replace(_voucher(4200), amount_paise=4200.5)  # type: ignore[arg-type]
 
-    with pytest.raises(ValueError) as refused:
+    with pytest.raises(real.TallyRejected) as refused:
         client.write_voucher(sim_module.COMPANY, bad, new_operation_id())
 
-    assert "Unknown format code" in str(refused.value)
     assert _creates(sim) == 0, "a float amount reached the wire"
     assert client.read_vouchers(sim_module.COMPANY) == ()
     assert client.trial_balance(sim_module.COMPANY) == {}
 
-    # The missing guard, stated as the observable difference. Every DELIBERATE
-    # refusal in `_check_writable` opens with "refusing to write voucher <id>";
-    # this one names neither the voucher nor the amount, because it is not a
-    # refusal at all - it is a format code failing to accept a float.
-    assert "refusing to write" not in str(refused.value)
-    assert bad.id not in str(refused.value)
+    # A4, FIXED 2026-08-09, stated as the observable difference. The refusal
+    # used to be `ValueError: Unknown format code 'd' for object of type
+    # 'float'` from `rupees_from_paise` one line later - naming no voucher, no
+    # field and no amount, so whoever read that log learned nothing about which
+    # entry to look at. Every DELIBERATE refusal in `_check_writable` opens
+    # with "refusing to write voucher <id>", and this one now does too.
+    message = str(refused.value)
+    assert "refusing to write" in message
+    assert bad.id in message
+    assert "4200.5" in message
+    assert "float" in message
+    assert "Unknown format code" not in message
 
     # The write counter is live. Without this the zero above would also hold if
     # `_creates` matched nothing at all.
     client.write_voucher(sim_module.COMPANY, _voucher(4200), new_operation_id())
     assert _creates(sim) == 1
 
-    # And the accidental nature of the refusal, measured: a bool IS an int in
-    # Python, so it sails through the format code and renders as one paise.
+    # The case the format code could never have caught: a bool IS an int in
+    # Python, so it sails straight through `rupees_from_paise` and renders as
+    # one paise. Only an explicit type check refuses it.
     assert real.rupees_from_paise(True) == "0.01"
+    boolean = dataclasses.replace(_voucher(4200), amount_paise=True)  # type: ignore[arg-type]
+    with pytest.raises(real.TallyRejected, match="bool"):
+        client.write_voucher(sim_module.COMPANY, boolean, new_operation_id())
+    assert _creates(sim) == 1, "still one; the bool never reached the wire"
 
 
 def test_a_bootstrap_that_derived_no_vendor_mapping_is_not_ready_and_health_says_so() -> (  # noqa: E501

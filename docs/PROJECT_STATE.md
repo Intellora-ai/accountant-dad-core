@@ -2639,3 +2639,58 @@ was an aspiration and now holds.
 decision about `tests/test_memory.py:994-1001`. `normalise_company` has the same
 NFD fold that `normalise_vendor` just gained. None is a wrong-write risk on the
 gated path; all are recorded.
+
+---
+
+## §38 A1–A4 — money is integer paise, or it is refused
+
+2026-08-09. Closes **A1, A2, A3, A4** (§30).
+
+### 38.1 One rule, two components, opposite behaviour
+
+`tallyio.paise_from_rupees` has parsed with `Decimal` and **refused** sub-paise
+precision since it was written, because rounding invoice arithmetic is how a
+reconciliation breaks three months later.
+
+`extract/adapter.py` did neither. `_to_paise` was
+`round(float(text.replace(",", "")) * 100)`, and `_AMOUNT` captured at most two
+decimal places. The lenient component was the one a person's typing reaches
+first.
+
+| # | Measured before | After |
+|---|---|---|
+| A1 | `"92233720368547.75"` → 9223372036854776 paise, one adrift; `"99999999999999.99"` one paise short, `"999999999999999.99"` one long | exact, via `Decimal` |
+| A2 | `"10.005"` → 1000 paise, **VALID, POSTED**, and the log row said "1000 paise" so the truncation was unrecoverable from the trail | no amount is read; `amount_is_positive` asks the person |
+| A3 | `rupees(-420050)` → `"-4,201.50"`; `rupees(-1)` → `"-1.99"`. `//` and `%` both floor toward −∞, so every negative in the trial balance was a rupee further from zero — and the paise did not move with it, which is what makes it read like a rounding style | sign split off first, exactly as `rupees_from_paise` always did |
+| A4 | a float was caught one line later by a `:02d` format code — `"Unknown format code 'd' for object of type 'float'"` — naming no voucher, no field and no amount. A **bool was not caught at all**: `bool` is an `int`, so `rupees_from_paise(True)` returns `"0.01"` and one paise goes on the wire | `check_amount_is_paise` refuses by name, bool before int |
+
+The GST split also came out of `float(pct)`. 18% of ₹1,180 is exactly ₹180; in
+binary floating point it is 179.99999999999997, and `round` hides that until the
+amount where it does not. Now `Decimal`.
+
+### 38.2 A3's other half — the screen that could not draw a refusal
+
+`amount_is_integer_paise` is the only unanswerable check in the codebase, so a
+float amount is the clearest route to NOT_VALID there is — and it was the one
+draft the screen could not render at all.
+
+`rupees` stays strict: a money formatter that quietly renders a float as rupees
+is how a lost paise stops being visible. The page degrades instead. A new
+`app.money()` prints `4200.5 (not an amount)` and the reason appears on the same
+screen. Strictness where the number is, tolerance where the person is.
+
+### 38.3 Why the reader returns None rather than raising
+
+An unreadable amount is a question, not a crash. `checks.amount_is_positive`
+already turns a missing total into one. Raising inside the extractor would be a
+500 in the web app for a typo.
+
+### 38.4 Alarms
+
+Five tests in `tests/test_adversarial_amounts_and_states.py` pinned these on
+purpose and fired. All five are flipped to assert the fix and keep their
+disconfirming halves — including a new one on A2: two decimal places still read
+exactly, so the refusal is about precision and not about decimals.
+
+New: `tests/test_money.py`, 17 cases, including the cross-check that the reader
+and the connector now return the same integer for the same string.

@@ -839,9 +839,39 @@ def _ledger_entry(leg: OutgoingLeg) -> str:
     )
 
 
+def check_amount_is_paise(voucher: Voucher) -> None:
+    """A4, FIXED 2026-08-09. The amount is an `int`, by name, or it is refused.
+
+    `_check_writable` tested `<= 0` and never tested the TYPE. A float survived
+    to `rupees_from_paise` and was caught one line later by the `:02d` format
+    code, whose message - "Unknown format code 'd' for object of type 'float'"
+    - names no voucher, no field and no amount. Whoever reads that log at 9pm
+    learns nothing about which entry to look at.
+
+    A bool was not caught at all. `bool` IS an `int` in Python, so
+    `rupees_from_paise(True)` returns "0.01" without complaint and one paise
+    goes on the wire. `isinstance(x, int)` alone would let it through, which is
+    why the bool is rejected before the int is accepted.
+    """
+    # pyright reads `amount_paise: int` and calls both checks unnecessary. It
+    # is right about the annotation and wrong about the world: an annotation is
+    # not enforced at runtime, this is the boundary to somebody's statutory
+    # books, and a float has already reached it once in this repo's history.
+    if isinstance(voucher.amount_paise, bool) or not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
+        voucher.amount_paise, int
+    ):
+        raise TallyRejected(
+            f"refusing to write voucher {voucher.id!r}: amount_paise is "
+            f"{voucher.amount_paise!r}, a {type(voucher.amount_paise).__name__}. "
+            "Amounts are integer paise, and anything else has already lost "
+            "precision by the time it reaches the wire."
+        )
+
+
 def _check_writable(voucher: Voucher) -> None:
     """Refuse at the boundary. An entry that cannot be represented faithfully
     must never reach the wire, whatever ran upstream."""
+    check_amount_is_paise(voucher)
     if voucher.amount_paise <= 0:
         raise ValueError(
             f"refusing to write voucher {voucher.id!r}: amount_paise is "

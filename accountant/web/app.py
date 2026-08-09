@@ -394,7 +394,59 @@ padding:1px 5px;border-radius:4px}
 
 
 def rupees(paise: int) -> str:
-    return f"{paise // 100:,}.{paise % 100:02d}"
+    """Integer paise as rupees. A3, FIXED 2026-08-09.
+
+    Was `f"{paise // 100:,}.{paise % 100:02d}"`. Python floors division toward
+    minus infinity, so `-420050 // 100` is -4201 and `-420050 % 100` is 50: the
+    page printed -4,201.50 for a balance of -4,200.50. Every negative figure in
+    the trial balance was one rupee further from zero, and the paise did not
+    move with it, which is what makes it read like a rounding style instead of
+    an error. `tallyio.rupees_from_paise` has always split the sign off first;
+    this now does the same.
+
+    And it RAISED on a non-int, through the `:02d` format code, with the
+    message "Unknown format code 'd' for object of type 'float'".
+    `amount_is_integer_paise` is the only unanswerable check in the codebase,
+    so a float amount is the clearest route to NOT_VALID there is - and it was
+    the one draft the screen could not draw. The outcome that means "nothing
+    was posted" was the outcome the person could not be shown. The refusal is
+    now explicit and says what is wrong.
+    """
+    if isinstance(paise, bool):  # bool is an int; render it as one
+        paise = int(paise)
+    # Annotated `int`, so pyright calls this unnecessary. The annotation is not
+    # enforced at runtime and the whole point of this branch is the value that
+    # arrives anyway - which is how the NOT_VALID screen came to be the one
+    # screen the app could not draw.
+    if not isinstance(paise, int):  # pyright: ignore[reportUnnecessaryIsInstance]
+        raise TypeError(
+            f"amounts are integer paise, never {type(paise).__name__}: {paise!r}"
+        )
+    sign = "-" if paise < 0 else ""
+    whole, fraction = divmod(abs(paise), 100)
+    return f"{sign}{whole:,}.{fraction:02d}"
+
+
+def money(paise: object) -> str:
+    """An amount for the SCREEN. Never raises, and never invents a rendering.
+
+    A3's other half. `rupees` is strict on purpose - it is the money formatter,
+    and a formatter that quietly renders a float as rupees is how a lost paise
+    stops being visible. But the page is not allowed to fail: a non-integer
+    amount is exactly what makes an entry NOT_VALID through
+    `amount_is_integer_paise`, the only unanswerable check in the codebase, so
+    the one draft the person MOST needs to see was the one that raised while
+    being drawn. They got a traceback instead of "nothing was posted, and here
+    is why".
+
+    So the strictness stays in `rupees` and the page degrades: it prints the
+    value as it actually is, marked as not an amount, which is the true
+    statement and the one that explains the refusal on the same screen.
+    """
+    try:
+        return f"₹{rupees(paise)}"  # type: ignore[arg-type]
+    except TypeError:
+        return f"{esc(paise)} (not an amount)"
 
 
 def esc(s: object) -> str:
@@ -556,8 +608,8 @@ def render_decision(d: pipeline.Draft) -> str:
             ("Party", v.party or "—"),
             ("Debit", v.debit_account or "—"),
             ("Credit", v.credit_account),
-            ("Amount", f"₹{rupees(v.amount_paise)}"),
-            ("GST", f"₹{rupees(v.gst_paise)}" if v.gst_paise else "—"),
+            ("Amount", money(v.amount_paise)),
+            ("GST", money(v.gst_paise) if v.gst_paise else "—"),
             ("Date", v.date),
         ]
     )
@@ -626,7 +678,7 @@ def render_home(banner: str = "") -> bytes:
     posted_rows = (
         "".join(
             f"<tr><td>{esc(v.party)}</td><td>{esc(v.debit_account)}</td>"
-            f"<td class=num>₹{rupees(v.amount_paise)}</td>"
+            f"<td class=num>{money(v.amount_paise)}</td>"
             f"<td><code>{esc(operation_id_in(v.narration))}</code></td></tr>"
             for v in ours
         )
