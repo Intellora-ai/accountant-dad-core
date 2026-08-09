@@ -28,6 +28,7 @@ from __future__ import annotations
 import datetime
 import html
 import json
+import os
 import urllib.parse
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -798,12 +799,84 @@ class Handler(BaseHTTPRequestHandler):
         self._send(render_home(), 404)
 
 
+# ---- where IS Tally, and may we write to it? --------------------------------
+#
+# `TallyConfig()` defaults to localhost:9000, and until 2026-08-09 `serve()` had
+# no way to be told anything else. On this project that default can never work:
+# TallyPrime runs inside a Windows VM, and `localhost` on the Mac is a DIFFERENT
+# MACHINE from `localhost` in the guest. The app could not be pointed at the one
+# Tally that exists without editing source.
+#
+# Environment variables rather than a config file or a flag: no new dependency,
+# nothing to parse, nothing to keep in sync, and it works identically from a
+# terminal, a launcher and a packaged .exe.
+#
+# Principle 9 - defaults must be EXPLICIT. Every resolved value is printed at
+# startup, including which ones came from the environment and which are
+# defaults, so "which Tally am I talking to" is never a guess.
+
+ENV_HOST = "ACCOUNTANT_TALLY_HOST"
+ENV_PORT = "ACCOUNTANT_TALLY_PORT"
+ENV_COMPANY = "ACCOUNTANT_COMPANY"
+ENV_BACKED_UP = "ACCOUNTANT_BACKED_UP_COMPANIES"
+
+
+def config_from_environment() -> tuple[TallyConfig, str, RecordedBackups, list[str]]:
+    """Resolve where Tally is, and which companies we are permitted to write to.
+
+    Returns the config, the company, the backup record, and a human-readable
+    list of what came from WHERE - because a resolved value with no provenance
+    is the same ambiguity as no value at all.
+
+    `RecordedBackups` stays EMPTY unless the operator names companies in
+    ACCOUNTANT_BACKED_UP_COMPANIES. That is deliberate and it fails closed: an
+    empty record refuses every write, so a person who has not said "I have a
+    backup of this company" cannot post into it by starting the app. Declaring
+    it is a decision, and decisions should be typed out, not defaulted into.
+    """
+    provenance: list[str] = []
+
+    def read(name: str, fallback: str) -> str:
+        raw = os.environ.get(name)
+        if raw is None or not raw.strip():
+            provenance.append(f"{name}={fallback!r} (default)")
+            return fallback
+        provenance.append(f"{name}={raw.strip()!r} (environment)")
+        return raw.strip()
+
+    host = read(ENV_HOST, TallyConfig.host)
+    port_text = read(ENV_PORT, str(TallyConfig.port))
+    company = read(ENV_COMPANY, COMPANY)
+    backed_up_text = read(ENV_BACKED_UP, "")
+
+    try:
+        port = int(port_text)
+    except ValueError as exc:
+        # Not a fallback to 9000. A port that cannot be parsed is a typo, and
+        # silently using a different one is how you connect to the wrong thing.
+        raise RealTallyRequired(
+            f"{REFUSAL}: no operation performed. {ENV_PORT}={port_text!r} is not "
+            f"a number. Set it to the port Tally's HTTP server listens on, or "
+            f"unset it to use {TallyConfig.port}."
+        ) from exc
+
+    backed_up = frozenset(
+        name.strip() for name in backed_up_text.split(",") if name.strip()
+    )
+    return (
+        TallyConfig(host=host, port=port),
+        company,
+        RecordedBackups(backed_up),
+        provenance,
+    )
+
+
 def serve(
     host: str = "127.0.0.1",
     port: int = 8000,
     *,
     tally: TallyConfig | None = None,
-    company: str = COMPANY,
+    company: str | None = None,
     backups: RecordedBackups | None = None,
 ) -> None:
     """Connect to the real Tally FIRST, then serve. Refuse loudly otherwise.
@@ -826,12 +899,30 @@ def serve(
     the person finds out in the terminal in one second, not by opening a page
     that looks like an app and refuses everything they type.
     """
-    live = connect(tally or TallyConfig(), company, backups=backups)
+    env_tally, env_company, env_backups, provenance = config_from_environment()
+    tally = tally if tally is not None else env_tally
+    company = company if company is not None else env_company
+    backups = backups if backups is not None else env_backups
+
+    # Printed BEFORE connecting, so a wrong address is visible even when the
+    # connection then fails. A refusal that does not say where it tried to go
+    # sends the reader to check Tally when the real fault is a typo here.
+    print("Accountant Dad, resolving configuration:")
+    for line in provenance:
+        print(f"  {line}")
+    if not backups.companies:
+        print(
+            f"  no company is recorded as backed up, so WRITES WILL BE REFUSED. "
+            f"Set {ENV_BACKED_UP} to a comma-separated list once you have a backup."
+        )
+
+    live = connect(tally, company, backups=backups)
     print(
         f"Accountant Dad -> http://{host}:{port}\n"
         f"  backend {live.identity.backend} at {live.identity.endpoint}\n"
         f"  company {live.identity.company!r}\n"
         f"  books    {live.memory.report.status.value}\n"
+        f"  writable {sorted(backups.companies) or 'NOTHING - reads only'}\n"
         f"  run      {live.identity.run_id}"
     )
     HTTPServer((host, port), Handler).serve_forever()

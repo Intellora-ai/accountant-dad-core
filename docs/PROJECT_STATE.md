@@ -1646,7 +1646,35 @@ Export/Data "License Info"
 ```
 
 A custom TDL `<REPORT>/<FORM>/<PART>/<LINE>/<FIELD>` was then tried, and **it
-wedged the live TallyPrime**. TCP kept accepting; HTTP never answered again, for
+wedged the live TallyPrime**.
+
+**CORRECTED 2026-08-09 by a screenshot of the VM.** Tally did not crash and was
+not hung. It opened a **modal error dialog on the Windows desktop** and stopped
+serving HTTP until a human dismissed it:
+
+```
+Error in TDL
+Part:LicProbe
+Could not find the Repeated Line:
+                              [ OK ]
+```
+
+`LicProbe` is the report name from the probe, so the attribution is exact.
+
+**This is worse than a hang, and it changes what the whitelist is worth.** A bad
+request does not fail and return an error over HTTP. It blocks the gateway
+behind a dialog that only a person standing at that machine can clear. On a
+customer's installation that is a silent, unrecoverable-from-here outage caused
+by one malformed request. The recovery is one click, and it is a click nobody
+remote can make.
+
+Two earlier conclusions in this section are therefore WRONG and are corrected
+here rather than edited away: "restarting TallyPrime" is not required, and
+`utmctl exec` being unavailable was never the real obstacle.
+
+Also confirmed visually in the same screenshot: the title bar reads
+**Tally Prime EDU** — Educational mode, seen directly, independent of the
+licence read that could not be performed. TCP kept accepting; HTTP never answered again, for
 that request or any after it. Measured to exhaustion: **40 polls at 10-second
 intervals over roughly seven minutes, then one deliberate 150-second
 single-request attempt in case Tally was grinding rather than dead. All timed
@@ -1743,3 +1771,245 @@ Closing that gap needs a **declared** value, labelled **DECLARED, NOT MEASURED**
 set by the owner and never mistaken for a reading. That is a decision about how
 much declared truth the system may carry, not an engineering choice, so it was
 not built. **No action is required for anything else to proceed.**
+
+---
+
+## 27. Threat model — hazards, controls, and the test that pins each
+
+**2026-08-09.** Every row verified against the repository, not asserted. A hazard
+with no permanent test is a hazard nobody will notice returning.
+
+| Hazard | Trigger | Damage | Prevention | Detection | Safe recovery | Permanent test |
+|---|---|---|---|---|---|---|
+| **Wrong-company write** | company A's memory used for a draft in company B | a voucher in the wrong business's statutory books | `build_draft` and `evaluate` compare `memory.identity.key` to `normalise_company(company)` and raise | `ValueError` naming both companies | nothing written — the raise precedes any write | `test_pipeline_isolation.py:191, 199, 217` |
+| **Wrong-vendor match** | two vendors with near-identical or homoglyph names | voucher posted to the wrong ledger | exact normalised equality in SQL, never fuzzy; two accounts → `CONFLICTED`, never a pick | `MatchStatus.CONFLICTED` becomes a question | ask, never guess | `test_memory.py`, `test_decide.py`, `test_adversarial_identity.py` |
+| **Duplicate voucher** | retry after a dropped response | the same expense counted twice | operation ID generated before the write; `DuplicateOperation` on reuse | exception, register count unchanged | no second voucher created | `test_tally_contract.py` |
+| **Stale read** | index built from history that has since changed | proposing from a world that no longer exists | memory is bootstrapped per company and re-derived; `read_by_operation_id` always re-reads | bootstrap counts reported in `/health` | re-bootstrap | `test_memory.py`, `test_pipeline.py` |
+| **Misleading success** | Tally answers HTTP 200 but wrote nothing | we tell the person it posted when it did not | C6 — every post is read back; `None` raises | `RuntimeError` naming the operation id | `posted_tally_id` stays `None` | `test_pipeline.py:438` |
+| **Fallback to FakeTally** | a fake reaching a live runtime | fabricated evidence about real books | the app imports neither implementation; the factory is the only constructor | AST import scan; five measured backend states | refuse — `REAL TALLY REQUIRED` | `test_runtime_backend.py`, `test_backend_states.py` |
+
+### 27.1 The dependency graph, measured by AST
+
+Every mutating call site under `accountant/`:
+
+```
+accountant/pipeline.py:225   write_voucher()            in post()      GATED on Outcome.VALID
+accountant/pipeline.py:240   reverse_by_operation_id()  in reverse()
+accountant/web/app.py:787    reverse_by_operation_id()  in do_POST()   <-- BYPASS
+```
+
+Modules importing anything named `*fake*`: **NONE**. The three occurrences of the
+string `FakeTally` in `accountant/web/app.py` are historical prose in comments —
+lines 10, 369 and 817 — with no code path.
+
+**`write_voucher` is clean:** exactly one caller outside `accountant/tallyio/`,
+inside `pipeline.post`, behind the Valid gate, pinned by an AST test.
+
+**`POST /reverse` is not.** `accountant/web/app.py:787` reaches `tallyio` directly,
+skipping `pipeline.reverse` and its trial-balance verification, and reverses
+whatever `op` string the form supplies. So the claim *"UI → application boundary →
+tallyio → RealTally is the only live write path"* is **TRUE for creation and FALSE
+for reversal**.
+
+This is the item already recorded as *"Noted, not fixed here"* in the Phase 3 plan.
+**Reported, not fixed** — the plan is frozen and this needs its own decision.
+
+---
+
+## 28. FIRST LIVE RUN — the whole chain, against a real TallyPrime
+
+**2026-08-09.** The gateway was unblocked by the owner clicking `OK` on the modal
+(§25.5). Everything below was then measured against the real TallyPrime 7 in the
+Windows VM at `192.168.64.2:9000`.
+
+**Evidence class: `EDUCATIONAL_MODE_COMPATIBILITY`.** Real Tally, real XML, real
+register, real reversal — on a date Educational mode permits. It is **not** proof
+about the unchanged `2026-08-07` fixture and is never to be reported as such.
+
+### 28.1 The application, started the normal way
+
+Command, with the VM named through the new environment variables:
+
+```
+ACCOUNTANT_TALLY_HOST=192.168.64.2 ACCOUNTANT_TALLY_PORT=9000 \
+ACCOUNTANT_COMPANY="Accountant Dad Final" \
+ACCOUNTANT_BACKED_UP_COMPANIES="Accountant Dad Final" \
+python -m accountant.web
+```
+
+`GET /health` → **HTTP 200**, every value measured, none hardcoded:
+
+| field | actual | run |
+|---|---|---|
+| `ready` | `true` | `run_d472c609ae7e4abe8c2985b6b2a84985` |
+| `backend` | `RealTally` | |
+| `endpoint` | `http://192.168.64.2:9000` | |
+| `company_identifier` | `Accountant Dad Final` | |
+| `bootstrap_status` | `ready` | |
+| `accounts_read` | 4 | |
+| `vouchers_read` | 2 | |
+| `vendor_mappings_derived` | 1 | |
+| `index_entries` | 1 | |
+| `conflicts` / `unusable_rows` | 0 / 0 | |
+| `backend_state` | `real-licence-unknown` | fails closed, as designed |
+| `licence_mode` | `unknown` | with the exact Tally error as its reason |
+
+**`serve()` → `connect()` → `RealTally` → identity check → bootstrap from the
+company's OWN history → the app becomes available.** Proven by running it, not by
+injecting a client.
+
+### 28.2 The controlled write, and Tally's own register
+
+`ci/educational_slice.py`, run `edu_0d42b3a30d79461b8d25ad414040d6e5`,
+backend `RealTally`, company `Accountant Dad Final`, ledgers
+`AD Test Expense` / `AD Test Vendor`, voucher date `2026-08-31`.
+
+**20 of 21 metrics PASS.** The single FAIL is `company_is_demo_co`, which is the
+recorded substitution from §25.5 — `Demo Co` cannot be created over XML — not a
+defect.
+
+| metric | actual | expected | pass rule |
+|---|---|---|---|
+| `trial_balance_balances_to_zero` | 0 | 0 | conservation law |
+| `register_size_before` | 2 | 2 | reported |
+| `voucher_created` | true | true | Tally returned an identifier |
+| `voucher_identifier` | **13** | — | Tally's own MASTERID |
+| `voucher_carries_marker` | matches op id | matches | C4 |
+| `read_back_by_operation_id` | true | true | C6 |
+| **`register_grew_by_one`** | **1** | 1 | the UNFILTERED register |
+| **`found_in_unfiltered_register_by_amount`** | **1** | 1 | located WITHOUT our marker |
+| `trial_balance_delta` | `{AD Test Expense: +131300, AD Test Vendor: -131300}` | exactly that | moved by this voucher and nothing else |
+| `reversal_reported_success` | true | true | targeted by operation id |
+| **`trial_balance_restored_exactly`** | `{168456, -168456}` | identical to before | #6.5, to the paise |
+| `register_size_restored` | 2 | 2 | gone from Tally's register |
+| `cleanup_status` | true | true | nothing of ours left behind |
+
+**Verified independently of the slice's own claim**, by a separate read after the
+run: 2 vouchers, `{'AD Test Expense': 168456, 'AD Test Vendor': -168456}`.
+
+### 28.3 What this does and does not settle
+
+```
+Tally running                        PROVEN
+application connects                 PROVEN   serve() -> connect() -> RealTally
+correct company confirmed            PROVEN   company_identifier measured
+structured read succeeds             PROVEN   4 ledgers, 2 vouchers, balanced TB
+controlled voucher write succeeds    PROVEN   Tally identifier 13
+Tally's own register returns it      PROVEN   found without our marker
+cleanup restores the books           PROVEN   exact paise, verified twice
+```
+
+**Still NOT proven:** the unchanged `2026-08-07` contract. Educational mode
+rejects that date, and the owner's Option 2 decision (§24) stands. No amount of
+`2026-08-31` evidence changes it, and the two are kept apart by
+`tests/test_evidence_classes.py`.
+
+```
+Phase 3 implementation:        COMPLETE
+Phase 3 live validation:       ENVIRONMENT-LIMITED
+RealTally 2026-08-07 evidence: NOT PROVEN
+```
+
+---
+
+## 29. FOUR OPEN DEFECTS found by adversarial testing — OWNER DECISION
+
+**2026-08-09.** Found by `tests/test_adversarial_identity.py`, which **pins** each
+one so a fix turns the pinned test red visibly. **None is fixed.** Each posts a
+voucher to the wrong place, silently, with no flag and no question.
+
+| id | defect | measured result | smallest fix |
+|---|---|---|---|
+| **D1** | An accented name in NFD form keys to a *different* supplier. `_PUNCT = [^\w\s&]` at `memory/index.py:36` — U+0301 is category Mn, so a decomposed accent becomes a space and collapses. | `normalise_vendor(NFD "Café Supplies") == "cafe_supplies"`. The NFD spelling **posts VALID**; the NFC spelling of the identical visible name asks. | `index.py:46` → `unicodedata.normalize("NFC", name).casefold().strip()`, and the same at `identity.py:47`. Stdlib. |
+| **D2** | `Acme Ltd` and `Acme LLP` are one vendor key. `_SUFFIXES` at `index.py:20-34` strips `llp` beside `ltd`. | An LLP invoice **posts VALID** against Ltd-only history. Contradicts `identity.py:19-21`, which states those are separate entities. | drop `llp`, `inc`, `corp`, `corporation` from `_SUFFIXES`. **Owner call** — it is a documented trade-off. |
+| **D3** | Two Tally companies can share one memory scope. `identity.py:37-47` turns punctuation into a separator, so `Acme Traders (Unit 1)` and `Acme Traders Unit 1` both key `acme_traders_unit_1`. | The second bootstrap's `forget()` erases the first company's index; the first company's live handle then answers with the **second company's account**; the cross-company guard at `pipeline.py:116-121` compares keys so it **cannot fire**; `store.actions()` merges both trails. | collision check in `bootstrap.py:197`, where `list_companies()` is already in hand. Fails closed, no schema change. |
+| **D4** | A stale index outvotes the live ledger. `resume()` at `bootstrap.py:255-272` never tests freshness; `bootstrapped_at` is written and read by no decision. | Memory says Purchases, all 40 live vouchers say Repairs & Maintenance → **VALID, zero flags, zero problems, posted**, reason recorded as *"nothing unclear and nothing surprising"*. | compare the proposal against the party's accounts in the `history` already passed to `pipeline.evaluate:180`, or a detector reading `history` — `detectors.py:63` already carries it. |
+
+**D3 is the most serious: it is a cross-company write**, and it defeats the exact
+isolation the memory package exists to provide.
+
+**Also recorded, not a defect:** `Problem.id` and `Question.problem_id` disagree —
+a failed `accounts_exist` check yields `Problem(id="accounts_exist")` whose
+question is hard-coded `problem_id="which_account"` (`problems.py:55`,
+`questions.py:143`). Self-resolves today, but the non-overlapping guarantee and
+the answer path are keyed on two different ids. Asserted so it cannot drift.
+
+**Also:** a refusal raised out of `build_draft` (`pipeline.py:276`) never reaches
+`record_decision` (`:283`/`:285`), so *"every decision leaves a durable row"* is
+not true on that path.
+
+**Status: OWNER-BLOCKED by choice.** D1 and D3 are contained fixes; D2 and D4 are
+design decisions. None was changed, because all four predate Phase 3 and the plan
+is frozen.
+
+---
+
+## 30. FIVE MORE OPEN DEFECTS — the write path. OWNER DECISION
+
+Found by `tests/test_adversarial_write_path.py` (26 tests, 6 `xfail` each proven
+to fail for the intended reason under `--runxfail`). **None fixed.** Two of these
+undermine claims already committed in this branch.
+
+| id | defect | measured damage | smallest fix |
+|---|---|---|---|
+| **W1** | **The read-back is a PRESENCE check, not an IDENTITY check.** `pipeline.py:228-235` raises only when `back is None`; `back` is then **discarded**. | Sent 420,000 / Sharma Traders / 7 Aug; read back 2,000,000 / Verma Properties / 31 Aug → outcome `valid`, ActionLog `posted`. Second face: present in the marker view but **absent from `read_vouchers` and `trial_balance`** → still reported posted. **This defeats G3**, the register guarantee this branch claims. | compare `back.amount_paise/party/date/debit_account/credit_account` to `draft.voucher`, raise on mismatch, and set `posted_tally_id` from `back.tally_id` not `result.tally_id`. |
+| **W2** | **A write with an unknown outcome records NOTHING.** `record_decision` is only reached after `post` returns; when `post` raises, **zero** ActionLog rows exist. | The operation id survives only in a traceback, so a voucher that may exist cannot be reconciled or reversed later. Same hole at `web/app.py:656-657`, where the socket simply drops. | wrap `post` in `try/except BaseException`, record `action="write_outcome_unknown"` carrying the operation id, re-raise. |
+| **W3** | **An error envelope reads as an empty company.** `parse_vouchers` (`real.py:1203-1230`) returns `VoucherPage(exported=(), skipped=0)` for a well-formed `<ENVELOPE>` containing `<LINEERROR>` and no vouchers. | The duplicate pre-check at `real.py:1854` sees no marker and imports. **Two identical statutory entries** from one operation id — and both write calls raised, so every layer reported failure. They now share a marker, so `reverse_by_operation_id` raises `matches 2 vouchers` and cleanup needs a human. | raise `TallyResponseError` when any `<LINEERROR>` carries text. Same shape in `parse_companies`, `parse_ledger_names`, `parse_closing_balances`. **Narrows but does not close** — the pre-check still fails OPEN on any read it cannot positively confirm. |
+| **W4** | **The fake and the real disagree, and the contract cannot see it.** `fake.py:112-124` picks the FIRST of two vouchers sharing a marker; `RealTally._read_exported_by_operation_id` (`real.py:1797`) refuses. | `test_tally_contract.py` holds both backends to one contract and this property is not in it — so **a test written against the fake can "prove" an ambiguity is handled when it is not.** | collect all matches, raise on `len > 1`, and add the case to the shared contract. |
+| **W5** | **Nothing cross-checks the declared identity against the actual client.** `web/app.py:221-249` (`configure`). | A `FakeTally` behind `BackendIdentity(backend="RealTally")` renders `data-backend-state="real-licence-unknown"` and *"This is your real Tally"*, while every log row says `RecordingTally`. Both cannot be right, and the person reads the wrong one. | in `configure`, raise unless `identity.backend == type(client).__name__`. |
+
+**W1 and W5 weaken guarantees this branch asserts.** W1 means "found in Tally's own
+register" is checked by the slice but NOT by `pipeline.post`. W5 means the
+five-state backend display can be lied to by its own caller.
+
+### 30.1 Chart of Accounts — already built, verified by reading it
+
+`RealTally._check_ledgers_exist` (`real.py:1820-1834`) reads the **actual Chart of
+Accounts from Tally** before every write and refuses on an exact-name miss, with
+its own docstring recording why: Tally does not create a master on the fly and the
+import can fail silently. The requested `REQUIRED_LEDGER_MISSING` behaviour is
+therefore present in substance; only the named code and an explicit
+ledger-creation operation are absent, and creation is **new scope beyond the
+frozen Phase 3 plan**.
+
+### 30.2 Port — measured, not assumed
+
+Seven ports scanned on `192.168.64.2`. **Only 9000 is open, and it answers Tally
+XML** with a valid company envelope. `connection_status = reachable`.
+
+### 30.3 LIVE — Educational mode REJECTS, it does not silently rewrite
+
+A simulated finding claimed Tally may accept a refused date and store a different
+one, which would make the read-back's existence-only check catastrophic. **Tested
+against the real TallyPrime and REFUTED:**
+
+```
+SENT   2026-08-07 to 'Accountant Dad Final'
+RESULT TallyRejected: status=1 created=0 altered=0 deleted=0 exceptions=1
+       line_errors=["Voucher date is missing for: 'Journal' voucher 1..."]
+books  restored True, register 2 vouchers before and after
+```
+
+Tally strips the date it will not accept and then reports it as **missing**. The
+outcome is a clean refusal with zero writes, so the date attack on W1 is closed
+by Tally itself.
+
+**W1 remains open** — read-back still verifies existence, not identity, and the
+amount and party faces of it are untouched by this result. What is settled is
+that the `2026-08-07` fixture is genuinely REFUSED by Educational mode, measured
+rather than inferred from documentation.
+
+### 30.4 Six further defects — amounts, rendering, ordering
+
+From `tests/test_adversarial_amounts_and_states.py` (+21 tests, 0 skips, 0 xfails).
+
+| id | defect | measured |
+|---|---|---|
+| **A1** | float in a money field, `extract/adapter.py:79` `round(float(text)*100)` | wrong integer above ₹99,999,999,999,999.99. `paise_from_rupees` uses `Decimal` and is exact. Fix: `int(Decimal(cleaned) * 100)` |
+| **A2** | sub-paise silently truncated, `adapter.py:66` | `10.005` → `10.00`, **VALID, POSTED**. `paise_from_rupees` refuses the same string |
+| **A3** | `rupees()` floors toward −∞, `web/app.py:357` | −420050 renders **−4,201.50**. It also RAISES on a float, so a NOT_VALID float draft cannot be drawn at all — the one outcome meaning "must not post" is the one the screen cannot render |
+| **A4** | `_check_writable` (`real.py:702`) never checks integer-ness | a float is caught one line later by a format code whose message names no voucher and no amount. `rupees_from_paise(True) == "0.01"` |
+| **A5** | ordering, `pipeline.py:273` | Tally is read before memory readiness, so a not-ready company with a flaky connector reports the connector's error instead of `MemoryNotReady`. Fails closed; only the diagnosis is wrong |
+| **A6** | 9 of 13 state names in the brief do not exist in the code | `BOOTSTRAPPING`, `POSTING`, `READ_BACK_VERIFIED`, `CLEANED` and others are absences or field values, not states. `POSTING` matters: **a crash mid-write leaves no trace that a write was started** — the same hole as W2 |
+
+Pinned by `test_nine_of_the_thirteen_state_names_do_not_exist_in_the_shipped_package`.
