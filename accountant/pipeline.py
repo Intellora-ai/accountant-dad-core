@@ -486,6 +486,24 @@ def post(
     return draft
 
 
+class ReversalMismatch(RuntimeError):
+    """Tally's answer and Tally's own books disagree about a reversal.
+
+    A `RuntimeError` subclass rather than a new exception hierarchy, so every
+    existing `pytest.raises(RuntimeError)` around this path keeps working and
+    nothing that catches broadly changes behaviour.
+
+    It exists because `accountant/reversal.py` must tell two failures apart and
+    the message text is not a safe discriminator. This one is WRONG_MOVEMENT —
+    the books moved by something other than what undoing the voucher should
+    have moved them by, in either direction. Any OTHER exception out of the
+    same call is UNKNOWN_OUTCOME: a dropped connection or a malformed response
+    says nothing about whether the books moved, and the two demand opposite
+    responses. WRONG_MOVEMENT stops the batch dead; UNKNOWN_OUTCOME stops it
+    pending a read-only reconciliation.
+    """
+
+
 @dataclass(frozen=True)
 class Reversal:
     """What a reversal actually did, measured against Tally's own trial balance."""
@@ -540,7 +558,7 @@ def reverse_operation(client: TallyClient, company: str, operation_id: str) -> R
 
     if not ok:
         if moved:
-            raise RuntimeError(
+            raise ReversalMismatch(
                 f"reversing {operation_id!r} in {company!r} reported failure but "
                 f"the trial balance moved by {moved}. The books and the answer "
                 "disagree; nothing here can be trusted until a person looks."
@@ -557,7 +575,7 @@ def reverse_operation(client: TallyClient, company: str, operation_id: str) -> R
         voucher.credit_account: voucher.amount_paise,
     }
     if moved != expected:
-        raise RuntimeError(
+        raise ReversalMismatch(
             f"reversing {operation_id!r} in {company!r} reported success, but "
             f"the trial balance moved by {moved} and undoing this voucher "
             f"should have moved it by {expected}. Nothing is recorded as "

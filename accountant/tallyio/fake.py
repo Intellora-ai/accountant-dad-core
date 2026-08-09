@@ -77,6 +77,16 @@ class FakeTally:
         """Place a voucher we did NOT write, as if the accountant typed it."""
         self._co(company).vouchers.append(voucher)
 
+    def set_backup(self, company: str, recorded: bool) -> None:
+        """Change the backup record without disturbing the books.
+
+        `add_company` can set it, but only by rebuilding the company and
+        throwing away its vouchers. The gate has to be testable on a company
+        that already has entries in it — that is the only situation in which
+        refusing to reverse actually protects anything.
+        """
+        self._co(company).backed_up = recorded
+
     def _co(self, company: str) -> _Company:
         try:
             return self._companies[company]
@@ -175,6 +185,14 @@ class FakeTally:
 
     def reverse_by_operation_id(self, company: str, operation_id: str) -> bool:
         co = self._co(company)
+        # The same gate `write_voucher` has. A delete is the more destructive of
+        # the two and until 2026-08-09 it was the ungated one: a bulk reverse
+        # could empty a company nobody had backed up while a single write to
+        # that company was refused.
+        if not co.backed_up:
+            raise CompanyNotBackedUp(
+                f"{company!r} has no recorded backup; refusing to reverse"
+            )
         at = self._the_one_position_carrying(company, operation_id)
         if at is None:
             return False
@@ -185,3 +203,6 @@ class FakeTally:
         return tuple(
             v for v in self._co(company).vouchers if operation_id_in(v.narration)
         )
+
+    def backed_up(self, company: str) -> bool:
+        return self._co(company).backed_up

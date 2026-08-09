@@ -157,6 +157,12 @@ class RecordingTally:
     def list_our_vouchers(self, company: str) -> tuple[Voucher, ...]:
         return self.inner.list_our_vouchers(company)
 
+    def backed_up(self, company: str) -> bool:
+        # The ninth TallyClient method, added 2026-08-09 for G5.2. Delegated
+        # like the rest: this double wraps a real FakeTally and has no opinion
+        # about backups.
+        return self.inner.backed_up(company)
+
 
 class BreakingTally(RecordingTally):
     """FakeTally that fails on one named step, and only that one."""

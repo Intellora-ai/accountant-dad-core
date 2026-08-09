@@ -252,6 +252,12 @@ class RecordingTally:
     def list_our_vouchers(self, company: str) -> tuple[Voucher, ...]:
         return self.inner.list_our_vouchers(company)
 
+    def backed_up(self, company: str) -> bool:
+        # The ninth TallyClient method, added 2026-08-09 for G5.2. Delegated
+        # like the rest: this double wraps a real FakeTally and has no opinion
+        # about backups.
+        return self.inner.backed_up(company)
+
 
 class LosesTheReadBack(RecordingTally):
     """The write lands; the read-back finds nothing. C6's expensive case."""
@@ -300,6 +306,9 @@ class HidesItFromTheRegister(RecordingTally):
     def list_our_vouchers(self, company: str) -> tuple[Voucher, ...]:
         del company
         return ()
+
+    def backed_up(self, company: str) -> bool:
+        return self.inner.backed_up(company)
 
     def trial_balance(self, company: str) -> dict[str, int]:
         balances: dict[str, int] = {}
