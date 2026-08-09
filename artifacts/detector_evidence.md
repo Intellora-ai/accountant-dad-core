@@ -69,7 +69,7 @@ Two call sites produce the same number:
 `accountant/score/harness.py:381` (whole-book harness)
 
 ```python
-measured_hundredths=scaled_rate(false_alarms, clean, PERCENT_SCALE),
+measured_hundredths = (scaled_rate(false_alarms, clean, PERCENT_SCALE),)
 ```
 
 `accountant/score/calibration.py:144-148` (multi-book measurement — the one the real-data
@@ -132,9 +132,7 @@ for book in books:
         if entry.id in injected:
             continue
         clean += 1
-        flags, _ = detectors.run(
-            entry, book.history, index, detector_set, dedupe=False
-        )
+        flags, _ = detectors.run(entry, book.history, index, detector_set, dedupe=False)
         if flags:
             flagged += 1
 return CleanMeasurement(flagged=flagged, clean=clean)

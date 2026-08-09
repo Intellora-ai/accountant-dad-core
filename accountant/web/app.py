@@ -39,7 +39,7 @@ from accountant import questions as Q
 from accountant.extract.adapter import TypedTextExtractor
 from accountant.memory.bootstrap import bootstrap
 from accountant.memory.company import CompanyMemory
-from accountant.memory.identity import normalise_company
+from accountant.memory.identity import normalise_company, same_company_name
 from accountant.memory.store import BootstrapReport, BootstrapStatus, MemoryStore
 from accountant.schema import ActionLog, Outcome
 from accountant.tallyio.client import TallyClient, operation_id_in
@@ -133,6 +133,69 @@ def remember_batch(batch: reversal.Batch) -> None:
     BATCHES[batch.batch_id] = batch
     while len(BATCHES) > BATCH_LIMIT:
         BATCHES.pop(next(iter(BATCHES)))
+
+
+def draft_for(draft_id: str, live: Runtime) -> pipeline.Draft | None:
+    """The draft, but only if it belongs to the company we are bound to.
+
+    Defect D-B, found 2026-08-10. `DRAFTS` is keyed by draft id alone, and the
+    id says nothing about whose books the draft is for. A draft built while the
+    app was bound to one company was rendered under another company's header
+    once the runtime changed - party, both ledgers, amount, Tally id and an
+    "Undo this entry" button, all drawn under the wrong name.
+
+    It was display only: the undo button posts to a route that looks in the
+    CURRENT company and reports not-found, and `pipeline.evaluate` refuses a
+    foreign draft outright. So nothing was ever written to the wrong company
+    through this path. Showing one company's entry under another company's name
+    is still the single most alarming thing this product could do to an
+    accountant, and "it was only the screen" is not a defence.
+
+    An UNKNOWN draft returns None, which every caller already renders as "that
+    draft expired". A FOREIGN draft raises instead, and the difference is
+    deliberate: "expired" is a normal, uninteresting end to a form, while a
+    request naming another company's draft means something is wrong with the
+    identity of this session and must not read as routine. The handler turns
+    the refusal into a 503 that names no internals, and the durable log keeps
+    the detail.
+    """
+    draft = DRAFTS.get(draft_id)
+    if draft is None:
+        return None
+    if normalise_company(draft.company) != live.company_key:
+        raise RuntimeError(
+            f"{REFUSAL}: no operation performed. Draft {draft_id!r} belongs to "
+            f"company {draft.company!r}, and this app is bound to "
+            f"{live.company!r}. Nothing was read and nothing was written."
+        )
+    return draft
+
+
+def batch_for(batch_id: str, live: Runtime) -> reversal.Batch | None:
+    """The previewed batch, but only if it is for the company we are bound to.
+
+    Defect D-A, found 2026-08-10, and the worst of the three: a wrong-company
+    WRITE. `reversal._drive` reverses in `batch.company`, while the handler
+    files its audit rows under the CURRENT runtime's key. Nothing compared the
+    two. Measured: a batch previewed for one company and confirmed after the
+    app was bound to another DELETED the first company's voucher and wrote the
+    reversal rows under the second - so the company whose books actually
+    changed has an audit trail that says `posted` and never says `reversed`.
+
+    Not reachable from `serve()` today, because a process calls `connect()`
+    once. It is reachable through `configure()`, which is public, and the
+    repository had already noticed: the company-identity test fixture clears
+    `DRAFTS` and `BATCHES` by hand. A guard the tests apply and the code does
+    not is not a guard.
+
+    A foreign batch is left in place rather than popped. Popping it would
+    destroy another company's pending preview as a side effect of a request
+    that has no business touching it.
+    """
+    batch = BATCHES.get(batch_id)
+    if batch is None or normalise_company(batch.company) != live.company_key:
+        return None
+    return BATCHES.pop(batch_id, None)
 
 
 # How many log rows the page shows. The log itself is unbounded and append-only;
@@ -230,7 +293,7 @@ class Runtime:
         if (
             self.memory.report.askable
             and stored is not None
-            and stored.identity.name != self.company
+            and not same_company_name(stored.identity.name, self.company)
         ):
             stale = (
                 f"our stored memory under key {self.company_key!r} now names "
@@ -255,7 +318,10 @@ class Runtime:
                 f"still the one we are working in: {type(exc).__name__}: {exc}"
             ) from exc
 
-        if self.company not in open_now:
+        # D-C: NFC comparison. An exact `in` made a macOS-typed name and the
+        # same name from Tally on Windows two different companies, and told
+        # the operator to open a company that was already open.
+        if not any(same_company_name(self.company, o) for o in open_now):
             raise RuntimeError(
                 f"{REFUSAL}: no operation performed. {self.company!r} is no "
                 f"longer open in Tally. {len(open_now)} company/companies are "
@@ -1339,7 +1405,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if self.path == "/answer":
-            d = DRAFTS.get(form.get("draft", ""))
+            d = draft_for(form.get("draft", ""), runtime())
             if d is None:
                 self._send(render_home("<div class=warn>draft expired</div>"))
                 return
@@ -1485,7 +1551,7 @@ class Handler(BaseHTTPRequestHandler):
             # post. A dismissal says the person saw the concern and chose not
             # to act on it. Treating that as approval is one line away and is
             # how a surprise nobody investigated ends up in somebody's books.
-            d = DRAFTS.get(form.get("draft", ""))
+            d = draft_for(form.get("draft", ""), runtime())
             detector = form.get("detector", "")
             if d is None:
                 self._send(render_home("<div class=warn>draft expired</div>"))
@@ -1528,7 +1594,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(render_bulk_preview(batch))
                 return
 
-            shown = BATCHES.pop(form.get("batch", ""), None)
+            shown = batch_for(form.get("batch", ""), live)
             if shown is None:
                 # No preview, or one that has aged out. Not an error to hide:
                 # confirming a list nobody has seen is the exact thing the two

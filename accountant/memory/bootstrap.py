@@ -36,7 +36,11 @@ from accountant.memory.company import (
     FROM_TALLY_HISTORY,
     CompanyMemory,
 )
-from accountant.memory.identity import CompanyIdentity, normalise_company
+from accountant.memory.identity import (
+    CompanyIdentity,
+    normalise_company,
+    same_company_name,
+)
 from accountant.memory.index import normalise_phrase, normalise_vendor
 from accountant.memory.store import (
     BootstrapCounts,
@@ -140,7 +144,13 @@ def _colliding_company(
     what collides, and the name is what a person can act on.
     """
     for other in open_companies:
-        if other != company and normalise_company(other) == key:
+        # `same_company_name`, not `!=`. The company we were asked for and the
+        # one Tally reports are the same name in two Unicode forms - NFD from
+        # macOS, NFC from Windows - and comparing them exactly made a company
+        # collide with ITSELF and refuse to bootstrap. The collision this guard
+        # exists for is two DIFFERENT names folding to one key, not one name
+        # spelt two ways.
+        if not same_company_name(other, company) and normalise_company(other) == key:
             return other
     return None
 
@@ -253,7 +263,11 @@ def bootstrap(
         # `resume(the other one)` came back INCOMPLETE under the wrong name.
         # Destroying an index is the last thing we do, not the first.
         open_companies = client.list_companies()
-        if company not in open_companies:
+        # D-C: NFC comparison, see `same_company_name`.
+        matched = next(
+            (o for o in open_companies if same_company_name(company, o)), None
+        )
+        if matched is None:
             return _incomplete(
                 store,
                 identity,
@@ -276,6 +290,13 @@ def bootstrap(
                 f"histories cannot be told apart. Nothing was read and nothing "
                 f"was changed. Rename one of them in Tally, then try again.",
             )
+        # Tally's spelling wins from here on. We matched on NFC, so the name
+        # we were configured with and the name Tally holds can differ by
+        # normal form; every later call passes this string to the client, and
+        # the client looks companies up by exact name. Asking for the spelling
+        # the book of record does not use is how a company that IS open reads
+        # as missing.
+        company = matched
         done.append("identity")
 
         # Safe now: this is the right company, and no other open company can

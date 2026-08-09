@@ -842,7 +842,7 @@ def _ledger_entry(leg: OutgoingLeg) -> str:
 def check_amount_is_paise(voucher: Voucher) -> None:
     """A4, FIXED 2026-08-09. The amount is an `int`, by name, or it is refused.
 
-    `_check_writable` tested `<= 0` and never tested the TYPE. A float survived
+    `check_writable` tested `<= 0` and never tested the TYPE. A float survived
     to `rupees_from_paise` and was caught one line later by the `:02d` format
     code, whose message - "Unknown format code 'd' for object of type 'float'"
     - names no voucher, no field and no amount. Whoever reads that log at 9pm
@@ -868,9 +868,15 @@ def check_amount_is_paise(voucher: Voucher) -> None:
         )
 
 
-def _check_writable(voucher: Voucher) -> None:
-    """Refuse at the boundary. An entry that cannot be represented faithfully
-    must never reach the wire, whatever ran upstream."""
+def check_writable(voucher: Voucher) -> None:
+    """Refuse at the boundary.
+
+       Public, and named without the underscore, because `FakeTally` calls it:
+       the double must make the SAME call the connector makes, not a restatement
+       of it that can drift. Sibling of `check_amount_is_paise`, which was already
+       public for the same reason.
+    An entry that cannot be represented faithfully
+       must never reach the wire, whatever ran upstream."""
     check_amount_is_paise(voucher)
     if voucher.amount_paise <= 0:
         raise ValueError(
@@ -916,7 +922,7 @@ def build_voucher_create(
     reads back, and `REMOTEID`, which is a locator Tally may or may not
     round-trip (A5). The narration is the contract; REMOTEID is a convenience.
     """
-    _check_writable(voucher)
+    check_writable(voucher)
     if marker_for(operation_id) not in narration:
         raise ValueError(
             f"refusing to write voucher {voucher.id!r} without the "

@@ -15,9 +15,23 @@ read this.
 Where a design rule exists *because* of a measurement, the rule is stated here
 and the number is linked, never copied.
 
-Packages are marked **present** or **absent** from the repository, which is the
-authority. A planned package appears in the target architecture but is never
-described as existing.
+**Status lives in exactly one file: [`CONTROL_PLANE.yaml`](./CONTROL_PLANE.yaml).**
+Nothing here says whether a phase has passed, whether a component works, or how
+far the build has got. `scripts/validate_project_truth.py` reads this file and
+fails the build if a status claim reappears in it.
+
+Packages are marked **present** or **absent**. Read those two words narrowly:
+they say whether a path exists in the repository today, and nothing else.
+**`present` is not `working`, not `finished` and not `verified`** — a package can
+be present, imported, tested and still be a stub. Whether it does its job is a
+status question and the answer is in the control plane.
+
+> **Audit note, 2026-08-10.** Three status claims were removed from this file
+> today and are recorded in
+> [`artifacts/document_contradictions.md`](../artifacts/document_contradictions.md):
+> a hard-coded count of client-fixture tests in the Tally-spine exit, the same
+> count in the four-outcome table under it, and the words "not started" on the
+> planned-packages section. The design they described is unchanged.
 
 ---
 
@@ -553,7 +567,7 @@ in [`PROJECT_STATE.md` §22](./PROJECT_STATE.md#22-product-quality--first-measur
 transfer, so memory is company-local and every customer is a permanent cold
 start.
 
-### 4.13 Planned packages — **absent, not started**
+### 4.13 Planned packages — **absent from the repository**
 
 **Verified absent from the repository.**
 
@@ -912,15 +926,19 @@ response    parsed into the SAME frozen types FakeTally returns
 ```
 
 - **Exit:** point the `client` fixture in `tests/test_tally_contract.py` at the
-  real client; **all 15 client-fixture tests pass.** Nothing outside
-  `accountant/tallyio/` changes.
+  real client; **every client-fixture test in that file passes**, with the
+  fixture unmodified. Nothing outside `accountant/tallyio/` changes.
+  The count is deliberately not written here — it is a property of the file and
+  it has already drifted once. Read it from the file, or from
+  [`CONTROL_PLANE.yaml`](./CONTROL_PLANE.yaml), metric
+  `REALTALLY_CONTRACT_TESTS_PASSING`.
 
 **The exit has four outcomes, not two.** A licence tier that restricts voucher
 dates can refuse the fixture's date while the connector itself is correct, so
 "the tests did not pass" and "the connector is wrong" must be different answers:
 
 ```
-CONTRACT_PASS        all 15 pass against the real client, fixture unmodified
+CONTRACT_PASS        every one passes against the real client, fixture unchanged
 CONTRACT_FAIL        a test failed. The connector is wrong.
 ENVIRONMENT_LIMITED  the environment refused the fixture, not the connector
 NOT_RUN              no real client was reachable

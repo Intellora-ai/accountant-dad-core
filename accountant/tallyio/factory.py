@@ -27,6 +27,7 @@ books.
 
 from __future__ import annotations
 
+import unicodedata
 import uuid
 from dataclasses import dataclass
 
@@ -139,7 +140,20 @@ def real_tally(
             f"could not reach {config.url}: {type(exc).__name__}: {exc}"
         ) from exc
 
-    if company not in companies:
+    # D-C: NFC, not `in`. A name typed on macOS is decomposed and the same
+    # name from Tally on Windows is composed; the two are visually identical
+    # and not equal.
+    #
+    # Spelt out here with `unicodedata` rather than imported from
+    # `accountant.memory.identity.same_company_name`, which states the same
+    # rule. Correction C3 forbids anything under `accountant/tallyio/` from
+    # importing the product layer, and `tests/test_reverse_all_cli.py` enforces
+    # it by AST. A one-line duplication across a deliberate boundary is the
+    # cost of the boundary; reaching upward to avoid it would be the defect.
+    wanted = unicodedata.normalize("NFC", company)
+    if not any(
+        unicodedata.normalize("NFC", open_one) == wanted for open_one in companies
+    ):
         raise RealTallyRequired(
             f"REAL TALLY REQUIRED: no operation performed. "
             f"{company!r} is not open in Tally at {config.url}; "

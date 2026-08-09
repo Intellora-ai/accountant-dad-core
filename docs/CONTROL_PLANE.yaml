@@ -1,0 +1,1727 @@
+# CONTROL_PLANE — the one machine-readable statement of what is true today.
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# The project's documents disagreed with each other. An audit found many
+# contradictions. The fix is not more documents and not deleting history. It is
+# ONE file a machine can read, plus secondary documents that agree with it.
+#
+# AUTHORITY. This file wins. If any document disagrees with a value here, the
+# document is wrong and the disagreement is recorded in
+# artifacts/document_contradictions.md rather than quietly edited away.
+#
+# WORD MAP, stated once.
+#   The older documents use the word COMPLETE. "COMPLETE" is not a status in
+#   this file. It maps to PASSED. Nothing else about it changes.
+#
+# WHAT "PASSED" IS NOT. A phase is never PASSED because code exists, because
+# unit tests exist, because FakeTally passes, because GitHub is green, or
+# because a document says so. PASSED means the phase's own exit observable was
+# seen.
+#
+# THREE CONVENTIONS a reader (or a validator) needs to know.
+#   1. metrics[].current may be `null`. That means "nobody has measured it".
+#      A null is never a pass. It is written down instead of omitted, because a
+#      frozen acceptance criterion that is missing from this file is exactly the
+#      gap this file exists to close.
+#   2. Some metrics have no owner-set target. The target then carries a
+#      "TARGET NOTE ... derived, not owner-set" line inside `formula`. A
+#      derived target is never presented as an owner decision.
+#   3. `depends_on` means "this metric cannot move until that OTHER METRIC
+#      moves". It is a metric id or null, which is what
+#      scripts/validate_project_truth.py enforces. It is NOT where a dependency
+#      on the owner or on the environment is recorded. Those live in `blockers`
+#      (each one carries kind: OWNER or ENVIRONMENT), in `decisions`, and
+#      machine-readably in artifacts/launch_baseline.json under the key
+#      `owner_or_environment_dependency`.
+#
+# DECISION IDS — READ THIS BEFORE GREPPING FOR A D-NUMBER.
+#   Three sources allocated D-numbers and two of them collided. Nothing was
+#   renumbered, because these ids are already linked from other documents and
+#   from commit messages, and a renumbered id is an unauditable one.
+#
+#     D-01 to D-13   docs/DECISIONS.md, allocated first. Unchanged.
+#     D-14 to D-21   docs/CLOUD_ARCHITECTURE.md section 19 and
+#                    docs/DATA_POLICY.md, allocated next-free by the cloud
+#                    agent. Honoured, summarised here, wording owned there.
+#     D-22 to D-28   allocated by this file, next free after the above.
+#
+#   A coordinator instruction used a DIFFERENT numbering for a list of owner
+#   questions. Its numbers were already taken and would have overwritten real
+#   records. THE INSTRUCTION WAS WRONG AND IS RECORDED AS WRONG, in
+#   artifacts/document_contradictions.md. This is the map from that
+#   instruction's labels to the ids actually used:
+#
+#     coordinator label                           actual id     new or existing
+#     -----------------------------------------   -----------   ---------------
+#     D-01 licence                                D-01          existing
+#     D-02 aggregate vs worst-department rule     D-22          new here
+#     D-03 supplier legal identity                D-05          existing
+#     D-04 live Tally vs stale memory             D-06          existing
+#     D-05 Tally.ERP 9 support                    D-03          existing
+#     D-06 first-launch input types               D-23          new here
+#     D-07 cloud data storage                     D-14          cloud agent
+#     D-08 retention and deletion                 D-15          cloud agent
+#     D-09 supported Windows/Tally versions       D-24          new here
+#     D-10 cloud launch caps                      D-21          cloud agent
+#     D-11 cloud runtime dependency               D-04          existing
+#
+#   What the coordinator's numbers ALREADY mean here, and therefore what would
+#   have been destroyed: D-07 declared licence mode · D-08 the cloud-start gate
+#   · D-11 N = 10 (settled) · D-10 the merge queue · D-03 Tally.ERP 9 ·
+#   D-04 the runtime dependency · D-05 supplier identity · D-06 stale index.
+
+version: 1
+generated_from_commit: "53dd60d6c9b0dd9bfb2a1564398c3510cf93a7b8"
+generated_on: "2026-08-10"
+working_tree_clean: false
+working_tree_note: >-
+  The working tree is NOT clean and several agents are working in it at once.
+  Two commits landed while this file was being written - a19a100 (the
+  flag_cap = 3 work) and 53dd60d (measurement, taxonomy, the acceptance runbook
+  and the cloud design). Still uncommitted at the time of writing: changes under
+  accountant/memory/, accountant/reversal.py, accountant/tallyio/,
+  accountant/web/app.py, and several new test files and documents. Any number
+  below that was measured today was measured against that tree, and says so.
+
+allowed_statuses:
+  - PASSED
+  - NOT_PASSED
+  - PARTIALLY_VERIFIED
+  - BLOCKED_ENVIRONMENT
+  - OWNER_DECISION_REQUIRED
+  - NOT_STARTED
+
+phases:
+
+  - id: "0"
+    name: "Repository and safety"
+    status: PASSED
+    evidence: >-
+      Re-verified 2026-08-10 with a reproducible command, not carried over from
+      an older manual note. `gh api repos/Intellora-ai/accountant-dad` returns
+      pushed_at 2026-08-06T19:55:12Z; `gh api
+      repos/Intellora-ai/accountant-dad/commits/HEAD --jq .sha` returns
+      924d0e06b52577b563c265105d8dea142e0d205d. Both are byte-identical to the
+      recorded pre-build baseline. `gh api
+      repos/Intellora-ai/accountant-dad-core` returns created_at
+      2026-08-07T11:38:55Z, visibility public.
+    exit_criteria:
+      - text: "The new public repository exists."
+        met: true
+        evidence: >-
+          gh api repos/Intellora-ai/accountant-dad-core -> created_at
+          2026-08-07T11:38:55Z, visibility public. Re-run 2026-08-10.
+      - text: "The old repository's pushed_at and head SHA are byte-identical to the recorded baseline."
+        met: true
+        evidence: >-
+          pushed_at 2026-08-06T19:55:12Z and head
+          924d0e06b52577b563c265105d8dea142e0d205d, both unchanged. Re-run
+          2026-08-10. This replaces the earlier one-off manual reading, which
+          had no command anybody could repeat.
+    blocker: null
+
+  - id: "1"
+    name: "CI foundation"
+    status: PASSED
+    evidence: >-
+      ci/gates.toml holds 20 gates and ci/gate_names.lock locks the same 20
+      names; tests/test_gate_contract.py (18 tests) fails if they ever differ.
+      PROJECT_STATE.md section 18 records 8 deliberate failures observed
+      blocking, a red-PR merge refused by GitHub (405, "2 of 2 required status
+      checks are failing"), an --admin force merge refused, a direct push to
+      main refused, and three ruleset write attempts refused with 403. CAVEAT,
+      recorded rather than hidden: those runs were measured at commit 4cc290f
+      and have not been re-run at HEAD.
+    exit_criteria:
+      - text: "The gates block rather than advise."
+        met: true
+        evidence: "ci/gates.toml, 20 gates; 8 deliberate failures observed blocking (PROJECT_STATE.md section 18)."
+      - text: "Deliberate failures fail."
+        met: true
+        evidence: "PROJECT_STATE.md section 18, 8 rows, each marked PASSED - observed."
+      - text: "A red pull request is refused."
+        met: true
+        evidence: "PROJECT_STATE.md section 18: 'the base branch policy prohibits the merge'; API 405."
+      - text: "A direct push to main is refused."
+        met: true
+        evidence: "PROJECT_STATE.md section 18: 'remote: - Changes must be made through a pull request'."
+    blocker: null
+
+  - id: "2"
+    name: "The Tally spine"
+    status: BLOCKED_ENVIRONMENT
+    evidence: >-
+      The build is done and has run against a real TallyPrime 7 (PROJECT_STATE
+      section 21 - read companies, chart of accounts, vouchers, trial balance;
+      wrote one marked voucher; read it back; reversed it to the exact prior
+      paise). The EXIT has never been run. TallyPrime here is in Educational
+      mode, which accepts vouchers only on the 1st, 2nd and 31st.
+      tests/test_tally_contract.py:53 posts on 2026-08-07 and is refused. The
+      fixture is not edited. Measured 2026-08-08 - 2026-08-07 REJECTED,
+      2026-08-31 ACCEPTED.
+    exit_criteria:
+      - text: >-
+          Point the client fixture in tests/test_tally_contract.py at the real
+          client and every client-fixture test passes, fixture unmodified.
+        met: false
+        evidence: >-
+          NOT RUN. Zero client-fixture tests have ever run against a real Tally.
+          COUNT DISPUTED - the documents say 15; an AST count of the file on
+          2026-08-10 says 19 of 24 test functions take the `client` fixture.
+          Treated as PENDING_COUNT until the RealTally preparation agent
+          confirms. See artifacts/document_contradictions.md row 2.
+    blocker: "B-02"
+
+  - id: "3"
+    name: "The typed vertical slice"
+    status: PARTIALLY_VERIFIED
+    evidence: >-
+      PROJECT_STATE.md section 25.8 states it exactly - "Phase 3 implementation
+      complete. Phase 3 live validation remains environment-limited." Three of
+      the four exit clauses are proven by tests. The first clause is proven
+      against FakeTally only. One marked voucher was written into a real Tally
+      by hand (section 21 and section 28), which is not the same thing as a
+      typed bill posting itself through the application.
+    exit_criteria:
+      - text: "A typed bill posts itself."
+        met: false
+        evidence: >-
+          Proven against FakeTally (tests/test_web.py::test_a_known_vendor_posts_without_asking).
+          Not proven end to end into a real Tally by the application.
+      - text: "The marked voucher is found in Tally's own report."
+        met: false
+        evidence: >-
+          Proven against FakeTally (the G3 section of tests/test_tally_contract.py).
+          The real-Tally register read in PROJECT_STATE section 28 was a manual
+          controlled write, not the fixture and not the application's own path.
+      - text: "A test asserts that no path posts an entry whose outcome is Not valid or Unclear."
+        met: true
+        evidence: "tests/test_adversarial_write_path.py, 37 tests; tests/test_phase4_exits.py."
+      - text: >-
+          A test asserts that an existing company with an empty index is
+          reported as a bootstrap failure rather than proposing anything.
+        met: true
+        evidence: >-
+          tests/test_bootstrap_readiness.py::test_an_existing_company_that_yields_no_mappings_is_a_bootstrap_failure
+          and ::test_a_bootstrap_failure_proposes_nothing_at_all.
+    blocker: "B-03"
+
+  - id: "4"
+    name: "The no-match safety path"
+    status: PASSED
+    evidence: >-
+      All four exit assertions are code assertions, not live observations, so
+      unit tests are the right and sufficient evidence for this phase and no
+      real Tally is required. PROJECT_STATE sections 34, 35 and 36 record the
+      work, including exit 4 being PROVEN FALSE first, then the funding guess
+      being deleted rather than patched.
+    exit_criteria:
+      - text: "An unknown vendor produces a question, never a guess."
+        met: true
+        evidence: "tests/test_web.py::test_an_unseen_vendor_asks_instead_of_guessing."
+      - text: "A recorded answer makes the entry re-enter the decision order."
+        met: true
+        evidence: "tests/test_phase4_exits.py; PROJECT_STATE section 34.1 (a stale decision left by answer(), fixed structurally)."
+      - text: "No question string contains any account name from the chart."
+        met: true
+        evidence: "tests/test_questions.py::test_no_question_contains_a_ledger_account_name, plus ::test_a_question_that_leaks_an_account_name_is_caught."
+      - text: "No fallback account exists anywhere in the codebase."
+        met: true
+        evidence: >-
+          tests/test_phase4_exits.py::test_no_shipped_module_names_a_fallback_account_in_executable_code
+          and ::test_the_guard_catches_a_fallback_that_is_deliberately_introduced.
+    blocker: null
+
+  # Phase 5 is TWO rows on purpose. Row "5" is the implementation and it is
+  # PASSED. Row "5-LIVE" is the run against a real Tally and it has never
+  # happened. Folding them into one row is how "Phase 5 passed" gets said out
+  # loud, so they are never folded.
+  - id: "5"
+    name: "Phase 5 - idempotency and reversal hardening, the implementation"
+    status: PASSED
+    evidence: >-
+      PROJECT_STATE section 40.3 - G5.1 operation-ID identity on all five
+      artefacts, G5.2 bulk reversal over 8 per-voucher and 7 batch states,
+      G5.3 the N = 10 conservation proof, G5.4 the live acceptance command.
+      ci/acceptance.py reports 15 of 15 conditions PASSED. Evidence class is
+      FAKETALLY and SIMULATOR, which is stated rather than glossed.
+    exit_criteria:
+      - text: "Post N vouchers, bulk reverse, and the trial balance returns to its exact prior value in paise."
+        met: true
+        evidence: "ci/acceptance.py, 15 of 15 conditions; tests/test_acceptance_n10.py, 21 tests. FakeTally and simulator."
+      - text: "A retry with the same operation ID creates nothing."
+        met: true
+        evidence: >-
+          tests/test_adversarial_write_path.py::test_the_same_operation_posted_twice_leaves_exactly_one_voucher
+          and ::test_a_write_replayed_after_a_timeout_creates_no_second_voucher. FakeTally.
+      - text: "A company with no recorded backup is refused."
+        met: true
+        evidence: "tests/test_tally_contract.py::test_refuses_to_write_to_a_company_with_no_backup; CompanyNotBackedUp in accountant/tallyio/client.py."
+      - text: "N = 10, fixed, never lowered to make a failing run pass."
+        met: true
+        evidence: "tests/test_acceptance_n10.py::test_n_is_ten."
+    blocker: null
+
+  - id: "5-LIVE"
+    name: "The live validation run against a real Tally (the second half of Phase 5)"
+    status: BLOCKED_ENVIRONMENT
+    evidence: >-
+      No evidence exists and none is claimed. PROJECT_STATE section 40.6 -
+      "RealTally acceptance test: REQUIRED, NOT YET RUN". ARCHITECTURE section
+      14.1 holds the required sequence and the command
+      (python -m ci.acceptance_cli). ci/acceptance_cli.py refuses to apply the
+      LICENSED_REALTALLY label while the licence read returns UNKNOWN, so the
+      machine cannot fake this row.
+    exit_criteria:
+      - text: "The RealTally acceptance run completes against a licensed TallyPrime with the fixture unmodified."
+        met: false
+        evidence: "Never run. Needs B-01 (Demo Co and four ledgers created in the GUI) and B-02 (a non-Educational licence) first."
+    blocker: "B-03"
+
+  - id: "5B"
+    name: "Phase 5B - operational readiness and repeatability (a release gate, not a feature)"
+    status: PARTIALLY_VERIFIED
+    evidence: >-
+      ci/readiness.py reports 3 of 3 runs and 30 of 30 voucher lifecycles, and
+      tests/test_phase5b_readiness.py (19 tests) pins the twelve conditions.
+      Every one of those passes is against FakeTally and the simulator, which
+      is by design - a failure is never manufactured in real statutory books.
+      It is PARTIALLY_VERIFIED and not PASSED for one structural reason - this
+      gate's ENTRY is the Phase 5 exit, and the Phase 5 live exit is
+      BLOCKED_ENVIRONMENT. A release gate whose entry condition has not been
+      met has not been passed.
+    exit_criteria:
+      - text: "3 of 3 differing runs pass (A normal, B duplicate/restart/resume, C refused at voucher 4)."
+        met: true
+        evidence: "ci/readiness.py; tests/test_phase5b_readiness.py::test_run_a_is_the_whole_normal_lifecycle and siblings. FakeTally and simulator."
+      - text: "30 of 30 voucher lifecycles."
+        met: true
+        evidence: "tests/test_phase5b_readiness.py::test_the_gate_reports_thirty_lifecycles_and_twelve_conditions."
+      - text: >-
+          Zero wrong writes, zero duplicate writes, zero cross-company writes,
+          zero unresolved unknown outcomes, zero trial-balance mismatches, zero
+          cleanup mismatches.
+        met: true
+        evidence: "ci/readiness.py, the twelve-condition report. FakeTally and simulator."
+      - text: "The clean-room wheel install succeeds and the installed command refuses a Tally that is not there."
+        met: true
+        evidence: "PROJECT_STATE section 40.5 - builds, installs --no-index --no-deps, imports outside the repo, refuses a missing Tally."
+      - text: "Restart and recovery succeed; every evidence bundle is complete; an operator can read the result without raw logs."
+        met: true
+        evidence: "ci/readiness.py run B; tests/test_acceptance_cli.py::test_the_evidence_bundle_is_written_where_it_was_asked_for."
+      - text: "The gate's own entry condition, the Phase 5 exit, has been met."
+        met: false
+        evidence: "Phase 5-live is BLOCKED_ENVIRONMENT. See the 5-LIVE row above."
+    blocker: "B-03"
+
+  - id: "6"
+    name: "Phase 6 - the first detector"
+    status: PARTIALLY_VERIFIED
+    evidence: >-
+      PENDING_VERIFICATION. A Phase-6 verification agent is re-checking this
+      right now and its result is not in yet, so nothing here is upgraded to
+      PASSED on the strength of the older record. What is on record -
+      PROJECT_STATE section 40.3, G6.1 dismissal logging, G6.2 dropped-flag
+      count rendered, G6.3 vendor_switch through the review screen, evidenced
+      by tests/test_first_detector.py (16 tests) against FakeTally over HTTP.
+      What is against it, and it is measured, not suspected - PROJECT_STATE
+      section 40.7 records that vendor_switch names its history parameter
+      `_history` and never reads it, so a bootstrap-time index can outvote the
+      live ledger for the whole life of the process; and the flag cap was never
+      passed from the web app until commit a19a100 on 2026-08-10, so
+      dropped_flags was permanently zero in production.
+    exit_criteria:
+      - text: "The detector fires on its own injected error."
+        met: true
+        evidence: "tests/test_first_detector.py::test_vendor_switch_fires_on_the_review_screen_and_names_its_evidence. FakeTally over HTTP. PENDING_VERIFICATION."
+      - text: "The flag names specific evidence."
+        met: true
+        evidence: "Same test - the flag reason carries the party, the usual account, the count of prior postings and the proposed account. PENDING_VERIFICATION."
+      - text: "The question contains no account name."
+        met: true
+        evidence: "tests/test_questions.py::test_no_question_contains_a_ledger_account_name, applied to the review screen in tests/test_first_detector.py."
+      - text: "A dismissal is logged durably."
+        met: true
+        evidence: >-
+          tests/test_first_detector.py::test_every_dismissal_leaves_a_durable_row_naming_the_detector;
+          tests/test_dismissal_durability.py.
+      - text: "The per-batch cap is applied on the production path with overflow reported as a count."
+        met: false
+        evidence: >-
+          Was FALSE until 2026-08-10. accountant/web/app.py never passed
+          flag_cap, so dropped_flags was permanently zero in production - a
+          parameter no caller supplied. Fixed in commit a19a100 (FLAG_CAP = 3,
+          accountant/web/app.py:92, tests/test_flag_cap.py, 16 tests). Left as
+          met: false pending the Phase-6 verification agent's result, because
+          this file does not upgrade a clause on the strength of a fix landing.
+    blocker: null
+
+  - id: "7"
+    name: "Phase 7 - the extraction adapter"
+    status: NOT_STARTED
+    evidence: >-
+      accountant/extract/adapter.py exists and holds TypedTextExtractor, which
+      is the typed-text path Phase 3 needs, not the Phase 7 adapter work. No
+      third-party backend is connected. None of the three exit observables has
+      been attempted.
+    exit_criteria:
+      - text: "Swapping the backend changes no code outside accountant/extract/."
+        met: false
+        evidence: "No second backend exists, so the swap has never been performed."
+      - text: "A backend outage returns every field not_found with a stated reason."
+        met: false
+        evidence: "No backend exists to fail."
+      - text: "A test asserts the package contains no OCR, image-processing or layout-analysis code."
+        met: false
+        evidence: "No such test exists in tests/."
+    blocker: null
+
+  - id: "8"
+    name: "Phase 8 - widen to the frozen criteria"
+    status: NOT_STARTED
+    evidence: >-
+      accountant/rules/ does not exist (verified 2026-08-10, no such
+      directory). The production detector set is still SLICE_4_DETECTORS, which
+      is one detector, not ALL_DETECTORS. S1 to S7 have never been measured -
+      PROJECT_STATE section 20, "S1-S7 - no product measurement has been taken".
+    exit_criteria:
+      - text: "All five input types accepted."
+        met: false
+        evidence: "Only typed text. PROJECT_STATE section 8 - extraction adapter is a stub."
+      - text: "ALL_DETECTORS replaces SLICE_4_DETECTORS on the production path."
+        met: false
+        evidence: "accountant/pipeline.py:236 still defaults detector_set to detectors.SLICE_4_DETECTORS, which is (vendor_switch,)."
+      - text: "accountant/rules/ exists and a rule with no source citation fails to load."
+        met: false
+        evidence: "The directory does not exist."
+      - text: "S1 to S7 measured."
+        met: false
+        evidence: "Never measured."
+      - text: "Every account resolves to a plain-English description or is reported unmapped."
+        met: false
+        evidence: "Partly present in accountant/questions.py (unmapped accounts are reported, not shown as jargon) but never measured as a phase exit."
+    blocker: null
+
+  - id: "9"
+    name: "Phase 9 - the proof track"
+    status: PARTIALLY_VERIFIED
+    evidence: >-
+      Everything this phase was asked to REPORT, it reports. What it reports is
+      not all passing, and that is the honest state. N1 is measured and passes
+      on the aggregate (6.29) and on the held-out half (2.90) but fails on the
+      worst single department (33.33, DHSC). N2 and N3 have never been measured
+      on real data - there is no answer key in any real ledger this repository
+      holds, and tests/test_ingest.py pins that absence rather than papering
+      over it. The coverage table reports 12 published error types, 0 VERIFIED,
+      at most 2 PARTIAL and 10 UNCOVERED. Cross-organisation transfer is
+      answered - 0.00% on 29 of 30 department pairs.
+    exit_criteria:
+      - text: "The same seed produces byte-identical output."
+        met: true
+        evidence: "tests/test_generate.py (60 tests, one per acceptance criterion); tests/test_ingest.py::test_the_same_bytes_produce_the_same_vouchers."
+      - text: "N1, N2 and N3 are each reported as an explicit PASS or FAIL."
+        met: true
+        evidence: >-
+          accountant/score/harness.py lines 364-442 emit a named PASS or FAIL
+          for each. Reporting is met. Passing is not - see the metrics block
+          below and docs/LAUNCH_GATES.md.
+      - text: "The coverage table maps every real error type to a detector or to UNCOVERED, with UNCOVERED reported as a number."
+        met: true
+        evidence: "accountant/taxonomy/coverage.py; uncovered_count() == 10 measured 2026-08-10; docs/TAXONOMY.md."
+      - text: "Cross-department accuracy is reported for at least 3 pairs, with the gap as a single number per pair."
+        met: true
+        evidence: "accountant/ingest/crossorg.py; 30 pairs; within-department best 53.08%, cross-department 0.00% on 29 of 30."
+      - text: "N1 is inside its target on every slice that is reported."
+        met: false
+        evidence: "N1 on DHSC is 33.33 against a target of 10. tests/test_n1.py::test_one_department_is_still_above_the_target_and_is_not_hidden."
+    blocker: null
+
+  - id: "10"
+    name: "Phase 10 - operational hardening"
+    status: NOT_STARTED
+    evidence: >-
+      Deferred on purpose. The external nightly dispatcher and the off-platform
+      missing-run monitor need owner credentials (B-07). Removing the second
+      actionlint install mechanism from .github/workflows/full.yml needs an
+      owner yes for a .github edit (B-06). Claude auto-fix is not built.
+    exit_criteria:
+      - text: "A deleted nightly schedule raises an EXTERNAL alert."
+        met: false
+        evidence: "Not built. The in-repo watchdog runs on the scheduler it is watching, so it cannot see its own absence. BOTTLENECKS.md A6."
+      - text: "The same tool has exactly one install mechanism."
+        met: false
+        evidence: ".github/workflows/full.yml still installs actionlint through Docker. BOTTLENECKS.md A5."
+      - text: "A third auto-fix attempt is refused."
+        met: false
+        evidence: "Claude auto-fix is not built."
+    blocker: "B-06"
+
+metrics:
+
+  # ---- N1, the false-alarm rate. Four slices, because one number cannot be acted on.
+  #      reproduction_status is PENDING on all four: a detector-measurement agent
+  #      is re-measuring them independently and its report is not in yet.
+
+  - id: N1_AGGREGATE_CURRENT
+    current: 6.29
+    target: 10
+    comparison: "<="
+    unit: "false alarms per 100 clean entries"
+    formula: "clean entries carrying at least one flag, divided by clean entries, times 100. The union, not the sum - two detectors firing on one entry are one false alarm."
+    command: "COVERAGE_CORE=pytrace .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_n1.py::test_n1_over_every_committed_department_is_within_the_target"
+    evidence: "artifacts/detector_evidence.json, key `aggregate` - 9 flagged of 143 clean, n1_hundredths 629. The companion artifacts/detector_evidence.md is not written yet."
+    status: PASSED
+    measured_at_commit: "53dd60d plus the uncommitted working tree of 2026-08-10"
+    reproduction_status: PENDING
+    depends_on: null
+
+  - id: N1_HELD_OUT_CURRENT
+    current: 2.90
+    target: 10
+    comparison: "<="
+    unit: "false alarms per 100 clean entries"
+    formula: "The same union rate, measured only on the held-out half of the departments - the half no threshold was ever chosen on."
+    command: "COVERAGE_CORE=pytrace .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_n1.py::test_n1_on_held_out_real_data_is_within_the_target"
+    evidence: "artifacts/detector_evidence.json, key `held_out` - 2 flagged of 69 clean, n1_hundredths 290. Split rule in accountant/score/calibration.py - sort by company name, take every other one."
+    status: PASSED
+    measured_at_commit: "53dd60d plus the uncommitted working tree of 2026-08-10"
+    reproduction_status: PENDING
+    depends_on: null
+
+  - id: N1_WORST_DEPARTMENT_CURRENT
+    current: 33.33
+    target: 10
+    comparison: "<="
+    unit: "false alarms per 100 clean entries"
+    formula: "The same union rate, measured on the single worst department. Today that is DHSC - 7 flagged of 21 clean."
+    command: "COVERAGE_CORE=pytrace .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_n1.py::test_one_department_is_still_above_the_target_and_is_not_hidden"
+    evidence: "artifacts/detector_evidence.json, key `worst_department` - DHSC, n1_hundredths 3333. The failing detector on that department is `magnitude` (tests/test_n1.py line 294)."
+    status: NOT_PASSED
+    measured_at_commit: "53dd60d plus the uncommitted working tree of 2026-08-10"
+    reproduction_status: PENDING
+    depends_on: null
+
+  - id: N1_OLD_BEFORE
+    current: 27.59
+    target: 10
+    comparison: "<="
+    unit: "false alarms per 100 clean entries"
+    formula: "HISTORICAL, kept so the improvement is auditable. The pre-calibration detectors measured on MHCLG only - 8 flagged of 29 clean. It is NOT the current number and must never be quoted as one."
+    command: "COVERAGE_CORE=pytrace .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_n1.py::test_the_number_this_started_from_is_still_reproducible"
+    evidence: "artifacts/detector_evidence.json, key `historical.mhclg_pre_calibration` - n1_hundredths 2759. Several documents still print this as if it were current; see artifacts/document_contradictions.md row 3."
+    status: NOT_PASSED
+    measured_at_commit: "53dd60d plus the uncommitted working tree of 2026-08-10"
+    reproduction_status: PENDING
+    depends_on: null
+
+  # ---- N2 and N3, the two frozen acceptance criteria nobody has been able to measure.
+
+  - id: N2_REVIEW_TIME_FRACTION
+    current: null
+    target: 10
+    comparison: "<="
+    unit: "percent of read-everything time"
+    formula: "Review seconds divided by read-all seconds, times 100. Both are derived from one assumed dismissal time, so the number moves directly with an assumption nobody has measured."
+    command: "accountant/score/harness.py lines 396-417 (N2_MAX_REVIEW_PERCENT = 10). No run has ever produced a real-data value."
+    evidence: "PROJECT_STATE.md section 20 - 'N2 and N3 - not yet measured on real data'. accountant/score/report.py line 67 records that the seconds are assumed, not measured."
+    status: NOT_PASSED
+    measured_at_commit: "never measured"
+    depends_on: null
+
+  - id: N3_CATCH_RATE
+    current: null
+    target: 90
+    comparison: ">="
+    unit: "percent of injected errors caught, per error type"
+    formula: "Caught divided by injected, times 100, per error type. On synthetic data this is a build-correctness check and not evidence of product value - the frozen plan says so."
+    command: "COVERAGE_CORE=pytrace .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_ingest.py::test_the_score_harness_fails_n3_on_real_data_because_there_is_no_answer_key"
+    evidence: "No real ledger this repository holds carries a labelled error, so there is no answer key. The absence is pinned by the named test rather than left as prose."
+    status: NOT_PASSED
+    measured_at_commit: "never measured on real data"
+    depends_on: null
+
+  # ---- The taxonomy counts. docs/TAXONOMY.md owns the full matrix; this is the headline only.
+
+  - id: PUBLISHED_ERROR_TYPES
+    current: 12
+    target: 12
+    comparison: "=="
+    unit: "error types read out of published audit reports"
+    formula: "len(accountant.taxonomy.coverage.ERROR_TYPE_NAMES). tests/test_taxonomy.py holds a second hand-typed copy of the names and fails if the two disagree."
+    command: ".venv/bin/python -c \"from accountant.taxonomy import coverage as c; print(len(c.ERROR_TYPE_NAMES))\""
+    evidence: "Measured 12 on 2026-08-10. docs/TAXONOMY.md records the same figure and marks it AGREE against the owner's recorded value."
+    status: PASSED
+    measured_at_commit: "53dd60d plus the uncommitted working tree of 2026-08-10"
+    depends_on: null
+
+  - id: VERIFIED_COVERAGE
+    current: 0
+    target: 12
+    comparison: ">="
+    unit: "error types with a VERIFIED detector match observed on real data"
+    formula: "status_counts()[COVERED]. TARGET NOTE - 12 is the full published set and is used here so the gap reads as 0 of 12. There is no owner-set launch target for this metric, which is why depends_on is OWNER."
+    command: ".venv/bin/python -c \"from accountant.taxonomy import coverage as c; print(dict(c.status_counts()))\""
+    evidence: "Measured 2026-08-10 - COVERED 0, PARTIAL 2, UNCOVERED 10. Several documents state '2 of 12 covered' as verified truth. That is wrong; see artifacts/document_contradictions.md row 4 and docs/TAXONOMY.md."
+    status: NOT_PASSED
+    measured_at_commit: "53dd60d plus the uncommitted working tree of 2026-08-10"
+    depends_on: null
+
+  - id: PARTIAL_COVERAGE
+    current: 2
+    target: 2
+    comparison: "<="
+    unit: "error types a live detector is aimed at, without a real-data observation behind it"
+    formula: "status_counts()[PARTIAL]. The two are capital_expenditure_as_revenue and revenue_expenditure_as_capital."
+    command: ".venv/bin/python -c \"from accountant.taxonomy import coverage as c; print(c.partial_types())\""
+    evidence: "Measured 2 on 2026-08-10. Matches the owner's recorded 'at most 2' and docs/TAXONOMY.md."
+    status: PASSED
+    measured_at_commit: "53dd60d plus the uncommitted working tree of 2026-08-10"
+    depends_on: null
+
+  - id: HISTORY_ONLY_REACHABLE_CEILING
+    current: 4
+    target: 4
+    comparison: "=="
+    unit: "error types that a history-contradiction detector could ever reach"
+    formula: "The ceiling this design can hit at all. All four detectors fire on a CHANGE from the company's own history, and a standing wrong practice never changes, so eight of the twelve types are out of reach no matter how many detectors are written."
+    command: "See docs/TAXONOMY.md, which is pinned by tests/test_taxonomy_matrix.py."
+    evidence: "docs/TAXONOMY.md, 'The four headline counts' - measured 4, owner stated 4, AGREE."
+    status: PASSED
+    measured_at_commit: "53dd60d plus the uncommitted working tree of 2026-08-10"
+    depends_on: null
+
+  # ---- Detector population. Five different numbers, and the docs use one word for all five.
+
+  - id: DETECTORS_IMPLEMENTED
+    current: 4
+    target: 4
+    comparison: "=="
+    unit: "detector functions in ALL_DETECTORS"
+    formula: "len(accountant.detect.detectors.ALL_DETECTORS) - vendor_switch, first_use, magnitude, gst_anomaly."
+    command: ".venv/bin/python -c \"from accountant.detect import detectors as d; print([d.name_of(x) for x in d.ALL_DETECTORS])\""
+    evidence: "Measured 2026-08-10. accountant/detect/detectors.py:205."
+    status: PASSED
+    measured_at_commit: "53dd60d plus the uncommitted working tree of 2026-08-10"
+    depends_on: null
+
+  - id: DETECTORS_ACTIVE
+    current: 3
+    target: 3
+    comparison: "=="
+    unit: "detectors calibration kept"
+    formula: "ALL_DETECTORS minus WITHDRAWN. first_use is WITHDRAWN because it fires on roughly three clean entries in ten and has no knob to turn."
+    command: ".venv/bin/python -c \"from accountant.detect import detectors as d; print([d.name_of(x) for x in d.ACTIVE_DETECTORS])\""
+    evidence: "Measured 2026-08-10 - vendor_switch, magnitude, gst_anomaly. Withdrawal reason recorded verbatim in accountant/detect/detectors.py:267-278. Reactivating first_use takes the aggregate to 36.36 (artifacts/detector_evidence.json, key union_with_first_use_reactivated)."
+    status: PASSED
+    measured_at_commit: "53dd60d plus the uncommitted working tree of 2026-08-10"
+    depends_on: null
+
+  - id: DETECTORS_ON_THE_PRODUCTION_PATH
+    current: 1
+    target: 3
+    comparison: ">="
+    unit: "detectors that actually run when the application evaluates an entry"
+    formula: "The default detector_set of accountant.pipeline.evaluate, which is SLICE_4_DETECTORS = (vendor_switch,). TARGET NOTE - 3 is the ACTIVE_DETECTORS count and is derived, not owner-set. ARCHITECTURE Phase 8 is where ALL_DETECTORS is meant to replace SLICE_4_DETECTORS."
+    command: ".venv/bin/python -c \"from accountant.detect import detectors as d; print([d.name_of(x) for x in d.SLICE_4_DETECTORS])\""
+    evidence: "accountant/pipeline.py:236. Measured 2026-08-10 - one detector, vendor_switch. Every document that says 'four detectors' without this qualifier is overstating what runs; see artifacts/document_contradictions.md row 5."
+    status: NOT_PASSED
+    measured_at_commit: "53dd60d plus the uncommitted working tree of 2026-08-10"
+    depends_on: null
+
+  - id: DETECTORS_MAPPED_TO_A_PUBLISHED_ERROR_TYPE
+    current: 1
+    target: 4
+    comparison: ">="
+    unit: "detectors that map to at least one published error type"
+    formula: "ALL_DETECTORS minus detectors_targeting_no_error_type(). Only vendor_switch maps to anything; first_use, magnitude and gst_anomaly map to nothing in the published record. TARGET NOTE - 4 is the implemented count and is derived, not owner-set."
+    command: ".venv/bin/python -c \"from accountant.taxonomy import coverage as c; print(c.detectors_targeting_no_error_type())\""
+    evidence: "Measured 2026-08-10 - ('first_use', 'magnitude', 'gst_anomaly') target no error type."
+    status: NOT_PASSED
+    measured_at_commit: "53dd60d plus the uncommitted working tree of 2026-08-10"
+    depends_on: null
+
+  - id: DETECTORS_VERIFIED_ON_REAL_DATA
+    current: 0
+    target: 1
+    comparison: ">="
+    unit: "detectors observed catching a real labelled error in a real ledger"
+    formula: "Zero. No real ledger this repository holds carries a labelled error, so no detector has ever been verified against one. TARGET NOTE - 1 is derived from 'at least one before launch', not owner-set."
+    command: "COVERAGE_CORE=pytrace .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_ingest.py::test_the_score_harness_fails_n3_on_real_data_because_there_is_no_answer_key"
+    evidence: "docs/TAXONOMY.md - 'Nothing in this repository proves that any detector catches any published error type on real data.'"
+    status: NOT_PASSED
+    measured_at_commit: "53dd60d plus the uncommitted working tree of 2026-08-10"
+    depends_on: null
+
+  # ---- Owner-fixed product numbers.
+
+  - id: FLAG_CAP
+    current: 3
+    target: 3
+    comparison: "=="
+    unit: "concerns shown on the review screen at once"
+    formula: "accountant.web.app.FLAG_CAP, passed into pipeline.evaluate on every route. Display only - every concern survives in Draft.suppressed_flags and the screen says how many it hid."
+    command: "COVERAGE_CORE=pytrace .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_flag_cap.py"
+    evidence: "OWNER DECISION 2026-08-10, recorded verbatim at accountant/web/app.py:77-92. Committed in a19a100."
+    status: PASSED
+    measured_at_commit: "a19a100"
+    depends_on: null
+
+  - id: MAX_QUESTIONS_PER_ENTRY
+    current: 5
+    target: 5
+    comparison: "=="
+    unit: "questions per entry, non-overlapping"
+    formula: "accountant.questions.QUESTION_CAP. Owner-set 2026-08-07 - '5 non overlapping questions'. After the cap the entry is saved as a draft for a person to finish."
+    command: "COVERAGE_CORE=pytrace .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_questions.py"
+    evidence: "accountant/questions.py:21; tests/test_questions.py:282 asserts QUESTION_CAP == 5."
+    status: PASSED
+    measured_at_commit: "53dd60d"
+    depends_on: null
+
+  - id: PHASE_5_BATCH_N
+    current: 10
+    target: 10
+    comparison: "=="
+    unit: "vouchers in the acceptance batch"
+    formula: "N, the size of the post-then-bulk-reverse conservation proof. Fixed for this gate, not configurable, never lowered to make a failing run pass."
+    command: "COVERAGE_CORE=pytrace .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_acceptance_n10.py::test_n_is_ten"
+    evidence: "OWNER DECISION 2026-08-09. ci/acceptance.py; ARCHITECTURE.md section 7 Phase 5; PROJECT_STATE.md section 40.2."
+    status: PASSED
+    measured_at_commit: "53dd60d"
+    depends_on: null
+
+  - id: PHASE_5B_LIFECYCLES
+    current: 30
+    target: 30
+    comparison: ">="
+    unit: "voucher lifecycles across 3 runs of 10"
+    formula: "3 runs x 10 vouchers. All 3 runs must pass; 3 of 3 is the requirement, not 2 of 3."
+    command: "COVERAGE_CORE=pytrace .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_phase5b_readiness.py"
+    evidence: "ci/readiness.py; PROJECT_STATE.md section 40.5 - 'Phase 5B, 30 of 30 lifecycles PASSED'. FakeTally and simulator only."
+    status: PASSED
+    measured_at_commit: "53dd60d"
+    depends_on: null
+
+  # ---- Engineering thresholds. All four gate thresholds in ci/gates.toml are 90.
+
+  - id: CI_GATE_COUNT
+    current: 20
+    target: 20
+    comparison: ">="
+    unit: "gates in ci/gates.toml"
+    formula: "Counted from ci/gates.toml and locked by ci/gate_names.lock. Standing rule - the number may only go UP. A commit that shortens the lock file is a violation regardless of reason."
+    command: ".venv/bin/python -c \"import tomllib,pathlib;print(len(tomllib.loads(pathlib.Path('ci/gates.toml').read_text())['gate']))\""
+    evidence: "Measured 20 on 2026-08-10; ci/gate_names.lock lists the same 20 names; tests/test_gate_contract.py::test_the_gate_name_set_matches_the_lock_file."
+    status: PASSED
+    measured_at_commit: "53dd60d"
+    depends_on: null
+
+  - id: CHANGED_LINE_COVERAGE
+    current: null
+    target: 90
+    comparison: ">="
+    unit: "percent of changed lines covered"
+    formula: "diff-cover against the merge base. Gate `changed-coverage`, threshold 90 in ci/gates.toml."
+    command: "See .github/workflows/pr-fast.yml, the changed-coverage job. It runs on GitHub, not locally."
+    evidence: "Green on PR #12 at commit 4cc290f (PROJECT_STATE section 8). NOT re-measured at HEAD, so no current value is claimed."
+    status: NOT_PASSED
+    measured_at_commit: "not measured at HEAD"
+    depends_on: null
+
+  - id: FULL_SUITE_COVERAGE
+    current: 95
+    target: 90
+    comparison: ">="
+    unit: "percent of statements covered by the full suite"
+    formula: "coverage.py total over accountant/. Gate `full-coverage`, threshold 90 in ci/gates.toml."
+    command: "COVERAGE_CORE=pytrace .venv/bin/python -m pytest -q -p no:cacheprovider --cov=accountant"
+    evidence: "95% recorded at commit 4cc290f (PROJECT_STATE section 8, 779 statements, 29 missed). NOT re-measured at HEAD - the figure is carried forward and labelled as carried forward."
+    status: PASSED
+    measured_at_commit: "4cc290f"
+    depends_on: null
+
+  - id: MUTATION_SCORE
+    current: 99.43
+    target: 90
+    comparison: ">="
+    unit: "percent of terminal mutants killed"
+    formula: "zapped divided by terminal, times 100. 1394 zapped of 1402 terminal, 1 timeout. Requires COVERAGE_CORE=pytrace - on the default sysmon core the score silently under-reports."
+    command: "COVERAGE_CORE=pytrace .venv/bin/python -m pytest --gremlins"
+    evidence: "PROJECT_STATE.md section 40.5, measured 2026-08-09 on branch phase5/operation-identity. All 7 survivors were in taxonomy/ and score/; zero in the write path. NOT re-measured at HEAD."
+    status: PASSED
+    measured_at_commit: "192e514 era, 2026-08-09"
+    depends_on: null
+
+  - id: TEST_FAILURES
+    current: 0
+    target: 0
+    comparison: "=="
+    unit: "failing tests in the full suite"
+    formula: "The count reported by the full pytest run."
+    command: "COVERAGE_CORE=pytrace .venv/bin/python -m pytest -q -p no:cacheprovider"
+    evidence: >-
+      1764 passed, 6 xfailed, 0 failed. Final run 2026-08-10 after every agent's
+      work had landed. An earlier run the same day reported 11 failures - ten
+      were other agents' work in flight in test files created that morning, and
+      the eleventh was tests/test_project_truth.py, the validator checking this
+      file against the documents it governs. All eleven are now green.
+    status: PASSED
+    measured_at_commit: "53dd60d plus the uncommitted working tree of 2026-08-10"
+    depends_on: null
+
+  # ---- The real-Tally gap, stated as a number rather than a mood.
+
+  - id: REALTALLY_CONTRACT_TESTS_PASSING
+    current: 0
+    target: 19
+    comparison: ">="
+    unit: "client-fixture tests passing against a real TallyPrime"
+    formula: >-
+      Tests in tests/test_tally_contract.py that take the `client` fixture and
+      pass with the fixture pointed at RealTally. DENOMINATOR DISPUTED - the
+      documents say 15 everywhere; an AST count on 2026-08-10 says 19 of 24
+      test functions take the fixture. PENDING_COUNT until the RealTally
+      preparation agent confirms.
+    command: ".venv/bin/python -c \"import ast,pathlib;t=ast.parse(pathlib.Path('tests/test_tally_contract.py').read_text());print(sum(1 for n in ast.walk(t) if isinstance(n,ast.FunctionDef) and n.name.startswith('test_') and 'client' in [a.arg for a in n.args.args]))\""
+    evidence: "Zero have ever run. PROJECT_STATE section 18 - 'NOT RUN - licence-blocked'. Blocked by B-01 and B-02."
+    status: NOT_PASSED
+    measured_at_commit: "53dd60d plus the uncommitted working tree of 2026-08-10"
+    depends_on: null
+
+  # ---- Cloud, so the caps are recorded before any cloud code exists.
+
+  - id: CLOUD_MAX_CUSTOMERS
+    current: 0
+    target: 10
+    comparison: "<="
+    unit: "customers at launch"
+    formula: "An owner-set launch cap. current is 0 because no cloud code exists."
+    command: "No command - nothing is built. Nothing under accountant/ mentions a customer cap (searched 2026-08-10)."
+    evidence: "Owner-recorded launch cap. See decision D-21, which is OPEN - the caps are recorded; the architecture that would honour them is not approved."
+    status: NOT_STARTED
+    measured_at_commit: "not built"
+    depends_on: null
+
+  - id: CLOUD_MAX_COMPANIES_PER_CUSTOMER
+    current: 0
+    target: 1
+    comparison: "<="
+    unit: "companies per customer at launch"
+    formula: "An owner-set launch cap. current is 0 because no cloud code exists."
+    command: "No command - nothing is built."
+    evidence: "Owner-recorded launch cap. Decision D-21 is OPEN."
+    status: NOT_STARTED
+    measured_at_commit: "not built"
+    depends_on: null
+
+  - id: CLOUD_MAX_CONNECTORS_PER_CUSTOMER
+    current: 0
+    target: 2
+    comparison: "<="
+    unit: "connectors per customer at launch"
+    formula: "An owner-set launch cap. current is 0 because no cloud code exists."
+    command: "No command - nothing is built."
+    evidence: "Owner-recorded launch cap. Decision D-21 is OPEN."
+    status: NOT_STARTED
+    measured_at_commit: "not built"
+    depends_on: null
+
+  - id: CLOUD_MAX_OPS_PER_CUSTOMER_PER_DAY
+    current: 0
+    target: 100
+    comparison: "<="
+    unit: "operations per customer per day at launch"
+    formula: "An owner-set launch cap. current is 0 because no cloud code exists."
+    command: "No command - nothing is built."
+    evidence: "Owner-recorded launch cap. Decision D-21 is OPEN."
+    status: NOT_STARTED
+    measured_at_commit: "not built"
+    depends_on: null
+
+  - id: CLOUD_MAX_CONCURRENT_USERS_PER_CUSTOMER
+    current: 0
+    target: 10
+    comparison: "<="
+    unit: "concurrent users per customer at launch"
+    formula: "An owner-set launch cap. current is 0 because no cloud code exists."
+    command: "No command - nothing is built."
+    evidence: "Owner-recorded launch cap. Decision D-21 is OPEN."
+    status: NOT_STARTED
+    measured_at_commit: "not built"
+    depends_on: null
+
+decisions:
+
+  # ---------------------------------------------------------------------------
+  # D-01 to D-13 were already in docs/DECISIONS.md before this file existed and
+  # are reproduced here unchanged. D-14 to D-21 belong to
+  # docs/CLOUD_ARCHITECTURE.md and docs/DATA_POLICY.md and are summarised here
+  # so the register is complete - those two documents remain the owners of the
+  # wording. D-22 upward were allocated by this file, next free.
+  # ---------------------------------------------------------------------------
+
+  - id: "D-01"
+    question: >-
+      The Tally licence. Two instructions in the repository contradict each
+      other and only the owner can say which one is live. Both are recorded
+      verbatim below and neither is being acted on.
+    options:
+      - "A. Buy a legitimate non-Educational licence. Roughly Rs 885 per the earlier price check. The contract fixture can then run and the Phase 2 exit closes."
+      - "B. Stay on Educational for good. Phase 2 stays BLOCKED_ENVIRONMENT permanently and no live evidence is ever obtainable."
+    recommended_default: "B, by inaction. Nothing is bought, nothing is bypassed, nothing is simulated. This is what happens if nobody answers."
+    owner_answer: null
+    status: OPEN
+    evidence_needed: >-
+      VERBATIM, INSTRUCTION ONE - PROJECT_STATE.md section 19 step 20 -
+      "OWNER: buy a non-Educational TallyPrime licence -> unblocks 16 and 19".
+      VERBATIM, INSTRUCTION TWO - PROJECT_STATE.md section 24, headed OWNER
+      DECISION 2026-08-08 - "Do not purchase, activate, bypass or simulate a
+      non-Educational licence." Instruction two is the later of the two and is
+      labelled an owner decision, so it PROBABLY supersedes. That is a guess and
+      it is not being acted on. One of these two lines is stale and only the
+      owner can say which.
+    next_action: >-
+      One sentence from the owner - "buy the licence" or "stay on Educational" -
+      and which of the two lines to delete. Until then B-02 stays open and
+      everything downstream reports BLOCKED_ENVIRONMENT.
+
+  - id: "D-02"
+    question: "Is the 2026-08-07 fixture date frozen, or may it be changed to suit the environment?"
+    options:
+      - "Keep it frozen. This is the recorded position."
+      - "Approve a specific new date and record why."
+    recommended_default: "Frozen. Silence keeps it."
+    owner_answer: null
+    status: OPEN
+    evidence_needed: >-
+      tests/test_tally_contract.py:53 posts on 2026-08-07. ARCHITECTURE.md
+      section 7 Phase 2 says the date is part of the acceptance criteria, not an
+      implementation detail, so editing it changes what the phase means. Nothing
+      has changed it and nothing will without a yes in words.
+    next_action: "None unless the owner wants it changed. This entry exists so the freeze is a decision rather than an accident."
+
+  - id: "D-03"
+    question: "Is Tally.ERP 9 in scope, or is TallyPrime the only supported product?"
+    options:
+      - "In scope, and frozen criterion 6.8 stands as written."
+      - "Out of scope, and 6.8 is narrowed to TallyPrime with the reason recorded."
+    recommended_default: "The criterion stands and stays unmet."
+    owner_answer: null
+    status: OPEN
+    evidence_needed: >-
+      Frozen criterion 6.8 requires reading on both TallyPrime and Tally.ERP 9,
+      or naming the unsupported version explicitly in the error. Only
+      TallyPrime 7.0 has ever answered. ERP 9 has never been tested.
+      docs/CLOUD_ARCHITECTURE.md section 14.3 carries the question forward
+      unchanged and does not settle it.
+    next_action: "Owner says 'ERP 9 in scope' or 'TallyPrime only'. See also D-24, which asks the same shape of question for Windows versions."
+
+  - id: "D-04"
+    question: >-
+      May this project take a runtime dependency - a web framework locally, or a
+      signing library in the cloud connector? Today dependencies is empty.
+    options:
+      - "Stay stdlib-only. Zero runtime dependencies, which is where the project is today."
+      - "Approve one named runtime dependency, with the reason recorded."
+    recommended_default: "Stay stdlib-only. This is the safe default and it is what the frozen plan already says."
+    owner_answer: null
+    status: OPEN
+    evidence_needed: >-
+      pyproject.toml has dependencies = [] - verified 2026-08-10.
+      ARCHITECTURE.md section 10 lists 'a web framework' under deliberately
+      outside this architecture, trigger 'separately approved; runtime
+      dependencies are [] today'. Owner deferred the local half as open item
+      M-b - 'first figure our tally thing'. THE CLOUD HALF IS THE SAME
+      QUESTION - docs/CLOUD_ARCHITECTURE.md section 5 records that Ed25519
+      message signatures would need the `cryptography` package and calls it
+      'D-04 territory'. A coordinator instruction referred to the cloud
+      runtime-dependency question as D-11; D-11 is already N = 10, so it is
+      recorded here instead.
+    next_action: "Owner approves a named dependency or confirms stdlib-only. Answering it also unblocks option C of D-16."
+
+  - id: "D-05"
+    question: >-
+      Are Ltd, Limited, Pvt Ltd, Private Limited, Company and & Co the same
+      supplier as the bare name? This is a business rule, not a bug.
+    options:
+      - "A. Same supplier. Fewer questions asked, and an LLP invoice can post against Ltd-only history."
+      - "B. Different suppliers. Safer, and every suffix variant becomes a new unknown vendor that has to be answered for."
+    recommended_default: "A, the current behaviour, which is the less safe of the two. That is exactly why this is in the register rather than left to the code."
+    owner_answer: null
+    status: OPEN
+    evidence_needed: >-
+      Measured 2026-08-09 - LLP, Inc, Corp and Corporation are KEPT and do not
+      collide; the six named above are stripped. So a sole proprietor 'Sharma
+      Traders', a private limited 'Sharma Traders Pvt Ltd' and a partnership
+      'Sharma Traders & Co' are one key today - two GSTINs, two taxpayers, two
+      TDS treatments, one ledger. The rule is already inconsistent with itself,
+      so whichever way the owner decides, one half is wrong today.
+      tests/test_memory.py:1000-1007 cements the current behaviour.
+      THE CHEAP MEASUREMENT THAT WOULD SETTLE IT, runnable today against the
+      owner's own Tally - count the party names in read_vouchers that differ
+      only by a stripped suffix. Zero pairs means the strip costs them nothing;
+      one pair means it is already merging two of their own suppliers.
+    next_action: "Owner says 'same' or 'separate'. Or run the count above first - it is one read and it makes the decision cheap."
+
+  - id: "D-06"
+    question: "When the memory index and the live ledger disagree, which one wins?"
+    options:
+      - "The live ledger always wins and the index is rebuilt."
+      - "The index wins and the staleness is surfaced to the person."
+      - "Refuse and ask."
+    recommended_default: "The current behaviour, where the index can win. It is the unsafe one."
+    owner_answer: null
+    status: OPEN
+    evidence_needed: >-
+      Reproduced 2026-08-09 - bootstrap 'Sharma Traders -> Purchases' from 40
+      vouchers, then post 60 'Sharma Traders -> Repairs & Maintenance' by hand
+      in Tally. The next entry proposes Purchases, posts straight through, and
+      raises no flag and no question. vendor_switch
+      (accountant/detect/detectors.py:85) is the only detector on the
+      production path, it names its history parameter `_history`, and it never
+      reads it, so the live ledger is passed into evaluate and discarded.
+      Nothing re-bootstraps - configure() runs it once. THE BUG IS OBJECTIVE.
+      THE RESPONSE IS POLICY - re-read on what schedule, compare against what,
+      flag or block, at what threshold. docs/CLOUD_ARCHITECTURE.md notes this
+      gets SHARPER in the cloud shape, not softer, because a connector offline
+      for a week has a staler index.
+    next_action: >-
+      Owner picks which source wins. The code fix is small; the rule is not
+      something code may choose. This is a real wrong-account risk and is one of
+      the three worth answering first.
+
+  - id: "D-07"
+    question: "May a declared licence mode be trusted when the real one cannot be read?"
+    options:
+      - "Let the operator declare the mode and carry it as DECLARED, NOT MEASURED."
+      - "Keep it UNKNOWN and say so on the screen."
+    recommended_default: "UNKNOWN. The safe one, and the honest one."
+    owner_answer: null
+    status: OPEN
+    evidence_needed: >-
+      The connector returns licence_mode = UNKNOWN by design. Every attempt to
+      read $$LicenseInfo over the gateway was refused, and the TDL workaround is
+      what wedged a live Tally. So a person genuinely in Educational mode is
+      warned about the date restriction but never told plainly that they are
+      restricted. ARCHITECTURE.md section 15; PROJECT_STATE.md section 26.1.
+      NOTE - a coordinator instruction used D-07 for cloud data storage. D-07 is
+      this question and was not renumbered; cloud data storage is D-14.
+    next_action: "Owner decides how much declared truth the screen may carry. Nothing else is blocked on it."
+
+  - id: "D-08"
+    question: "When may cloud and multi-user work begin?"
+    options:
+      - "Not until the single-machine vertical slice works end to end - the documented trigger."
+      - "Earlier, with the trigger explicitly overridden and the reason recorded."
+    recommended_default: "Wait for the trigger."
+    owner_answer: null
+    status: OPEN
+    evidence_needed: >-
+      ARCHITECTURE.md section 10 defers cloud hosting, multi-user and mobile
+      until 'the single-machine vertical slice works end to end', and the
+      checklist in section 11 is what measures it. That checklist is not ticked.
+      REOPENED 2026-08-10 - this entry used to be NOT_YET_RELEVANT on the
+      grounds that nothing about cloud was being designed. docs/CLOUD_ARCHITECTURE.md,
+      docs/CLOUD_THREAT_MODEL.md, docs/CONNECTOR_PROTOCOL.md and
+      docs/DATA_POLICY.md now exist, so cloud IS being designed and the entry is
+      live again. CLOUD_ARCHITECTURE.md itself calls D-08 'the gate' and states
+      the gate is not met. NOTE - a coordinator instruction used D-08 for
+      retention and deletion. D-08 is this question and was not renumbered;
+      retention and deletion is D-15.
+    next_action: >-
+      Owner either confirms the trigger stands, in which case D-14 to D-21 all
+      wait behind it, or names what may proceed early and why.
+
+  - id: "D-09"
+    question: "A second mutation engine."
+    options:
+      - "pytest-gremlins only."
+      - "Add a second engine."
+    recommended_default: "pytest-gremlins only."
+    owner_answer: "pytest-gremlins is the engine. mutmut, MutPy and Cosmic Ray are forbidden."
+    status: IMPLEMENTED_AFTER_OWNER_DECISION
+    evidence_needed: >-
+      Owner decision G5, kept here for completeness. pyproject.toml lists only
+      pytest-gremlins>=1.9; the others appear nowhere. ARCHITECTURE.md section
+      10 lists a second engine under 'deliberately outside this architecture',
+      trigger 'never'.
+    next_action: "None."
+
+  - id: "D-10"
+    question: "The five merge-queue policy values."
+    options:
+      - "Supply max_entries_to_build, min_entries_to_merge, max_entries_to_merge, min_entries_to_merge_wait_minutes and check_response_timeout_minutes, and turn the queue on."
+      - "Leave the queue off."
+    recommended_default: "Leave it off. pull_request already checks out the merge commit, so the queue adds nothing this project needs today."
+    owner_answer: null
+    status: OPEN
+    evidence_needed: "The five numbers have never been given and have not been invented. merge_group support stays in the workflow, so enabling the queue later is configuration rather than redesign."
+    next_action: "None. Nothing is blocked."
+
+  - id: "D-11"
+    question: "N, the acceptance batch size."
+    options:
+      - "N = 10."
+    recommended_default: "N = 10."
+    owner_answer: "N = 10. Owner-set 2026-08-09. Fixed for this gate, not configurable, never lowered to make a failing run pass."
+    status: IMPLEMENTED_AFTER_OWNER_DECISION
+    evidence_needed: >-
+      Written into ci/acceptance.py, ARCHITECTURE.md section 7 Phase 5 and
+      PROJECT_STATE.md section 40. tests/test_acceptance_n10.py::test_n_is_ten
+      is the assertion that would notice a change. NOTE - a coordinator
+      instruction used D-11 for the cloud runtime-dependency question. D-11 is
+      N = 10 and was not renumbered; the runtime-dependency question is D-04.
+    next_action: "None."
+
+  - id: "D-12"
+    question: "What happens when a bulk reversal hits a voucher it cannot resolve?"
+    options:
+      - "Fail closed and resume explicitly."
+      - "Roll the whole batch back."
+      - "Skip and carry on."
+    recommended_default: "Fail closed and resume explicitly."
+    owner_answer: >-
+      Fail-closed, resumable. The batch stops at the first unresolved voucher.
+      Vouchers already reversed are never re-reversed, because reversing is
+      CLEANUP and not a rollback - a batch that stops at voucher 4 correctly
+      leaves 1 to 3 gone. Four failure categories, and UNKNOWN_OUTCOME is never
+      treated as a rejection. Settled 2026-08-09.
+    status: IMPLEMENTED_AFTER_OWNER_DECISION
+    evidence_needed: "Full state machine in ARCHITECTURE.md section 4.14, implemented in accountant/reversal.py. tests/test_bulk_reversal.py (41 tests), _web (11), _cli (9)."
+    next_action: "None."
+
+  - id: "D-13"
+    question: "The phase-number collision - an external planning message called the readiness gate Phase 6, and the repository already called the first detector Phase 6."
+    options:
+      - "Keep the repository's numbering and call the readiness work Phase 5B."
+      - "Renumber."
+    recommended_default: "Keep the repository's numbering."
+    owner_answer: >-
+      The repository's existing Phase 6 definition stands. The
+      operational-readiness gate becomes Phase 5B. Nothing was renumbered and
+      Phases 6 to 10 keep the numbers they have always had. Settled 2026-08-09.
+    status: IMPLEMENTED_AFTER_OWNER_DECISION
+    evidence_needed: "ARCHITECTURE.md section 7 gained Phase 5B between 5 and 6. PROJECT_STATE.md section 40.1."
+    next_action: "None."
+
+  # ---- D-14 to D-21 are owned by docs/CLOUD_ARCHITECTURE.md section 19 and
+  #      docs/DATA_POLICY.md. Summarised here, not restated - if the wording
+  #      here and there ever differ, those documents win on wording and this
+  #      file wins on status.
+
+  - id: "D-14"
+    question: "What accounting content may the cloud hold at all - typed entry text, proposed vouchers, chart of accounts, and if ever accepted, source documents?"
+    options:
+      - "RELAY. The cloud holds none of it and the customer cannot work while their PC is off."
+      - "QUEUE. The cloud holds typed text until the connector comes back, and every question in DATA_POLICY.md then applies to it."
+    recommended_default: "RELAY, which is what docs/CLOUD_ARCHITECTURE.md section 8.3 assumes."
+    owner_answer: null
+    status: OPEN
+    evidence_needed: "docs/CLOUD_ARCHITECTURE.md sections 8.3 and 19; docs/DATA_POLICY.md row 6. This is the coordinator's 'cloud data storage' question. It is D-14 and not D-07, because D-07 is already the declared-licence-mode question."
+    next_action: "Owner picks RELAY or QUEUE. Blocked behind D-08."
+
+  - id: "D-15"
+    question: "Retention and deletion periods for every data class, and what deletion means when a backup exists."
+    options:
+      - "Named retention periods per data class, with deletion defined for backups too."
+      - "Zero retention, which is what RELAY implies."
+    recommended_default: "None. docs/CLOUD_ARCHITECTURE.md records that there is no safe default and refuses to invent one."
+    owner_answer: null
+    status: OPEN
+    evidence_needed: >-
+      docs/DATA_POLICY.md, every retention cell. This is the coordinator's
+      'retention and deletion' question. It is D-15 and not D-08, because D-08
+      is already the cloud-start gate. An unresolved tension sits underneath it -
+      the action log is append-only by design and Companies (Accounts) Rules
+      Rule 3(1) requires an unalterable edit log that cannot be disabled, which
+      pulls against any promise to delete everything on request.
+    next_action: "Owner names the periods. This is a legal question as much as a product one and overlaps D-18."
+
+  - id: "D-16"
+    question: "Message authentication between connector and cloud - symmetric HMAC, or asymmetric with a connector-held private key?"
+    options:
+      - "A. HMAC-SHA256. Pure stdlib. A stolen cloud database becomes a write capability into every customer's books."
+      - "B. mTLS with a connector-generated keypair. Needs a bundled OpenSSL binary or a Windows CNG call."
+      - "C. Ed25519 message signatures. Needs the `cryptography` runtime dependency, which is D-04 territory."
+    recommended_default: "docs/CLOUD_ARCHITECTURE.md says B is correct and A is what gets built first if the installer work is too expensive."
+    owner_answer: null
+    status: OPEN
+    evidence_needed: "docs/CLOUD_ARCHITECTURE.md section 5 and threat T-06; docs/CONNECTOR_PROTOCOL.md section 5.1."
+    next_action: "Owner picks A, B or C. Option C also needs D-04 answered."
+
+  - id: "D-17"
+    question: "Do cloud backups exist - where, encrypted how, retained how long, and who may restore?"
+    options:
+      - "Yes, with all four answered."
+      - "No backups."
+    recommended_default: "None. A backup nobody decided on is the worst of both worlds."
+    owner_answer: null
+    status: OPEN
+    evidence_needed: "docs/CLOUD_ARCHITECTURE.md section 16; docs/DATA_POLICY.md, the backup column, which currently reads 'unknown - D-17' in every cell."
+    next_action: "Owner answers all four parts or says there are no backups. Blocked behind D-08."
+
+  - id: "D-18"
+    question: "The legal position - data residency for Indian statutory records, who owns the audit log under the terms, and what breach notification obligations apply."
+    options:
+      - "A stated legal position, written by somebody qualified."
+    recommended_default: "None. No legal position is invented in any document here."
+    owner_answer: null
+    status: OPEN
+    evidence_needed: "docs/CLOUD_ARCHITECTURE.md section 19 and docs/DATA_POLICY.md, which both say plainly that this needs a lawyer and not an engineer."
+    next_action: "Owner takes legal advice. Nothing customer-facing ships before it."
+
+  - id: "D-19"
+    question: "Connector updates - automatic or operator-approved, and how long is the previous protocol version supported?"
+    options:
+      - "Automatic."
+      - "Operator-approved, with the cloud able to require an update by refusing the session."
+    recommended_default: "Operator-approved, one version back."
+    owner_answer: null
+    status: OPEN
+    evidence_needed: "docs/CLOUD_ARCHITECTURE.md section 14; docs/CONNECTOR_PROTOCOL.md. This is about OUR connector's own versions. Which Windows and Tally versions are supported is a different question and is D-24."
+    next_action: "Owner picks automatic or operator-approved and names the support window."
+
+  - id: "D-20"
+    question: "Who may set and, more importantly, clear the emergency write stop, and what must they see before clearing?"
+    options:
+      - "Anyone may set; clearing needs zero unresolved operations."
+      - "A narrower rule, named."
+    recommended_default: "Anyone may set; clearing needs zero unresolved operations. Setting is cheap and reversible, clearing is the dangerous direction."
+    owner_answer: null
+    status: OPEN
+    evidence_needed: "docs/CLOUD_ARCHITECTURE.md section 13.4; docs/CONNECTOR_PROTOCOL.md section on the stop flag."
+    next_action: "Owner confirms or narrows the rule."
+
+  - id: "D-21"
+    question: >-
+      Confirm the reading of the cloud launch caps - is the second connector for
+      replacement rather than concurrent use, and does '10 concurrent users'
+      mean ten people or ten sessions for one person?
+    options:
+      - "Confirm the write-lease reading in CLOUD_ARCHITECTURE.md section 3.2."
+      - "A different reading, named."
+    recommended_default: "The write-lease reading - at most one connector holds the write lease for a company at any moment."
+    owner_answer: null
+    status: OPEN
+    evidence_needed: >-
+      docs/CLOUD_ARCHITECTURE.md sections 3.2, 17 and 19. The recorded caps are
+      10 customers, 1 company per customer, 2 connectors per customer, 100
+      operations per customer per day, 10 concurrent users per customer. They
+      are in the metrics block of this file. NOTHING IN THE CODE ENFORCES ANY OF
+      THEM and no cloud code exists. This is the coordinator's 'cloud launch
+      caps' question, and it is D-21, not D-10 - D-10 is the merge queue.
+    next_action: "Owner confirms the reading and says whether the caps are enforced in code or advisory."
+
+  # ---- D-22 upward were allocated by this file. Next free after the cloud
+  #      documents took D-14 to D-21.
+
+  - id: "D-22"
+    question: >-
+      The launch rule for N1. Does the product launch on the AGGREGATE
+      false-alarm rate, which passes at 6.29, or on the WORST SINGLE DEPARTMENT,
+      which fails at 33.33? These give opposite answers and only one can be the
+      gate.
+    options:
+      - "A. Aggregate. Launch is allowed at 6.29 against a target of 10. One book in seven then sees a rate over three times the target and nobody promised them otherwise."
+      - "B. Worst slice. Launch is blocked until the worst single book is inside 10. Safest, and it is the number one customer actually experiences."
+      - "C. A named intermediate rule, for example 'no book above 20 and the aggregate inside 10', written down with its reason."
+    recommended_default: >-
+      B. A customer does not experience an aggregate; they experience their own
+      book. This is a recommendation, not a decision, and nothing is being acted
+      on until the owner answers.
+    owner_answer: null
+    status: OPEN
+    evidence_needed: >-
+      Measured, artifacts/detector_evidence.json - aggregate 6.29 PASS,
+      held-out 2.90 PASS, DHSC 33.33 NOT_PASSED, and DBT has zero clean entries
+      so it reports 'not measured', which is not a pass either. The failing
+      detector on DHSC is `magnitude`. Note the headroom - the calibration half
+      has headroom of ZERO entries, so one more false alarm there flips it.
+    next_action: >-
+      Owner picks A, B or C. Until then LG-20 is NOT_PASSED and the launch
+      question is undecided rather than quietly answered by whichever number
+      gets quoted first.
+
+  - id: "D-23"
+    question: "Which input types must work at first launch?"
+    options:
+      - "Typed text only. This is what exists."
+      - "Typed text plus PDF."
+      - "All five frozen types - typed text, PDF, PNG, JPG, DOCX - which means Phase 7 must finish first."
+    recommended_default: "Typed text only, because it is the only one that exists and the extraction adapter is a stub."
+    owner_answer: null
+    status: OPEN
+    evidence_needed: >-
+      Frozen criterion S1 requires 5 of 5 without error. Today
+      accountant/extract/adapter.py holds TypedTextExtractor and nothing else -
+      no third-party backend is connected. EPIC.md also records that bill
+      extraction is now a vendor feature with a free price floor and argues
+      against entering that market, so 'all five' is a real cost with a recorded
+      argument against it.
+    next_action: "Owner names the launch input set. If it is anything beyond typed text, Phase 7 becomes a launch blocker."
+
+  - id: "D-24"
+    question: "Which Windows versions and which Tally versions are supported at launch?"
+    options:
+      - "Only what has been tested - TallyPrime Release 7.0 on the Windows-on-ARM build used here."
+      - "A named list wider than what has been tested, with the untested entries labelled untested."
+    recommended_default: "Only what has been tested. Anything wider is a claim with no measurement behind it."
+    owner_answer: null
+    status: OPEN
+    evidence_needed: >-
+      Measured against TallyPrime Release 7.0, Series A Release 7.0.0, Build
+      27974, in Educational mode, inside a UTM Windows-on-ARM guest at
+      192.168.64.2:9000. Tally.ERP 9 has never answered (D-03). No other Windows
+      build has been tested. This is the coordinator's 'supported Windows/Tally
+      versions' question. It is NOT D-19 - D-19 is about our own connector's
+      protocol versions, which is a different thing.
+    next_action: "Owner names the supported matrix. Answer it together with D-03."
+
+  - id: "D-25"
+    question: "How many concerns may the review screen show at once?"
+    options:
+      - "3."
+    recommended_default: "3."
+    owner_answer: >-
+      flag_cap = 3. OWNER DECISION 2026-08-10. Reason recorded verbatim at
+      accountant/web/app.py:77-92 - 'show the first three concerns while
+      preserving all concerns in evidence and avoiding an overloaded review
+      screen'. Display only. Detection, storage, safety and posting are
+      unchanged - every concern survives in Draft.suppressed_flags and the
+      screen says how many it did not show.
+    status: IMPLEMENTED_AFTER_OWNER_DECISION
+    evidence_needed: "accountant/web/app.py:92 FLAG_CAP = 3; tests/test_flag_cap.py, 16 tests. Committed in a19a100, 2026-08-10."
+    next_action: "None. Landed in a19a100."
+
+  - id: "D-26"
+    question: "Does the project operate under Tally's Educational mode for now?"
+    options:
+      - "Option 1 - obtain a licence."
+      - "Option 2 - the Educational-mode exception."
+    recommended_default: "Option 2."
+    owner_answer: >-
+      Option 2 - the Educational-mode exception. Recorded 2026-08-08. Standing
+      instructions attached - do not purchase, activate, bypass or simulate a
+      non-Educational licence; do not edit 2026-08-07; do not convert
+      ENVIRONMENT_LIMITED into PASS; do not use the accepted control date
+      2026-08-31 to claim the original fixture passed.
+    status: IMPLEMENTED_AFTER_OWNER_DECISION
+    evidence_needed: >-
+      PROJECT_STATE.md section 24. This entry answers 'what do we do today'. It
+      does NOT resolve D-01, which asks which of the two contradictory licence
+      instructions is the live one. Both are kept and cross-linked rather than
+      merged, because merging them would hide the contradiction.
+    next_action: "None here. D-01 is the open half."
+
+  - id: "D-27"
+    question: "The cached-mutation gate."
+    options:
+      - "Park it."
+      - "Fix it now."
+    recommended_default: "Park it."
+    owner_answer: "PARKED, 2026-08-08. Gate 8 stays in the contract and stays counted; it is deliberately not executed. The gate count does not fall."
+    status: IMPLEMENTED_AFTER_OWNER_DECISION
+    evidence_needed: "ci/gates.toml still lists cached-mutation with threshold 90, and ci/gate_names.lock still holds the name, so the count stays 20. PROJECT_STATE.md section 20 - gate 8 PARKED, deliberately not executed, blocked upstream in pytest-gremlins."
+    next_action: "None until pytest-gremlins fixes the upstream issue."
+
+  - id: "D-28"
+    question: "May Claude merge a pull request?"
+    options:
+      - "Yes, when the gates are green."
+      - "No, the owner merges."
+    recommended_default: "Yes, when the gates are green."
+    owner_answer: >-
+      Claude merges when the gates are green. Recorded 2026-08-08. Claude never
+      decides WHETHER the gates passed - GitHub's deterministic required checks
+      are the authority, and Claude may not weaken, remove, replace or bypass a
+      ruleset or branch protection.
+    status: IMPLEMENTED_AFTER_OWNER_DECISION
+    evidence_needed: >-
+      PROJECT_STATE.md section 4 rows 15 to 17 and section 16. Six tamper
+      attempts refused; a red merge refused with 405; three ruleset write
+      attempts refused with 403. The refusals are the evidence that the boundary
+      is real rather than a promise.
+    next_action: "None."
+blockers:
+
+  - id: "B-01"
+    kind: ENVIRONMENT
+    text: >-
+      A company named exactly `Demo Co` must be created in the TallyPrime GUI,
+      with the four ledgers tests/test_tally_contract.py:46-47 names -
+      Purchases, Sundry Expenses, Cash, Sharma Traders.
+    impact: >-
+      Without it the RealTally acceptance run has nothing to run against, so the
+      `live` evidence class can never be produced and every exit that depends on
+      a real Tally reports BLOCKED_ENVIRONMENT.
+    unblocked_by: >-
+      The owner, in the TallyPrime window, by hand. A company CANNOT be created
+      over the XML gateway - it was attempted and refused with
+      `<RESPONSE>Unknown Request, cannot be processed</RESPONSE>`. Do not retry
+      it over XML; retrying teaches nothing.
+    workstreams_blocked: ["5-LIVE", "2", "LG-18", "LG-09"]
+
+  - id: "B-02"
+    kind: OWNER
+    text: >-
+      A legitimate non-Educational TallyPrime licence. Educational mode accepts
+      vouchers only on the 1st, 2nd and 31st of a month.
+    impact: >-
+      The frozen 2026-08-07 fixture is refused, so the Phase 2 exit contract
+      tests cannot run. Measured 2026-08-08 - 2026-08-07 REJECTED, 2026-08-31
+      ACCEPTED, deletion works. Only the date is refused, so this is an
+      environment limit and not a connector defect.
+    unblocked_by: >-
+      An owner decision, D-01, which is OPEN and self-contradictory in the
+      record. THE FIXTURE IS NEVER EDITED TO MAKE IT PASS.
+    workstreams_blocked: ["2", "5-LIVE", "LG-14", "LG-18", "LG-19"]
+
+  - id: "B-03"
+    kind: ENVIRONMENT
+    text: "The Phase 5 live acceptance run - python -m ci.acceptance_cli against a licensed TallyPrime."
+    impact: >-
+      It is the only producer of the `live` evidence class. Until it passes,
+      Phase 3, Phase 5-live and Phase 5B all carry a BLOCKED_ENVIRONMENT
+      component and no FakeTally result may stand in for it.
+    unblocked_by: "B-01 and B-02, in that order. Neither can be worked around."
+    workstreams_blocked: ["3", "5-LIVE", "5B", "LG-18"]
+
+  - id: "B-04"
+    kind: ENVIRONMENT
+    text: >-
+      The live TallyPrime HTTP gateway was left wedged on 2026-08-09 - TCP kept
+      accepting connections and no request was ever answered again. Whether it
+      has been restarted since is not recorded anywhere.
+    impact: >-
+      ci/educational_slice.py has never produced a passing run; Tally became
+      unresponsive before the first execution completed, so its status is NOT
+      YET MEASURED and no number from it is claimed. Any further live work is
+      blocked until somebody confirms Tally is answering.
+    unblocked_by: >-
+      The owner closes TallyPrime and opens it again, then reopens the company.
+      There is no remote path. STANDING RULE, learned the expensive way - never
+      probe a Tally you cannot restart. The custom TDL report request that
+      caused the wedge is not built anywhere and the permitted request shapes
+      are a whitelist, not a blacklist.
+    workstreams_blocked: ["ci/educational_slice.py", "5-LIVE", "any live read"]
+
+  - id: "B-05"
+    kind: OWNER
+    text: "ANTHROPIC_API_KEY is not set and the Claude GitHub App is not installed."
+    impact: >-
+      .github/workflows/claude.yml is registered but every run reports
+      conclusion `skipped`. The gates do not need it, so nothing else is
+      blocked - this is recorded so the skipped runs are not mistaken for
+      failures.
+    unblocked_by: "The owner adds the secret and installs the app, or decides to leave it off."
+    workstreams_blocked: ["claude.yml"]
+
+  - id: "B-06"
+    kind: OWNER
+    text: "Any edit under .github/** needs an explicit owner yes, and none has been given."
+    impact: >-
+      .github/workflows/full.yml still installs actionlint through Docker, so
+      one tool has two install mechanisms and the nightly carries a
+      container-registry dependency the pinned binary does not have. Phase 10's
+      'exactly one install mechanism' exit cannot be met.
+    unblocked_by: "The owner approves a .github edit."
+    workstreams_blocked: ["10", "BOTTLENECKS.md A5"]
+
+  - id: "B-07"
+    kind: OWNER
+    text: "No external scheduler account and no token scoped to dispatch plus read runs."
+    impact: >-
+      A monitor inside GitHub cannot observe GitHub dropping its own schedule.
+      Observed - the 02:00 UTC slot fired 87 minutes late and the 03:00 slot 70
+      minutes late; a drop would look identical to silence. Phase 10's external
+      alert exit cannot be met.
+    unblocked_by: "The owner creates the account and the scoped token. Claude's token is Actions:read and returns 403 on dispatch."
+    workstreams_blocked: ["10", "BOTTLENECKS.md A6"]
+
+  - id: "B-08"
+    kind: ENVIRONMENT
+    text: >-
+      No real ledger this project can obtain carries a labelled accounting
+      error, so there is no answer key.
+    impact: >-
+      N3 (catch rate) cannot be measured on real data, VERIFIED_COVERAGE is 0
+      and can only stay 0, and no detector has ever been shown to catch a real
+      error. The Phase 9 exit reports the numbers but the product claim behind
+      them is unproven. The absence is pinned by
+      tests/test_ingest.py::test_the_score_harness_fails_n3_on_real_data_because_there_is_no_answer_key
+      rather than left as prose.
+    unblocked_by: >-
+      A real book with labelled errors, or a real customer's corrections used as
+      labels. The owner has recorded three times that there is no access to any
+      other person, so this may be permanent. If it is permanent, that is a
+      product-strategy fact, not an engineering backlog item.
+    workstreams_blocked: ["N3_CATCH_RATE", "VERIFIED_COVERAGE", "9"]
+
+launch_gates:
+
+  - id: "LG-01"
+    text: "Repository identity is verified."
+    test: "gh api repos/Intellora-ai/accountant-dad-core --jq '{full_name,visibility,created_at}'"
+    evidence: "Run 2026-08-10 - public, created_at 2026-08-07T11:38:55Z."
+    status: PASSED
+
+  - id: "LG-02"
+    text: "The old repository is byte-identical to its recorded pre-build baseline."
+    test: "gh api repos/Intellora-ai/accountant-dad --jq .pushed_at && gh api repos/Intellora-ai/accountant-dad/commits/HEAD --jq .sha"
+    evidence: "Run 2026-08-10 - pushed_at 2026-08-06T19:55:12Z, sha 924d0e06b52577b563c265105d8dea142e0d205d. Both match."
+    status: PASSED
+
+  - id: "LG-03"
+    text: "The CI gate contract passes and the gate count has not fallen below 20."
+    test: "tests/test_gate_contract.py"
+    evidence: "18 tests. ci/gates.toml holds 20 gates; ci/gate_names.lock holds the same 20 names. Counted 2026-08-10."
+    status: PASSED
+
+  - id: "LG-04"
+    text: "The local guard runs and blocks a bad commit before it leaves the laptop."
+    test: "./scripts/guards"
+    evidence: "12 checks, staged mode 0.08s; the pre-commit hook was observed rejecting a bad commit (PROJECT_STATE section 8)."
+    status: PASSED
+
+  - id: "LG-05"
+    text: "actionlint is installed once, from a pinned SHA-256-verified binary."
+    test: "./scripts/install-actionlint"
+    evidence: >-
+      PASSES on the pr-fast path. FAILS as a whole-repository claim -
+      .github/workflows/full.yml still uses the Docker action, so the tool has
+      two install mechanisms. Blocked by B-06.
+    status: NOT_PASSED
+
+  - id: "LG-06"
+    text: "pr-fast passes on GitHub."
+    test: ".github/workflows/pr-fast.yml"
+    evidence: "Run 31236026164, 26s, all steps success. Measured at commit 4cc290f and NOT re-run at HEAD."
+    status: PASSED
+
+  - id: "LG-07"
+    text: "pr-full passes on GitHub."
+    test: ".github/workflows/pr-full.yml"
+    evidence: "PR #12, 113s, all steps success. Measured at commit 4cc290f and NOT re-run at HEAD."
+    status: PASSED
+
+  - id: "LG-08"
+    text: "ci-gate blocks deliberate failures and refuses a red pull request."
+    test: "ci/check_aggregate.py plus the ci-gate job; PROJECT_STATE.md section 18"
+    evidence: "8 deliberate failures observed blocking; red merge refused with API 405; --admin force merge refused; direct push refused."
+    status: PASSED
+
+  - id: "LG-09"
+    text: "A Tally test company is connected and read from."
+    test: "python -m ci.acceptance_cli"
+    evidence: >-
+      Reads were proven against a real TallyPrime on 2026-08-08 (PROJECT_STATE
+      section 21). The DEDICATED test company `Demo Co` does not exist. Blocked
+      by B-01.
+    status: NOT_PASSED
+
+  - id: "LG-10"
+    text: "The chart of accounts is read from a real Tally."
+    test: "tests/test_real_tally.py plus the live read recorded in PROJECT_STATE section 21"
+    evidence: "HTTP 200, 1,594 bytes, 65 ms, 192.168.64.2:9000, after the illegal-character-reference fix for `&#4;`."
+    status: PASSED
+
+  - id: "LG-11"
+    text: "Vouchers are read from a real Tally, and an empty company reads as empty rather than as an error."
+    test: "tests/test_adversarial_write_path.py::test_a_company_that_really_is_empty_still_reads_as_empty"
+    evidence: "PROJECT_STATE section 21 - after scoping voucher parsing to BODY/DATA, an empty company returns zero vouchers rather than reading the CMPINFO counter as a voucher."
+    status: PASSED
+
+  - id: "LG-12"
+    text: "One marked voucher is written into a real Tally and the trial balance moves by exactly that amount."
+    test: "PROJECT_STATE.md section 21 live run; contract equivalent tests/test_tally_contract.py::test_a_posted_voucher_moves_the_trial_balance_by_its_own_amount"
+    evidence: "AD Test Expense 168456 -> 668456 paise on 2026-08-08. Real TallyPrime 7."
+    status: PASSED
+
+  - id: "LG-13"
+    text: "Every write is read back from Tally rather than trusted from an HTTP 200."
+    test: "tests/test_tally_contract.py::test_read_back_returns_what_was_written"
+    evidence: "Proven on real Tally 2026-08-08 - read_by_operation_id() returned the written voucher, then None after reversal."
+    status: PASSED
+
+  - id: "LG-14"
+    text: "A duplicate operation ID cannot create a second voucher on a real Tally."
+    test: "tests/test_tally_contract.py::test_duplicate_operation_id_is_rejected"
+    evidence: "Passes against FakeTally. NEVER RUN against a real Tally - licence-blocked. Blocked by B-02."
+    status: NOT_PASSED
+
+  - id: "LG-15"
+    text: "Reversal restores the exact prior trial balance, to the paise, on a real Tally."
+    test: "tests/test_tally_contract.py::test_reverse_restores_the_exact_prior_trial_balance"
+    evidence: "Proven on real Tally 2026-08-08 - 668456 -> 168456, EXACT RESTORE True, VOUCHER GONE True."
+    status: PASSED
+
+  - id: "LG-16"
+    text: "The N = 10 acceptance run passes all fifteen conditions."
+    test: "ci/acceptance.py; tests/test_acceptance_n10.py"
+    evidence: "15 of 15 conditions PASSED, 21 tests. FakeTally and simulator only - the live version is LG-18."
+    status: PASSED
+
+  - id: "LG-17"
+    text: "The Phase 5B readiness gate passes all twelve conditions across three differing runs."
+    test: "ci/readiness.py; tests/test_phase5b_readiness.py"
+    evidence: "3 of 3 runs, 30 of 30 lifecycles, clean-room wheel install succeeds. FakeTally and simulator only."
+    status: PASSED
+
+  - id: "LG-18"
+    text: "The RealTally acceptance test has passed."
+    test: "python -m ci.acceptance_cli --yes"
+    evidence: >-
+      REQUIRED, NEVER RUN. No evidence of any kind exists and none is claimed.
+      ci/acceptance_cli.py refuses the LICENSED_REALTALLY label while the
+      licence read returns UNKNOWN, so the machine cannot fake this row.
+      Blocked by B-01, B-02, B-03.
+    status: NOT_PASSED
+
+  - id: "LG-19"
+    text: "The client-fixture contract tests pass against a real TallyPrime with the 2026-08-07 fixture unmodified."
+    test: "tests/test_tally_contract.py with the `client` fixture pointed at RealTally"
+    evidence: >-
+      Zero of them have ever run. Count of client-fixture tests is
+      PENDING_COUNT - the documents say 15, an AST count on 2026-08-10 says 19.
+      Blocked by B-02.
+    status: NOT_PASSED
+
+  - id: "LG-20"
+    text: "N1 is inside its target on every reported slice, not only on the aggregate."
+    test: "tests/test_n1.py::test_one_department_is_still_above_the_target_and_is_not_hidden"
+    evidence: "DHSC measures 33.33 against a target of 10. Aggregate 6.29 PASS, held-out 2.90 PASS. Which of these is the launch rule is OPEN decision D-22."
+    status: NOT_PASSED
+
+  - id: "LG-21"
+    text: "N2, review time as a fraction of read-everything time, is at or under 10 percent."
+    test: "accountant/score/harness.py lines 396-417 (N2_MAX_REVIEW_PERCENT = 10)"
+    evidence: "Never measured on real data. The seconds it depends on are assumed, not measured (accountant/score/report.py line 67). Blocked by B-08."
+    status: NOT_PASSED
+
+  - id: "LG-22"
+    text: "N3, catch rate per injected error type, is at or above 90 percent on real data."
+    test: "tests/test_ingest.py::test_the_score_harness_fails_n3_on_real_data_because_there_is_no_answer_key"
+    evidence: "Cannot be measured - no real ledger this project holds carries a labelled error. Blocked by B-08."
+    status: NOT_PASSED
+
+  - id: "LG-23"
+    text: "At least one detector is verified catching a real published error type on real data."
+    test: "docs/TAXONOMY.md, pinned by tests/test_taxonomy_matrix.py"
+    evidence: "VERIFIED coverage is 0 of 12. At most 2 are PARTIAL. Eight of the twelve are out of reach of a history-contradiction detector at all. Blocked by B-08."
+    status: NOT_PASSED
+
+  - id: "LG-24"
+    text: "Memory is bootstrapped from the company's own posted history before the first proposal is shown."
+    test: "tests/test_bootstrap_readiness.py; tests/test_web.py::test_the_app_bootstraps_this_companys_memory_before_serving"
+    evidence: "Proven against FakeTally. An existing company that yields no mappings is reported as a bootstrap failure and proposes nothing."
+    status: PASSED
+
+  - id: "LG-25"
+    text: "An existing company with an empty index is reported as a bootstrap failure and never proposes anything."
+    test: "tests/test_bootstrap_readiness.py::test_a_bootstrap_failure_proposes_nothing_at_all"
+    evidence: "Passes. This exists because cross-organisation transfer measured 0.00%, which makes every customer a permanent cold start."
+    status: PASSED
+
+  - id: "LG-26"
+    text: "No memory index is ever built from more than one company."
+    test: "tests/test_pipeline_isolation.py; tests/test_company_collision.py"
+    evidence: "11 plus 7 tests. One company's memory cannot build a draft for another, cannot evaluate another's draft, and a refused collision destroys nothing belonging to the first company."
+    status: PASSED
+
+  - id: "LG-27"
+    text: "A typed entry works end to end and a Valid entry posts automatically with no confirmation step."
+    test: "tests/test_web.py::test_a_known_vendor_posts_without_asking"
+    evidence: "Passes against FakeTally. The live equivalent is LG-18 and has never run."
+    status: PASSED
+
+  - id: "LG-28"
+    text: "An Unclear entry asks a plain question that contains no ledger account name."
+    test: "tests/test_questions.py::test_no_question_contains_a_ledger_account_name; tests/test_web.py::test_the_question_never_shows_a_ledger_account_name"
+    evidence: "Passes. A word inside another word is not treated as a leak, and a deliberately leaked account name is caught."
+    status: PASSED
+
+  - id: "LG-29"
+    text: "A Not valid entry never posts, by any path."
+    test: "tests/test_adversarial_write_path.py; tests/test_phase4_exits.py"
+    evidence: "37 plus 10 tests, including a capped screen never posting a voucher (tests/test_flag_cap.py)."
+    status: PASSED
+
+  - id: "LG-30"
+    text: "The action log records an outcome and a reason for every entry, and survives a restart."
+    test: "tests/test_action_log.py::test_a_posted_entry_records_its_outcome_and_its_reason; tests/test_dismissal_durability.py"
+    evidence: "Passes. Batch rows are written under the normalised key after defect 4 of PROJECT_STATE section 40.4 - ten rows written, zero found."
+    status: PASSED
+
+  - id: "LG-31"
+    text: "No fallback account exists anywhere in the codebase."
+    test: "tests/test_phase4_exits.py::test_no_shipped_module_names_a_fallback_account_in_executable_code"
+    evidence: "Passes, and the guard itself is tested by deliberately introducing a fallback and watching it fail."
+    status: PASSED
+
+  - id: "LG-32"
+    text: "The first detector works in the real review flow, with the cap applied and overflow counted."
+    test: "tests/test_first_detector.py; tests/test_flag_cap.py"
+    evidence: >-
+      16 plus 16 tests against FakeTally over HTTP. PENDING_VERIFICATION - a
+      Phase-6 agent is re-checking. The cap half only became true on 2026-08-10
+      and it landed in commit a19a100.
+    status: PARTIALLY_VERIFIED
+
+  - id: "LG-33"
+    text: "The application refuses to start when Tally is not reachable, rather than serving pages that cannot work."
+    test: "tests/test_startup_path.py::test_serve_refuses_to_start_when_tally_is_not_listening_and_writes_nothing"
+    evidence: "6 tests. A refused startup leaves no server listening on the port."
+    status: PASSED
+
+  - id: "LG-34"
+    text: "A complete evidence report is produced, and no result can carry an evidence class it did not earn."
+    test: "tests/test_acceptance_cli.py::test_the_live_evidence_class_is_refused_while_the_licence_is_unknown"
+    evidence: "13 tests. FakeTally is not an offered evidence class in ci/acceptance_cli.py, because the command always talks to a real connector."
+    status: PASSED
+
+  - id: "LG-35"
+    text: "Money is integer paise everywhere, and a float in a money field is refused."
+    test: "tests/test_money.py; tests/test_web.py::test_the_amount_reaches_tally_as_integer_paise"
+    evidence: "Passes. PROJECT_STATE section 38 records the two components that had opposite behaviour and the screen that could not draw a refusal."
+    status: PASSED
+
+  - id: "LG-36"
+    text: "Full-suite line coverage is at or above 90 percent and the mutation score is at or above 90 percent."
+    test: "COVERAGE_CORE=pytrace .venv/bin/python -m pytest --cov=accountant  /  COVERAGE_CORE=pytrace .venv/bin/python -m pytest --gremlins"
+    evidence: >-
+      95% coverage at commit 4cc290f; 1394 of 1402 terminal mutants zapped
+      (99.43%) at the 2026-08-09 work. NEITHER has been re-measured at HEAD, so
+      this gate is carried forward rather than currently observed.
+    status: PARTIALLY_VERIFIED
+
+  - id: "LG-37"
+    text: "The full test suite passes with zero failures."
+    test: "COVERAGE_CORE=pytrace .venv/bin/python -m pytest -q -p no:cacheprovider"
+    evidence: >-
+      1764 passed, 6 xfailed, 0 failed. Final run 2026-08-10, after every
+      agent's work had landed. Includes
+      tests/test_project_truth.py::test_the_real_control_plane_satisfies_every_rule,
+      which is the check that the documents agree with the control plane.
+    status: PASSED
+
+  - id: "LG-38"
+    text: "An external alert fires when a scheduled nightly run is dropped."
+    test: ".github/workflows/watchdog.yml plus an off-platform monitor that does not exist"
+    evidence: "NOT BUILT. The watchdog runs on the scheduler it is watching. Blocked by B-07."
+    status: NOT_PASSED
+
+  - id: "LG-39"
+    text: "All five input types are accepted without error (frozen criterion S1)."
+    test: "No test exists. S1 has never been measured."
+    evidence: "Only typed text works. accountant/extract/adapter.py is a stub with no third-party backend. Phase 7 is NOT_STARTED. Open decision D-23."
+    status: NOT_PASSED
+
+  - id: "LG-40"
+    text: "The production path runs every detector calibration kept, not just one."
+    test: "accountant/pipeline.py:236 - the default detector_set"
+    evidence: >-
+      The default is SLICE_4_DETECTORS, which is one detector. ACTIVE_DETECTORS
+      has three. ARCHITECTURE Phase 8 is where ALL_DETECTORS replaces
+      SLICE_4_DETECTORS, and Phase 8 is NOT_STARTED.
+    status: NOT_PASSED

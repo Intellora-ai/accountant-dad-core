@@ -76,6 +76,36 @@ def normalise_company(name: str) -> str:
     return _SPACE.sub("_", _PUNCT.sub(" ", folded.casefold()).strip())
 
 
+def same_company_name(a: str, b: str) -> bool:
+    """Are these two strings the SAME NAME, written two ways?
+
+    Defect D-C, found 2026-08-10. Every check of the form "is this company open
+    in Tally" was an exact string comparison, and the two sides of that
+    comparison come from two operating systems: a name typed on macOS arrives
+    decomposed (NFD - `e` followed by a combining acute), and TallyPrime on
+    Windows returns it composed (NFC - a single `é`). The two strings look
+    identical on screen and are not equal.
+
+    The operator saw:
+
+        'Café Exports' is no longer open in Tally. 1 company/companies are
+        open: ['Café Exports']. Open 'Café Exports' in Tally again
+
+    - two identical-looking names and an instruction that cannot be followed.
+    It failed CLOSED, so no wrong company was ever written to, and it was
+    still unusable, which is the distinction this codebase keeps having to
+    relearn: failing safely and failing legibly are two properties.
+
+    NFC ONLY, deliberately. This is NOT `normalise_company`, which also folds
+    case and strips punctuation to build a scope key. Two genuinely different
+    companies can share a key - the identity layer treats that as an ambiguity
+    and refuses - so using the key here would let "is my company open?" answer
+    yes about somebody else's books. Unicode normalisation is the whole of the
+    defect and the whole of the fix.
+    """
+    return unicodedata.normalize("NFC", a) == unicodedata.normalize("NFC", b)
+
+
 @dataclass(frozen=True)
 class CompanyIdentity:
     """One company, unambiguously.

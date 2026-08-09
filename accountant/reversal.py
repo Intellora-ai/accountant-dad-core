@@ -593,6 +593,31 @@ def reconcile(batch: Batch, client: TallyClient) -> Batch:
                 )
             )
 
+    # `reconciled=True` unconditionally, and that is an OPEN OWNER DECISION.
+    #
+    # Defect D3, 2026-08-10. This contradicts two things this module says about
+    # itself: this function's docstring ("a reconciliation that cannot read has
+    # not reconciled anything") and `resume`'s gate message ("every unknown
+    # outcome is settled by a read before anything else is written"). Measured:
+    # after a reconcile in which every read failed, an approved resume deleted
+    # six more vouchers, leaving nine of ten gone from a company where one
+    # voucher's fate was unknown.
+    #
+    # NOT FIXED HERE, deliberately. Setting `reconciled` from whether anything
+    # is still UNKNOWN makes `resume` refuse the WHOLE batch, and an existing
+    # test requires the opposite - that resume proceeds and skips the unknown
+    # voucher, so the other outstanding cleanup can still finish. Both readings
+    # are defensible and they are mutually exclusive:
+    #
+    #   refuse the batch   safest, and outstanding cleanup can never complete
+    #                      while one voucher's fate is unknown
+    #   skip that voucher  cleanup finishes, and a batch continues past an
+    #                      unresolved unknown
+    #
+    # Which one is right is an accounting-operations decision, not an
+    # engineering one, so it goes to the owner rather than being chosen here.
+    # The failing test that pins the defect is marked xfail(strict) and names
+    # this comment.
     return replace(
         _settle(batch, settled, client.trial_balance(batch.company)),
         reconciled=True,
