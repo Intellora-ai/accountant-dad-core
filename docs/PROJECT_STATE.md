@@ -1922,7 +1922,7 @@ voucher to the wrong place, silently, with no flag and no question.
 |---|---|---|---|
 | **D1** | An accented name in NFD form keys to a *different* supplier. `_PUNCT = [^\w\s&]` at `memory/index.py:36` — U+0301 is category Mn, so a decomposed accent becomes a space and collapses. | `normalise_vendor(NFD "Café Supplies") == "cafe_supplies"`. The NFD spelling **posts VALID**; the NFC spelling of the identical visible name asks. | `index.py:46` → `unicodedata.normalize("NFC", name).casefold().strip()`, and the same at `identity.py:47`. Stdlib. |
 | **D2** | `Acme Ltd` and `Acme LLP` are one vendor key. `_SUFFIXES` at `index.py:20-34` strips `llp` beside `ltd`. | An LLP invoice **posts VALID** against Ltd-only history. Contradicts `identity.py:19-21`, which states those are separate entities. | drop `llp`, `inc`, `corp`, `corporation` from `_SUFFIXES`. **Owner call** — it is a documented trade-off. |
-| **D3** | Two Tally companies can share one memory scope. `identity.py:37-47` turns punctuation into a separator, so `Acme Traders (Unit 1)` and `Acme Traders Unit 1` both key `acme_traders_unit_1`. | The second bootstrap's `forget()` erases the first company's index; the first company's live handle then answers with the **second company's account**; the cross-company guard at `pipeline.py:116-121` compares keys so it **cannot fire**; `store.actions()` merges both trails. | collision check in `bootstrap.py:197`, where `list_companies()` is already in hand. Fails closed, no schema change. |
+| ~~**D3**~~ **FIXED 2026-08-09, see §33** | Two Tally companies could share one memory scope. `identity.py:37-47` turns punctuation into a separator, so `Acme Traders (Unit 1)` and `Acme Traders Unit 1` both key `acme_traders_unit_1`. | The second bootstrap's `forget()` erases the first company's index; the first company's live handle then answers with the **second company's account**; the cross-company guard at `pipeline.py:116-121` compares keys so it **cannot fire**; `store.actions()` merges both trails. | collision check in `bootstrap.py:197`, where `list_companies()` is already in hand. Fails closed, no schema change. |
 | **D4** | A stale index outvotes the live ledger. `resume()` at `bootstrap.py:255-272` never tests freshness; `bootstrapped_at` is written and read by no decision. | Memory says Purchases, all 40 live vouchers say Repairs & Maintenance → **VALID, zero flags, zero problems, posted**, reason recorded as *"nothing unclear and nothing surprising"*. | compare the proposal against the party's accounts in the `history` already passed to `pipeline.evaluate:180`, or a detector reading `history` — `detectors.py:63` already carries it. |
 
 **D3 is the most serious: it is a cross-company write**, and it defeats the exact
@@ -2176,3 +2176,91 @@ Mutants, all now dead: revert to presence-only (1 fail) · drop the register che
 tests   1023 -> 1026 passed, 4 xfailed (was 6), 0 failed, 0 skipped
 guards  12/12      pyright 0      accidental deletions 0
 ```
+
+---
+
+## 33. D3 FIXED — two companies can no longer share one memory scope
+
+**2026-08-09.** Phase 4 P4.0. The first bottleneck, fixed before anything was
+built on the memory layer.
+
+### 33.1 The recorded fix was sited WRONG
+
+§29 said "collision check in `bootstrap.py:197`, where `list_companies()` is
+already in hand". Measured: `store.forget(identity.key)` sat at **line 193**,
+four lines earlier and unconditional. A check at :197 fails closed only *after*
+the other company's `vendor_account`, `phrase_account`, `chart_account` and
+`company` rows are deleted — and `_incomplete()` then writes a row under the
+shared key carrying **this** company's `display_name`, so `resume(the other one)`
+returns INCOMPLETE under the wrong name.
+
+**Every refusal now precedes `forget()`.** Destroying an index is the last thing
+`bootstrap` does, not the first.
+
+### 33.2 What changed
+
+| change | where |
+|---|---|
+| `BootstrapStatus.COMPANY_KEY_COLLISION` — the measurable failure code | `memory/store.py` |
+| `_colliding_company()` — checks the LIVE open-company list, returns the other **original** name | `memory/bootstrap.py` |
+| `_refused()` — a refusal that writes **nothing**, unlike `_incomplete` | `memory/bootstrap.py` |
+| `forget()` moved below every check | `memory/bootstrap.py` |
+| plain-English banner for the new status | `web/app.py` |
+
+`_refused` exists because `_incomplete` calls `save_bootstrap`, and on a
+collision **that write is the damage**: it stamps one company's name onto the
+other's row. A refusal whose own record corrupts what it is refusing to touch is
+not a refusal.
+
+The check reads the **live open-company list**, not the store, because the store
+can only ever hold one of a colliding pair — `company_key` is the sole primary
+key and the writer is `INSERT OR REPLACE`.
+
+### 33.3 Stricter than designed, and correctly so
+
+The first draft of the test expected the FIRST company to bootstrap fine and only
+the second to be refused. It failed, and **the code was right**: while two names
+that reduce to one key are both open, no reading of *either* can say whose books
+it read. **Both are refused.**
+
+### 33.4 The normalisation rule is deliberately UNCHANGED
+
+Tightening it only reshuffles which pairs collide. `Ganesh  Textiles` and
+`Ganesh Textiles` alias under **any** rule that collapses whitespace, and the key
+is re-derived from a free-text name in `store.state()` and `store.actions()`, so
+whitespace collapsing cannot be dropped. The map is many-to-one; some pair always
+aliases. The fix is a **uniqueness proof at the point of admission**, not a better
+guess at which characters matter.
+
+### 33.5 Measured
+
+`tests/test_company_collision.py`, 17 tests. Six real-world Indian colliders,
+each with a premise test proving the collision is real — so the refusal tests
+cannot pass because there was nothing to catch:
+
+```
+M/s Sharma Traders             == M.S. Sharma Traders
+Kumar Motors - Pune            == Kumar Motors Pune
+Dev Enterprises (Unit-II)      == Dev Enterprises Unit II
+Bharat Steel Pvt. Ltd.         == Bharat Steel Pvt Ltd
+Shree Balaji Enterprises [Old] == Shree Balaji Enterprises Old
+Ganesh  Textiles               == Ganesh Textiles
+```
+
+Two controls, both required: re-reading **one** company stays READY, and two
+**non**-colliding companies both bootstrap fine — otherwise "refuse every second
+bootstrap" would pass.
+
+| metric | actual | expected | evidence |
+|---|---|---|---|
+| tests | **1043 passed, 4 xfailed, 0 failed, 0 skipped** | ≥ 1026 | `pytest -q` |
+| guards | 12/12 | 12/12 | `./scripts/guards` |
+| pyright | 0 | 0 | `pyright` |
+| mutant: remove the check | **10 failed** | red | by hand |
+| mutant: `forget()` back above the check | **2 failed** | red | by hand |
+| mutant: `_incomplete` instead of `_refused` | **9 failed** | red | by hand |
+
+`test_two_tally_companies_differing_only_by_brackets_today_share_one_scope` was
+**flipped** from pinning the defect to proving the fix, and renamed
+`..._are_both_refused`. A vacuous `assert survivor is not None` was caught and
+replaced while flipping it — `resume` never returns `None`.

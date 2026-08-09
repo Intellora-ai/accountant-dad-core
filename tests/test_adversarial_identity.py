@@ -772,48 +772,35 @@ PAREN_UNIT = "Acme Traders (Unit 1)"
 PLAIN_UNIT = "Acme Traders Unit 1"
 
 
-def test_two_tally_companies_differing_only_by_brackets_today_share_one_scope() -> None:
-    """DEFECT, pinned. The company key that isolates everything is not unique.
+def test_two_tally_companies_differing_only_by_brackets_are_both_refused() -> None:
+    """D3, FIXED 2026-08-09. This test pinned the DEFECT until then.
 
-    WROTE THIS TEST EXPECTING
-    `normalise_company(PAREN_UNIT) != normalise_company(PLAIN_UNIT)`.
-    It failed on the first run with:
+    WHAT IT USED TO PIN
+        `identity.py:37-47` replaces every punctuation character with a space
+        and joins on "_", so brackets, hyphens, dots and slashes carry no
+        information. Two DIFFERENT companies open in one Tally shared one scope
+        key, and everything followed: the second `bootstrap` called
+        `store.forget(key)` and erased the first company's whole index; the
+        first company's LIVE handle then answered with the second's account;
+        `resume` came back READY under the OTHER company's name; the guard at
+        `pipeline.py:116-121` compared keys so it could not see the difference;
+        and `store.actions()` returned one merged trail.
 
-        AssertionError: assert 'acme_traders_unit_1' != 'acme_traders_unit_1'
-         +  where 'acme_traders_unit_1' = normalise_company('Acme Traders (Unit 1)')
-         +  and   'acme_traders_unit_1' = normalise_company('Acme Traders Unit 1')
+    WHAT HAPPENS NOW, AND IT IS STRICTER THAN THE RECORDED FIX
+        The recorded fix said "a collision check at `bootstrap.py:197`". That
+        siting was WRONG: `store.forget()` ran FOUR LINES EARLIER, so a check
+        there fired only after the first company's rows were already deleted.
+        Every refusal now precedes `forget()`, and the collision path uses
+        `_refused`, which writes nothing at all - because `_incomplete` calls
+        `save_bootstrap`, and on a collision that write IS the damage.
 
-    WHAT HAPPENS
-        `accountant/memory/identity.py:37-47` replaces every punctuation
-        character with a space and then joins on "_", so brackets, hyphens,
-        dots and slashes carry no information. Two DIFFERENT companies open in
-        one Tally therefore share one scope key, and everything downstream
-        follows:
+        And BOTH companies are refused, not just the second. While two names
+        that reduce to one key are both open, no reading of either can say
+        whose books it read.
 
-          * the second `bootstrap` calls `store.forget(key)`
-            (`bootstrap.py:193`) and erases the first company's whole index;
-          * the first company's LIVE handle then answers with the second
-            company's account;
-          * `resume(store, "Acme Traders (Unit 1)")` comes back READY carrying
-            `display_name` "Acme Traders Unit 1" - the other company's name;
-          * `build_draft`'s guard at `pipeline.py:116-121` compares keys, so it
-            cannot see the difference and lets the draft through;
-          * `store.actions()` returns one merged trail for both companies.
-
-        This is the exact cross-company leak `identity.py` exists to prevent.
-        Its docstring at `identity.py:16-21` reasons only about removing WORDS
-        being dangerous; removing punctuation is treated as free, and it is
-        not.
-
-    WHAT SHOULD HAPPEN
-        Two distinct Tally company names never share a memory scope. Refusing
-        is enough - nobody needs the two merged, they need the merge noticed.
-
-    SMALLEST FIX
-        A collision check in `bootstrap` at `accountant/memory/bootstrap.py:197`,
-        where `client.list_companies()` is already in hand: if any OTHER open
-        company normalises to this key, return `_incomplete(...)` naming both
-        names. That fails closed with no schema change and no new dependency.
+    The normalisation rule is deliberately UNCHANGED. Tightening it only
+    reshuffles which pairs collide; the key is a many-to-one map and always
+    will be. See tests/test_company_collision.py.
     """
     t = FakeTally()
     t.add_company(
@@ -829,49 +816,46 @@ def test_two_tally_companies_differing_only_by_brackets_today_share_one_scope() 
         backed_up=True,
     )
 
-    # pinned: two companies, one key
+    # The collision itself is unchanged - the key still cannot tell them apart.
     assert normalise_company(PAREN_UNIT) == "acme_traders_unit_1"
     assert normalise_company(PLAIN_UNIT) == "acme_traders_unit_1"
 
     store = MemoryStore(":memory:")
     mem_paren = bootstrap(t, PAREN_UNIT, store)
-    assert mem_paren.lookup(LATIN_SHARMA).accounts == ("Purchases",)
-
     mem_plain = bootstrap(t, PLAIN_UNIT, store)
-    assert mem_plain.lookup(LATIN_SHARMA).accounts == ("Repairs & Maintenance",)
 
-    # the first company's own live handle now answers with the SECOND
-    # company's account. Its books say Purchases; it has been overwritten.
-    assert mem_paren.identity.key == mem_plain.identity.key
-    assert mem_paren.lookup(LATIN_SHARMA).accounts == ("Repairs & Maintenance",)
-    assert mem_paren.lookup(LATIN_SHARMA).accounts != ("Purchases",)
+    # Neither is admitted, and each refusal names the OTHER company.
+    for mem, asked, other in (
+        (mem_paren, PAREN_UNIT, PLAIN_UNIT),
+        (mem_plain, PLAIN_UNIT, PAREN_UNIT),
+    ):
+        assert mem.report.status is BootstrapStatus.COMPANY_KEY_COLLISION
+        assert not mem.report.ready
+        assert asked in mem.report.detail
+        assert other in mem.report.detail
 
-    # re-opening the first company from the store hands back the OTHER name
-    reopened = resume(store, PAREN_UNIT)
-    assert reopened.report.status is BootstrapStatus.READY
-    assert reopened.identity.name == PLAIN_UNIT
-    assert reopened.identity.name != PAREN_UNIT
-    assert reopened.lookup(LATIN_SHARMA).accounts == ("Repairs & Maintenance",)
+    # Nothing was written, so each name resumes as NEVER_RUN carrying ITS OWN
+    # name. Before the fix, `resume(PAREN_UNIT)` came back READY under
+    # PLAIN_UNIT - the other company's display name, stamped on by the second
+    # bootstrap's write.
+    for name in (PAREN_UNIT, PLAIN_UNIT):
+        again = resume(store, name)
+        assert again.report.status is BootstrapStatus.NEVER_RUN
+        assert again.identity.name == name
 
-    # and the cross-company guard cannot fire, because the keys really are equal
-    draft = _run(t, store, reopened, LATIN_SHARMA, company=PAREN_UNIT)
-    assert draft.outcome is Outcome.VALID
-    assert draft.voucher.debit_account == "Repairs & Maintenance"
-    assert draft.posted_tally_id == "TALLY-1"
-    assert len(t.list_our_vouchers(PAREN_UNIT)) == 1
-    assert t.list_our_vouchers(PLAIN_UNIT) == ()
-
-    # one merged audit trail: asking about either company returns the same row
-    assert len(_rows(store, PAREN_UNIT)) == 1
-    assert _rows(store, PAREN_UNIT) == _rows(store, PLAIN_UNIT)
-    assert _rows(store, PAREN_UNIT)[0].backend == "FakeTally"
-    assert _rows(store, PAREN_UNIT)[0].run_id == RUN_ID
-    assert _rows(store, PAREN_UNIT)[0].company_key == "acme_traders_unit_1"
-
-    # cleanup: the voucher went into the bracketed company and reverses there
-    assert pipeline.reverse(draft, t) is True
+    # No proposal, no post, no audit row, and Tally is untouched on both sides.
+    # `lookup` RETURNS a not-ready match; the raise is in `as_match_result`,
+    # which is what keeps "we have not read your books" from arriving at the
+    # decision as "no match". Both halves asserted.
+    for mem in (mem_paren, mem_plain):
+        assert not mem.lookup(LATIN_SHARMA).accounts
+        with pytest.raises(MemoryNotReady):
+            mem.lookup(LATIN_SHARMA).as_match_result()
     assert t.list_our_vouchers(PAREN_UNIT) == ()
+    assert t.list_our_vouchers(PLAIN_UNIT) == ()
+    assert _rows(store, PAREN_UNIT) == ()
     assert len(t.read_vouchers(PAREN_UNIT)) == SEEDED
+    assert len(t.read_vouchers(PLAIN_UNIT)) == SEEDED
 
 
 # ============================================================================

@@ -195,6 +195,14 @@ BOOTSTRAP_TROUBLE: dict[BootstrapStatus, str] = {
         "from yet. We will ask you about every entry until you have built up "
         "some history."
     ),
+    BootstrapStatus.COMPANY_KEY_COLLISION: (
+        f"<b>Two of your companies have names that are too alike, so we "
+        f"{CANNOT_HELP}.</b> Tally has two companies open whose names only "
+        "differ by brackets, dots, dashes or spare spaces, and we cannot tell "
+        "their books apart. Nothing has been read and nothing has been "
+        "changed. Give one of them a clearly different name in Tally, then "
+        "start this app again."
+    ),
     BootstrapStatus.EMPTY_VENDOR_INDEX: (
         f"<b>We read your Tally books, but not one past entry says who you "
         f"paid, so we {CANNOT_HELP}.</b> With no name on a past entry there is "

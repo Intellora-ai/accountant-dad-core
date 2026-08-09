@@ -150,6 +150,11 @@ class BootstrapStatus(StrEnum):
                             Does nothing at all.
         INCOMPLETE          a step failed outright. Does nothing at all.
         NEVER_RUN           no bootstrap has ever been attempted.
+        COMPANY_KEY_COLLISION
+                            another company open in Tally right now normalises
+                            to this same key. Refused BEFORE anything is read
+                            or erased, because the alternative is answering for
+                            the wrong company's books. Does nothing at all.
 
     Until 2026-08-09 the first three were one state. A company with forty
     vouchers whose every row was unusable was READY with zero mappings —
@@ -162,6 +167,7 @@ class BootstrapStatus(StrEnum):
     EMPTY_VENDOR_INDEX = "empty_vendor_index"
     INCOMPLETE = "incomplete"
     NEVER_RUN = "never_run"
+    COMPANY_KEY_COLLISION = "company_key_collision"
 
 
 @dataclass(frozen=True)

@@ -804,6 +804,12 @@ def test_the_states_that_do_exist_are_exactly_these_two_enums() -> None:
         "EMPTY_VENDOR_INDEX",
         "INCOMPLETE",
         "NEVER_RUN",
+        # Added 2026-08-09 with the D3 fix. A collision is not INCOMPLETE:
+        # INCOMPLETE means a step failed part way and a row was written
+        # recording that. A collision means NOTHING was read and NOTHING was
+        # written, because writing the failure would itself have stamped this
+        # company's name onto the other one's row.
+        "COMPANY_KEY_COLLISION",
     ]
     assert [o.name for o in Outcome] == ["NOT_VALID", "UNCLEAR", "VALID"]
     assert not hasattr(Outcome, "INVALID"), "INVALID is spelled NOT_VALID here"
