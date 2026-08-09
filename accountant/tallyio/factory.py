@@ -32,11 +32,21 @@ from dataclasses import dataclass
 
 from accountant.tallyio.client import TallyClient
 from accountant.tallyio.real import (
+    LICENCE_NEVER_READ,
+    LicenceMode,
     RealTally,
     RecordedBackups,
     TallyConfig,
     TallyError,
 )
+
+__all__ = [
+    "BackendIdentity",
+    "LicenceMode",
+    "RealTallyRequired",
+    "new_run_id",
+    "real_tally",
+]
 
 
 class RealTallyRequired(RuntimeError):
@@ -54,6 +64,18 @@ class BackendIdentity:
     Every field is read off the live connection at startup. `backend` is a
     literal string rather than a computed class name so that a report carrying
     it cannot silently start saying "FakeTally" if wiring changes.
+
+    `licence_mode` answers a question `backend` cannot: a person can be on a
+    perfectly real TallyPrime that is running in EDUCATIONAL mode, which refuses
+    every voucher date except the 1st, 2nd and 31st. Telling them "connected,
+    all good" would be true about the connection and wrong about their books, so
+    the mode is carried here beside the backend name rather than inferred later.
+
+    It DEFAULTS TO UNKNOWN, and that default is the safe one. A11 measured
+    2026-08-09 that this Tally's XML gateway will not answer `$$LicenseInfo` at
+    all, so UNKNOWN is the honest answer today and not a stand-in for one.
+    `licence_detail` records how we know, so an UNKNOWN can be diagnosed instead
+    of shrugged at.
     """
 
     backend: str
@@ -62,6 +84,8 @@ class BackendIdentity:
     company_exists: bool
     companies_visible: int
     run_id: str
+    licence_mode: str = LicenceMode.UNKNOWN.value
+    licence_detail: str = LICENCE_NEVER_READ
 
     def as_metrics(self) -> dict[str, object]:
         """The measurement-contract rows this identity is responsible for."""
@@ -72,6 +96,8 @@ class BackendIdentity:
             "company_exists": self.company_exists,
             "companies_visible": self.companies_visible,
             "run_id": self.run_id,
+            "licence_mode": self.licence_mode,
+            "licence_detail": self.licence_detail,
         }
 
 
@@ -121,6 +147,13 @@ def real_tally(
             "Company identity is uncertain, so nothing is read or written."
         )
 
+    # Only now, once we know this really is the right company on a Tally that
+    # answers. Probing the licence of a Tally we are about to refuse would be a
+    # round trip spent on a connection that is not going to exist. `read_licence`
+    # never raises and makes at most one bounded round trip, so a gateway that
+    # cannot answer it costs one fast error and yields UNKNOWN (A11).
+    licence = client.read_licence()
+
     return client, BackendIdentity(
         backend="RealTally",
         endpoint=config.url,
@@ -128,4 +161,6 @@ def real_tally(
         company_exists=True,
         companies_visible=len(companies),
         run_id=identifier,
+        licence_mode=licence.mode.value,
+        licence_detail=licence.detail,
     )

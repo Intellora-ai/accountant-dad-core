@@ -40,7 +40,12 @@ from accountant.memory.company import CompanyMemory
 from accountant.memory.store import BootstrapReport, BootstrapStatus, MemoryStore
 from accountant.schema import ActionLog, Outcome
 from accountant.tallyio.client import TallyClient, operation_id_in
-from accountant.tallyio.factory import BackendIdentity, RealTallyRequired, real_tally
+from accountant.tallyio.factory import (
+    BackendIdentity,
+    LicenceMode,
+    RealTallyRequired,
+    real_tally,
+)
 from accountant.tallyio.real import RecordedBackups, TallyConfig
 
 COMPANY = "Accountant Dad Final"
@@ -121,6 +126,8 @@ def health() -> dict[str, object]:
             "bootstrap_status": "not_connected",
             "failure_code": "NO_RUNTIME",
             "backend": None,
+            "backend_state": BACKEND_UNAVAILABLE,
+            "licence_mode": None,
             "company": COMPANY,
             "detail": (
                 f"{REFUSAL}: no operation performed. "
@@ -133,6 +140,10 @@ def health() -> dict[str, object]:
     counts = report.counts
     return {
         "ready": report.ready,
+        # The SAME function the page uses. Two answers to "which Tally are we
+        # on" is how the screen and the monitoring end up disagreeing, and the
+        # one nobody is watching is always the one that stays wrong.
+        "backend_state": backend_state(),
         "bootstrap_status": report.status.value,
         "failure_code": None if report.ready else report.status.value.upper(),
         "detail": report.detail,
@@ -351,34 +362,132 @@ def esc(s: object) -> str:
     return html.escape(str(s))
 
 
-def backend_notice() -> str:
-    """Name the backend we are ACTUALLY on, read from the live identity.
+# ---- which Tally are we on, and is it safe to work? -------------------------
+#
+# Until 2026-08-09 every page carried a hardcoded "Demo mode. This is talking to
+# a fake Tally running in memory... Nothing here touches any real books." True
+# while the app built its own FakeTally; a LIE from the moment P3.1 wired it to
+# somebody's real statutory books. Both directions of that lie are dangerous and
+# the false-reassurance direction is worse: a person told nothing is real will
+# type freely into books that are.
+#
+# So the notice is MEASURED. There are FOUR states and a reader has to be able
+# to tell which one they are looking at:
+#
+#   real-ok         a real Tally whose licence was measured as fully licensed.
+#   unavailable     nothing is connected. Nothing works, and the page says why.
+#   real-practice   a REAL TallyPrime in Educational mode. Real books, but it
+#                   accepts only the 1st, 2nd and 31st, so an entry dated the
+#                   7th is turned away by Tally itself.
+#   not-real        not accounting software at all.
+#
+# And a fifth, which is where this instance actually lives (A11): the gateway
+# will not tell us the licence mode at all. That is `real-licence-unknown`. It
+# is NOT folded into real-ok - that is the exact false reassurance above - and
+# it is NOT folded into real-practice, because calling a licence Educational
+# without measuring it is inventing a result.
+#
+# Every state carries a `data-backend-state="..."` attribute and assertions
+# match THAT, not the prose. The marker appears in exactly one place in the
+# document; the sentences are meant to be edited freely. Two tests written
+# earlier today were green and vacuous because they searched a whole page for a
+# common word the stylesheet already contained.
 
-    This was a hardcoded "Demo mode. This is talking to a fake Tally running in
-    memory... Nothing here touches any real books." It was true when the app
-    built its own `FakeTally`. P3.1 removed that, and the sentence stayed —
-    printed on every page of an app now wired to somebody's real statutory
-    books, telling them the opposite.
+BACKEND_REAL_OK = "real-ok"
+BACKEND_UNAVAILABLE = "unavailable"
+BACKEND_REAL_PRACTICE = "real-practice"
+BACKEND_NOT_REAL = "not-real"
+BACKEND_LICENCE_UNKNOWN = "real-licence-unknown"
 
-    Both directions of that lie are dangerous, and the false-reassurance one is
-    worse: a person told nothing is real will type freely into books that are.
-    So the notice is MEASURED, never written down. Anything that is not
-    RealTally warns loudly; RealTally states the endpoint so the person can see
-    which Tally they are about to change.
+# state -> the words a person reads. A total map rather than an if/elif chain,
+# for the same reason `ACTION_FOR` is one: a state with no words renders a blank
+# notice, and a map can be proved total over the state list while a chain
+# cannot. `{backend}` and `{endpoint}` are filled from the live identity, both
+# escaped before they go in.
+BACKEND_WORDS: dict[str, str] = {
+    BACKEND_UNAVAILABLE: (
+        '<div class=warn data-backend-state="unavailable">'
+        "<b>We are not connected to Tally, so nothing here works.</b> "
+        "We cannot read your books and we cannot save anything into them. "
+        "Check that Tally is open and that your company is open inside it, "
+        "then start this app again."
+        "</div>"
+    ),
+    BACKEND_NOT_REAL: (
+        '<div class=warn data-backend-state="not-real">'
+        "<b>Not real accounting software.</b> This is talking to "
+        "<b>{backend}</b> at {endpoint}, not to TallyPrime. "
+        "Nothing here reaches any real books."
+        "</div>"
+    ),
+    BACKEND_REAL_PRACTICE: (
+        '<div class=warn data-backend-state="real-practice">'
+        "<b>This is your real Tally, but it is a practice copy.</b> "
+        "Tally calls this Educational mode. A practice copy only accepts "
+        "entries dated the <b>1st, 2nd or 31st</b> of a month. Type any other "
+        "date and Tally will turn the entry away, even though everything here "
+        "will look fine. "
+        "writing into <b>{backend}</b> at {endpoint}"
+        "</div>"
+    ),
+    BACKEND_LICENCE_UNKNOWN: (
+        '<div class=warn data-backend-state="real-licence-unknown">'
+        "<b>This is your real Tally, but we could not tell which licence mode "
+        "this Tally is in.</b> So we cannot promise it will accept what you "
+        "type. Some copies of Tally are practice copies, and a practice copy "
+        "only accepts entries dated the 1st, 2nd or 31st of a month. Ask "
+        "whoever set Tally up which kind this one is. "
+        "writing into <b>{backend}</b> at {endpoint}"
+        "</div>"
+    ),
+    BACKEND_REAL_OK: (
+        '<p class=sub data-backend-state="real-ok">'
+        "<b>This is your real Tally and it is ready.</b> Anything you save "
+        "here goes into your real books. "
+        "writing into <b>{backend}</b> at {endpoint}"
+        "</p>"
+    ),
+}
+
+
+def backend_state() -> str:
+    """Which state we are in, measured off the live identity. Never guessed.
+
+    The ORDER of these checks is the safety property, so it is worth reading
+    rather than skimming:
+
+      * nothing connected wins first, because there is no identity to read;
+      * anything that is not RealTally wins next, because a fake's licence mode
+        is meaningless;
+      * Educational is reported only when the licence read SAID so;
+      * and the last test is `!= LICENSED`, not `== UNKNOWN`. Written that way,
+        every value nobody anticipated - a typo, a new Tally mode, a field that
+        never got filled in - lands on the warning rather than on the
+        all-clear. A default has to fall somewhere and this is the only side it
+        may fall on.
     """
     if _runtime_state is None:
-        return ""
+        return BACKEND_UNAVAILABLE
     ident = _runtime_state.identity
     if ident.backend != "RealTally":
-        return (
-            f"<div class=warn><b>Not real accounting software.</b> This is "
-            f"talking to <b>{esc(ident.backend)}</b> at "
-            f"{esc(ident.endpoint)}, not to TallyPrime. Nothing here reaches "
-            f"any real books.</div>"
-        )
-    return (
-        f"<p class=sub>writing into <b>{esc(ident.backend)}</b> at "
-        f"{esc(ident.endpoint)}</p>"
+        return BACKEND_NOT_REAL
+    if ident.licence_mode == LicenceMode.EDUCATIONAL.value:
+        return BACKEND_REAL_PRACTICE
+    if ident.licence_mode != LicenceMode.LICENSED.value:
+        return BACKEND_LICENCE_UNKNOWN
+    return BACKEND_REAL_OK
+
+
+def backend_notice() -> str:
+    """The state, in words a person can act on. On every page, always.
+
+    Rendered even when nothing is connected. That page is the 503, and it is
+    exactly the page on which "why is nothing working" needs answering.
+    """
+    ident = _runtime_state.identity if _runtime_state is not None else None
+    return BACKEND_WORDS[backend_state()].format(
+        backend=esc(ident.backend) if ident is not None else "",
+        endpoint=esc(ident.endpoint) if ident is not None else "",
     )
 
 

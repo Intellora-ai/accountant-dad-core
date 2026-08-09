@@ -176,6 +176,26 @@ A10 CONFIRMED BY REVIEW. A two-legged Journal is valid provided the voucher
     `build_voucher_create`; the fourth is checked by `write_voucher` before it
     writes. No party bill allocations, no inventory allocations, no GST fields,
     no invoice-only fields.
+A11 MEASURED 2026-08-09, and the answer is NO. The licence mode CANNOT be read
+    over the XML gateway on this instance. Every shape was tried against the
+    live TallyPrime 7.0 at 192.168.64.2:9000 and every shape failed:
+
+        Export / TYPE=Function / ID=$$LicenseInfo:IsEducationalMode
+            <ERRORMSG>Could not find: $$LicenseInfo:IsEducationalMode</ERRORMSG>
+            <ERRORMSG>Function Execution Failed!</ERRORMSG>
+          - verbatim, and identical for IsEduMode, LicenseInfo, IsLicensedMode
+            and SerialNumber.
+        Export / TYPE=Data / ID=License Info
+            <LINEERROR>Could not find Report 'License Info'!</LINEERROR>
+        A custom TDL REPORT/FORM/PART/LINE/FIELD evaluating $$LicenseInfo
+            TIMED OUT. Tally hung rather than answered.
+
+    So `read_licence` exists, sends only the shape that FAILS FAST, and never
+    sends the shape that hangs. Its answer today is `LicenceMode.UNKNOWN`, which
+    is a measurement and not a placeholder, and UNKNOWN is never presented to a
+    person as "connected, all good". Educational mode is NEVER inferred from a
+    company name, a ledger name, a voucher count or anything else circumstantial
+    - an inferred licence mode is an invented one.
 """
 
 from __future__ import annotations
@@ -189,6 +209,7 @@ import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+from enum import StrEnum
 from typing import Protocol
 
 # bandit's B405 objects to xml.etree on sight and points at defusedxml, which
@@ -1230,6 +1251,180 @@ def parse_import_response(
 
 
 # ---------------------------------------------------------------------------
+# licence mode - A11
+# ---------------------------------------------------------------------------
+#
+# WHY THIS EXISTS EVEN THOUGH IT DOES NOT WORK
+# --------------------------------------------
+# A person on a TallyPrime in Educational mode is on a REAL Tally holding REAL
+# books, so "connected, all good" is a misleading thing to tell them: Educational
+# mode refuses every voucher date except the 1st, 2nd and 31st (measured
+# 2026-08-07 REJECTED, 2026-08-31 ACCEPTED), so their bill dated the 7th is
+# turned away by Tally and nothing here would have warned them.
+#
+# Reading the mode over the XML gateway was tried and does not work on this
+# instance - see A11 in the module docstring for the verbatim errors. The code
+# below therefore has exactly one job: produce an HONEST UNKNOWN, fast, without
+# raising and without hanging, so that the layer above can warn instead of
+# reassure. If a future build starts answering, the same code starts measuring.
+
+
+class LicenceMode(StrEnum):
+    """Which licence the Tally on the other end is running under.
+
+    UNKNOWN is a real answer, not a placeholder. It is what this gateway
+    actually returns today (A11), and it must never be collapsed into
+    EDUCATIONAL (which would invent a restriction) or into LICENSED (which
+    would invent a reassurance). Only the second of those is dangerous, and it
+    is the one a "default to fine" would produce.
+    """
+
+    EDUCATIONAL = "educational"
+    LICENSED = "licensed"
+    UNKNOWN = "unknown"
+
+
+# The TDL functions a licence read asks for, as named constants so the request
+# that was measured is reproducible rather than remembered.
+LICENCE_FUNCTION = "$$LicenseInfo"
+LICENCE_IS_EDUCATIONAL = "IsEducationalMode"
+LICENCE_IS_LICENSED = "IsLicensedMode"
+LICENCE_SERIAL_NUMBER = "SerialNumber"
+
+LICENCE_NEVER_READ = "the licence mode has not been read"
+
+
+def build_licence_request(member: str) -> str:
+    """Export/Function envelope asking Tally to evaluate one $$LicenseInfo member.
+
+    This is the ONLY shape sent, and it is chosen for how it FAILS. Measured
+    2026-08-09 against the live instance, it comes back immediately with
+    `<ERRORMSG>Could not find: ...</ERRORMSG>`. The alternative - a custom TDL
+    report that evaluates `$$LicenseInfo` inside a report context - made Tally
+    HANG, and a startup path that can hang is worse than one that cannot answer.
+    So the shape that hangs is not built here at all.
+    """
+    return (
+        "<ENVELOPE>"
+        "<HEADER>"
+        "<VERSION>1</VERSION>"
+        "<TALLYREQUEST>Export</TALLYREQUEST>"
+        "<TYPE>Function</TYPE>"
+        f"<ID>{_escaped(f'{LICENCE_FUNCTION}:{member}')}</ID>"
+        "</HEADER>"
+        "<BODY><DESC>"
+        f"{_static_variables(None)}"
+        "</DESC></BODY>"
+        "</ENVELOPE>"
+    )
+
+
+@dataclass(frozen=True)
+class FunctionAnswer:
+    """What an Export/Function request came back with.
+
+    `result` is the value Tally computed. `errors` is every `<ERRORMSG>` and
+    `<LINEERROR>` it sent instead. Both empty is a third answer - Tally replied
+    with nothing we can use - and it is treated exactly like an error, because
+    "no value" is not a value.
+    """
+
+    result: str | None = None
+    errors: tuple[str, ...] = ()
+
+
+def parse_function_answer(
+    payload: str, limit: int = DEFAULT_MAX_RESPONSE_BYTES
+) -> FunctionAnswer:
+    """Read one Export/Function reply. A reply carrying an error has NO result.
+
+    Nulling the result when an error is present is deliberate. A response that
+    both complains and offers a value is a response we do not understand, and
+    the safe reading of a response we do not understand is that it told us
+    nothing.
+    """
+    root = parse_xml(payload, limit)
+    errors = tuple(
+        text
+        for tag in ("ERRORMSG", "LINEERROR")
+        for node in root.iter(tag)
+        if (text := _text_of(node)) is not None
+    )
+    result = None if errors else _text_of(root.find(".//RESULT"))
+    return FunctionAnswer(result=result, errors=errors)
+
+
+_YES_WORDS = frozenset({"yes", "true", "1"})
+_NO_WORDS = frozenset({"no", "false", "0"})
+
+
+def yes_no_or_unknown(value: str | None) -> bool | None:
+    """Tally's Yes/No as a boolean, or None when it is neither.
+
+    None is NOT False. "Tally said No" and "we could not read it" are different
+    facts, and treating the second as the first is how an unread licence turns
+    into a confident all-clear.
+    """
+    if value is None:
+        return None
+    word = value.strip().lower()
+    if word in _YES_WORDS:
+        return True
+    if word in _NO_WORDS:
+        return False
+    return None
+
+
+@dataclass(frozen=True)
+class LicenceInfo:
+    """A licence read, with the raw answers kept beside the conclusion.
+
+    `detail` says how we know. It is written for a log, not for a person - the
+    web app turns the mode into sentences a twelve-year-old can read.
+    """
+
+    mode: LicenceMode = LicenceMode.UNKNOWN
+    is_educational: bool | None = None
+    is_licensed: bool | None = None
+    serial_number: str | None = None
+    detail: str = LICENCE_NEVER_READ
+
+
+def licence_from_answers(
+    *,
+    is_educational: bool | None,
+    is_licensed: bool | None,
+    serial_number: str | None,
+    detail: str,
+) -> LicenceInfo:
+    """Three measured answers in, one mode out. Fails closed on every path.
+
+    EDUCATIONAL needs Tally to have said Yes to `IsEducationalMode`.
+
+    LICENSED needs BOTH a No to educational AND a Yes to licensed. One positive
+    statement is not enough to tell somebody their books are safe to type into,
+    and requiring both is what makes a HALF-read fall to UNKNOWN rather than to
+    the reassuring answer.
+
+    Everything else - a missing answer, an unreadable answer, a pair that do not
+    agree - is UNKNOWN.
+    """
+    if is_educational is True:
+        mode = LicenceMode.EDUCATIONAL
+    elif is_educational is False and is_licensed is True:
+        mode = LicenceMode.LICENSED
+    else:
+        mode = LicenceMode.UNKNOWN
+    return LicenceInfo(
+        mode=mode,
+        is_educational=is_educational,
+        is_licensed=is_licensed,
+        serial_number=serial_number,
+        detail=detail,
+    )
+
+
+# ---------------------------------------------------------------------------
 # configuration
 # ---------------------------------------------------------------------------
 
@@ -1491,6 +1686,75 @@ class RealTally:
         return parse_ledger_names(
             self._transport.send(build_ledger_list_request(company), retry=True),
             self._limit,
+        )
+
+    # ---- the licence read (A11) --------------------------------------------
+
+    def _licence_member(self, member: str) -> FunctionAnswer:
+        """One licence question, with EVERY failure turned into an answer.
+
+        Nothing escapes this method. A transport error, a socket error, an
+        unparseable body and a refusal all become `errors`, because the caller's
+        job is to end up with a mode and never with an exception: a licence
+        probe that can raise is a licence probe that can stop the app starting.
+
+        `retry=False` on purpose. This is a read, so retrying would be safe, but
+        one bounded round trip is the whole point - the wait is capped by
+        `TallyConfig.timeout_seconds` and is never multiplied by the retry
+        count.
+        """
+        try:
+            payload = self._transport.send(build_licence_request(member), retry=False)
+        except (TallyError, OSError) as exc:
+            return FunctionAnswer(errors=(f"{type(exc).__name__}: {exc}",))
+        try:
+            return parse_function_answer(payload, self._limit)
+        except TallyError as exc:
+            return FunctionAnswer(errors=(f"{type(exc).__name__}: {exc}",))
+
+    def _licence_unreadable(self, member: str, answer: FunctionAnswer) -> str:
+        said = "; ".join(answer.errors) if answer.errors else "nothing we could read"
+        return (
+            f"{self.config.url} did not answer {LICENCE_FUNCTION}:{member} - it "
+            f"said: {said}. The licence mode is therefore unknown, and unknown "
+            "is not assumed to be fine."
+        )
+
+    def read_licence(self) -> LicenceInfo:
+        """Which licence this Tally runs under, or an honest UNKNOWN. A11.
+
+        NEVER RAISES. Measured 2026-08-09, this returns UNKNOWN against the live
+        instance, because the gateway does not answer `$$LicenseInfo` at all.
+        That is the point: the caller gets a mode it can warn about instead of a
+        crash at startup or a cheerful default.
+
+        AT MOST ONE ROUND TRIP when the gateway does not understand the
+        question. The first read is `IsEducationalMode`, and a Tally that cannot
+        answer that one will not answer the other two either, so the other two
+        are not sent. On this instance the whole method is one fast error.
+        """
+        educational = self._licence_member(LICENCE_IS_EDUCATIONAL)
+        if educational.result is None:
+            return licence_from_answers(
+                is_educational=None,
+                is_licensed=None,
+                serial_number=None,
+                detail=self._licence_unreadable(LICENCE_IS_EDUCATIONAL, educational),
+            )
+
+        licensed = self._licence_member(LICENCE_IS_LICENSED)
+        serial = self._licence_member(LICENCE_SERIAL_NUMBER)
+        return licence_from_answers(
+            is_educational=yes_no_or_unknown(educational.result),
+            is_licensed=yes_no_or_unknown(licensed.result),
+            serial_number=serial.result,
+            detail=(
+                f"{self.config.url} answered "
+                f"{LICENCE_FUNCTION}:{LICENCE_IS_EDUCATIONAL}="
+                f"{educational.result!r}, "
+                f"{LICENCE_FUNCTION}:{LICENCE_IS_LICENSED}={licensed.result!r}, "
+                f"{LICENCE_FUNCTION}:{LICENCE_SERIAL_NUMBER}={serial.result!r}"
+            ),
         )
 
     def read_vouchers_page(self, company: str) -> VoucherPage:

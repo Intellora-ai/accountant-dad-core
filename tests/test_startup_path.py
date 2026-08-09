@@ -483,11 +483,24 @@ def test_serve_connects_to_a_real_tally_over_http_and_then_answers_requests(
         assert "Not real accounting software" not in page
 
         # The genuine transport really ran, and startup read only.
+        #
+        # An EXACT set, not a subset. It caught the licence read the moment that
+        # landed - which is the whole point: any new traffic on the startup path
+        # has to be added here deliberately, by somebody who has thought about
+        # whether a customer's Tally should be answering it during boot.
+        #
+        # $$LicenseInfo:IsEducationalMode is the one added since. It fails
+        # CLOSED to `unknown`, sends at most one round trip when the gateway
+        # cannot answer, and never raises into startup. The stub does not
+        # implement it, so this assertion also proves the read genuinely
+        # tolerates a Tally that refuses it - which is what the live TallyPrime
+        # here actually does.
         assert _collections(tally.requests) == {
             real.COLLECTION_COMPANIES,
             real.COLLECTION_LEDGERS,
             real.COLLECTION_VOUCHERS,
             real.COLLECTION_BALANCES,
+            "$$LicenseInfo:IsEducationalMode",
         }
         assert _imports(tally.requests) == []
 
