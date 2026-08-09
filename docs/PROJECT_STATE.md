@@ -1546,7 +1546,12 @@ the owner's 2026-08-08 Option 2 decision (§24) and that has not changed.
 | Metric | Actual | Expected | Pass rule | Source |
 |---|---|---|---|---|
 | tests at `dc067f8` | **891** | ≥ 891 | count only goes up | `pytest -q` |
-| tests at `bcb301f` | **904** | ≥ 891 | +13: the request-shape whitelist, 6 builders x 2 parametrised guards plus the Function-export guard | `pytest -q` |
+| tests at `bcb301f` | **904** | ≥ 891 | +13 request-shape whitelist | `pytest -q` |
+| tests at `c9ae29e` | **910** | ≥ 891 | +6 real startup-path tests | `pytest -q` |
+| tests at `2357300` | **916** | ≥ 891 | +6 evidence-class guards | `pytest -q` |
+| tests at `20f9244` | **964** | ≥ 891 | +48 backend-state and licence tests | `pytest -q` |
+| coverage `accountant/tallyio/real.py` | **100%** | ≥ 90 | line AND branch | `--cov-branch` |
+| coverage, overall | **99%** | ≥ 90 | threshold | `--cov-branch` |
 | failed / skipped | **0 / 0** | 0 / 0 | no skips are permitted | `pytest -q` |
 | guards | **12/12** | 12/12 | all pass | `./scripts/guards` |
 | pyright errors | **0** | 0 | zero | `pyright` |
@@ -1698,3 +1703,43 @@ Phase 3 live validation remains environment-limited.
 Not "complete". Not "passing". The implementation is done and proven against
 FakeTally; the live validation is blocked by the licence decision in §24 and now
 also by §25.5 and §25.7.
+
+
+---
+
+## 26. Backend states, and the one that needs an owner decision
+
+**2026-08-09, commit `20f9244`.** The page distinguishes **five** states, not the
+four asked for. The fifth exists because folding it into any of the others would
+have meant inventing a fact.
+
+| state | meaning | style |
+|---|---|---|
+| `real-ok` | licence measured as full — the **only** reassuring state | plain |
+| `unavailable` | nothing connected, and why | warning |
+| `real-practice` | real Tally, Educational — names the 1st/2nd/31st restriction | warning |
+| `not-real` | FakeTally or another double | warning |
+| `real-licence-unknown` | **where this instance actually is** | warning |
+
+The guard is written `!= LICENSED`, never `== UNKNOWN`, so a typo, a future
+Tally mode or an unfilled field all land on the warning side.
+
+`RealTally.read_licence()` sends only the `Export/TYPE=Function` shape, which
+fails **fast**. The TDL-report shape that wedged the gateway (§25.5) is not built
+anywhere. The read never raises, caps its wait once with `retry=False`, and makes
+at most one round trip when the gateway cannot answer.
+
+### 26.1 OWNER DECISION OUTSTANDING — declared vs measured
+
+A person looking at the Tally screen **knows** it is Educational. The program
+**cannot measure it** (§25.5), and inferring it from the company name, the ledger
+names or the voucher count is forbidden — that is invention.
+
+So a genuinely Educational user currently sees `real-licence-unknown`: warned
+about the date restriction, but told *"we could not tell"* rather than *"you are
+restricted"*.
+
+Closing that gap needs a **declared** value, labelled **DECLARED, NOT MEASURED**,
+set by the owner and never mistaken for a reading. That is a decision about how
+much declared truth the system may carry, not an engineering choice, so it was
+not built. **No action is required for anything else to proceed.**
