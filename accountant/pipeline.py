@@ -59,6 +59,15 @@ class Draft:
     decision: Decision | None = None
     posted_tally_id: str | None = None
     answers: list[tuple[str, str]] = field(default_factory=list[tuple[str, str]])
+    #: Detector names the person has looked at and chosen not to act on.
+    #:
+    #: A dismissal is NOT a validation and deliberately changes nothing else:
+    #: the flag stays, the problem stays, the decision stays. It exists so the
+    #: screen can stop asking and so criterion #3.7 has something to log. One
+    #: line away from here is a version where dismissing a surprise approves
+    #: the entry, and that is the version that posts a wrong voucher because
+    #: somebody clicked to make a warning go away.
+    dismissed: list[str] = field(default_factory=list[str])
 
     @property
     def outcome(self) -> Outcome:

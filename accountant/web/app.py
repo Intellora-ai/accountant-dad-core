@@ -661,9 +661,32 @@ def render_decision(d: pipeline.Draft) -> str:
         for k, s in sorted((d.voucher.provenance or {}).items())
     )
 
+    # G6.1 and G6.3. Each flag shows its detector, its evidence, and — until it
+    # has been dismissed — a way to dismiss it. Dismissing changes nothing about
+    # the entry; it records that a person looked.
     flags = "".join(
-        f"<p class=reason>&#9873; <b>{esc(f.detector)}</b> — {esc(f.reason)}</p>"
+        f"<p class=reason>&#9873; <b>{esc(f.detector)}</b> — {esc(f.reason)}"
+        + (
+            " <b>dismissed</b></p>"
+            if f.detector in d.dismissed
+            else "</p>"
+            f'<form method=post action=/dismiss style="display:inline">'
+            f'<input type=hidden name=draft value="{esc(d.id)}">'
+            f'<input type=hidden name=detector value="{esc(f.detector)}">'
+            f"<button>Dismiss this</button></form>"
+        )
         for f in d.flags
+    )
+
+    # G6.2. `dropped_flags` was computed and thrown away here. "Overflow is
+    # reported as a count, never silently dropped" was true inside the Draft and
+    # false on the page. Nothing is rendered at zero: "0 more concerns are not
+    # shown" is noise on every clean entry.
+    overflow = (
+        f"<p class=reason class=muted>{d.dropped_flags} further concern(s) "
+        f"are not shown here.</p>"
+        if d.dropped_flags
+        else ""
     )
 
     ask = ""
@@ -705,7 +728,7 @@ def render_decision(d: pipeline.Draft) -> str:
     return f"""<div class="card {cls}">
 <span class="badge b-{cls}">{badge}</span>
 <p class=reason>{esc(d.reason)}</p>
-{flags}{ask}{posted}
+{flags}{overflow}{ask}{posted}
 <h2>Voucher</h2><table>{rows}</table>
 <h2>Where each field came from</h2><table>{prov}</table>
 {checks_line}
@@ -935,6 +958,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             value = form.get("value", "")
             problem = form.get("problem", "which_account")
+            learn = False
 
             accounts = runtime().client.read_accounts(COMPANY)
             history = runtime().client.read_vouchers(COMPANY)
@@ -968,23 +992,41 @@ class Handler(BaseHTTPRequestHandler):
                 return
             else:
                 d = pipeline.answer(d, value, problem_id=problem)
-                # The correction is recorded against THIS company and no other,
-                # and it is evidence, not an override: a vendor with genuinely
-                # contradictory history stays CONFLICTED and keeps asking.
-                #
-                # NOT for the funding answer. `record_correction` teaches the
-                # vendor -> EXPENSE account map, and "I paid in cash" says
-                # nothing about what the money was for. Recording it wrote
-                # "Gupta Hardware -> Cash" alongside "Gupta Hardware ->
-                # Purchases", which made the vendor CONFLICTED, re-raised the
-                # question the person had just answered, and ended the entry at
-                # NOT_VALID with both legs correctly filled in. Measured on the
-                # first two-question run. The funding leg is learned instead
-                # from the posted voucher's own credit side.
-                if problem != pipeline.FUNDING_PROBLEM:
-                    runtime().memory.record_correction(d.voucher.party, value)
+                # Recorded AFTER the re-evaluation below, not before. See the
+                # comment at the call site.
+                learn = problem != pipeline.FUNDING_PROBLEM
 
             d = pipeline.evaluate(d, accounts, history, runtime().memory)
+
+            # THE ORDER HERE IS THE WHOLE OF G6.3, and it was wrong until
+            # 2026-08-09.
+            #
+            # `record_correction` used to run BEFORE `evaluate`. So the system
+            # wrote the person's answer into memory as fact, and only then asked
+            # its detectors whether that answer was surprising — by which time
+            # it was not. `vendor_switch` exists to say "you said Y, but this
+            # vendor has gone to X six times"; comparing Y against a history
+            # that already contains Y can never say that. Measured: the
+            # detector could not fire from the review screen at all, on any
+            # input, because the one route to it destroyed its own evidence
+            # one line earlier.
+            #
+            # Evaluating first costs nothing and restores the comparison. The
+            # correction is still recorded on every non-funding answer, against
+            # THIS company and no other, and it is still evidence rather than an
+            # override: a vendor with genuinely contradictory history stays
+            # CONFLICTED and keeps asking.
+            #
+            # NOT for the funding answer. `record_correction` teaches the
+            # vendor -> EXPENSE account map, and "I paid in cash" says nothing
+            # about what the money was for. Recording it wrote "Gupta Hardware
+            # -> Cash" alongside "Gupta Hardware -> Purchases", which made the
+            # vendor CONFLICTED, re-raised the question the person had just
+            # answered, and ended the entry at NOT_VALID with both legs
+            # correctly filled in. The funding leg is learned instead from the
+            # posted voucher's own credit side.
+            if learn:
+                runtime().memory.record_correction(d.voucher.party, value)
 
             if d.outcome is Outcome.VALID:
                 live = runtime()
@@ -1016,6 +1058,45 @@ class Handler(BaseHTTPRequestHandler):
                 operation_id=op,
             )
             self._send(render_home())
+            return
+
+        if self.path == "/dismiss":
+            # G6.1. Frozen criterion #3.7: dismissals are logged with the
+            # detector name and the voucher id.
+            #
+            # Three things this deliberately does NOT do: it does not change
+            # the outcome, it does not remove the problem, and it does not
+            # post. A dismissal says the person saw the concern and chose not
+            # to act on it. Treating that as approval is one line away and is
+            # how a surprise nobody investigated ends up in somebody's books.
+            d = DRAFTS.get(form.get("draft", ""))
+            detector = form.get("detector", "")
+            if d is None:
+                self._send(render_home("<div class=warn>draft expired</div>"))
+                return
+            live_detectors = {f.detector for f in d.flags}
+            if detector not in live_detectors or detector in d.dismissed:
+                # Nothing to dismiss, or already dismissed. Silent about the
+                # second case on purpose: re-posting the form must not add a
+                # row, or a log nobody can count anything in is what is left.
+                self._send(
+                    page(render_decision(d) + '<p><a href="/">&larr; back</a></p>')
+                )
+                return
+
+            d.dismissed.append(detector)
+            flag = next(f for f in d.flags if f.detector == detector)
+            note(
+                "dismissed",
+                "DISMISSED",
+                f"the person dismissed {detector}: {flag.reason}. This records "
+                "that they looked; it does not mean the entry is correct.",
+                operation_id=d.operation_id,
+                voucher_id=d.posted_tally_id or "",
+                vendor_id=d.voucher.party,
+                detail=f"detector={detector} draft={d.id}",
+            )
+            self._send(page(render_decision(d) + '<p><a href="/">&larr; back</a></p>'))
             return
 
         if self.path == "/reverse-all":
