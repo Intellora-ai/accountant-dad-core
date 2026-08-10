@@ -36,7 +36,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from accountant import pipeline, reversal
 from accountant import questions as Q
-from accountant.extract.adapter import TypedTextExtractor
+from accountant.extract.registry import default_extractor
 from accountant.memory.bootstrap import bootstrap
 from accountant.memory.company import CompanyMemory
 from accountant.memory.identity import normalise_company, same_company_name
@@ -1284,7 +1284,7 @@ def _run(text: str) -> pipeline.Draft:
         company,
         text.encode(),
         "text/plain",
-        TypedTextExtractor(),
+        default_extractor(),
         live.memory,
     )
     d = pipeline.evaluate(d, accounts, history, live.memory, flag_cap=FLAG_CAP)

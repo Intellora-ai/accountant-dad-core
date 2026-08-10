@@ -35,9 +35,14 @@ so the refusals are the connector's real refusals and not a restatement of
 them — but the integration itself is `tests/test_real_tally.py` and the live
 evidence in `docs/PROJECT_STATE.md`.
 
-That the GST defect at the bottom is fixed. It is measured and pinned. The
-tests naming the safe behaviour are `xfail(strict=True)` and stay that way
-until the D-06 change to `accountant/pipeline.py` lands.
+That the GST defect at the bottom is fixed. It is measured and pinned, and it
+is STILL OPEN at 2026-08-10. The four tests naming the safe behaviour are
+`xfail(strict=True)` and stay that way. They were recorded as waiting on D-06;
+D-06 has since landed in main and did not touch tax, so the marker reason is
+corrected in place rather than removed — the section at the bottom shows the
+measurement. What this file does prove about GST is the safety half: such a
+bill writes nothing and moves the trial balance by zero paise. Those tests are
+unmarked and passing.
 
 EVIDENCE CLASS
 --------------
@@ -721,15 +726,27 @@ def names_imported_from_extract() -> dict[str, list[str]]:
 
 
 #: The abstract half of the package. Depending on these costs a swap nothing.
-CONTRACT = frozenset({"Extractor", "ExtractedRecord", "LineItem", "NOT_FOUND"})
+#:
+#: `default_extractor` belongs here for the same reason `Extractor` does: it
+#: names no backend, so a module that calls it cannot be made to change by
+#: choosing a different one. What it returns is decided by `DEFAULT_BACKEND`,
+#: one line inside the package. Adding it here widens the contract, not the
+#: blast radius.
+CONTRACT = frozenset(
+    {"Extractor", "ExtractedRecord", "LineItem", "NOT_FOUND", "default_extractor"}
+)
 
-#: The single selection site measured at 27333e9. `accountant/web/app.py`
-#: imports `TypedTextExtractor` by name, so swapping the runtime backend today
-#: edits the web app. `accountant/extract/registry.py` is where that line
-#: should point instead; adopting it is one line, and that file has an owner
-#: who is not this agent. Listed here so the number is REPORTED rather than
-#: assumed, and so a SECOND selection site is a failure.
-KNOWN_SELECTION_SITES = frozenset({"accountant/web/app.py"})
+#: Selection sites outside the package. EMPTY — that is the whole of exit 7.1.
+#:
+#: Measured at 27333e9: `{'accountant/web/app.py': ['TypedTextExtractor']}`. One
+#: file, one name, so swapping the runtime backend edited the web app.
+#: Measured at 2026-08-10, after `web/app.py` was pointed at
+#: `registry.default_extractor()`: `{}`.
+#:
+#: Kept as a named empty set rather than deleted, because it is the ratchet.
+#: Any module outside `accountant/extract/` that names a concrete backend is
+#: now a failure, and there is no longer an allowlisted file to hide inside.
+KNOWN_SELECTION_SITES: frozenset[str] = frozenset()
 
 
 def test_swapping_the_backend_changes_no_module_in_the_core() -> None:
@@ -747,21 +764,26 @@ def test_swapping_the_backend_changes_no_module_in_the_core() -> None:
     )
 
 
-def test_backend_selection_happens_in_at_most_one_place_outside_the_package() -> None:
-    """The ratchet. One selection site is the measured cost of a swap today.
+def test_backend_selection_happens_nowhere_outside_the_package() -> None:
+    """The ratchet, at its final setting.
 
-    Fewer is better and passes. More is a regression, and it is the exact
-    regression a behavioural test cannot see.
+    Until 2026-08-10 this allowed exactly one site, `accountant/web/app.py`,
+    and read `<= 1`. That file now resolves its backend through
+    `registry.default_extractor()`, so the allowance is spent and the bound is
+    zero. ANY module outside `accountant/extract/` that names a concrete
+    backend fails here — which is the exact regression no behavioural test can
+    see, because every behavioural test passes just as happily with the site
+    present.
     """
     offenders = backend_sites()
 
     assert set(offenders) <= KNOWN_SELECTION_SITES, (
-        "a NEW module outside accountant/extract/ now names a concrete "
-        "backend. Backend selection belongs in "
-        "accountant/extract/registry.py, so that a swap is one edit inside "
-        f"the package. Sites found: {offenders}"
+        "a module outside accountant/extract/ names a concrete extraction "
+        "backend, so a backend swap no longer costs one edit inside the "
+        "package. Backend selection belongs in "
+        f"accountant/extract/registry.py. Sites found: {offenders}"
     )
-    assert len(offenders) <= 1
+    assert offenders == {}
 
 
 def test_the_core_takes_only_the_contract_from_the_extraction_package() -> None:
@@ -853,23 +875,33 @@ def build(): return None
     assert references(ast.parse(prose), backend_class_names()) == set()
 
 
-def test_the_measured_cost_of_a_backend_swap_is_one_line_in_one_file() -> None:
+def test_the_measured_cost_of_a_backend_swap_is_no_line_outside_the_package() -> None:
     """The number, reported rather than described.
 
-    Measured at 27333e9: `{'accountant/web/app.py': ['TypedTextExtractor']}`.
-    One file, one name. Everything else in the repository already depends on
-    the Protocol alone.
+    Measured at 27333e9: `{'accountant/web/app.py': ['TypedTextExtractor']}` —
+    one file, one name.
+    Measured at 2026-08-10: `{}` — no file, no name.
+
+    The lever moved inside the package. It is `DEFAULT_BACKEND` in
+    `accountant/extract/registry.py`, and the assertions below say so in the
+    two ways that can fail: the count outside, and the existence of the one
+    line inside. A zero that came from a scan pointed at nothing would pass the
+    first assertion and fail the second.
     """
     measured = backend_sites()
 
-    assert sum(len(names) for names in measured.values()) <= 1, (
-        f"a backend swap now touches more than one line outside the package: {measured}"
+    assert sum(len(names) for names in measured.values()) == 0, (
+        f"a backend swap touches a line outside the package: {measured}"
     )
-    for site in KNOWN_SELECTION_SITES:
-        assert (REPO / site).exists(), (
-            f"{site} is on the selection allowlist and does not exist; an "
-            "allowlist aimed at a missing file excludes nothing"
-        )
+    assert (REPO / "accountant/extract/registry.py").exists(), (
+        "the swap lever is supposed to live in accountant/extract/registry.py "
+        "and that file does not exist, so the zero above means the scan found "
+        "nowhere to look rather than nothing to find"
+    )
+    assert registry.DEFAULT_BACKEND in registry.available(), (
+        f"DEFAULT_BACKEND is {registry.DEFAULT_BACKEND!r}, which the registry "
+        "cannot build; the one line the swap costs would not start the app"
+    )
 
 
 def test_the_structural_scan_covers_the_modules_it_claims_to_cover() -> None:
@@ -979,7 +1011,7 @@ def test_nothing_from_a_malformed_answer_reaches_the_draft() -> None:
 # the failure surfaces as a breakage instead of a question.
 #
 # Fixing it properly is Phase 8 rules work and an accounting-policy question.
-# The dependency is recorded verbatim in artifacts/phase7_exits.md:
+# The dependency WAS recorded in artifacts/phase7_exits.md as:
 #
 #     dependency = D-06 pipeline change
 #     file       = accountant/pipeline.py
@@ -987,21 +1019,41 @@ def test_nothing_from_a_malformed_answer_reaches_the_draft() -> None:
 #                  tax lines
 #     status     = BLOCKED_BY_D06
 #
-# `accountant/pipeline.py` is owned by the D-06 agent right now. Nothing here
-# edits it. The three tests naming the SAFE behaviour are xfail(strict=True) so
-# that they turn red the moment they start passing for real and somebody has to
-# come back and remove the marker deliberately.
+# THAT PREDICTION WAS WRONG, AND THE RECORD IS CORRECTED HERE RATHER THAN LEFT
+# TO AGE. D-06 landed in main as 1ca65a9 on 2026-08-10. It changed
+# `accountant/pipeline.py`, but for a different fault entirely: memory that has
+# gone stale against the live ledger for a VENDOR. It contains no mention of
+# GST or of tax — `git diff 27333e9 1ca65a9 -- accountant/pipeline.py` matches
+# neither word. Re-measured on this branch after rebasing onto it, all four
+# marked tests below fail exactly as they did at 27333e9.
+#
+# So the blocker was never D-06. It is the GST rules work itself, which does
+# not exist yet, plus the accounting-policy decision about what a tax line has
+# to contain before a bill carrying one may be called VALID. Both are Phase 8.
+# Naming D-06 made a real dependency look smaller and nearer than it is.
+#
+# Nothing here edits `accountant/pipeline.py`. The four tests naming the SAFE
+# behaviour stay xfail(strict=True) so they turn red the moment they start
+# passing for real and somebody has to come back and remove the marker
+# deliberately.
 #
 # The tests that are NOT marked are the ones that stay true either way. They
-# are the pin: whatever D-06 does, a GST bill must still write nothing.
+# are the pin, and they are the whole safety claim this phase actually makes:
+# however this is eventually fixed, a GST bill must still write nothing and
+# move the trial balance by zero paise.
 
 GST_BILL = b"paid Sharma Traders 4200 for cement including 18% GST"
 GST_PAISE = 64068  # 18% of 420000 inclusive, exactly, from the typed-text backend
 
-BLOCKED_BY_D06 = (
-    "BLOCKED_BY_D06: needs the D-06 change to accountant/pipeline.py so that a "
-    "GST-carrying bill cannot reach VALID without the required tax lines. "
-    "Phase 8 rules work. Do not remove this marker to make the suite green."
+BLOCKED_BY_GST_RULES = (
+    "BLOCKED_BY_GST_RULES, re-measured 2026-08-10 and STILL FAILING. This was "
+    "recorded as BLOCKED_BY_D06. That was wrong: D-06 landed as 1ca65a9 and "
+    "changed accountant/pipeline.py for stale vendor memory, not for tax, and "
+    "these four fail on top of it exactly as they did at 27333e9. A "
+    "GST-carrying bill still reaches VALID and the connector still refuses it. "
+    "The blocker is the GST rules work and the accounting-policy question of "
+    "what a tax line must contain, both Phase 8, both unbuilt. Do not remove "
+    "this marker to make the suite green."
 )
 
 
@@ -1062,22 +1114,29 @@ def test_a_gst_bill_writes_nothing_and_moves_the_trial_balance_by_zero_paise() -
     assert len(t.read_vouchers(COMPANY)) == 40
 
 
-@pytest.mark.xfail(strict=True, reason=BLOCKED_BY_D06)
+@pytest.mark.xfail(strict=True, reason=BLOCKED_BY_GST_RULES)
 def test_a_gst_bill_without_tax_lines_cannot_be_valid() -> None:
     """Measured at 27333e9: it IS valid, with the reason "nothing unclear and
     nothing surprising". The application promises a write the connector will
-    refuse."""
+    refuse.
+
+    Re-measured 2026-08-10 on top of D-06 (1ca65a9): unchanged, still VALID.
+    """
     draft = gst_draft(gst_company())
 
     assert draft.voucher.gst_paise == GST_PAISE
     assert draft.outcome is not Outcome.VALID
 
 
-@pytest.mark.xfail(strict=True, reason=BLOCKED_BY_D06)
+@pytest.mark.xfail(strict=True, reason=BLOCKED_BY_GST_RULES)
 def test_a_gst_bill_with_incomplete_tax_data_asks_a_question_or_hands_over() -> None:
     """Nothing in the system can post a tax line, so every GST amount is
     incomplete tax data. The person should be asked, or the entry handed to
-    them — in words that mention the tax."""
+    them — in words that mention the tax.
+
+    Re-measured 2026-08-10 on top of D-06 (1ca65a9): no question is asked and
+    neither "tax" nor "gst" appears in what the person is told.
+    """
     draft = gst_draft(gst_company())
     question = pipeline.next_question(draft)
     said = (draft.reason + " " + (question.text if question else "")).lower()
@@ -1086,11 +1145,15 @@ def test_a_gst_bill_with_incomplete_tax_data_asks_a_question_or_hands_over() -> 
     assert "tax" in said or "gst" in said
 
 
-@pytest.mark.xfail(strict=True, reason=BLOCKED_BY_D06)
+@pytest.mark.xfail(strict=True, reason=BLOCKED_BY_GST_RULES)
 def test_a_connector_refusal_cannot_happen_after_the_application_said_valid() -> None:
     """The contract between the two halves. VALID means "the connector will
     take this". Today it does not, and the person sees a breakage page for an
-    ordinary bill."""
+    ordinary bill.
+
+    Re-measured 2026-08-10 on top of D-06 (1ca65a9): the application still says
+    VALID and `post` still raises the connector's tax-line refusal.
+    """
     t = gst_company()
     draft = gst_draft(t)
     if draft.outcome is not Outcome.VALID:
@@ -1145,13 +1208,16 @@ def test_a_gst_bill_over_http_is_answered_rather_than_dropped(server: str) -> No
     assert "gst_paise" not in body, "an internal field name reached the screen"
 
 
-@pytest.mark.xfail(strict=True, reason=BLOCKED_BY_D06)
+@pytest.mark.xfail(strict=True, reason=BLOCKED_BY_GST_RULES)
 def test_a_gst_bill_over_http_explains_the_tax_instead_of_reporting_a_breakage(
     server: str,
 ) -> None:
     """Measured at 27333e9: the page says "Something in Accountant Dad broke"
     for an ordinary bill with GST on it. The bill is not broken and neither is
-    the app; the application promised a write the connector will not take."""
+    the app; the application promised a write the connector will not take.
+
+    Re-measured 2026-08-10 on top of D-06 (1ca65a9): still HTTP 503.
+    """
     status, body = http_post(server, "/entry", text=GST_BILL.decode())
 
     assert status == 200

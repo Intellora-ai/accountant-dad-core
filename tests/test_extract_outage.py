@@ -40,12 +40,28 @@ adapter's failure surface is closed: an unplanned exception type still becomes
 a record rather than a traceback, which is the property that makes the count
 not matter.
 
-That the WEB app survives a reader outage. `accountant/web/app.py` constructs
-`TypedTextExtractor` directly and never reaches a service, so there is no HTTP
-path to drive here. That import is the one selection site
-`tests/test_adapter_contract.py` measures; until it points at
-`accountant/extract/registry.py`, an outage of a reader service is not
-reachable over HTTP by anybody, including a test.
+That the WEB app survives a reader outage. STILL ENVIRONMENT-LIMITED at
+2026-08-10, and the reason CHANGED, so it is worth stating exactly rather than
+carrying the old sentence forward.
+
+    was    `accountant/web/app.py` named `TypedTextExtractor` directly, so the
+           app could never reach a service at all.
+    now    it calls `registry.default_extractor()`, so the backend it uses is
+           chosen inside `accountant/extract/` — but `app.configure()` takes a
+           client, an identity and a store, and no extractor. There is no seam
+           through which a test can hand the RUNNING app a failing backend.
+
+So the two honest ways to reach it are to edit `DEFAULT_BACKEND`, which is
+monkey-patching a `Final` constant and proves nothing about the shipped path,
+or to add an extractor argument to `configure()`, which is a change to the web
+app that exit 7.1 deliberately keeps out of this phase. Neither is done here.
+The scenario is recorded as BLOCKED_ENVIRONMENT in
+`artifacts/phase7_evidence.md` with that one-line change named as what lifts
+it.
+
+What IS proved over HTTP is narrower and real: the app names no backend, so the
+swap reaches the runtime through the registry. `tests/test_adapter_contract.py`
+asserts that structurally, at zero sites outside the package.
 
 EVIDENCE CLASS
 --------------

@@ -29,11 +29,26 @@ bills with something other than what the deployment asked for. Fail closed.
 
 WHAT THIS FILE DOES NOT PROVE
 -----------------------------
-That the application uses it. Measured at 27333e9: it does not — `web/app.py`
-still names `TypedTextExtractor` directly, and adopting this is one line owned
-by that file's owner. `tests/test_adapter_contract.py` counts the concrete
-backend references outside this package so the number is reported rather than
-assumed.
+That any backend reads a bill well. This file chooses one; it does not grade
+one. Accuracy is `artifacts/extraction_backends.md`, and the choice between
+third-party readers is an owner decision, not a test result.
+
+That a deployment can pick a backend WITHOUT a code change. It cannot, on
+purpose — see "why no environment variable" above. One consequence is worth
+naming because it costs something real: `accountant/web/app.py` calls
+`default_extractor()` with no argument, and `configure()` takes no extractor,
+so a test cannot put the running web app on a different backend without either
+editing `DEFAULT_BACKEND` or adding an injection seam. That is why a reader
+OUTAGE is still not reachable over HTTP; `tests/test_extract_outage.py` records
+it as environment-limited and names the change that would lift it.
+
+ADOPTED 2026-08-10
+------------------
+`web/app.py` now resolves its backend here. Measured at 27333e9 the concrete
+backend references outside this package were
+`{'accountant/web/app.py': ['TypedTextExtractor']}`; measured after the change
+they are `{}`. `tests/test_adapter_contract.py` counts them, so the number is
+reported rather than assumed, and a new site is a failing test.
 """
 
 from __future__ import annotations

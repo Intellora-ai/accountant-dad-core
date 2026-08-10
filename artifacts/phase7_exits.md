@@ -18,11 +18,12 @@ live, and the tests that make all three claims falsifiable.
 | --- | --- |
 | PASSED | the exit is met and a named test proves it |
 | PARTIALLY_VERIFIED | most of it is proved; a named part is not |
-| BLOCKED_BY_D06 | correct behaviour is written down and pinned, and needs a change to a file this agent does not own |
+| BLOCKED_BY_GST_RULES | correct behaviour is written down and pinned, and needs work that does not exist yet |
 
-`BLOCKED_BY_D06` is the owner's own word for the GST row, and it is a
-`BLOCKED_ENVIRONMENT` of the ownership kind: nothing about the code prevents
-the fix, and this agent is not the one entitled to make it.
+`BLOCKED_BY_GST_RULES` replaces `BLOCKED_BY_D06`, which was this document's own
+prediction and was wrong — see "The GST defect" below for the measurement that
+settled it. It is not an ownership block: it is missing work plus an unanswered
+accounting-policy question, both Phase 8.
 
 Every result below is labelled with how it was obtained:
 `LOCAL_PASS` · `LOCAL_FAIL` · `NOT_RUN` · `GITHUB_REQUIRED` · `BLOCKED_ENVIRONMENT`.
@@ -38,10 +39,10 @@ validation are GitHub's answer and are `GITHUB_REQUIRED` here.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 7.1a | two interchangeable backends behind one Protocol | 4 backends: `TypedTextExtractor`, `StubExtractor`, `UnavailableExtractor`, `ServiceExtractor` | 2 or more | none | `tests/test_adapter_contract.py` 47 record-contract cases | every backend satisfies `Extractor`, returns `ExtractedRecord`, sources all 4 fields, and raises on nothing — including a JPEG and empty bytes. LOCAL_PASS | PASSED |
 | 7.1b | identical draft / decision / posting-gate behaviour across a swap | `StubExtractor` and `ServiceExtractor` on the same facts | identical | none | 10 backend-swap cases | same record values, same draft, same decision (`VALID`, "nothing unclear and nothing surprising"), same voucher, and `{'Purchases': +420000, 'Cash': -420000}` from both. LOCAL_PASS | PASSED |
-| 7.1c | a swap changes ZERO code outside `accountant/extract/` | one selection site: `accountant/web/app.py` imports `TypedTextExtractor` | zero | one line, in a file owned by the web-app agent | 13 structural cases, AST | core (39 modules, everything but `web/`) names no backend at all. Whole package: exactly 1 site, 1 name. `accountant/extract/registry.py` added as the place that line should point at. LOCAL_PASS | PARTIALLY_VERIFIED |
+| 7.1c | a swap changes ZERO code outside `accountant/extract/` | zero selection sites; `accountant/web/app.py` calls `registry.default_extractor()` | zero | none | 13 structural cases, AST | core (39 modules, everything but `web/`) names no backend at all. Whole package: `{}` — no file, no name. The lever is `DEFAULT_BACKEND` in `accountant/extract/registry.py`. Was `{'accountant/web/app.py': ['TypedTextExtractor']}` at 27333e9; closed 2026-08-10. LOCAL_PASS | PASSED |
 | 7.2 | ten outage scenarios, seven properties each | none of the ten was reachable before; `ServiceExtractor` did not exist | all ten safe | none | `tests/test_extract_outage.py` 112 cases | every field `not_found` with this outage's own reason, reason visible on the draft, zero blanks, nothing raises, zero vouchers, trial balance identical in exact paise, and the typed entry still posts afterwards. LOCAL_PASS | PASSED |
 | 7.3 | a STATIC test fails if a reader appears in `accountant/extract/` | 2 guards (imports, identifiers) | 5 guards | none | `tests/test_no_reader.py` 28 cases | added: what the package may TOUCH, what the project DECLARES, what the package SHIPS. LOCAL_PASS | PASSED |
-| GST | a GST bill must not reach VALID and then be refused by the connector | it does, measured over HTTP | UNCLEAR or NOT_VALID, explained, nothing written | the fix is in `accountant/pipeline.py` | 9 cases, 4 of them `xfail(strict=True)` | see the GST section below. LOCAL_PASS on the pins, the safe behaviour is BLOCKED | BLOCKED_BY_D06 |
+| GST | a GST bill must not reach VALID and then be refused by the connector | it does, measured over HTTP, re-measured 2026-08-10 on top of D-06 and unchanged | UNCLEAR or NOT_VALID, explained, nothing written | GST rules + accounting policy, both Phase 8, neither exists | 9 cases, 4 of them `xfail(strict=True)` | see the GST section below. LOCAL_PASS on the 5 pins; the safe behaviour is BLOCKED | BLOCKED_BY_GST_RULES |
 
 ---
 
@@ -104,11 +105,11 @@ So the proof reads the AST:
    Extractor` and that is asserted from the AST too, because a concrete
    annotation there would end the swap.
 
-### Why this is PARTIALLY_VERIFIED and not PASSED
+### Why this is now PASSED — closed 2026-08-10
 
-`accountant/web/app.py` still names a backend, so swapping the runtime backend
-today edits the web app. That file is owned by another agent. The change is one
-line:
+It was `PARTIALLY_VERIFIED`: `accountant/web/app.py` still named a backend, so
+swapping the runtime backend edited the web app. That change has been made, and
+it was the two lines predicted:
 
 ```python
 -from accountant.extract.adapter import TypedTextExtractor
@@ -118,8 +119,24 @@ line:
 +        default_extractor(),
 ```
 
-The test is a ratchet, not an equality: fewer sites passes, a second site
-fails. So the number can only go down without anybody editing the test.
+Measured with the same AST scan, before and after:
+
+```
+before   {'accountant/web/app.py': ['TypedTextExtractor']}    1 site,  1 name
+after    {}                                                   0 sites, 0 names
+```
+
+The allowance is now spent. `KNOWN_SELECTION_SITES` was
+`{'accountant/web/app.py'}` and is the empty set; the assertion moved from
+`<= 1` to `== 0`. The ratchet was checked by breaking it on purpose rather than
+by trusting it: planting
+`accountant/_ratchet_probe.py` containing
+`from accountant.extract.adapter import StubExtractor` turned four structural
+tests red, naming the planted file, and the probe was then deleted.
+
+`default_extractor` was added to `CONTRACT`. That widens what a core module may
+depend on, and it is not a weakening: the function names no backend, so a
+module calling it still cannot be made to change by choosing a different one.
 
 ---
 
@@ -175,12 +192,29 @@ true and an unguarded check makes it one paise.
 
 ### What 7.2 does NOT cover
 
-`accountant/web/app.py` constructs `TypedTextExtractor` directly and never
-reaches a service, so **a reader outage is not reachable over HTTP by anybody,
-including a test.** That is the same one line as 7.1c. Once it points at the
-registry, the outage path becomes drivable from the web surface. Recorded here
-rather than worked around, because a test that reached it by monkey-patching
-the app would be proving something about the patch.
+**A reader outage over HTTP. STILL BLOCKED_ENVIRONMENT at 2026-08-10, and the
+7.1c fix did NOT lift it.** That was the prediction and the prediction was
+wrong, so the reason is restated rather than carried forward:
+
+```
+was    web/app.py named TypedTextExtractor, so the app could never reach a
+       service at all
+now    web/app.py calls registry.default_extractor(), so the backend is chosen
+       inside accountant/extract/ — but app.configure() takes a client, an
+       identity and a store, and NO extractor. There is no seam through which
+       a test can hand the running app a failing backend.
+```
+
+Two ways to reach it exist and neither was taken. Editing `DEFAULT_BACKEND` is
+monkey-patching a `Final` constant and proves something about the patch, not
+about the shipped path. Adding an `extractor` argument to `app.configure()` is
+a change to the web app beyond the one line 7.1 allows, and it belongs to
+whoever next opens that file deliberately.
+
+**What lifts it:** one parameter on `configure()`, defaulting to
+`default_extractor()`, so the fixture can inject `UnavailableExtractor` the
+same way it already injects `FakeTally`. That is the whole change, and it is
+not in this phase.
 
 ---
 
@@ -223,7 +257,9 @@ name, and a guard that read comments would flag the docstring stating the rule.
 
 ## The GST defect — measured, pinned, NOT fixed
 
-### The dependency, verbatim
+### The dependency as recorded, and the correction
+
+Recorded at 27333e9:
 
 ```
 dependency = D-06 pipeline change
@@ -232,9 +268,33 @@ reason     = GST-carrying bills must not reach VALID without required tax lines
 status     = BLOCKED_BY_D06
 ```
 
-`accountant/pipeline.py` is owned by the D-06 agent. Nothing on this branch
-edits it. The `xfail(strict=True)` markers stay until the real fix lands, and
-removing them is not this agent's call.
+**That was wrong, and 2026-08-10 is when it was found out.** D-06 landed in
+main as `1ca65a9` and did change `accountant/pipeline.py` — for stale vendor
+memory against the live ledger. It touches neither GST nor tax:
+`git diff 27333e9 1ca65a9 -- accountant/pipeline.py` matches neither word, zero
+hits. This branch was rebased onto it and all four marked tests were re-run
+with `--runxfail`. All four fail exactly as they did at 27333e9:
+
+```
+test_a_gst_bill_without_tax_lines_cannot_be_valid                     outcome is still VALID
+test_a_gst_bill_with_incomplete_tax_data_asks_a_question_or_hands_over  no question, no "tax"/"gst"
+test_a_connector_refusal_cannot_happen_after_the_application_said_valid post still raises
+test_a_gst_bill_over_http_explains_the_tax_instead_of_reporting_a_breakage  still HTTP 503
+```
+
+So the blocker was never D-06. It is the GST rules work, which does not exist,
+plus the accounting-policy question of what a tax line must contain before a
+bill carrying one may be called VALID. Both Phase 8.
+
+```
+dependency = GST rules + accounting policy (Phase 8)
+reason     = GST-carrying bills must not reach VALID without required tax lines
+status     = BLOCKED_BY_GST_RULES
+```
+
+The `xfail(strict=True)` markers stay. Naming D-06 made a real dependency look
+smaller and nearer than it was; the marker reason now says what is actually
+missing.
 
 ### The unsafe path, reproduced
 
@@ -320,21 +380,22 @@ reverted.
 
 | what | how it was run | result |
 | --- | --- | --- |
-| full suite, `COVERAGE_CORE=pytrace` | local | **LOCAL_PASS** — 1982 passed, 10 xfailed, 120s |
+| full suite, `COVERAGE_CORE=pytrace` | local, rebased on `1ca65a9` | **LOCAL_PASS** — 2008 passed, 10 xfailed, 122s |
 | `tests/test_adapter_contract.py` | local | **LOCAL_PASS** — 90 passed, 4 xfailed (94 collected) |
 | `tests/test_extract_outage.py` | local | **LOCAL_PASS** — 112 passed |
 | `tests/test_no_reader.py` | local | **LOCAL_PASS** — 28 passed (12 before, 16 added) |
 | `ruff check .` | local | **LOCAL_PASS** |
-| `ruff format --check .` | local | **LOCAL_PASS** — 144 files |
-| `pyright` (strict) | local | **LOCAL_PASS** — 0 errors |
+| `ruff format --check .` | local | **LOCAL_PASS** — 146 files |
+| `pyright` (strict) | local | **LOCAL_PASS** — 0 errors, 0 warnings |
 | `scripts/validate_project_truth.py` | local | **LOCAL_PASS** — 30 checks, 30 passed |
+| `scripts/guards` | local | **LOCAL_PASS** — all guards passed |
 | mutation score >= 90 | not run here | **GITHUB_REQUIRED** |
 | changed-line coverage >= 90 | not run here | **GITHUB_REQUIRED** |
 | full-suite coverage >= 90 | not run here | **GITHUB_REQUIRED** |
 | pr-fast · pr-full · ci-gate | not run here | **GITHUB_REQUIRED** |
 | security · dependency scan · workflow validation | not run here | **GITHUB_REQUIRED** |
-| a reader outage over HTTP | unreachable | **BLOCKED_ENVIRONMENT** — `web/app.py` names `TypedTextExtractor`; the one line in 7.1c |
-| the GST safe behaviour | pinned, not fixed | **BLOCKED_BY_D06** |
+| a reader outage over HTTP | still unreachable | **BLOCKED_ENVIRONMENT** — 7.1c did not lift it; `app.configure()` has no extractor seam |
+| the GST safe behaviour | pinned, not fixed | **BLOCKED_BY_GST_RULES** — re-measured on top of D-06, unchanged |
 
 ## Test counts against the minimums
 
