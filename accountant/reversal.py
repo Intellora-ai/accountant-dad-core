@@ -33,6 +33,11 @@ an outcome nobody can name, continuing means writing more into a book whose
 state is already uncertain. Stopping costs one interrupted batch. Continuing
 costs a reconciliation nobody can do.
 
+Owner decision D-03, 2026-08-10, extends that to the RESUME: while any voucher
+is UNKNOWN_OUTCOME the whole batch is refused, not just that voucher. Safety
+beats partial cleanup — six known vouchers are never deleted while one voucher's
+fate is unknown. See `UNRESOLVED` and `resume` below.
+
 THE FOUR FAILURE CATEGORIES ARE NOT INTERCHANGEABLE
 ---------------------------------------------------
     PRECHECK_REFUSED    the request never went to Tally
@@ -144,6 +149,28 @@ RETRYABLE = (
     VoucherState.EXPLICIT_REJECTION,
 )
 
+#: The states that mean nobody can name this voucher's fate. A batch holding one
+#: of them cannot be resumed AT ALL — owner decision D-03, 2026-08-10:
+#:
+#:     Refuse the whole batch when any voucher has UNKNOWN_OUTCOME. Safety beats
+#:     partial cleanup. Never delete six known vouchers while one voucher's fate
+#:     is unknown.
+#:
+#: `REQUEST_SENT` sits beside `UNKNOWN_OUTCOME` because `reconcile` already
+#: treats the two identically: a row whose last word is REQUEST_SENT is a
+#: process that died mid-voucher, and that is exactly as unknown as a dropped
+#: connection.
+#:
+#: This is NOT the complement of `RETRYABLE`, and the two answer different
+#: questions. `RETRYABLE` asks "may this VOUCHER be attempted again"; this asks
+#: "may the BATCH proceed at all". Answering only the first — skip the unknown
+#: voucher, clean up the rest — is exactly the defect: it left nine of ten
+#: vouchers deleted from a company where one voucher's fate was unknown.
+UNRESOLVED = (
+    VoucherState.UNKNOWN_OUTCOME,
+    VoucherState.REQUEST_SENT,
+)
+
 
 @dataclass(frozen=True)
 class VoucherOutcome:
@@ -223,6 +250,17 @@ class Batch:
 
     def in_state(self, *states: VoucherState) -> tuple[VoucherOutcome, ...]:
         return tuple(o for o in self.outcomes if o.state in states)
+
+    @property
+    def unresolved(self) -> tuple[VoucherOutcome, ...]:
+        """Every voucher whose fate no read has named yet.
+
+        Empty is the precondition for a resume, and it is the ONE question
+        `resume` asks before it writes anything. Returned as the outcomes rather
+        than a count so the refusal can name each one by operation id: "something
+        is unresolved" sends a person to read ten rows to find out which.
+        """
+        return self.in_state(*UNRESOLVED)
 
 
 def _new_batch_id() -> str:
@@ -593,35 +631,25 @@ def reconcile(batch: Batch, client: TallyClient) -> Batch:
                 )
             )
 
-    # `reconciled=True` unconditionally, and that is an OPEN OWNER DECISION.
+    # `reconciled` is DERIVED from what is left unresolved, never asserted.
     #
-    # Defect D3, 2026-08-10. This contradicts two things this module says about
-    # itself: this function's docstring ("a reconciliation that cannot read has
-    # not reconciled anything") and `resume`'s gate message ("every unknown
-    # outcome is settled by a read before anything else is written"). Measured:
-    # after a reconcile in which every read failed, an approved resume deleted
-    # six more vouchers, leaving nine of ten gone from a company where one
-    # voucher's fate was unknown.
+    # Defect D3, answered by owner decision D-03 on 2026-08-10. The flag used to
+    # be `True` on every return path, including the one where every read raised,
+    # which contradicted two things this module says about itself: this
+    # function's docstring ("a reconciliation that cannot read has not
+    # reconciled anything") and `resume`'s gate message ("every unknown outcome
+    # is settled by a read before anything else is written"). Measured: after a
+    # reconcile in which every read failed, an approved resume deleted six more
+    # vouchers, leaving nine of ten gone from a company where one voucher's fate
+    # was unknown.
     #
-    # NOT FIXED HERE, deliberately. Setting `reconciled` from whether anything
-    # is still UNKNOWN makes `resume` refuse the WHOLE batch, and an existing
-    # test requires the opposite - that resume proceeds and skips the unknown
-    # voucher, so the other outstanding cleanup can still finish. Both readings
-    # are defensible and they are mutually exclusive:
-    #
-    #   refuse the batch   safest, and outstanding cleanup can never complete
-    #                      while one voucher's fate is unknown
-    #   skip that voucher  cleanup finishes, and a batch continues past an
-    #                      unresolved unknown
-    #
-    # Which one is right is an accounting-operations decision, not an
-    # engineering one, so it goes to the owner rather than being chosen here.
-    # The failing test that pins the defect is marked xfail(strict) and names
-    # this comment.
-    return replace(
-        _settle(batch, settled, client.trial_balance(batch.company)),
-        reconciled=True,
-    )
+    # The rejected alternative was to keep going and skip the unknown voucher so
+    # the rest of the cleanup could finish. The owner refused it outright:
+    # safety beats partial cleanup. So a pass that leaves anything unresolved
+    # reports itself as what it is — a reconciliation that did not reconcile —
+    # and `resume` refuses the whole batch on the strength of that.
+    reconciled_batch = _settle(batch, settled, client.trial_balance(batch.company))
+    return replace(reconciled_batch, reconciled=not reconciled_batch.unresolved)
 
 
 def resume(
@@ -635,19 +663,39 @@ def resume(
 ) -> Batch:
     """Finish the OUTSTANDING cleanup. Never re-touch what is already done.
 
-    Two gates, and they are different questions:
+    Three gates, and they are different questions:
 
-        reconciled   has every unknown been turned into a fact by a read?
+        unresolved   does any voucher still have a fate nobody can name?
+        reconciled   was a reconciliation run at all?
         approved     has a person said, after seeing those facts, go on?
 
     A `CRITICAL_FAILURE` cannot be resumed at all. WRONG_MOVEMENT means Tally's
     answer and Tally's books disagree, and a program that carries on writing
     into that is making a bad situation larger.
+
+    THE FIRST GATE IS FAIL-CLOSED FOR THE WHOLE BATCH — owner decision D-03,
+    2026-08-10. One UNKNOWN_OUTCOME stops all of it, including the vouchers
+    whose fate IS known and whose cleanup is merely outstanding. Skipping the
+    unknown one and finishing the rest is defensible right up to the moment you
+    price it: it deletes six more vouchers out of a company whose books are
+    already uncertain, and it costs a reconciliation nobody can do. Refusing
+    costs one more read.
     """
     if batch.state is BatchState.CRITICAL_FAILURE:
         raise ValueError(
             f"batch {batch.batch_id} is CRITICAL_FAILURE and cannot be resumed: "
             f"{batch.detail}. A person has to reconcile the books by hand."
+        )
+    if unresolved := batch.unresolved:
+        raise ValueError(
+            f"batch {batch.batch_id} cannot be resumed while "
+            f"{len(unresolved)} of {len(batch.outcomes)} voucher(s) have an "
+            "outcome nobody can name: "
+            + "; ".join(f"{o.operation_id} is {o.state.value}" for o in unresolved)
+            + ". Nothing further is written, including the cleanup that is "
+            "merely outstanding. Run reconcile() again — a separate, read-only "
+            "operation — against a Tally that answers reads, until every "
+            "voucher has a state a read established; then resume."
         )
     if not batch.reconciled:
         raise ValueError(
@@ -662,7 +710,9 @@ def resume(
         )
     if not batch.in_state(*RETRYABLE):
         return batch
-    return replace(
-        _drive(batch, client, log=log, company_key=company_key, run_id=run_id),
-        reconciled=True,
-    )
+    # Derived here for the same reason as in `reconcile`: a resume that ends
+    # with a fresh unknown has to be as unresumable as the batch that produced
+    # the first one, or the second interruption is the one that gets waved
+    # through.
+    driven = _drive(batch, client, log=log, company_key=company_key, run_id=run_id)
+    return replace(driven, reconciled=not driven.unresolved)
