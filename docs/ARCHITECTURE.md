@@ -1450,3 +1450,133 @@ information through it was refused by a live Tally, and the TDL workaround is
 what caused the wedge. A licence read is therefore **`UNKNOWN` by design**, and
 an unknown licence mode must fail closed in the UI rather than render as
 "connected, all good".
+
+---
+
+## 16. Human-required actions
+
+A dependency that only a person can discharge is part of the architecture, not a
+footnote to it. Recorded here so it is visible in the design rather than only in
+an agent's working notes.
+
+**These are actions, not defects.** None of them is a bug to be fixed in code,
+and none of them can be worked around by building more. The statuses live in
+[`PROJECT_STATE.md` §41](./PROJECT_STATE.md); this section owns the table.
+
+### 16.1 The three items
+
+| ID | Action | Why automation cannot complete it | Status | Evidence required |
+|---|---|---|---|---|
+| B-01 | Create `Demo Co` in the TallyPrime GUI | The XML gateway refuses company creation; GUI access is required | HUMAN_ACTION_REQUIRED | TallyPrime verification showing company and ledgers |
+| B-02 | Provide/enable the required licensed external environment | Live licensed evidence cannot be generated from the repository alone | HUMAN_ACTION_REQUIRED | Verified licensed run evidence |
+| H-03 | Confirm `LICENSED_REALTALLY` status after B-01/B-02 | Requires external-system evidence | BLOCKED_ON_HUMAN_EVIDENCE | Company ID/version/run evidence |
+
+`B-01` and `B-02` are the same two blockers already declared in
+[`BLOCKERS.md`](./BLOCKERS.md) and in `docs/CONTROL_PLANE.yaml` under
+`blockers:`. They are cross-referenced here, not renumbered, and the wording in
+those two files remains authoritative for everything except the table above.
+
+> **Id collision, recorded and deliberately not tidied away.** The id `H-03` is
+> used for two different things in this repository: here, for confirming the
+> live evidence class; and in §16.4, for the GUI action that is also `B-01`.
+> Both were handed down in the same week by separate instructions. Nothing has
+> been renumbered and no third id has been invented — see §16.5.
+
+### 16.2 `B-01` — the exact objects
+
+    Company: Demo Co
+    Ledgers: Purchases · Sundry Expenses · Cash · Sharma Traders
+
+The four ledger names are the ones `tests/test_tally_contract.py:46-47` requires.
+
+**The exact evidence required**, all six:
+
+- company exists in TallyPrime
+- all four ledgers exist
+- TallyPrime version recorded
+- company identifier recorded if available
+- verification screenshot or exported evidence
+- date/time recorded
+
+### 16.3 Why the gateway cannot do it
+
+Creating the company over XML was attempted and refused. The refusal, verbatim:
+
+    <RESPONSE>Unknown Request, cannot be processed</RESPONSE>
+
+That string is the whole reason `B-01` is a human action. Retrying it over XML
+teaches nothing, and a company that a fixture invents is not the company the
+evidence class is about.
+
+### 16.4 The Phase-8 human-required items
+
+Handed down with the eight frozen scope answers. Recorded verbatim.
+
+| ID | Item | Status | Blocks | Required action |
+|---|---|---|---|---|
+| H-01 | Approve production extraction backend | OWNER_DECISION_REQUIRED | Real-reader S2 | Select backend after cost/privacy/residency review |
+| H-02 | Supply real or anonymised bills | OPTIONAL_HUMAN_INPUT | Real-bill accuracy only | Provide labelled corpus if real-bill accuracy is required |
+| H-03 | Create Demo Co in TallyPrime | HUMAN_ACTION_REQUIRED | LICENSED_REALTALLY only | Create company and four ledgers in GUI |
+| H-04 | Provide licensed Tally evidence | HUMAN_ACTION_REQUIRED | LICENSED_REALTALLY only | Supply verified live-run evidence |
+| H-05 | Approve authenticated actor identity | OWNER_DECISION_REQUIRED | Authenticated actor identity only | Approve identity subsystem if required |
+
+**These five block only the exits named in their own `Blocks` column.** They do
+not block schema work, rules-corpus preparation, detector tests, UI provenance
+implementation, or reversal-history implementation. Every one of those can be
+built, tested and merged while all five stay open.
+
+### 16.5 The id overlap, stated rather than reconciled
+
+    H-03 (§16.4)  ==  B-01 (§16.1)   create Demo Co and four ledgers in the GUI
+    H-04 (§16.4)  ==  B-02 (§16.1)   provide the licensed environment / evidence
+    H-03 (§16.1)  !=  H-03 (§16.4)   two different items, one id
+
+Both labels are shown for each real-world action, and both tables are kept.
+**No third id has been invented and nothing has been renumbered.** This project
+has already had id collisions recorded rather than silently fixed — see the
+`D-28`/`D-29` note at the head of `docs/CONTROL_PLANE.yaml` — and this follows
+the same rule: a collision that is written down can be resolved by the owner,
+and one that is tidied away cannot.
+
+---
+
+## 17. Completion dependencies
+
+What each capability actually needs. The middle two columns separate work the
+repository can do from work only a person outside the repository can do — the
+distinction that decides whether a thing is schedulable.
+
+| Capability | Repository code/tests | External human action | Current status |
+|---|---:|---:|---|
+| Phase 7 adapter contract | Required | No | In progress until merged |
+| GST unsafe-VALID prevention | Required | No | Pass only after required gates |
+| GST bill successfully posting with tax lines | Phase 8 | Yes for licensed proof | Not measured |
+| Tally company creation | No | Yes | B-01 required |
+| Licensed real-Tally evidence | No | Yes | Blocked |
+| Question-rate measurement | Fixture required | No, once fixture exists | See note below |
+| Five Phase 8 input types | Required | Possibly for live proof | Not started |
+| Four Phase 8 detectors | Required | Possibly for live proof | Not started |
+| Rules corpus with source URLs | Required | No | Not started |
+| UI provenance | Required | No | Not started |
+| Full reversal history | Required | No | Not started |
+
+**Note on the question-rate row.** The fixture now exists and has been run. The
+measurement, its exact scope, and the reason it is not a product-wide number are
+in [`PROJECT_STATE.md` §41.4](./PROJECT_STATE.md) — the evidence lives with the
+other evidence, not here.
+
+**Note on the adapter row.** `docs/CONTROL_PLANE.yaml` declares phase 7 as
+`NOT_STARTED` with the evidence for that status attached. The row above was
+supplied as "In progress until merged". The two disagree; the disagreement is
+recorded rather than resolved here, because the control plane is canonical and
+changing it is not this document's job.
+
+### 17.1 What B-01 and B-02 do and do not block
+
+    B-01/B-02 block LICENSED_REALTALLY only.
+    They do not block Phase 7 adapter safety.
+    They do not block Phase 8 implementation after Phase 7 is merged.
+
+This is the distinction that keeps an environment limitation from being reported
+as a product failure, and it runs the other way too: no amount of adapter or
+detector work turns into live evidence without the two human actions.

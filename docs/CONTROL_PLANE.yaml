@@ -1896,3 +1896,74 @@ launch_gates:
       has three. ARCHITECTURE Phase 8 is where ALL_DETECTORS replaces
       SLICE_4_DETECTORS, and Phase 8 is NOT_STARTED.
     status: NOT_PASSED
+
+# ===========================================================================
+# HUMAN-REQUIRED ACTIONS AND FROZEN PHASE 8 SCOPE
+#
+# Added 2026-08-10. Appended at the end of the file deliberately: another
+# agent holds the phase block earlier in this file, and appending cannot
+# collide with it.
+#
+# VOCABULARY NOTE, and it matters. The two blocks below do NOT use
+# `allowed_statuses`. That list - PASSED, NOT_PASSED, PARTIALLY_VERIFIED,
+# BLOCKED_ENVIRONMENT, OWNER_DECISION_REQUIRED, NOT_STARTED - governs
+# `phases:`, `metrics:` and `launch_gates:`, and scripts/validate_project_truth.py
+# checks those three against it. These blocks carry evidence labels from a
+# different and wider vocabulary:
+#
+#   PASS · FAIL · BLOCKED · NOT_MEASURED · INVALIDATED · GITHUB_REQUIRED
+#   HUMAN_ACTION_REQUIRED · OWNER_DECISION_REQUIRED · OPTIONAL_HUMAN_INPUT
+#   BLOCKED_ON_HUMAN_EVIDENCE · NOT_IMPLEMENTED · SOURCE_UNVERIFIED
+#   NOT_SELECTED · INCOMPLETE
+#
+# The two overlap only at OWNER_DECISION_REQUIRED. They are kept separate
+# rather than merged, because widening `allowed_statuses` would weaken the
+# check that guards the phase table.
+#
+# NOTHING BELOW MAY BE SET TO PASS OR COMPLETE WITHOUT EVIDENCE.
+# No human-required item may be marked complete by an agent, ever.
+# ===========================================================================
+
+human_actions:
+  B-01_tally_company_creation:
+    status: HUMAN_ACTION_REQUIRED
+    blocks: [LICENSED_REALTALLY]
+    does_not_block: [PHASE7_ADAPTER, PHASE8_IMPLEMENTATION]
+    required_evidence:
+      - Demo Co exists in TallyPrime
+      - Purchases ledger exists
+      - Sundry Expenses ledger exists
+      - Cash ledger exists
+      - Sharma Traders ledger exists
+    also_declared_as: "blockers: B-01; and as H-03 in the phase 8 human table below"
+    gateway_refusal: "<RESPONSE>Unknown Request, cannot be processed</RESPONSE>"
+  B-02_licensed_live_evidence:
+    status: HUMAN_ACTION_REQUIRED
+    blocks: [LICENSED_REALTALLY]
+    does_not_block: [PHASE7_ADAPTER, PHASE8_IMPLEMENTATION]
+    also_declared_as: "blockers: B-02; and as H-04 in the phase 8 human table below"
+    not_satisfied_by:
+      - repository tests
+      - mocks
+      - XML connectivity
+      - generated fixtures
+  licensed_realtally:
+    status: BLOCKED_ON_HUMAN_EVIDENCE
+  gst_successful_posting:
+    status: NOT_MEASURED
+  question_rate:
+    status: MEASURED_ON_FIXTURE_ONLY
+    fixture: 20 same-supplier pairs, X and X Pvt Ltd
+    result: SAME 0, AMBIGUOUS 20, questions 20, unsafe merges 0
+    product_wide: NOT_MEASURED
+    measured_by: >-
+      tests/test_legal_identity_live.py::test_twenty_same_stem_pairs_produce_questions_and_never_a_silent_merge,
+      with the import-provenance assertion
+      test_the_accountant_package_under_test_is_the_one_in_this_worktree passing
+      in the same run. Landed in commit 03cc076 (D-05). Re-run 2026-08-10.
+    note: >-
+      The earlier record here said NOT_MEASURED with reason fixture-missing.
+      That was true when written. The fixture now exists and has been run, so
+      the measured result is recorded with its exact scope. It is NOT a
+      product-wide question rate, and the question rate is never written as
+      zero in any form - zero is not inferred from an absence.

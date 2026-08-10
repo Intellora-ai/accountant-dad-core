@@ -449,11 +449,22 @@ before its result is recorded.
 
 **2 · The question rate.**
 
-    question rate = NOT_MEASURED
+    product-wide question rate = NOT_MEASURED
 
 Never `0`. **Zero is never inferred from an absence** — "no questions appeared"
-is not a measurement of how often questions appear. The fixture that would
-measure it (the same supplier represented two ways) does not exist yet.
+is not a measurement of how often questions appear. That rule is unchanged and
+governs every future report of this number.
+
+*Superseded in part, 2026-08-10.* This entry previously said the fixture that
+would measure it "does not exist yet". That was true when written and is no
+longer true: the same-supplier fixture was built and run as part of `D-05`,
+merged as `03cc076`. On that fixture — 20 pairs of X against X Pvt Ltd — the
+measured result is SAME 0, AMBIGUOUS 20, questions 20, unsafe merges 0.
+
+**That is not a product-wide question rate**, which stays `NOT_MEASURED` as
+recorded above: a corpus built so that every pair is the hard case cannot report
+how often the hard case occurs. The measurement and its exact scope are in
+`docs/PROJECT_STATE.md` §41.4.
 
 **3 · The wrong-leg posting claim.**
 
