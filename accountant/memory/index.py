@@ -12,46 +12,49 @@ ledger name the way we do, that a name survives Tally's own round trip, or that
 two names Tally treats as one supplier reach one key here. It proves what OUR
 key does with a string, and nothing else.
 
-THE RULE THE VENDOR KEY FOLLOWS, AND WHY
-----------------------------------------
-The key answers "is this the same supplier as last time?". The two ways of
-getting that wrong do NOT cost the same, and the whole rule falls out of that:
+THE INVARIANT, AND THE DESIGN THAT FOLLOWS FROM IT
+--------------------------------------------------
+    the system may remove spelling noise, but it must never destroy the
+    evidence needed to distinguish legal or business forms before identity
+    resolution.
 
-    two spellings that FAIL to collapse -> one question, answered in a second
-    two suppliers that DO collapse      -> a voucher posted into the wrong
-                                           ledger, silently, and nobody finds
-                                           it until the year end
+    the normalised key finds CANDIDATES; the raw name decides IDENTITY.
 
-So the key collapses only what cannot change WHO WAS PAID, and keeps
-everything else apart. When it cannot tell, the caller gets no match and the
-person gets a question. It never picks.
+Those are two jobs and this module now does them in two places, which is the
+correction the owner made on 2026-08-10 (D-05). Before it, one function did
+both, and because a key has to be lossy to be useful, identity inherited the
+loss: "Acme Ltd", "Acme Private Limited", "Acme & Co" and a bare "Acme" were
+one key and therefore one supplier, silently.
 
-COLLAPSED — presentation. None of these change who was paid.
+`normalise_vendor` — THE CANDIDATE KEY. Deliberately lossy.
+    Folds case, whitespace, punctuation and Unicode form, drops the naming
+    prefix, and drops the legal form. Dropping the form WIDENS the shortlist
+    on purpose, so "Sharma Traders" and "Sharma Traders Pvt Ltd" are at least
+    considered together. A shortlist is not a decision, so widening it is
+    safe; what would not be safe is letting the shortlist BE the decision.
+
+`compare_recorded_supplier` — THE DECISION. Never lossy.
+    Reads the RAW name the source gave and decides SAME, DIFFERENT or
+    AMBIGUOUS. Only SAME contributes an account. DIFFERENT and AMBIGUOUS both
+    contribute nothing, so the caller gets no match and the person gets a
+    question — ambiguity asks, it never posts and it never merges a history.
+
+COLLAPSED by the key — presentation. None of these change who was paid.
     case              "SHARMA TRADERS" is "Sharma Traders" shouted.
     whitespace        Leading, trailing, repeated, tabs, newlines. Typing.
     punctuation       A trailing full stop, a comma, brackets, a hyphen.
     the M/s prefix    "M/s", "Messrs", "Ms." address an invoice; they are not
-                      part of the supplier's name.
+                      part of the supplier's name. Matched on the FOLDED words
+                      now, so "M.S." reaches the same key as "M/s" — the old
+                      literal-string match did not, and that was a defect.
     the Unicode form  NFC and NFD of ONE VISIBLE NAME are one name. Which of
                       the two arrives depends on the keyboard, the scanner and
                       the operating system, and a person cannot see the
                       difference. See the NFC note below.
-
-KEPT — meaning. Any of these may be a different legal person.
-    the legal form    LLP, Inc, Corp, Corporation. An LLP and a limited company
-                      are two taxpayers, two GSTINs, two sets of books.
-                      `identity.py:16-21` already says exactly this for company
-                      names; a supplier is no different. Cost of keeping them
-                      apart when they were the same firm: one question. Cost of
-                      folding them when they were not: someone else's ledger.
-    the letters       A Cyrillic A (U+0410) renders identically to a Latin A
-                      and is not a Latin A. An accented name is not its
-                      unaccented spelling. One character shorter is another
-                      firm. `\\w` is Unicode aware, so these survive as
-                      themselves; that is deliberate, not incidental.
-
-    Two spellings of ONE kept form — "Acme Corp" and "Acme Corporation" — do
-    get two keys. That is the safe direction and costs a question.
+    the legal form    Dropped from the KEY ONLY, to widen the shortlist. It is
+                      never dropped from the decision, and the raw name it is
+                      read from is stored beside the key rather than being
+                      reconstructed from it.
 
 WHY NFC IS THE FIRST THING THAT HAPPENS
 ---------------------------------------
@@ -66,15 +69,32 @@ unaccented supplier's. Stdlib, no new dependency.
 
 `normalise_phrase` folds too, for the same reason and at the same cost.
 
-THE ONE COLLAPSE THAT IS A TRADE-OFF AND NOT A RULE
----------------------------------------------------
-The Ltd/Limited family and the "& Co"/"Company" family are still stripped, so
-"Sharma Traders", "M/s Sharma Traders Pvt Ltd" and "Sharma Traders & Co" are
-one key. In law those are different persons. This is a deliberate bet that one
-supplier written three ways is commoner in a small Indian book than a sole
-proprietor and a private limited company of the same name both selling to the
-same customer. It is pinned by `tests/test_memory.py:994`, so changing it is an
-owner decision, not a code decision.
+WHO FEEDS THIS, AND THE GAP THAT USED TO BE HERE
+-------------------------------------------------
+`MemoryIndex.record_observed` takes the store's two fields and keeps them
+apart, with `raw_subject=None` meaning INCOMPLETE — no evidence, therefore
+never a confident SAME. That is the correct shape, and until 2026-08-10 it was
+fed wrongly by four writers, none of them owned here:
+
+    accountant/memory/bootstrap.py:_derive       discarded `Voucher.party`
+    accountant/memory/company.py:observe         dropped it for everything
+                                                 learned after bootstrap
+    accountant/memory/company.py:record_correction
+                                                 dropped a person's explicit
+                                                 answer, storing it INCOMPLETE
+    accountant/memory/company.py:index           called `record(o.subject, …)`,
+                                                 presenting a stripped key as
+                                                 though it were a raw name
+
+All four are now handed the raw name and keep it. The end-to-end proof - Tally
+to store to file to reload to decision - is `tests/test_legal_identity_live.py`,
+which counts the records rather than sampling them, because the four failed in
+four different places and any one of them passing proved nothing about the rest.
+
+`record` remains the RAW-name door and `record_observed` the two-field one.
+Anything reading out of the store must use the second: a stored subject handed
+to the first is the defect above, and an `ast` guard in that file fails the
+suite if it comes back.
 """
 
 from __future__ import annotations
@@ -84,53 +104,59 @@ import unicodedata
 from collections import defaultdict
 from collections.abc import Iterable
 
+from accountant.memory.identity import (
+    SupplierVerdict,
+    compare_recorded_supplier,
+    split_supplier_name,
+)
 from accountant.schema import MatchResult, MatchStatus, Voucher
 from accountant.tallyio.client import marker_for, operation_id_in
 
-# Name noise, and ONLY name noise. A legal form is not noise: see the module
-# docstring. "llp", "inc", "corporation" and "corp" were once in this tuple,
-# and while they were, an LLP invoice posted to the limited company's account.
-_SUFFIXES = (
-    "private limited",
-    "pvt limited",
-    "pvt ltd",
-    "private ltd",
-    "limited",
-    "ltd",
-    "company",
-    "and co",
-    "& co",
-)
-_PREFIXES = ("m/s", "ms.", "messrs")
 _PUNCT = re.compile(r"[^\w\s&]")
 _SPACE = re.compile(r"\s+")
 _DIGITS = re.compile(r"\d+")
 
 
 def normalise_vendor(name: str) -> str:
-    """Collapse spelling variants of one vendor to a single key.
+    """The CANDIDATE key: which shortlist does this name fall in?
 
-    Presentation collapses, meaning does not. The module docstring states the
-    rule line by line and gives the reason for each line.
+    NOT an identity claim, and since 2026-08-10 it is not allowed to be read as
+    one. It drops the naming prefix, folds spelling noise, and CANONICALISES
+    the legal form rather than deleting it: "Acme Ltd" and "Acme Limited" are
+    `acme_ltd`, "Acme Corp" and "Acme Corporation" are `acme_corp`, and
+    "Sharma Traders & Co", "Ms. Sharma Traders and Co" and "Sharma Traders
+    Company" are all `sharma_traders_and_co`.
 
     Deterministic. Same input always gives the same key.
+
+    WHY THE FORM IS STILL IN THE KEY, WHEN THE RULING SAYS THE KEY ONLY HAS TO
+    FIND CANDIDATES
+
+    Because `CompanyMemory.lookup` goes to the store, not through
+    `_accounts_for`, and applies no identity check at all. Delete the form from
+    the key today and "Acme LLP" and "Acme Ltd" become one subject on that
+    path, with nothing downstream to tell them apart — which is D2, the defect
+    fixed on 2026-08-09, reopened. Feeding the index correctly (D-05,
+    2026-08-10) fixed the INDEX path; it did not put a decision layer on the
+    store path, so the reason the key stays narrow is unchanged.
+
+    So the key is kept identity-preserving and the shortlist is narrow. The
+    cost is that a genuinely AMBIGUOUS pair — a bare name against a Pvt Ltd —
+    never shares a bucket, so the AMBIGUOUS verdict is usually not computed:
+    the two keys simply miss each other. The OUTCOME is the one the owner
+    required either way — no match, no merge, no automatic post, a question —
+    and where the pair DOES share a bucket, which is every legacy INCOMPLETE
+    row, the verdict is computed and answers AMBIGUOUS.
+
+    It shares `split_supplier_name` with the identity layer rather than
+    reimplementing the split, so the shortlist and the decision cannot drift
+    apart. That also fixes the old prefix defect: the previous version matched
+    the literal string "m/s", so "M.S. Sharma Traders" missed the prefix list
+    and keyed away from "M/s Sharma Traders". Both now fold to the words
+    ("m", "s") before anything looks at them.
     """
-    # NFC first, before `_PUNCT` can turn a combining mark into a space and
-    # hand one visible name two keys. See the module docstring.
-    s = unicodedata.normalize("NFC", name).casefold().strip()
-    for p in _PREFIXES:
-        if s.startswith(p):
-            s = s[len(p) :]
-    s = _PUNCT.sub(" ", s)
-    s = _SPACE.sub(" ", s).strip()
-    changed = True
-    while changed:
-        changed = False
-        for suf in _SUFFIXES:
-            if s.endswith(" " + suf):
-                s = s[: -(len(suf) + 1)].strip()
-                changed = True
-    return _SPACE.sub("_", s)
+    stem, form = split_supplier_name(name)
+    return "_".join(p for p in (_SPACE.sub("_", stem), form) if p)
 
 
 def normalise_phrase(narration: str) -> str:
@@ -152,10 +178,18 @@ def normalise_phrase(narration: str) -> str:
 
 
 class MemoryIndex:
-    """vendor key -> the set of accounts that vendor has been posted to."""
+    """vendor key -> the accounts that vendor has been posted to.
+
+    Rows are held under the NAME THEY WERE RECORDED WITH, not only under the
+    key, because the key has had the legal form deleted out of it and D-05 says
+    the legal form decides who was paid. Two legal persons can share a key;
+    they never share an answer. See the module docstring.
+    """
 
     def __init__(self) -> None:
-        self._by_vendor: dict[str, dict[str, int]] = defaultdict(
+        # (name as recorded, account) -> times. Keyed by the raw name so the
+        # legal form is still there to compare at lookup.
+        self._by_vendor: dict[str, dict[tuple[str | None, str], int]] = defaultdict(
             lambda: defaultdict(int)
         )
 
@@ -176,11 +210,47 @@ class MemoryIndex:
         return idx
 
     def record(self, vendor: str, account: str) -> None:
-        self._by_vendor[normalise_vendor(vendor)][account] += 1
+        """Record a RAW observed vendor name. Identity evidence is complete."""
+        self.record_observed(
+            normalised_subject=normalise_vendor(vendor),
+            raw_subject=vendor,
+            account=account,
+        )
+
+    def record_observed(
+        self, *, normalised_subject: str, raw_subject: str | None, account: str
+    ) -> None:
+        """The store's two fields, straight in, never collapsed into one.
+
+        `raw_subject=None` is INCOMPLETE: a row that predates raw-name
+        persistence. It is recorded as such rather than being reconstructed
+        from `normalised_subject`, because the legal form was stripped out of
+        that key and inventing it back is the failure this whole ruling exists
+        to stop.
+        """
+        self._by_vendor[normalised_subject][(raw_subject, account)] += 1
+
+    def _accounts_for(self, vendor: str) -> dict[str, int]:
+        """This vendor's own accounts. Only a CONFIDENT match contributes.
+
+        The candidate key gathered the shortlist; this is where the shortlist
+        is judged. Anything that is not SAME - DIFFERENT, or AMBIGUOUS, or an
+        INCOMPLETE row with no evidence either way - contributes nothing, so
+        the caller gets no match and the person gets a question. Ambiguity
+        asks; it never posts and it never merges a history.
+        """
+        totals: dict[str, int] = {}
+        for (recorded, account), times in self._by_vendor.get(
+            normalise_vendor(vendor), {}
+        ).items():
+            if compare_recorded_supplier(recorded, vendor) is not SupplierVerdict.SAME:
+                continue
+            totals[account] = totals.get(account, 0) + times
+        return totals
 
     def lookup(self, vendor: str) -> MatchResult:
         key = normalise_vendor(vendor)
-        accounts = self._by_vendor.get(key)
+        accounts = self._accounts_for(vendor)
 
         if not accounts:
             return MatchResult(status=MatchStatus.NO_MATCH, vendor_key=key)
@@ -199,10 +269,11 @@ class MemoryIndex:
         )
 
     def times_posted(self, vendor: str, account: str) -> int:
-        return self._by_vendor.get(normalise_vendor(vendor), {}).get(account, 0)
+        return self._accounts_for(vendor).get(account, 0)
 
     def accounts_ever_used(self) -> frozenset[str]:
-        return frozenset(a for accts in self._by_vendor.values() for a in accts)
+        """Every account in the book. Not scoped to one vendor, so not filtered."""
+        return frozenset(a for rows in self._by_vendor.values() for _, a in rows)
 
     def vendors(self) -> frozenset[str]:
         return frozenset(self._by_vendor)

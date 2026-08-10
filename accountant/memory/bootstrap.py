@@ -71,10 +71,20 @@ class _Seen:
     def __init__(self) -> None:
         self.ids: dict[str, list[str]] = {}
         self.sources: dict[str, set[str]] = {}
+        # D-05, 2026-08-10. The name the SOURCE gave, kept so identity can be
+        # decided later from evidence instead of from the stripped key. First
+        # one wins: every name reaching this subject shares its candidate key,
+        # and a shared key means one stem and one canonical legal form, so any
+        # of them represents the rest faithfully.
+        self.raw: str | None = None
 
-    def add(self, account: str, voucher_id: str, provenance: str) -> None:
+    def add(
+        self, account: str, voucher_id: str, provenance: str, raw: str | None = None
+    ) -> None:
         self.ids.setdefault(account, []).append(voucher_id)
         self.sources.setdefault(account, set()).add(provenance)
+        if self.raw is None:
+            self.raw = raw
 
     def observations(self, company_key: str, subject: str) -> list[Observation]:
         return [
@@ -85,6 +95,7 @@ class _Seen:
                 times=len(ids),
                 source_voucher_ids=tuple(ids),
                 provenance="+".join(sorted(self.sources[account])),
+                raw_subject=self.raw,
             )
             for account, ids in sorted(self.ids.items())
         ]
@@ -111,7 +122,9 @@ def _derive(
         provenance = (
             FROM_OUR_POSTING if operation_id_in(v.narration) else FROM_TALLY_HISTORY
         )
-        vendors.setdefault(vendor_key, _Seen()).add(v.debit_account, v.id, provenance)
+        vendors.setdefault(vendor_key, _Seen()).add(
+            v.debit_account, v.id, provenance, raw=v.party
+        )
         phrase_key = normalise_phrase(v.narration)
         if phrase_key:
             phrases.setdefault(phrase_key, _Seen()).add(

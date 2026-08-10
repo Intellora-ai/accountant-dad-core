@@ -533,7 +533,7 @@ def test_the_only_two_suppliers_seen_twice_were_posted_to_different_accounts() -
     """
     shared = shared_suppliers()
     assert {(a, b, key) for a, b, key, _, _ in shared} == {
-        ("DWP", "DEFRA", "accenture_uk"),
+        ("DWP", "DEFRA", "accenture_uk_ltd"),
         ("DWP", "HMT", "softcat_plc"),
     }
     assert all(a_account != b_accounts for _, _, _, a_account, b_accounts in shared)

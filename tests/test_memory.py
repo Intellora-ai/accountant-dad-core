@@ -644,13 +644,43 @@ def test_an_unseen_vendor_returns_no_match_which_becomes_a_question() -> None:
     assert match.as_match_result().status is MatchStatus.NO_MATCH
 
 
-def test_spelling_variants_of_one_supplier_collapse_inside_the_company() -> None:
-    """Company B posted the same firm under two spellings. One vendor, one key."""
+def test_spelling_variants_collapse_but_a_legal_form_is_not_a_spelling() -> None:
+    """REWRITTEN 2026-08-10, owner ruling D-05.
+
+    WHAT THIS TEST USED TO REQUIRE
+        That company B's "Sharma Traders" and "M/s Sharma Traders Pvt Ltd" were
+        ONE vendor with two postings - `counts.vendors == 1` and `times == 2`.
+        That is an accounting-policy claim living in a test fixture, and it is
+        the one the owner reversed: a bare name and a Pvt Ltd of the same name
+        are not provably the same firm.
+
+    WHY THAT CHANGED
+        Legal forms are identity-bearing. The bare name and the Pvt Ltd are now
+        two subjects, and the pair is AMBIGUOUS rather than SAME, so neither
+        answers for the other. What used to be a silent merge is now a
+        question.
+
+    WHAT STILL COLLAPSES
+        Everything that is genuinely spelling: case, a trailing stop, and the
+        naming prefix. "SHARMA TRADERS." still finds the bare supplier's
+        account, which is the half of the old behaviour that was always right.
+    """
     memo, _ = opened(tally_with_both_companies(), B_NAME)
 
-    assert memo.report.counts.vendors == 1
+    # two legal persons in this company's history, not one
+    assert memo.report.counts.vendors == 2
+
+    # spelling still collapses
     assert memo.lookup("SHARMA TRADERS.").accounts == (B_ACCOUNT,)
-    assert memo.lookup("M/s Sharma Traders Pvt Ltd").times == (2,)
+    assert memo.lookup("Sharma Traders").times == (1,)
+
+    # and the Pvt Ltd keeps its own history rather than inheriting the bare
+    # name's
+    assert memo.lookup("M/s Sharma Traders Pvt Ltd").times == (1,)
+    assert memo.lookup("Sharma Traders Pvt Ltd").accounts == (B_ACCOUNT,)
+    assert idx.normalise_vendor("Sharma Traders") != idx.normalise_vendor(
+        "Sharma Traders Pvt Ltd"
+    )
 
 
 def test_a_narration_phrase_answers_from_this_companys_own_history() -> None:
@@ -997,14 +1027,53 @@ def test_the_package_exports_what_it_documents() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_normalise_vendor_collapses_prefixes_suffixes_and_punctuation() -> None:
+def test_normalise_vendor_collapses_prefixes_and_punctuation_not_legal_forms() -> None:
+    """REWRITTEN 2026-08-10, owner ruling D-05.
+
+    WHAT THIS TEST USED TO REQUIRE
+        That "M/s Sharma Traders Pvt Ltd", "Messrs Sharma Traders Private
+        Limited" and "Ms. Sharma Traders & Co" all equal the key of a bare
+        "Sharma Traders". It was the assertion that blocked splitting them, and
+        two other files cited it by line number as the reason they could not
+        fix the merge.
+
+    WHY THAT CHANGED
+        The owner ruled that M/s and Ms. are removable naming PREFIXES, and
+        that legal forms are IDENTITY-BEARING and must never be silently
+        removed. A sole proprietor "Sharma Traders", a "Sharma Traders Pvt Ltd"
+        and a "Sharma Traders & Co" are three different persons in law, and
+        merging their keys put one firm's payment against another's name.
+
+    WHAT IT REQUIRES NOW
+        The prefix still goes - in all four of its spellings, including the
+        "M.S." one that the old literal-string match missed. The legal form
+        stays, canonicalised so that one form written two ways is still one
+        key.
+    """
     key = idx.normalise_vendor(SHARED_VENDOR)
 
-    assert idx.normalise_vendor("M/s Sharma Traders Pvt Ltd") == key
+    # prefixes and punctuation are still noise, and M.S. now works too
+    assert idx.normalise_vendor("M/s Sharma Traders") == key
+    assert idx.normalise_vendor("M.S. Sharma Traders") == key
+    assert idx.normalise_vendor("Ms. Sharma Traders") == key
+    assert idx.normalise_vendor("Messrs Sharma Traders") == key
     assert idx.normalise_vendor("SHARMA TRADERS.") == key
-    assert idx.normalise_vendor("Messrs Sharma Traders Private Limited") == key
-    assert idx.normalise_vendor("Ms. Sharma Traders & Co") == key
     assert idx.normalise_vendor("Sharma Traders") == "sharma_traders"
+
+    # the legal form is NOT noise: three names, three keys
+    assert idx.normalise_vendor("M/s Sharma Traders Pvt Ltd") != key
+    assert idx.normalise_vendor("Ms. Sharma Traders & Co") != key
+    assert (
+        idx.normalise_vendor("M/s Sharma Traders Pvt Ltd")
+        == "sharma_traders_pvt_ltd"
+        != idx.normalise_vendor("Ms. Sharma Traders & Co")
+        == "sharma_traders_and_co"
+    )
+
+    # one form written two ways is still one key
+    assert idx.normalise_vendor("Messrs Sharma Traders Private Limited") == (
+        idx.normalise_vendor("M/s Sharma Traders Pvt Ltd")
+    )
 
 
 def test_normalise_phrase_drops_our_marker_and_every_number() -> None:
