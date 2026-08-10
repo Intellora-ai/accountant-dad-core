@@ -177,3 +177,174 @@ def test_the_case_section_scores_all_four_blocks_and_passes_them():
     }
     assert section.failed_cases == []
     assert [g.name for g in section.gates if not g.passed] == []
+
+
+# ---------------------------------------------------------------------------
+# The two sibling contracts, and the integration that landed broken
+# ---------------------------------------------------------------------------
+
+
+def test_the_validator_contract_is_a_real_function_and_returns_the_documented_pair():
+    """`pack_validator` documents `validate(root) -> (ok, failures)`. It exists now.
+
+    It did not. `scripts/validate_ground_truth.py` exposed only `check_corpus`
+    and `main`, so the loader bound to `main(argv: list[str])`, the runner handed
+    it a `Path`, and argparse raised `TypeError: 'PosixPath' object is not
+    iterable`. The whole pack reported INVALIDATED and measured nothing.
+    """
+    validator, blocked = runner.pack_validator()
+    assert blocked is None
+    assert validator is not None
+    ok, failures = runner.interpret_validation(validator(runner.GT))
+    assert ok is True, failures
+    assert failures == []
+
+
+def test_main_is_never_accepted_as_a_contract_implementation():
+    """The defect class, not just the instance.
+
+    Every script has a `main`, and its signature is never the contract. Binding
+    to it produced a callable that was called wrongly instead of a BLOCKED that
+    said the entry point was missing. Accepting the name guaranteed the quieter
+    of the two failures.
+    """
+    found, _ = runner.load_sibling("validate_ground_truth", ("main",))
+    assert found is not None, "the sibling does have a main; that is the point"
+
+    validator, blocked = runner.pack_validator()
+    assert validator is not None and blocked is None
+    assert getattr(validator, "__name__", "") != "main"
+
+    # Checking the resolved callable is not enough: `validate` is found first,
+    # so putting `main` back in the tuple would change nothing today and
+    # everything the next time a sibling ships without `validate`. The accepted
+    # names themselves are what has to stay clean.
+    source = pathlib.Path(runner.__file__).read_text(encoding="utf-8")
+    body = source.split("def pack_validator(")[1].split("\ndef ")[0]
+    accepted = body.split("load_sibling(")[1]
+    assert '"main"' not in accepted, accepted
+    assert '"validate"' in accepted
+
+
+def test_the_owner_set_exit_one_numbers_are_pinned():
+    """80 and 76 are owner-set, 2026-08-10. Neither is derived, tuned or rounded."""
+    assert runner.EXIT1_RENDERABLE_CASES == 80
+    assert runner.EXIT1_MATCHES_REQUIRED == 76
+
+
+def test_the_loader_contract_returns_every_case_with_the_fields_the_runner_joins():
+    loader, blocked = runner.pack_loader()
+    assert blocked is None, blocked
+    assert loader is not None
+
+    cases = list(loader(runner.GT))
+    assert len(cases) == 100
+    assert sum(1 for c in cases if c["renderable"]) == runner.EXIT1_RENDERABLE_CASES
+    for case in cases:
+        assert (runner.GT / case["input_path"]).exists()
+        assert case["mime"]
+        assert case["expected"]
+
+
+def test_an_unrenderable_case_is_exactly_the_jpg_ones():
+    """EXIT 1's denominator is a fact about the corpus, not a tunable."""
+    loader, _ = runner.pack_loader()
+    assert loader is not None
+    cases = list(loader(runner.GT))
+    unrenderable = {c["input_type"] for c in cases if not c["renderable"]}
+    assert unrenderable == {"JPG"}
+
+
+def test_a_near_miss_is_a_miss():
+    """EXIT 1 says exact matches. One paise out is out."""
+    import datetime
+
+    from accountant.extract.adapter import ExtractedRecord
+
+    want = {
+        "date": "2026-01-01",
+        "party": "SHEFFIELD CITY COUNCIL",
+        "total_amount": "147.50",
+        "tax_amount": "22.50",
+    }
+    record = ExtractedRecord(
+        date=datetime.date(2026, 1, 1),
+        party="SHEFFIELD CITY COUNCIL",
+        total_paise=14750,
+        tax_paise=2250,
+        per_field_source=dict.fromkeys(ExtractedRecord.FIELDS, "test"),
+    )
+    for name in ExtractedRecord.FIELDS:
+        assert runner.field_matches(name, record, want), name
+
+    off_by_one = ExtractedRecord(
+        date=datetime.date(2026, 1, 2),
+        party="SHEFFIELD CITY COUNCI",
+        total_paise=14751,
+        tax_paise=2249,
+        per_field_source=dict.fromkeys(ExtractedRecord.FIELDS, "test"),
+    )
+    for name in ExtractedRecord.FIELDS:
+        assert not runner.field_matches(name, off_by_one, want), name
+
+
+def test_the_paise_conversion_is_the_pack_representation_not_a_rounding():
+    assert runner.paise_from_decimal("147.50") == 14750
+    assert runner.paise_from_decimal("0.01") == 1
+    assert runner.paise_from_decimal("125") == 12500
+    assert runner.paise_from_decimal(None) is None
+
+
+def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
+    """Two different claims. A backend that reads nothing and one that invents a
+    value both fail EXIT 1; only the second also fails EXIT 2."""
+    section = runner.Section(name="s2_extraction")
+    runner.run_s2(section)
+
+    names = {g.name: g for g in section.gates}
+    assert "exit1_generated_truth_extraction" in names
+    assert "exit2_unrenderable_input_is_explicit" in names
+
+    assert section.facts["exit1_renderable_cases"] == runner.EXIT1_RENDERABLE_CASES
+    assert section.facts["exit2_unrenderable_cases"] == 20
+    assert section.facts["truth_label"] == "GENERATED_TRUTH"
+    assert section.facts["corpus_label"] == "SYNTHETIC_EVIDENCE"
+
+    # Owner decision Q4 = B. The stub reads nothing, so EXIT 1 fails and says so.
+    assert names["exit1_generated_truth_extraction"].status == runner.FAIL
+    assert section.facts["exit1_exact_per_field"] == dict.fromkeys(
+        ("date", "party", "total_paise", "tax_paise"), 0
+    )
+    # EXIT 2 is about safety, not accuracy, and it holds.
+    assert names["exit2_unrenderable_input_is_explicit"].status == runner.PASS
+    assert section.facts["exit2_unsafe"] == []
+
+
+def test_a_refusal_that_states_a_reason_is_still_a_refusal():
+    """CodeAnt, PR 37. A `!=` here counted every reason-bearing refusal as a hit.
+
+    `s2_extraction_scored` compared the per-field source with the bare
+    `not_found` sentinel. The moment a refusal started carrying a reason - which
+    EXIT 2 requires - that comparison stopped matching, so a stub that read
+    nothing reported 100 of 100 fields sourced and the gate flipped from FAIL to
+    PASS. Measured on this branch before the fix, not argued.
+    """
+    section = runner.Section(name="s2_extraction")
+    runner.run_s2(section)
+
+    assert section.facts["s2_per_field"] == dict.fromkeys(
+        ("date", "party", "total_paise", "tax_paise"), 0
+    )
+    scored = {g.name: g for g in section.gates}["s2_extraction_scored"]
+    assert scored.status == runner.FAIL
+
+
+def test_a_field_the_backend_really_read_is_still_counted():
+    """The control. Refusing to count refusals must not stop counting values."""
+    import datetime
+
+    from accountant.extract.adapter import NOT_FOUND, StubExtractor
+
+    record = StubExtractor(date=datetime.date(2026, 8, 10)).extract(b"x", "text/plain")
+    assert not record.per_field_source["date"].startswith(NOT_FOUND)
+    assert record.per_field_source["party"].startswith(NOT_FOUND)

@@ -416,6 +416,28 @@ def check_corpus(root: Path = CORPUS_ROOT) -> list[Finding]:
     return out
 
 
+def validate(root: Path = CORPUS_ROOT) -> tuple[bool, list[str]]:
+    """The contract `scripts/run_ground_truth.py` documents, implemented here.
+
+    That runner's `pack_validator()` docstring asks for
+
+        validate(root: pathlib.Path) -> object
+
+    and accepts a `(ok, failures)` pair as one of three shapes. This file only
+    ever exposed `check_corpus(root) -> list[Finding]` and `main(argv)`, so the
+    runner bound to `main`, handed it a `Path`, and argparse died on
+    `list(PosixPath)`. The whole pack then reported INVALIDATED and measured
+    nothing. Two halves, two contracts, and the name matched while the signature
+    did not.
+
+    Returning the documented pair is the fix on this side. The other half of it
+    is that the runner no longer accepts `main` as an implementation of
+    anything: every script has a `main`, and its signature is never the contract.
+    """
+    findings = check_corpus(root)
+    return not findings, [f"{f.kind} {f.case_id}: {f.detail}" for f in findings]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Validate the ground-truth corpus.")
     parser.add_argument("--root", type=Path, default=CORPUS_ROOT)

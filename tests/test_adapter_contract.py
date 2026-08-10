@@ -1458,3 +1458,41 @@ def test_the_refusal_reaches_the_draft_as_a_question_and_never_as_a_number() -> 
 
     assert draft.voucher.amount_paise == 0
     assert draft.voucher.party == ""
+
+
+# ---------------------------------------------------------------------------
+# EXIT 2 — a not_found that says nothing is a silent blank wearing the right key
+# ---------------------------------------------------------------------------
+
+
+def test_the_stub_states_why_a_field_was_not_read():
+    """Owner EXIT 2: every unread field is explicit not_found WITH A REASON.
+
+    The stub used to write a bare `not_found`. In an audit trail that makes
+    "we have no reader at all" and "the reader looked and found nothing" the
+    same string, and those are different facts about the document. The stub is
+    the backend a JPG meets while owner decision Q4 = B holds, so this is the
+    string that actually reaches the ground-truth pack's 20 unrenderable cases.
+    """
+    from accountant.extract.adapter import NOT_FOUND, ExtractedRecord, StubExtractor
+
+    record = StubExtractor().extract(b"anything at all", "image/jpeg")
+
+    for name in ExtractedRecord.FIELDS:
+        source = record.per_field_source[name]
+        assert source.startswith(NOT_FOUND), (name, source)
+        assert source.strip() != NOT_FOUND, f"{name} carries no reason"
+        assert len(source) > len(NOT_FOUND) + 2, (name, source)
+
+
+def test_a_field_the_stub_was_handed_still_names_the_stub_and_not_a_refusal():
+    """The control. Widening the reason must not swallow a value that IS there."""
+    import datetime
+
+    from accountant.extract.adapter import NOT_FOUND, StubExtractor
+
+    record = StubExtractor(date=datetime.date(2026, 8, 10)).extract(b"x", "text/plain")
+
+    assert record.per_field_source["date"] == "stub"
+    assert not record.per_field_source["date"].startswith(NOT_FOUND)
+    assert record.per_field_source["party"].startswith(NOT_FOUND)

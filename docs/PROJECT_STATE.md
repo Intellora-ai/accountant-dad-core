@@ -3776,3 +3776,107 @@ property that makes the UK public-spend data load-bearing
 **A test suite written from the same assumptions as the code cannot find a
 shared wrong assumption.** These two defects are the measured proof of that,
 and they are the argument for keeping the pack.
+
+## §45 The Ground-Truth Pack ran for the first time, and the four owner actions
+
+Recorded 2026-08-10. Status and evidence only; the design behind the pack is in
+[`ARCHITECTURE.md` §21](./ARCHITECTURE.md) and the human work register is §43.
+
+### §45.1 The pack was reporting INVALIDATED, so nothing had ever been measured
+
+`python scripts/run_ground_truth.py` exited **2 — the harness broke**, not 1.
+
+```
+TypeError: 'PosixPath' object is not iterable
+  scripts/validate_ground_truth.py:423, from run_ground_truth.py:272
+```
+
+`pack_validator()` documents `validate(root: Path)` and accepted the names
+`("validate", "validate_manifest", "main")`. The sibling exposed neither
+`validate` nor `validate_manifest`, so the loader bound to `main(argv: list[str])`,
+the runner handed it a `Path`, and argparse died. `run_manifest` then took the
+whole pack down with it.
+
+The same class of defect, one file over: `pack_loader()` looks for
+`load_cases` / `load_pack` / `cases` and `scripts/build_ground_truth.py` had
+none of them, so the extraction section reported
+
+```
+BLOCKED — awaiting scripts/build_ground_truth.py
+```
+
+**while that file was committed and the 100-case pack was sitting beside it.**
+A BLOCKED that names a file in the repository reads as a fact about the world
+and was a fact about wiring.
+
+| Fixed | How |
+|---|---|
+| `validate(root) -> (ok, failures)` | added to `scripts/validate_ground_truth.py`, wrapping `check_corpus` |
+| `main` no longer accepted | removed from `pack_validator`'s names. Every script has a `main` and its signature is never the contract, so accepting it guaranteed binding to the wrong callable instead of reporting a missing one |
+| `load_cases(root)` | added to `scripts/build_ground_truth.py`, carrying `renderable` through rather than recomputing it |
+
+### §45.2 EXIT 1 and EXIT 2, measured
+
+Scored separately, because they are different claims. A backend that reads
+nothing and a backend that invents a value both fail EXIT 1; only the second
+also fails EXIT 2.
+
+| Exit | Result | Measured |
+|---|---|---|
+| EXIT 1 `GENERATED_TRUTH_EXTRACTION` | **FAIL** | stub backend, 80 renderable cases, exact matches per field `{date: 0, party: 0, total_paise: 0, tax_paise: 0}`, required 76 |
+| EXIT 2 `UNRENDERABLE_INPUT_IS_EXPLICIT` | **PASS** | 20 unrenderable cases, every named field explicit `not_found` **with a reason**, 0 unsafe |
+
+**EXIT 1's FAIL is the designed outcome of owner decision Q4 = B**, not a defect.
+No production backend is selected, `StubExtractor` reads nothing, and
+`PHASE_8_EXTRACTION = INCOMPLETE` is what a row of zeros means. The 20
+unrenderable JPG cases are **not** in EXIT 1's denominator: with them in it the
+old `95 per 100 per field` measured our own renderer rather than the reader.
+
+**EXIT 2 needed a real fix to pass.** `StubExtractor` wrote a bare `not_found`,
+which makes *"we have no reader at all"* and *"the reader looked and found
+nothing"* the same string in the audit trail. They are different facts about the
+document. It now writes `not_found: no production reader is configured, so
+nothing was read from this document`.
+
+Labels, unchanged and not interchangeable: the corpus is `SYNTHETIC_EVIDENCE`,
+the truth is `GENERATED_TRUTH` from canonical JSON, and neither is ever evidence
+about `REAL_READER_ACCURACY`.
+
+### §45.3 A hazard found while mutation-testing, worth knowing
+
+Changing `EXIT1_MATCHES_REQUIRED = 76` to `= 40` and restoring it left Python
+running the **stale bytecode**: both values are two bytes and the restore landed
+inside the same second, so CPython's default `(mtime, size)` invalidation missed
+it. The mutant appeared to survive its own restoration.
+
+**Any mutation that preserves file size can produce a false verdict in either
+direction.** Clear `__pycache__` between mutants, or `touch` the file.
+
+### §45.4 The four owner actions, and nothing else is waiting on a human
+
+Everything else in Phase 8 that had an answer has been built, tested and merged.
+
+| # | Action | Blocks | Why only the owner |
+|---|---|---|---|
+| H-06 | Create repository secret `CLAUDE_AUDIT_TOKEN` — fine-grained, **Administration: read**, nothing else | PR #34, and with it `test_bypass_actors_are_still_empty` | Credentials are the one thing that is never created on the owner's behalf |
+| B-01 / H-03 | Create `Demo Co` and four ledgers in the TallyPrime GUI | the 19 RealTally contract tests | The XML gateway refuses: `<RESPONSE>Unknown Request, cannot be processed</RESPONSE>` |
+| B-02 / H-04 | Obtain a non-Educational licence, **or decide not to** | `LICENSED_REALTALLY` | Educational accepts vouchers only on the 1st, 2nd and 31st, and the `2026-08-07` fixture is never edited to fit. **A decision closes this as well as a purchase does** |
+| — | Confirm `claude.yml`'s pin comment `# v1` → `# v1.0.187` stays | nothing; already applied | A `.github` edit outside the authorised token diff |
+
+**H-06 in detail, because the reason is structural.** The workflow token *can*
+read the ruleset — the body comes back real — but `bypass_actors` is **absent**
+from the view it receives. The minimum permission is repository
+**Administration: read**, and actionlint v1.7.12 settles that no workflow can
+hold it:
+
+```
+unknown permission scope "administration". all available permission scopes are
+actions, artifact-metadata, attestations, checks, contents, deployments,
+discussions, id-token, issues, models, packages, pages, pull-requests,
+repository-projects, security-events, statuses
+```
+
+So no `permissions:` block at any level makes that assertion runnable from a
+pull request. It is not skipped, deleted or weakened; it fails, loudly, and
+`artifacts/gate_integrity_blocked.md` records the reason, the owner and the next
+required evidence.
