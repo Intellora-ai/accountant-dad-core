@@ -1,0 +1,21 @@
+{
+  "pr": 36,
+  "title": "Record the CodeAnt review layer, the human work register, and the handoff",
+  "branch": "docs/codeant-integration",
+  "head": "3b153244",
+  "base": "d121574",
+  "recorded_before_merge": true,
+  "gates": {
+    "mergeStateStatus": "CLEAN",
+    "pr-fast": "SUCCESS",
+    "pr-full": "SUCCESS",
+    "ci-gate": "SUCCESS"
+  },
+  "local_verification": "2434 passed, 5 xfailed. .github diff empty.",
+  "codeant_status": "CLEAN",
+  "codeant_findings": [],
+  "codeant_note": "Zero review comments and zero reviews on this pull request. Documentation-only diff. CLEAN here means the bot ran and found nothing, distinct from NOT_OBSERVED.",
+  "content": "artifacts/codeant_integration.md, artifacts/integration_handoff.md (468 lines, previously untracked, owner ruling Q3), docs/ARCHITECTURE.md, docs/CONTROL_PLANE.yaml, docs/PROJECT_STATE.md, docs/TESTING.md",
+  "secret_scan": "integration_handoff.md scanned for VM paths, absolute local paths, ghp_/github_pat tokens and ANTHROPIC keys before committing - zero matches.",
+  "decision": "MERGE"
+}

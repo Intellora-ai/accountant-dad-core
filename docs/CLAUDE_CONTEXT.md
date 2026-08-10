@@ -85,6 +85,7 @@ Each of these has already cost this project something.
 | tune a threshold to make a metric pass | that moves the measurement, not the product |
 | let the gate count fall below 20 | `ci/gate_names.lock` locks the set. The standing rule is that the number may only go **up**. |
 | edit anything under `.github/**` without an explicit owner yes | it is the enforcement layer; changing it is not an engineering decision |
+| merge a pull request any way other than `scripts/merge-pr-with-codeant` | that script is the only place the review evidence is checked against the exact head being merged. See section 5. |
 | send a custom TDL `REPORT`/`FORM`/`PART`/`LINE`/`FIELD` request, or `TYPE=Function`, to a Tally | one such request wedged a live TallyPrime gateway. TCP kept accepting connections and nothing was ever answered again. Recovery needed a human to restart the application. |
 | probe a Tally nobody can restart | same reason. There is no remote recovery path. |
 | purchase, activate, bypass or simulate a non-Educational Tally licence | standing owner instruction, 2026-08-08, decision `D-26` |
@@ -124,7 +125,57 @@ nothing runs at all.
 
 ---
 
-## 5. Writing style, and it is not optional
+## 5. How a pull request merges
+
+**All merges must use `scripts/merge-pr-with-codeant`. Never call `gh pr merge`
+directly. Never merge from the GitHub UI during this controlled-merger phase.**
+
+```bash
+scripts/merge-pr-with-codeant <PR_NUMBER>
+scripts/merge-pr-with-codeant <PR_NUMBER> --dry-run
+```
+
+### What the script does that a raw merge does not
+
+It reads the pull request's exact current head, fetches every CodeAnt review,
+line comment and conversation comment, matches that evidence to **that exact
+head**, prints every finding, writes an evidence file to
+`.audit/merges/pr-<PR>-<HEAD>.json` **before** merging, re-reads the head
+immediately before merging, and refuses if the head moved.
+
+Four outcomes. Exactly one fires.
+
+| Outcome | What it means | What happens |
+|---|---|---|
+| `REVIEWED`, no findings | a CodeAnt review whose `commit_id` **is** the head, and nothing flagged on it | merges |
+| `REVIEWED`, findings | the same review, with findings on that head | refuses. Fix it, add a regression test or a structural guard, push, and let CodeAnt review the **new** head. Code changing is not resolution. |
+| `STALE` | CodeAnt reviewed a different SHA | refuses. An older review is never current evidence, and there is no fallback to "the latest review". |
+| `SKIPPED` / `ABSENT` | CodeAnt declined, or never ran | merges, and the evidence says in words that CodeAnt did not review this head |
+
+A finding marked `FALSE_POSITIVE` or `ACCEPTED_RISK` prints its reason and needs
+`--confirm-exceptions` on the command line before anything merges.
+
+### The limitation. Do not oversell this.
+
+```
+MERGE_CONTROL_MODEL=single-controlled-merger
+GITHUB_UI_MERGE_BLOCKING=NOT_ENABLED
+DIRECT_GH_PR_MERGE_BYPASS=OUTSIDE_CONTROL
+```
+
+This is a process control over a single merging actor, not a guarantee GitHub
+enforces. There is no required check behind it and no branch protection rule
+naming CodeAnt. A different human or agent who runs the raw command, or who
+clicks Merge in the web interface, bypasses all of it. That is why every
+evidence file records `direct_github_merge_protection: false` — it is false
+because it is false of reality.
+
+The chokepoint works because this repository has exactly one actor that merges.
+The day that stops being true, this stops working, and nothing will announce it.
+
+---
+
+## 6. Writing style, and it is not optional
 
 The owner has ADHD and autism and has asked for this more than once.
 
@@ -139,7 +190,7 @@ The owner has ADHD and autism and has asked for this more than once.
 
 ---
 
-## 6. When you find something wrong
+## 7. When you find something wrong
 
 In this order:
 

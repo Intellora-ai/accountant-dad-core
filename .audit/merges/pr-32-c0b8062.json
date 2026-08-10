@@ -1,0 +1,6 @@
+{"repository":"Intellora-ai/accountant-dad-core","pr":32,"head_sha":"c0b8062",
+ "merger":"coordinator","codeant_status":"NOT_OBSERVED",
+ "codeant_reviewed_exact_head":false,"codeant_review_count":0,
+ "codeant_line_comment_count":0,"codeant_findings":[],"findings_handled":[],
+ "exception_reason":"CodeAnt reviews on PR open, not on push. This head was pushed to an existing PR and CodeAnt did not re-review. Owner instruction 2026-08-10: CodeAnt must not stop Phase 8; record NOT_OBSERVED and continue.",
+ "direct_github_merge_protection":false}
