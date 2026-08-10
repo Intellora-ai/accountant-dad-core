@@ -115,21 +115,59 @@ def plain_name(account: str) -> str | None:
 
 
 def unmapped(accounts: Sequence[str]) -> list[str]:
+    """The accounts in this chart we have no plain words for.
+
+    Called by `_something_else` on every question built from a chart, so the
+    count reaches the person. It used to be called by nothing but its own test.
+    """
     return [a for a in accounts if a not in PLAIN]
+
+
+def _something_else(accounts: Sequence[str]) -> Answer:
+    """The escape option, and the report of what it is standing in for.
+
+    An account with no plain words is not offered as a choice: its label would
+    have to be invented, and an option is a promise that the thing exists — the
+    lesson `how_paid` below is written around. But dropping it and saying
+    nothing is worse than jargon. The person is never told a correct answer is
+    missing, so an unreachable answer looks exactly like a complete list, and
+    #9.7 fails silently where nobody can see it.
+
+    So the count rides on the one label the escape already shows. Two channels
+    reach the person and only two — `Question.text` and `Answer.label`, rendered
+    at `web/app.py:1415` and `web/app.py:1409` — and a report in neither is not
+    a report. The number, never the name: S7 holds in the label exactly as it
+    holds in the text.
+
+    Same shape as the G6.2 overflow count at `web/app.py:1392`: reported as a
+    number, never silently dropped, and nothing said at zero, because "0 things
+    I have no words for" is noise on every clean entry.
+    """
+    missing = unmapped(accounts)
+    if not missing:
+        return Answer(label="something else", value=HANDOVER)
+    thing = "thing" if len(missing) == 1 else "things"
+    return Answer(
+        label=(
+            f"something else — {len(missing)} {thing} in your books I have no words for"
+        ),
+        value=HANDOVER,
+    )
 
 
 def purpose_answers(accounts: Sequence[str]) -> tuple[Answer, ...]:
     """Turn a chart of accounts into plain-English choices.
 
-    Accounts we have no words for are left out rather than shown as jargon.
-    A "something else" escape is always offered so the person is never stuck.
+    Accounts we have no words for are counted on the escape rather than shown as
+    jargon, and never dropped in silence. The escape is always offered so the
+    person is never stuck.
     """
     out = [
         Answer(label=PLAIN[a], value=a)
         for a in accounts
         if a in PLAIN and a not in ("Cash", "Bank")
     ]
-    out.append(Answer(label="something else", value=HANDOVER))
+    out.append(_something_else(accounts))
     return tuple(out)
 
 
@@ -153,12 +191,17 @@ def which_purpose(accounts: Sequence[str], party: str) -> Question:
 def which_purpose_narrowed(
     accounts: Sequence[str], party: str, seen: Sequence[str]
 ) -> Question:
-    """Vendor used more than one account before. Offer only those, in plain words."""
+    """Vendor used more than one account before. Offer only those, in plain words.
+
+    The count on the escape is over `seen`, not the whole chart: the question
+    narrows to what this vendor has actually been posted to, so that is the set
+    an answer can go missing from.
+    """
     who = party.strip() or "them"
     opts = [Answer(label=PLAIN[a], value=a) for a in seen if a in PLAIN]
     if not opts:
         return which_purpose(accounts, party)
-    opts.append(Answer(label="something else", value=HANDOVER))
+    opts.append(_something_else(seen))
     return Question(
         problem_id="which_account",
         text=f"Last time with {who} it was different things. Which is this one?",

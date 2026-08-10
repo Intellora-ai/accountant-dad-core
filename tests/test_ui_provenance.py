@@ -41,25 +41,38 @@ carried in `data-slot-state` rather than left to the prose:
 
     recorded        the draft carries this source and here it is
     not_recorded    the draft does not carry it — rendered `NOT_RECORDED`
-    not_available   the half of the system that would supply it is not here —
-                    rendered `NOT_AVAILABLE — accountant/rules/ not merged`
+    not_available   it cannot be filled, and the marker says WHY. Every such
+                    marker starts with `NOT_AVAILABLE` and none of them
+                    contains a URL.
 
-WHAT WAS ASSUMED ABOUT `accountant/rules/`
---------------------------------------------
-It does not exist on `origin/main`. It is PR-3 of the owner's five and was being
-built in parallel while this was written, so it could not be imported and its
-contract could not be read — only designed against. The assumption made here is
-narrow on purpose: **a rule's official source URL will arrive on the object that
-already reaches this screen**, the `Decision` or the `Flag`, as an attribute
-named `source_url`. `app.rule_source_url` reads exactly that and falls through
-to the `NOT_AVAILABLE` marker when nothing carries it — which is every decision
-today, 20 of 20. If the corpus lands with a different carrier, one function
-changes and the page does not.
+WHAT `accountant/rules/` TURNED OUT TO BE — CORRECTED 2026-08-10
+-----------------------------------------------------------------
+The paragraph that stood here said the corpus did not exist on `origin/main`,
+and the source slot said `NOT_AVAILABLE — accountant/rules/ not merged` on all
+twenty decisions. That was true when it was written and became FALSE at commit
+7db7f45, which merged the corpus. The sentence stayed on the screen and stayed
+asserted in this file — a false statement about provenance, pinned by a test,
+inside the one feature whose whole job is to be trusted about provenance.
+
+The guessed carrier was also wrong, and being wrong about it is fine; leaving
+the guess in place once the real one existed is not. What the corpus carries is
+`accountant.rules.provenance.Citation`, which
+`accountant.tax.decision.TaxDecision` already builds one of per rule and which
+names a `rule_id`. So the page does not take a URL off the object at all. It
+takes the `rule_id`, asks `official_corpus()` for that rule, and renders the URL
+and the retrieval date THE CORPUS holds. A citation naming a rule the corpus
+does not hold, or claiming a URL the corpus does not agree with, renders a
+marker instead — an unverifiable citation is precisely what this feature exists
+to expose, so it is refused rather than repeated.
 
 WHAT THIS FILE DOES NOT PROVE
 -----------------------------
-That any rule has a real citation. No decision on this screen carries a source
-URL today and none is invented; the slot says so. That claim belongs to PR-3.
+That any decision on this screen has a citation. None does, and the marker now
+says so for the real reason: `pipeline.evaluate` does not call the tax engine,
+so nothing reaching this screen carries a `Citation`. That is a gap in the
+WIRING between two merged halves, not a missing half, and the two are different
+sentences. The cited path is proved at the renderer instead, against a real rule
+taken out of `official_corpus()` — never a hand-written URL.
 
 Anything about a real TallyPrime. The backend is `FakeTally` behind
 `app.configure()`, over real HTTP.
@@ -79,6 +92,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+import html
 import re
 
 import pytest
@@ -87,6 +101,8 @@ from accountant import pipeline
 from accountant.extract.adapter import ExtractedRecord
 from accountant.memory.company import LiveDisagreement
 from accountant.problems import Problem
+from accountant.rules.gst_rates import RateRule, official_corpus
+from accountant.rules.provenance import Citation
 from accountant.schema import CheckResult, Decision, Flag, Outcome, Voucher
 from accountant.web import app
 from tests.test_first_detector import stale_ledger_company, stale_server
@@ -377,24 +393,49 @@ def test_every_decision_shows_an_explanation_and_shows_it_recorded(
     assert without == [], f"decisions with no explanation: {without}"
 
 
-def test_every_decision_shows_the_source_url_slot_and_it_is_never_blank_or_invented(
+def test_every_decision_shows_the_source_url_slot_and_the_reason_given_is_true(
     census: list[tuple[str, str]],
 ):
-    """20/20 show the slot. 0/20 carry a URL, and that is reported, not papered.
+    """20/20 show the slot. 0/20 cite a rule, and the reason for that is TRUE.
 
-    `accountant/rules/` is not merged, so no decision on this screen has an
-    official CBIC or Income Tax citation behind it. The honest rendering is the
-    explicit marker: not a blank cell, which would read as "no source", and not
-    a plausible URL, which would be an invented citation that survives review.
+    This test used to assert `NOT_AVAILABLE — accountant/rules/ not merged` on
+    all twenty pages. Commit 7db7f45 merged `accountant/rules/`; the sentence
+    became false and this assertion is what held it on the screen. So the
+    replacement is checked against the corpus itself rather than against a copy
+    of the app's own words:
 
-    The day the corpus lands, this test is the one that should start failing.
+        the marker must NOT say "not merged"   the corpus is merged
+        the marker must carry no URL           nothing is invented
+        the number in it must equal            `len(official_corpus().loaded)`,
+                                               so an app that stopped loading
+                                               the corpus, or stopped counting
+                                               it, prints a number this test
+                                               does not accept
+        that number must be non-zero           a corpus that loads nothing
+                                               would make the sentence true and
+                                               worthless
+
+    Still 0/20, and that is not the same defect. `pipeline.evaluate` does not
+    call the tax engine, so no `Citation` reaches this screen: the two halves
+    are merged and not yet wired to each other. The marker now says that.
     """
+    corpus = official_corpus()
     states = {case: slots(page)["source_url"] for case, page in census}
+    texts = {text for _, text in states.values()}
 
     assert all(state for state, _ in states.values()), states
     assert {state for state, _ in states.values()} == {app.SLOT_NOT_AVAILABLE}, states
-    assert {text for _, text in states.values()} == {app.RULE_URL_UNAVAILABLE}, states
-    assert "http" not in app.RULE_URL_UNAVAILABLE, "no URL is invented here"
+    assert len(texts) == 1, texts
+    (shown,) = texts
+
+    assert "not merged" not in shown, (
+        f"the merged corpus is still called absent: {shown}"
+    )
+    assert "http" not in shown, f"a URL was invented into the marker: {shown}"
+    assert len(corpus.loaded) > 0, "the corpus this marker counts loaded nothing"
+    assert str(len(corpus.loaded)) in shown, (shown, len(corpus.loaded))
+    assert shown.startswith(app.NOT_AVAILABLE), shown
+    assert shown == app.RULE_URL_NOT_CITED, shown
 
 
 def test_the_census_covers_a_detector_driven_decision_and_a_rule_driven_one(
@@ -468,6 +509,47 @@ def draft_with(**over: object) -> pipeline.Draft:
     return pipeline.Draft(**(base | over))  # type: ignore[arg-type]
 
 
+@dataclasses.dataclass(frozen=True)
+class CitedDecision(Decision):
+    """A `Decision` that names the rules behind it.
+
+    Not a guess this time. `accountant.tax.decision.TaxDecision` already carries
+    exactly this field — `citations: tuple[Citation, ...]` — and refuses to be
+    constructed VALID without one, because an uncited rate is a rumour. What is
+    missing is the WIRING: `pipeline.evaluate` never calls that engine, so the
+    `Decision` that reaches this screen has no citations field on it at all.
+
+    Subclassed here rather than added to `accountant/schema.py`, which this
+    change does not own. The renderer reads the attribute if it is there, so the
+    day the pipeline carries one, this is the shape it will be.
+    """
+
+    citations: tuple[Citation, ...] = ()
+
+
+@dataclasses.dataclass(frozen=True)
+class CitedFlag(Flag):
+    """The other carrier. A detector that fires ON a rule can name the rule."""
+
+    citations: tuple[Citation, ...] = ()
+
+
+def cited(*citations: Citation, outcome: Outcome = Outcome.VALID) -> CitedDecision:
+    return CitedDecision(outcome=outcome, reason="ok", citations=citations)
+
+
+def loaded_rule() -> RateRule:
+    """One real rule out of the merged corpus, never a hand-written one.
+
+    Every URL asserted anywhere in this file comes through here. A URL typed
+    into a test is a URL that can disagree with the corpus and still be green,
+    which is the same defect as an invented citation with a slower fuse.
+    """
+    corpus = official_corpus()
+    assert corpus.loaded, "the merged corpus loaded no rules"
+    return corpus.loaded[0]
+
+
 def test_a_decision_with_no_evidence_says_NOT_RECORDED_rather_than_nothing():
     """The named case in the requirement, asserted on the rendered HTML."""
     page = app.render_provenance(draft_with())
@@ -497,7 +579,7 @@ def test_a_draft_that_was_never_decided_still_renders_all_four_slots():
     assert slots(page)["explanation"] == (app.SLOT_NOT_RECORDED, "NOT_RECORDED")
     assert slots(page)["source_url"] == (
         app.SLOT_NOT_AVAILABLE,
-        app.RULE_URL_UNAVAILABLE,
+        app.RULE_URL_NOT_CITED,
     )
 
 
@@ -590,23 +672,18 @@ def test_a_hostile_detector_reason_reaches_the_page_escaped(
 def test_every_provenance_value_goes_through_the_escaper():
     """The three slots the HTTP case cannot reach, at the renderer.
 
-    `detector_or_rule` is an id and `source_url` will be a string fetched from
-    outside this repository the moment `accountant/rules/` lands, which is the
-    worst moment to discover the cell was never escaped.
+    `detector_or_rule` is an id, and the source slot now renders text built from
+    a `rule_id` that came off a citation — a string from outside this repository
+    the moment anything upstream builds one. A `rule_id` the corpus does not
+    hold is quoted back into the marker so the reader can see WHICH citation was
+    refused, and quoting attacker-shaped text back into a page is the oldest
+    way there is to lose one.
     """
-
-    @dataclasses.dataclass(frozen=True)
-    class RuleBackedDecision(Decision):
-        """What a corpus-backed decision is assumed to look like. See the
-        module docstring: the assumption is `source_url` on the Decision or the
-        Flag, and this is the Decision half of it."""
-
-        source_url: str = ""
-
-    decided = RuleBackedDecision(
+    hostile_id = 'gst.<img src=x>.&."1"'
+    decided = CitedDecision(
         outcome=Outcome.NOT_VALID,
         reason='refused <b>because</b> "x" & y',
-        source_url="https://example.invalid/n?a=1&b=<2>",
+        citations=(dataclasses.replace(loaded_rule().citation, rule_id=hostile_id),),
     )
     page = app.render_provenance(
         draft_with(
@@ -617,35 +694,108 @@ def test_every_provenance_value_goes_through_the_escaper():
 
     assert "<b>" not in page
     assert "<img" not in page
-    assert "<2>" not in page
+    assert '&."1"' not in page
     assert "&lt;img src=x&gt;" in page
-    assert "b=&lt;2&gt;" in page
-    assert "&amp;b=" in page
+    assert "&amp;.&quot;1&quot;" in page
+
+    state, shown = slots(page)["source_url"]
+    assert state == app.SLOT_NOT_AVAILABLE
+    assert "&lt;img src=x&gt;" in shown, shown
 
 
-def test_the_source_url_slot_renders_a_carried_url_when_one_finally_exists():
-    """The seam, exercised. Without this the `NOT_AVAILABLE` branch is the only
-    branch anybody has ever run, and "it will work when the corpus lands" is a
-    promise rather than a measurement."""
+def test_the_source_url_slot_renders_the_corpus_url_and_the_retrieval_date():
+    """The cited path, against a REAL rule out of the merged corpus.
 
-    @dataclasses.dataclass(frozen=True)
-    class RuleBackedDecision(Decision):
-        source_url: str = ""
+    Without this the `NOT_AVAILABLE` branch is the only branch anybody has ever
+    run, and "it will work once something cites a rule" is a promise rather than
+    a measurement. The rule is taken from `official_corpus()` rather than
+    written here, so the URL in the assertion is the corpus's URL by
+    construction and cannot drift from it.
 
-    page = app.render_provenance(
-        draft_with(
-            decision=RuleBackedDecision(
-                outcome=Outcome.VALID,
-                reason="ok",
-                source_url="https://example.invalid/circular-1",
-            )
-        )
+    The retrieval date is in the same cell because the frozen plan wants both —
+    a URL with no retrieval date does not say WHEN the rate was read, and the
+    owner-approved four slots are fixed, so a fifth is not available to put it
+    in. `RuleCorpus.build` rejects any rule with no retrieval date, so every
+    loaded rule has one; that is asserted here rather than assumed.
+    """
+    rule = loaded_rule()
+    page = app.render_provenance(draft_with(decision=cited(rule.citation)))
+
+    state, shown = slots(page)["source_url"]
+
+    assert rule.source.retrieval_date is not None
+    assert state == app.SLOT_RECORDED, shown
+    assert html.escape(rule.source.url) in shown, shown
+    assert str(rule.source.retrieval_date) in shown, shown
+    assert app.RULES_BY_ID[rule.rule_id].source.url == rule.source.url
+
+
+def test_a_citation_carried_by_a_flag_is_read_as_well_as_one_on_the_decision():
+    """Both carriers, because the loop reads both and narrowing it would be
+    silent. A detector that fires on a rate rule cites the rule it fired on."""
+    rule = loaded_rule()
+    flag = CitedFlag(
+        voucher_id="draft-bare",
+        detector="rate_conflict",
+        severity=5,
+        reason="two rates in force",
+        citations=(rule.citation,),
     )
+    page = app.render_provenance(draft_with(flags=[flag]))
 
-    assert slots(page)["source_url"] == (
-        app.SLOT_RECORDED,
-        "https://example.invalid/circular-1",
+    state, shown = slots(page)["source_url"]
+
+    assert state == app.SLOT_RECORDED, shown
+    assert html.escape(rule.source.url) in shown, shown
+
+
+def test_a_citation_the_corpus_does_not_hold_never_renders_the_url_it_claims():
+    """The fabrication guard, and the reason the URL is not read off the object.
+
+    A citation is a CLAIM. If the rule it names is not in the merged corpus,
+    this app has nothing to check the claim against, and repeating an
+    unverifiable URL into a provenance panel is the exact failure the panel
+    exists to catch. So the URL is dropped and the rule id is named instead.
+    """
+    invented = "https://example.invalid/not-a-cbic-notification"
+    claim = Citation(
+        rule_id="gst.goods.9999.invented.cgst.v1",
+        notification_number="9999/2099-Central Tax (Rate)",
+        source_url=invented,
+        document_reference="Schedule XII - 99%, S. No. 1",
+        retrieval_date=datetime.date(2026, 8, 10),
+        effective_from=datetime.date(2017, 7, 1),
     )
+    page = app.render_provenance(draft_with(decision=cited(claim)))
+
+    state, shown = slots(page)["source_url"]
+
+    assert app.RULES_BY_ID.get(claim.rule_id) is None, "pick an id the corpus lacks"
+    assert state == app.SLOT_NOT_AVAILABLE, shown
+    assert "example.invalid" not in page, "an unverifiable URL reached the page"
+    assert invented not in page
+    assert claim.rule_id in shown, shown
+
+
+def test_a_citation_that_disagrees_with_the_corpus_about_the_url_is_refused():
+    """Two things that must be equal, checked because they must be equal.
+
+    The corpus holds the URL for a `rule_id`, and the citation carries one too.
+    They are the same fact recorded twice, so they either agree or something is
+    wrong — a stale citation, a swapped source, a forged one. A disagreement is
+    reported; it is never resolved by preferring one of the two.
+    """
+    rule = loaded_rule()
+    swapped = dataclasses.replace(
+        rule.citation, source_url="https://example.invalid/swapped"
+    )
+    page = app.render_provenance(draft_with(decision=cited(swapped)))
+
+    state, shown = slots(page)["source_url"]
+
+    assert state == app.SLOT_NOT_AVAILABLE, shown
+    assert "example.invalid" not in page
+    assert rule.rule_id in shown, shown
 
 
 # ---- S7: provenance must not leak an account name into a question --------------

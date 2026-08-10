@@ -64,12 +64,37 @@ RUN_C = "C_partial_failure"
 
 @dataclass(frozen=True)
 class RunResult:
-    """One of the three runs, and everything it is asked to prove."""
+    """One of the three runs, and everything it is asked to prove.
+
+    THE FOUR MEASUREMENTS HAVE NO DEFAULTS, ON PURPOSE
+    --------------------------------------------------
+    2026-08-10. `wrong_writes` and `duplicate_writes` used to be written
+    straight into the gate as `Condition(name, 0, 0, ...)` — both operands
+    literal, so "zero wrong writes" and "zero duplicate writes" reported a pass
+    for every possible run, including one that made ten of each. Giving these
+    fields a default of `0` would rebuild exactly that: a run that forgets to
+    measure would report the answer the gate wants to hear.
+
+    So a run has to state all four or it will not construct.
+    """
 
     name: str
     passed: bool
     lifecycles: int
     detail: str
+    #: Vouchers this run ever reported as a WRONG_MOVEMENT — Tally's answer and
+    #: Tally's own books disagreeing about what moved.
+    wrong_writes: int
+    #: Vouchers a duplicate operation id actually created. Counted, not
+    #: inferred from whether the connector raised: a connector that refused
+    #: loudly and wrote anyway is the defect this exists to see.
+    duplicate_writes: int
+    #: Whether the trial balance came back to its exact prior value in paise.
+    trial_balance_restored: bool
+    #: The terminal `BatchState` of this run's cleanup batch. A DIFFERENT claim
+    #: from the one above: a batch can finish and leave the books wrong, and it
+    #: can leave the books right and never finish.
+    cleanup_state: str
     conditions: tuple[acceptance.Condition, ...] = ()
 
 
@@ -113,16 +138,32 @@ def fresh_company(name: str = COMPANY, *, backed_up: bool = True) -> FakeTally:
 
 
 def run_a(client: TallyClient | None = None, company: str = COMPANY) -> RunResult:
-    """Post ten, verify each, reverse ten, verify each, books back to the paise."""
+    """Post ten, verify each, reverse ten, verify each, books back to the paise.
+
+    The four measurements are lifted from the acceptance run rather than
+    recomputed here. `run_acceptance` already snapshots the trial balance either
+    side and already counts what a duplicate retry created; restating those
+    rules in a second place is how two numbers that must agree stop agreeing.
+    """
     tally = client if client is not None else fresh_company(company)
     result = acceptance.run_acceptance(
         tally, company, run_id="phase5b-A", evidence_class=acceptance.FAKETALLY
     )
+    restored = _condition_passed(result.conditions, "trial_balance_restored")
     return RunResult(
         name=RUN_A,
         passed=result.passed,
         lifecycles=len(result.operation_ids),
-        detail=f"{result.verdict}; batch {result.batch_state}",
+        detail=(
+            f"{result.verdict}; batch {result.batch_state}; "
+            f"trial balance restored: {restored}"
+        ),
+        wrong_writes=result.voucher_states.count(VoucherState.WRONG_MOVEMENT.value),
+        duplicate_writes=_condition_count(
+            result.conditions, "duplicate_created_nothing"
+        ),
+        trial_balance_restored=restored,
+        cleanup_state=result.batch_state,
         conditions=result.conditions,
     )
 
@@ -200,10 +241,11 @@ def run_b(store_path: str, company: str = COMPANY) -> RunResult:
     )
 
     after = tally.trial_balance(company)
+    restored = after == before
     ok = (
         stopped.state is BatchState.UNKNOWN_OUTCOME
         and finished.state is BatchState.COMPLETED
-        and after == before
+        and restored
         and duplicate_created == 0
         and survived > 0
     )
@@ -214,8 +256,12 @@ def run_b(store_path: str, company: str = COMPANY) -> RunResult:
         detail=(
             f"interrupted at {stopped.state.value}, {survived} durable rows "
             f"survived the restart, resumed to {finished.state.value}, "
-            f"trial balance restored: {after == before}"
+            f"trial balance restored: {restored}"
         ),
+        wrong_writes=_wrong_movements(stopped, finished),
+        duplicate_writes=duplicate_created,
+        trial_balance_restored=restored,
+        cleanup_state=finished.state.value,
     )
 
 
@@ -241,6 +287,13 @@ def run_c(company: str = COMPANY) -> RunResult:
 
     before = tally.trial_balance(company)
     ops = [post_one(tally, company, i, acceptance.DEFAULT_DATE) for i in range(N)]
+
+    # The same duplicate-retry probe runs A and B carry. Run C had no retry at
+    # all, which meant its "zero duplicate writes" was an assumption rather
+    # than a reading. It runs BEFORE the refusal is armed, so the injected
+    # partial failure is still the only thing this run is testing.
+    duplicate_created = _retry_creates(tally, company, ops[0])
+
     RefusesOne.target = ops[3]
 
     stopped = reversal.execute(
@@ -259,11 +312,13 @@ def run_c(company: str = COMPANY) -> RunResult:
     )
 
     after = tally.trial_balance(company)
+    restored = after == before
     ok = (
         stopped.state is BatchState.PARTIAL_FAILURE
         and partial_shape
         and finished.state is BatchState.COMPLETED
-        and after == before
+        and restored
+        and duplicate_created == 0
     )
     return RunResult(
         name=RUN_C,
@@ -272,8 +327,12 @@ def run_c(company: str = COMPANY) -> RunResult:
         detail=(
             f"stopped at {stopped.state.value} with the expected partial shape: "
             f"{partial_shape}; resumed to {finished.state.value}; "
-            f"trial balance restored: {after == before}"
+            f"trial balance restored: {restored}"
         ),
+        wrong_writes=_wrong_movements(stopped, finished),
+        duplicate_writes=duplicate_created,
+        trial_balance_restored=restored,
+        cleanup_state=finished.state.value,
     )
 
 
@@ -497,8 +556,12 @@ def run_gate(
             LIFECYCLES,
             f"{LIFECYCLES} of {LIFECYCLES}",
         ),
-        acceptance.Condition("wrong_writes", 0, 0, "zero wrong writes"),
-        acceptance.Condition("duplicate_writes", 0, 0, "zero duplicate writes"),
+        acceptance.Condition(
+            "wrong_writes", _wrong_writes(results), 0, "zero wrong writes"
+        ),
+        acceptance.Condition(
+            "duplicate_writes", _duplicate_writes(results), 0, "zero duplicate writes"
+        ),
         acceptance.Condition(
             "cross_company_writes", isolated, True, "zero cross-company writes"
         ),
@@ -509,7 +572,10 @@ def run_gate(
             "trial_balance_mismatches", _mismatches(results), 0, "zero mismatches"
         ),
         acceptance.Condition(
-            "cleanup_mismatches", _mismatches(results), 0, "zero cleanup mismatches"
+            "cleanup_mismatches",
+            _cleanup_mismatches(results),
+            0,
+            "zero cleanup mismatches",
         ),
         acceptance.Condition(
             "clean_room_install", clean_ok, True, "installs and runs outside the repo"
@@ -541,8 +607,93 @@ def _unresolved(results: Sequence[RunResult]) -> int:
     return sum(1 for r in results if not r.passed)
 
 
+def _wrong_writes(results: Sequence[RunResult]) -> int:
+    return sum(r.wrong_writes for r in results)
+
+
+def _duplicate_writes(results: Sequence[RunResult]) -> int:
+    return sum(r.duplicate_writes for r in results)
+
+
 def _mismatches(results: Sequence[RunResult]) -> int:
-    return sum(1 for r in results if "restored: False" in r.detail)
+    """Runs whose trial balance did not come back to its exact prior value.
+
+    This used to read the substring "restored: False" out of `r.detail`. Run A
+    never emitted that clause, so a run A that left the books wrong could not
+    be counted by anything and the condition reported zero mismatches for a
+    broken run. It now reads the measurement, and `render`/`detail` print that
+    same measurement, so the line a person reads and the number the gate counts
+    cannot drift apart.
+    """
+    return sum(1 for r in results if not r.trial_balance_restored)
+
+
+def _cleanup_mismatches(results: Sequence[RunResult]) -> int:
+    """Runs whose cleanup batch did not reach COMPLETED.
+
+    A DIFFERENT question from `_mismatches`, which is why it is a different
+    function. Both conditions used to call `_mismatches`, so "zero trial-balance
+    mismatches" and "zero cleanup mismatches" were one measurement wearing two
+    names — and the two come apart in both directions:
+
+        finished, books wrong   every voucher reported reversed and the trial
+                                balance did not return. The CRITICAL_FAILURE
+                                shape a concurrent write leaves.
+        books right, unfinished a batch that stopped before it touched anything
+                                has moved nothing, so the books still match.
+    """
+    return sum(1 for r in results if r.cleanup_state != BatchState.COMPLETED.value)
+
+
+def _wrong_movements(*batches: reversal.Batch) -> int:
+    """Vouchers this run EVER reported as a wrong movement.
+
+    Across every batch object the run produced, not just the last one. A
+    WRONG_MOVEMENT is what makes a batch CRITICAL_FAILURE, and a critical batch
+    cannot be resumed at all, so looking only at the final object is looking
+    only at the runs where it did not happen.
+    """
+    return len(
+        {
+            o.operation_id
+            for b in batches
+            for o in b.outcomes
+            if o.state is VoucherState.WRONG_MOVEMENT
+        }
+    )
+
+
+def _condition(
+    conditions: Sequence[acceptance.Condition], name: str
+) -> acceptance.Condition:
+    """The named condition, or a refusal.
+
+    Never a default. A missing condition means the acceptance harness stopped
+    reporting something this gate counts, and answering `0` to that is how the
+    gate starts passing on measurements nobody is taking any more.
+    """
+    for c in conditions:
+        if c.name == name:
+            return c
+    raise KeyError(
+        f"the acceptance run reported no condition named {name!r}; the readiness "
+        f"gate counts it and will not substitute a value for it. Present: "
+        f"{[c.name for c in conditions]}"
+    )
+
+
+def _condition_passed(conditions: Sequence[acceptance.Condition], name: str) -> bool:
+    return _condition(conditions, name).passed
+
+
+def _condition_count(conditions: Sequence[acceptance.Condition], name: str) -> int:
+    actual = _condition(conditions, name).actual
+    if not isinstance(actual, int) or isinstance(actual, bool):
+        raise TypeError(
+            f"condition {name!r} reports {actual!r}, which is not a count; the "
+            "readiness gate would be adding up something that is not a number"
+        )
+    return actual
 
 
 def _bundles_complete(results: Sequence[RunResult]) -> bool:
@@ -575,6 +726,10 @@ def bundle(gate: ReadinessGate) -> dict[str, object]:
                 "passed": r.passed,
                 "lifecycles": r.lifecycles,
                 "detail": r.detail,
+                "wrong_writes": r.wrong_writes,
+                "duplicate_writes": r.duplicate_writes,
+                "trial_balance_restored": r.trial_balance_restored,
+                "cleanup_state": r.cleanup_state,
             }
             for r in gate.runs
         ],
