@@ -92,6 +92,78 @@ COMPANY = "Accountant Dad Final"
 # caller supplies is not a feature.
 FLAG_CAP = 3
 
+# OWNER-APPROVED ASSUMPTION, 2026-08-10, `docs/OWNER_DECISIONS.md` §2:
+#
+#     provenance in UI = the existing draft screen displays detector/rule,
+#                        source URL, evidence and explanation per decision
+#
+# The frozen plan defines the thing this exists to make visible:
+#
+#     we hallucinate if and only if we output a value not derivable from the
+#     input document, the company's Tally history, or the rules corpus.
+#     Count of output values carrying no provenance tag.
+#     Design consequence: every output value carries a source tag.
+#
+# THE FAILURE MODE THIS SHAPE IS CHOSEN AGAINST
+# ---------------------------------------------
+# A blank cell and a field with no source look identical on a screen. So a slot
+# is NEVER blank: an absent source renders `NOT_RECORDED`, and the one slot that
+# cannot be filled at all today renders `NOT_AVAILABLE — accountant/rules/ not
+# merged`. The reader can tell "we did not record this" from "that half of the
+# system is not here yet", and neither can be mistaken for a value.
+#
+# And the slots are a LIST, rendered by iteration, rather than four hand-written
+# rows. `dropped_flags` was computed correctly on the `Draft` and never rendered
+# for the whole of Phase 6 — true in the object, false on the screen a person
+# reads. Four hand-written rows is the same defect waiting to happen: delete one
+# and nothing complains. `tests/test_ui_provenance.py` carries its own literal
+# copy of these four names, so shortening this tuple fails there rather than
+# silently shortening the page.
+PROVENANCE_SLOTS: tuple[str, ...] = (
+    "detector_or_rule",
+    "source_url",
+    "evidence",
+    "explanation",
+)
+
+# What each slot is called on screen. A total map over `PROVENANCE_SLOTS`, for
+# the same reason `BACKEND_WORDS` is one: a slot with no words renders a blank
+# label, and a map can be proved total while an if/elif chain cannot.
+PROVENANCE_LABELS: dict[str, str] = {
+    "detector_or_rule": "Detector or rule",
+    "source_url": "Source URL",
+    "evidence": "Evidence",
+    "explanation": "Explanation",
+}
+
+# The three states a slot can be in. Carried as `data-slot-state` so a test
+# matches the STATE rather than the prose — two tests written earlier in this
+# project were green and vacuous because they searched a whole page for a common
+# word the stylesheet already contained.
+SLOT_RECORDED = "recorded"
+SLOT_NOT_RECORDED = "not_recorded"
+SLOT_NOT_AVAILABLE = "not_available"
+
+#: A source this decision does not carry. NEVER an empty cell.
+NOT_RECORDED = "NOT_RECORDED"
+
+#: The rule's official source URL, which does not exist yet and is not invented.
+#:
+#: Q1 says a production rule is backed by an official CBIC or Income Tax
+#: Department notification, and those URLs live in `accountant/rules/` — PR-3 of
+#: the five, not merged at the time this was written. Neither `Decision` nor
+#: `Flag` carries a URL today. So the slot says exactly that, and says it in the
+#: `NOT_AVAILABLE` vocabulary the phase already uses.
+RULE_URL_UNAVAILABLE = "NOT_AVAILABLE — accountant/rules/ not merged"
+
+#: The rule that decides an entry with nothing wrong with it.
+#:
+#: Not a placeholder and not invented: `accountant/decide.py` is the decision
+#: order, and an entry that reaches its last branch was decided by the order
+#: itself rather than by any named problem. Naming the module that decided is a
+#: source; leaving the slot blank would be the hallucination.
+DECISION_ORDER_RULE = "decision_order"
+
 DRAFTS: dict[str, pipeline.Draft] = {}
 
 # How many drafts stay answerable at once. `DRAFTS` was unbounded: every entry
@@ -1075,6 +1147,187 @@ def page(body: str) -> bytes:
 {body}""".encode()
 
 
+def decision_rule(d: pipeline.Draft) -> str:
+    """Which detector or which rule produced THIS decision. Never a guess.
+
+    Read off the draft in the order the decision order itself reads them:
+
+        the question being asked  `Decision.question_problem_id`, the id the
+                                  page renders into the form and the id
+                                  `pipeline.answer` reads to pick a ledger leg.
+                                  If the entry is asking something, that id is
+                                  the thing that decided it was unclear.
+        the problems found        every distinct thing wrong with the entry,
+                                  each with a stable id. A NOT_VALID entry is
+                                  decided by these and by nothing else.
+        the decision order        an entry with no problems at all was decided
+                                  by `accountant/decide.py`, and saying so is
+                                  more honest than a blank cell.
+
+    A problem id IS either a detector name (`vendor_switch`, `magnitude`,
+    `first_use`, `gst_anomaly` — `problems._from_flag` uses `Flag.detector` as
+    the id) or a check name (`accounts_exist`, `funding_is_named`,
+    `tax_lines_can_be_posted`). Which of the two it is, is decided by looking at
+    the flags THIS DRAFT actually carries rather than by importing a detector
+    list — `accountant/detect/` is being changed in a parallel PR, and a
+    rendering path that breaks because a detector was renamed elsewhere is a
+    coupling this screen does not need.
+    """
+    decision = d.decision
+    if decision is None:
+        return ""
+    driver = decision.question_problem_id or "; ".join(p.id for p in d.problems)
+    return driver or DECISION_ORDER_RULE
+
+
+def decision_rule_kind(d: pipeline.Draft) -> str:
+    """`detector` or `rule`, for the name `decision_rule` returned."""
+    fired = {f.detector for f in (*d.flags, *d.suppressed_flags)}
+    return "detector" if decision_rule(d) in fired else "rule"
+
+
+def rule_source_url(d: pipeline.Draft) -> str:
+    """The official source behind the rule that decided this entry.
+
+    THE ONE SLOT THAT CANNOT BE FILLED TODAY, AND IT SAYS SO.
+
+    Q1 fixes the authority: a production rule stands on an official CBIC or
+    Income Tax Department notification, and those live in the rules corpus,
+    which is PR-3 of the five and not merged here. Neither `Decision` nor `Flag`
+    carries a URL, so there is nowhere honest to read one from.
+
+    Three ways to render that, and two of them are the defect:
+
+        blank            indistinguishable from a rule with no source, which is
+                         the exact thing this whole feature exists to expose
+        a plausible URL  an invented citation, which is worse than no citation
+                         because it survives review
+        NOT_AVAILABLE    what is actually true
+
+    THE SEAM. The loop reads a `source_url` off whatever carries the decision.
+    Nothing carries one today, so it always falls through to the marker — and
+    when `accountant/rules/` lands and the corpus stamps its eight fields onto
+    the `Decision` or the `Flag`, this renders it and nothing else on this
+    screen changes. `getattr` rather than an attribute access because the field
+    genuinely is not there yet; a hard reference would not import.
+    """
+    carriers: list[object] = [d.decision, *d.flags, *d.suppressed_flags]
+    for carrier in carriers:
+        url = str(getattr(carrier, "source_url", "") or "").strip()
+        if url:
+            return url
+    return RULE_URL_UNAVAILABLE
+
+
+def decision_evidence(d: pipeline.Draft) -> list[str]:
+    """The facts this decision rested on, each naming where it came from.
+
+    An empty list means this draft records none, and the screen says
+    `NOT_RECORDED` rather than drawing an empty cell. That is reachable — a
+    draft with no checks, no flags and no conflict has no evidence — and it is
+    pinned by a test rather than assumed unreachable.
+
+    The suppressed flags are in here on purpose. `FLAG_CAP` is a DISPLAY
+    decision; the owner's rule when setting it was "never lose concerns from the
+    audit/evidence record". A concern the cap kept off the top of the screen is
+    still evidence for the decision it contributed to, and this is the evidence
+    record.
+    """
+    out: list[str] = []
+    failed = [c for c in d.checks if not c.passed]
+    if d.checks:
+        out.append(f"{len(d.checks)} checks run, {len(failed)} failed")
+    out += [f"check {c.name}: {c.detail}" for c in failed]
+    out += [f"detector {f.detector}: {f.reason}" for f in d.flags]
+    out += [
+        f"detector {f.detector}: {f.reason} (over the display cap)"
+        for f in d.suppressed_flags
+    ]
+    conflict = d.memory_conflict
+    if conflict is not None:
+        live = ", ".join(
+            f"{account} {times} time(s)"
+            for account, times in zip(
+                conflict.live_accounts, conflict.live_times, strict=True
+            )
+        )
+        out.append(
+            f"memory and the live ledger disagree about {conflict.subject}: "
+            f"memory says {conflict.remembered_account} "
+            f"{conflict.remembered_times} time(s), the ledger says {live}"
+        )
+    return out
+
+
+def provenance_sources(d: pipeline.Draft) -> dict[str, str]:
+    """The raw text for every provenance slot, before any rendering.
+
+    Separate from the rendering so the two can be checked against each other.
+    A key computed here that `PROVENANCE_SLOTS` does not name is computed and
+    thrown away — which is precisely what happened to `dropped_flags` — so
+    `tests/test_ui_provenance.py` asserts these keys and that tuple are the same
+    four names.
+    """
+    return {
+        "detector_or_rule": decision_rule(d),
+        "source_url": rule_source_url(d),
+        "evidence": " · ".join(decision_evidence(d)),
+        "explanation": d.decision.reason if d.decision is not None else "",
+    }
+
+
+def provenance_slots(d: pipeline.Draft) -> dict[str, tuple[str, str]]:
+    """Every slot as `(state, text)`. Total over `PROVENANCE_SLOTS`, never blank.
+
+    The default in the lookup is what makes it total: a slot named in
+    `PROVENANCE_SLOTS` that nothing computes renders `NOT_RECORDED` rather than
+    raising while a page is being drawn, and a page that cannot be drawn is how
+    the NOT_VALID screen once became the one screen the app could not show.
+    """
+    sources = provenance_sources(d)
+    out: dict[str, tuple[str, str]] = {}
+    for slot in PROVENANCE_SLOTS:
+        text = sources.get(slot, "").strip()
+        if text == RULE_URL_UNAVAILABLE:
+            out[slot] = (SLOT_NOT_AVAILABLE, RULE_URL_UNAVAILABLE)
+        elif text:
+            out[slot] = (SLOT_RECORDED, text)
+        else:
+            out[slot] = (SLOT_NOT_RECORDED, NOT_RECORDED)
+    return out
+
+
+def render_provenance(d: pipeline.Draft) -> str:
+    """Where this decision came from, one row per slot, nothing left blank.
+
+    WHY IT SITS BELOW THE QUESTION AND NOT BESIDE IT. S7: no question string may
+    contain a name from the chart of accounts, and this block legitimately
+    carries account names — a `vendor_switch` reason names the account a vendor
+    usually goes to, and that is the evidence. So it is rendered in the audit
+    region at the bottom of the card, after both tables and well clear of
+    `<p class=ask>`. The account is shown AFTER answering, never inside the
+    question, and that ordering is what keeps holding here.
+
+    EVERYTHING IS ESCAPED. A vendor name is untrusted input that lands in a
+    page, and it reaches three of these four slots — through a flag's reason,
+    through a problem's detail, and through the decision's own reason.
+    """
+    values = provenance_slots(d)
+    rows = "".join(
+        f'<tr data-provenance-slot="{esc(slot)}" data-slot-state="{esc(state)}">'
+        f"<td>{esc(PROVENANCE_LABELS.get(slot, slot))}</td>"
+        f"<td>{esc(text)}</td></tr>"
+        for slot, (state, text) in values.items()
+    )
+    return (
+        f'<div data-provenance="decision" '
+        f'data-provenance-rule-kind="{esc(decision_rule_kind(d))}" '
+        f'data-provenance-slots="{len(values)}">'
+        f"<h2>Why this decision, and where it came from</h2>"
+        f"<table>{rows}</table></div>"
+    )
+
+
 def render_decision(d: pipeline.Draft) -> str:
     out = d.outcome
     cls = {"valid": "valid", "unclear": "unclear", "not_valid": "notvalid"}[out.value]
@@ -1186,6 +1439,7 @@ def render_decision(d: pipeline.Draft) -> str:
 {flags}{overflow}{ask}{posted}
 <h2>Voucher</h2><table>{rows}</table>
 <h2>Where each field came from</h2><table>{prov}</table>
+{render_provenance(d)}
 {checks_line}
 </div>"""
 
