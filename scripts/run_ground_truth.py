@@ -446,7 +446,7 @@ def _jurisdiction(raw: Any) -> Any:
 def score_case(corpus: Any, case: dict[str, Any]) -> tuple[bool, list[str], Any]:
     from accountant.rules.gst_rates import TaxType
     from accountant.rules.place_of_supply import SupplyEvidence
-    from accountant.tax.decision import decide_tax
+    from accountant.tax.decision import TaxOutcome, decide_tax
 
     evidence = SupplyEvidence(
         supplier=_jurisdiction(case["supplier"]),
@@ -487,6 +487,30 @@ def score_case(corpus: Any, case: dict[str, Any]) -> tuple[bool, list[str], Any]
         problems.append(
             f"total_tax_paise {decision.total_tax_paise} != expected "
             f"{want['total_tax_paise']}"
+        )
+    # The number the person actually pays. The case pack has recorded it since
+    # the pack was built - `scripts/build_gst_rule_cases.py` writes
+    # `taxable + tax` into all 40 valid cases and None into the other 20 - and
+    # nothing here read it. A benchmark that stores a field and never compares
+    # it reports 60 of 60 while the total on the invoice is wrong, which is the
+    # one number a person would have noticed.
+    #
+    # GATED ON THE OUTCOME, exactly as `TaxDecision.total_tax_paise` is, and
+    # NOT read straight off `decision.computation`. The arithmetic runs before
+    # the ledger check, so a refusal can still be carrying a computed total:
+    # gt-rules-badrule-09, a company with no IGST ledger, has
+    # `computation.total_including_tax_paise == 128000` on a decision that
+    # refuses. Reporting that as the invoice total would be quoting a number
+    # off a decision that declined to produce one.
+    total_including = (
+        decision.computation.total_including_tax_paise
+        if decision.outcome is TaxOutcome.VALID and decision.computation is not None
+        else None
+    )
+    if total_including != want["total_including_tax_paise"]:
+        problems.append(
+            f"total_including_tax_paise {total_including} != expected "
+            f"{want['total_including_tax_paise']}"
         )
     if list(decision.ledgers) != list(want["ledgers"]):
         problems.append(
