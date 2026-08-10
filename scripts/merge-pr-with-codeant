@@ -146,6 +146,23 @@ SEVERITY_RE = re.compile(
 MERGE_SUBCOMMAND: tuple[str, str] = ("pr", "merge")
 MERGE_FLAGS: tuple[str, str] = ("--squash", "--delete-branch")
 
+#: The head this run inspected, handed to `gh` so GitHub itself refuses a merge
+#: of anything else. Reading the head and then merging by pull-request number
+#: are two calls, and a push can land between them: the check would pass on the
+#: SHA that was inspected and the merge would take the SHA that was not. Passing
+#: the SHA moves the comparison to the server, where it is part of the merge
+#: rather than a guess made just before it.
+MATCH_HEAD_FLAG = "--match-head-commit"
+
+#: Review states that mean a review actually happened at that SHA.
+#:
+#: GitHub's five states are APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED
+#: and PENDING. The first three are submitted judgements. DISMISSED is one that
+#: was revoked, PENDING is one still being written - neither is evidence that
+#: the head was looked at, and both would otherwise satisfy an equality test on
+#: `commit_id` alone. CodeAnt writes COMMENTED, which is why it is here.
+SUBMITTED_REVIEW_STATES = ("APPROVED", "CHANGES_REQUESTED", "COMMENTED")
+
 DECISIONS = ("FIXED", "FALSE_POSITIVE", "ACCEPTED_RISK")
 DECISIONS_NEEDING_CONFIRMATION = ("FALSE_POSITIVE", "ACCEPTED_RISK")
 HANDLED_REQUIRED_FIELDS = (
@@ -325,14 +342,27 @@ def fetch_conversation_comments(repo: str, pr: int) -> list[dict[str, Any]]:
 
 
 def reviews_on_head(reviews: list[dict[str, Any]], head: str) -> list[dict[str, Any]]:
-    """Reviews whose `commit_id` IS the head. Equality, and nothing else.
+    """Reviews that were SUBMITTED and whose `commit_id` IS the head.
 
-    There is deliberately no fallback here. Not "the most recent review", not
-    "the newest by timestamp", not "close enough". A review of a different SHA
-    is a review of different code, and treating it as current silently turns a
-    stale review into an approval.
+    Two conditions, and both are load-bearing.
+
+    `commit_id == head` has deliberately no fallback. Not "the most recent
+    review", not "the newest by timestamp", not "close enough". A review of a
+    different SHA is a review of different code, and treating it as current
+    silently turns a stale review into an approval.
+
+    `state in SUBMITTED_REVIEW_STATES` is the second. A review record carries a
+    state, and two of the values GitHub can put there are not a review that
+    happened: PENDING is one still being drafted, and DISMISSED is one somebody
+    has explicitly revoked. Counting either as evidence means the head looks
+    reviewed while nobody's judgement stands behind it - the exact failure this
+    whole script exists to prevent, arriving through the field nobody read.
     """
-    return [r for r in reviews if r.get("commit_id") == head]
+    return [
+        r
+        for r in reviews
+        if r.get("commit_id") == head and r.get("state") in SUBMITTED_REVIEW_STATES
+    ]
 
 
 def line_comments_on_head(
@@ -652,9 +682,25 @@ def print_control_model() -> None:
 # ---------------------------------------------------------------------------
 
 
-def do_merge(pr: int) -> None:
-    """The only merge invocation in this repository."""
-    _run([_gh_binary(), *MERGE_SUBCOMMAND, str(pr), *MERGE_FLAGS])
+def do_merge(pr: int, head: str) -> None:
+    """The only merge invocation in this repository.
+
+    `head` is the SHA this run actually inspected. It is not decoration: the
+    local check above compares the head read a moment ago, and a push landing
+    between that read and this call would slip past it. `--match-head-commit`
+    makes GitHub do the comparison as part of the merge, so an unreviewed
+    commit is refused by the server rather than by our timing.
+    """
+    _run(
+        [
+            _gh_binary(),
+            *MERGE_SUBCOMMAND,
+            str(pr),
+            *MERGE_FLAGS,
+            MATCH_HEAD_FLAG,
+            head,
+        ]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -840,7 +886,7 @@ def main(argv: list[str]) -> int:
         out("MERGE_NOT_ATTEMPTED_DRY_RUN")
         return 0
 
-    do_merge(pr)
+    do_merge(pr, head)
     out("MERGED")
     return 0
 

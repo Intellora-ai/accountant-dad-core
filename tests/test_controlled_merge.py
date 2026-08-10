@@ -342,6 +342,8 @@ def test_the_merge_command_is_squash_and_delete_branch(tmp_path: Path) -> None:
         "30",
         "--squash",
         "--delete-branch",
+        "--match-head-commit",
+        HEAD_A,
     ]
 
 
@@ -784,6 +786,71 @@ def test_the_head_is_read_again_immediately_before_merging(tmp_path: Path) -> No
     assert len(head_reads) == 2, result.calls
     assert result.calls[-1][:2] == ["pr", "merge"]
     assert result.calls[-2][:2] == ["pr", "view"]
+
+
+def test_the_merge_call_carries_the_inspected_sha_so_github_checks_it_too(
+    tmp_path: Path,
+) -> None:
+    """The local head re-read is not atomic with the merge, and cannot be.
+
+    `read_head_sha` returns, then the merge subcommand runs against the pull
+    request NUMBER. A push landing in that window satisfies the local
+    comparison and merges a commit nobody inspected. `--match-head-commit`
+    hands the inspected SHA to GitHub, which
+    refuses the merge itself if the head has moved. The local check stays,
+    because it produces the readable refusal; this is the one that cannot be
+    outrun.
+    """
+    result = run_merge(
+        tmp_path,
+        heads=[HEAD_A, HEAD_A],
+        reviews=[review(HEAD_A)],
+    )
+    assert result.merged
+    merge_call = result.calls[-1]
+    assert merge_call[:2] == ["pr", "merge"]
+    assert "--match-head-commit" in merge_call, merge_call
+    assert merge_call[merge_call.index("--match-head-commit") + 1] == HEAD_A
+
+
+def test_a_dismissed_review_at_the_head_is_not_a_review_of_it(
+    tmp_path: Path,
+) -> None:
+    """A revoked judgement is not a judgement.
+
+    `reviews_on_head` compared `commit_id` and nothing else, so a review GitHub
+    records as DISMISSED - explicitly revoked - satisfied it. The head then
+    looked inspected while nobody's judgement stood behind it, which is the
+    single thing this script exists to prevent.
+    """
+    dismissed = review(HEAD_A)
+    dismissed["state"] = "DISMISSED"
+    result = run_merge(tmp_path, heads=[HEAD_A, HEAD_A], reviews=[dismissed])
+
+    assert "CODEANT_REVIEW=REVIEWED" not in result.stdout
+    assert result.evidence["codeant_status"] != "REVIEWED"
+
+
+def test_a_pending_review_at_the_head_is_not_a_review_of_it(
+    tmp_path: Path,
+) -> None:
+    """PENDING is a review still being written. It has not been submitted."""
+    pending = review(HEAD_A)
+    pending["state"] = "PENDING"
+    result = run_merge(tmp_path, heads=[HEAD_A, HEAD_A], reviews=[pending])
+
+    assert "CODEANT_REVIEW=REVIEWED" not in result.stdout
+    assert result.evidence["codeant_status"] != "REVIEWED"
+
+
+def test_a_commented_review_at_the_head_still_counts(tmp_path: Path) -> None:
+    """The control for the two above. COMMENTED is what CodeAnt actually writes.
+
+    Without this, narrowing the accepted states to the empty set would pass both
+    tests above and reject every real review.
+    """
+    result = run_merge(tmp_path, heads=[HEAD_A, HEAD_A], reviews=[review(HEAD_A)])
+    assert result.evidence["codeant_status"] == "REVIEWED"
 
 
 def test_the_evidence_names_the_inspected_head_not_the_new_one(
