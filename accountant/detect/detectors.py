@@ -184,12 +184,25 @@ def prior_amounts(proposed: Voucher, history: Sequence[Voucher]) -> list[int]:
         history = every row of the first payment date  0 fires of 7
 
     So the detector behaves sensibly on honest evidence and badly on a slice
-    that is biased by construction. Two rival explanations were tested and
-    both are refuted by the same data: per-party ceilings do not help, because
-    within a single trust the amounts on this one account span 151x and three
-    of the eleven trusts have at most one prior entry; and history size alone
-    does not explain it, because accounts with two or three prior rows produced
-    nought false alarms out of ten eligible entries.
+    that is biased by construction. Two rival explanations were tested and both
+    are weaker than this one on the same data.
+
+    Per-party ceilings do not help: within a single trust the amounts on this
+    one account span 151x, and six of the eleven trusts have at most two
+    entries, so a per-trust ceiling would either abstain or fire just the same.
+
+    History size alone does not explain it either. Counted across all seven
+    departments with the rule below in force, the false-alarm rate is not
+    monotonic in the size of the history:
+
+        prior entries    eligible    fired
+        2                       4        0
+        3                      10        1
+        10                      7        3
+        28                     27        0
+
+    One row of that table is the whole problem. `test_phase8_detectors.py`
+    holds every number in this docstring as an assertion.
 
     Across all seven departments this rule removes three false alarms and
     creates none, and 222 of the 1,103 history rows previously counted into a

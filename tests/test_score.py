@@ -795,6 +795,7 @@ def test_the_package_has_source_to_inspect() -> None:
         "__init__.py",
         "book.py",
         "calibration.py",
+        "corpus.py",
         "harness.py",
         "report.py",
     }
