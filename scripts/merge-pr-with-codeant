@@ -1,0 +1,856 @@
+#!/usr/bin/env python3
+"""The one place a pull request is allowed to be merged.
+
+WHAT THIS IS
+------------
+An inspection placed inside the thing that merges.
+
+The hard version of this problem is "guarantee no pull request merges without a
+CodeAnt review of its exact head". That needs a required status check the
+merging identity cannot create, and it hands the merge button to a third party.
+Neither is available here.
+
+The easy version with the same answer: this repository has exactly one actor
+that merges. Every merge is a command issued by the coordinator. So the
+chokepoint already exists - it just had no inspection in it. This script is the
+inspection.
+
+WHAT THIS IS NOT - READ THIS BEFORE TRUSTING IT
+-----------------------------------------------
+This is a process control over a single actor. It is NOT a guarantee enforced
+by GitHub.
+
+    MERGE_CONTROL_MODEL=single-controlled-merger
+    GITHUB_UI_MERGE_BLOCKING=NOT_ENABLED
+    DIRECT_GH_PR_MERGE_BYPASS=OUTSIDE_CONTROL
+
+A different human or agent who runs the raw merge command, or who clicks Merge
+in the GitHub web interface, bypasses every line of this file. Nothing here can
+stop them. The evidence file records `direct_github_merge_protection: false`
+for exactly that reason: it is false because it is false of reality.
+
+WHAT WAS MEASURED, NOT ASSUMED
+------------------------------
+Every constant below was read off the live API on 2026-08-10, against
+`Intellora-ai/accountant-dad-core` pull requests 29 and 30. Nothing here is
+guessed.
+
+    reviews         `commit_id` IS populated - a 40-character hexadecimal SHA
+    line comments   `commit_id` AND `original_commit_id` are both populated
+    conversation    NO `commit_id` field exists on this object at all
+
+THE TRAP: A LINE COMMENT'S `commit_id` MOVES
+--------------------------------------------
+This one nearly went in wrong, and it is the reason the classifier looks the
+way it does.
+
+A review's `commit_id` is a RECORD. It is fixed at the SHA that was reviewed
+and never changes.
+
+A line comment's `commit_id` is a POINTER. GitHub re-anchors it forward onto
+the newest commit the comment still applies to. `original_commit_id` keeps the
+SHA it was actually written against.
+
+Measured on pull request 30, 2026-08-10, after another commit was pushed:
+
+    comment 3747520565
+      created_at  07:41:02      updated_at  07:41:02   (never edited)
+      original_commit_id  6686752...   original_line  1720
+      commit_id           d2b8499...   line           1723   <-- moved
+
+At that moment both CodeAnt REVIEWS still said `6686752`. CodeAnt had not
+reviewed `d2b8499` at all. Anything treating "a line comment points at the
+head" as "the head was reviewed" would have called that pull request REVIEWED
+and merged code no reviewer had seen - the exact stale-becomes-current failure
+this script exists to prevent, arriving through an unexpected door.
+
+So the two fields answer two different questions, and are used for exactly one
+each:
+
+    was this head reviewed?          review.commit_id == head   (immutable)
+    does this finding still apply?   comment.commit_id == head  (mutable, and
+                                     correctly so - `line` goes null once the
+                                     code has moved past the finding)
+
+A conversation comment cannot be tied to a head by the API at all, so CodeAnt's
+own embedded marker is read instead. It is corroboration only - never the thing
+that authorises a merge. It was also observed going stale: after the push above
+the marker still named `6686752`.
+
+USAGE
+-----
+    scripts/merge-pr-with-codeant <PR_NUMBER>
+    scripts/merge-pr-with-codeant <PR_NUMBER> --dry-run
+    scripts/merge-pr-with-codeant <PR_NUMBER> --handled findings.json \\
+                                              --confirm-exceptions
+
+Exit codes:
+    0   merged, or a dry run that would have merged
+    1   refused - the reason is printed and written to the evidence file
+    2   bad usage, or an underlying command failed
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+# ---------------------------------------------------------------------------
+# Measured constants. Changing one of these without re-measuring the API is how
+# this script starts lying.
+# ---------------------------------------------------------------------------
+
+#: Observed on pull requests 29 and 30, 2026-08-10. `user.type` was "Bot".
+CODEANT_LOGIN = "codeant-ai[bot]"
+
+#: Observed alongside the login on every CodeAnt object.
+CODEANT_USER_TYPE = "Bot"
+
+#: CodeAnt embeds this HTML comment in its status comment. Observed payload:
+#: <!-- codeant-review-status:[{"label":...,"commit":"<40 hex>",...}] -->
+STATUS_MARKER = "codeant-review-status"
+STATUS_MARKER_RE = re.compile(
+    r"<!--\s*" + re.escape(STATUS_MARKER) + r":(?P<payload>.*?)-->",
+    re.DOTALL,
+)
+
+#: Observed verbatim on pull request 29, which CodeAnt declined to review.
+SKIP_PHRASE = "Skipping CodeAnt AI review"
+
+#: The reason CodeAnt gave, and the token this script records for it. The
+#: phrase is the bot's own wording; the token is ours.
+SKIP_REASONS: tuple[tuple[str, str], ...] = (
+    ("changes more than 100 files", "changed-file-limit"),
+)
+UNKNOWN_SKIP_REASON = "unrecognised-skip-reason"
+
+#: A full git object name. Anything shorter is not a head and never matches.
+FULL_SHA_RE = re.compile(r"\b[0-9a-f]{40}\b")
+
+#: How CodeAnt marks severity inside a line comment body. Both shapes observed.
+SEVERITY_RE = re.compile(
+    r"Severity\s+Level:(?:</b>|\*\*)?\s*(?P<severity>[A-Za-z]+)",
+)
+
+#: The merge itself. This tuple is the single merge invocation in the
+#: repository - `<gh> pr merge <PR> --squash --delete-branch`. It is built as an
+#: argument list rather than a shell string so no part of it can be re-parsed by
+#: a shell.
+MERGE_SUBCOMMAND: tuple[str, str] = ("pr", "merge")
+MERGE_FLAGS: tuple[str, str] = ("--squash", "--delete-branch")
+
+DECISIONS = ("FIXED", "FALSE_POSITIVE", "ACCEPTED_RISK")
+DECISIONS_NEEDING_CONFIRMATION = ("FALSE_POSITIVE", "ACCEPTED_RISK")
+HANDLED_REQUIRED_FIELDS = (
+    "id",
+    "file",
+    "line",
+    "severity",
+    "decision",
+    "guard",
+    "test_command",
+    "result",
+)
+
+#: Written into the evidence file whenever CodeAnt did not review the head. In
+#: words, so nobody reading the file later has to decode a status token.
+EXCEPTION_SENTENCE = (
+    "CodeAnt did not review this exact head. "
+    "The merge proceeded under the controlled-merger exception."
+)
+
+LIMITATION_SENTENCE = (
+    "This is a process control over a single merging actor, not a control "
+    "GitHub enforces. A different human or agent calling the raw merge "
+    "command, or merging from the GitHub web interface, bypasses it entirely."
+)
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+class Refused(Exception):
+    """The merge does not happen, and the printed message says why."""
+
+
+class CommandFailed(Exception):
+    """An underlying command did not succeed. Never swallowed."""
+
+
+# ---------------------------------------------------------------------------
+# Talking to GitHub
+# ---------------------------------------------------------------------------
+
+
+def _gh_binary() -> str:
+    """The `gh` to run.
+
+    Overridable so the tests can drive the whole script - argument building,
+    ordering, evidence, the merge call itself - against a recorded fixture
+    instead of the live API. The substitution is the binary and nothing else,
+    so every line of logic under test is the line that runs in production.
+    """
+    return os.environ.get("CODEANT_MERGE_GH", "gh")
+
+
+def _run(args: list[str]) -> str:
+    try:
+        done = subprocess.run(  # noqa: S603 - argument list, never a shell string
+            args,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise CommandFailed(f"could not run {args[0]}: {exc}") from exc
+    if done.returncode != 0:
+        raise CommandFailed(
+            f"{' '.join(args)} exited {done.returncode}\n{done.stderr.strip()}"
+        )
+    return done.stdout
+
+
+def _gh(args: list[str]) -> str:
+    return _run([_gh_binary(), *args])
+
+
+def _gh_json(args: list[str]) -> dict[str, Any]:
+    raw = _gh(args).strip()
+    if not raw:
+        raise CommandFailed(f"gh {' '.join(args)} returned nothing")
+    parsed: Any = json.loads(raw)
+    if not isinstance(parsed, dict):
+        raise CommandFailed(f"gh {' '.join(args)} did not return an object")
+    return parsed
+
+
+def _gh_jsonl(args: list[str]) -> list[dict[str, Any]]:
+    """One JSON object per line.
+
+    `gh api --paginate --jq '.[]'` emits each array element as compact JSON on
+    its own line. That avoids the concatenated-arrays problem `--paginate`
+    otherwise has on list endpoints, and it was the exact form verified against
+    the live API.
+    """
+    out: list[dict[str, Any]] = []
+    for line in _gh(args).splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parsed: Any = json.loads(line)
+        if isinstance(parsed, dict):
+            out.append(parsed)
+    return out
+
+
+def read_repository() -> str:
+    return _gh_json(["repo", "view", "--json", "nameWithOwner"])["nameWithOwner"]
+
+
+def read_pull_request(pr: int) -> dict[str, Any]:
+    return _gh_json(
+        ["pr", "view", str(pr), "--json", "number,headRefOid,baseRefName,state,url"]
+    )
+
+
+def head_of(pull_request: dict[str, Any], pr: int) -> str:
+    head = str(pull_request.get("headRefOid", ""))
+    if not FULL_SHA_RE.fullmatch(head):
+        raise CommandFailed(f"pull request {pr} returned no usable head SHA: {head!r}")
+    return head
+
+
+def read_head_sha(pr: int) -> str:
+    """The exact current head, read fresh. Called again just before merging."""
+    return head_of(read_pull_request(pr), pr)
+
+
+def _is_codeant(obj: dict[str, Any]) -> bool:
+    user: Any = obj.get("user")
+    if not isinstance(user, dict):
+        return False
+    return user.get("login") == CODEANT_LOGIN
+
+
+def fetch_reviews(repo: str, pr: int) -> list[dict[str, Any]]:
+    rows = _gh_jsonl(
+        [
+            "api",
+            f"repos/{repo}/pulls/{pr}/reviews",
+            "--paginate",
+            "--jq",
+            ".[]|{id,state,commit_id,submitted_at,body,user:{login:.user.login,"
+            "type:.user.type}}",
+        ]
+    )
+    return [r for r in rows if _is_codeant(r)]
+
+
+def fetch_line_comments(repo: str, pr: int) -> list[dict[str, Any]]:
+    rows = _gh_jsonl(
+        [
+            "api",
+            f"repos/{repo}/pulls/{pr}/comments",
+            "--paginate",
+            "--jq",
+            ".[]|{id,commit_id,original_commit_id,path,line,body,"
+            "pull_request_review_id,user:{login:.user.login,type:.user.type}}",
+        ]
+    )
+    return [r for r in rows if _is_codeant(r)]
+
+
+def fetch_conversation_comments(repo: str, pr: int) -> list[dict[str, Any]]:
+    rows = _gh_jsonl(
+        [
+            "api",
+            f"repos/{repo}/issues/{pr}/comments",
+            "--paginate",
+            "--jq",
+            ".[]|{id,body,user:{login:.user.login,type:.user.type}}",
+        ]
+    )
+    return [r for r in rows if _is_codeant(r)]
+
+
+# ---------------------------------------------------------------------------
+# Matching evidence to the exact head
+# ---------------------------------------------------------------------------
+
+
+def reviews_on_head(reviews: list[dict[str, Any]], head: str) -> list[dict[str, Any]]:
+    """Reviews whose `commit_id` IS the head. Equality, and nothing else.
+
+    There is deliberately no fallback here. Not "the most recent review", not
+    "the newest by timestamp", not "close enough". A review of a different SHA
+    is a review of different code, and treating it as current silently turns a
+    stale review into an approval.
+    """
+    return [r for r in reviews if r.get("commit_id") == head]
+
+
+def line_comments_on_head(
+    comments: list[dict[str, Any]], head: str
+) -> list[dict[str, Any]]:
+    """Findings that still apply to the code about to be merged.
+
+    `commit_id` on a line comment is MUTABLE - see the note at the top of this
+    file. Here that is exactly the field wanted: it answers "does this finding
+    still land on the current head?", which is the right question for a
+    finding. It is the wrong question for whether the head was reviewed, and
+    `reviews_on_head` is deliberately the only thing that answers that one.
+
+    `line` goes null when GitHub can no longer place the comment in the current
+    diff. That is a finding the code has moved past, not a live one.
+    """
+    return [
+        c for c in comments if c.get("commit_id") == head and c.get("line") is not None
+    ]
+
+
+def status_marker_commit(body: str) -> str | None:
+    """The head CodeAnt says it reviewed, from its own embedded marker.
+
+    Corroboration only. `codeant_reviewed_exact_head` is never set from this.
+    """
+    match = STATUS_MARKER_RE.search(body)
+    if match is None:
+        return None
+    payload = match.group("payload")
+    try:
+        parsed: Any = json.loads(payload)
+    except json.JSONDecodeError:
+        found = FULL_SHA_RE.search(payload)
+        return found.group(0) if found else None
+    entries = parsed if isinstance(parsed, list) else [parsed]
+    for entry in entries:
+        if isinstance(entry, dict):
+            commit = entry.get("commit")
+            if isinstance(commit, str) and FULL_SHA_RE.fullmatch(commit):
+                return commit
+    return None
+
+
+def skip_reason(body: str) -> str | None:
+    """The reason CodeAnt gave for declining, or None if it did not decline."""
+    if SKIP_PHRASE not in body:
+        return None
+    for phrase, token in SKIP_REASONS:
+        if phrase in body:
+            return token
+    return UNKNOWN_SKIP_REASON
+
+
+def severity_of(body: str) -> str:
+    match = SEVERITY_RE.search(body)
+    return match.group("severity") if match else "UNKNOWN"
+
+
+def summarise(body: str) -> str:
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped[:180]
+    return "(empty body)"
+
+
+def finding_from_line_comment(comment: dict[str, Any]) -> dict[str, Any]:
+    body = str(comment.get("body", ""))
+    return {
+        "id": str(comment.get("id", "")),
+        "source": "line-comment",
+        "file": comment.get("path"),
+        "line": comment.get("line"),
+        "severity": severity_of(body),
+        "summary": summarise(body),
+        "commit_id": comment.get("commit_id"),
+        # Where the comment was actually written. Immutable, unlike commit_id.
+        "original_commit_id": comment.get("original_commit_id"),
+        "head_attributable": True,
+    }
+
+
+def finding_from_conversation(comment: dict[str, Any]) -> dict[str, Any]:
+    body = str(comment.get("body", ""))
+    return {
+        "id": str(comment.get("id", "")),
+        "source": "conversation",
+        "file": None,
+        "line": None,
+        "severity": severity_of(body),
+        "summary": summarise(body),
+        "commit_id": None,
+        "original_commit_id": None,
+        "head_attributable": False,
+    }
+
+
+def actionable_conversation(comments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """CodeAnt conversation comments that are neither a status nor a skip.
+
+    Fail-closed on purpose. A CodeAnt comment this script does not recognise is
+    counted as a finding rather than ignored, because the alternative is that a
+    new CodeAnt comment format silently stops blocking merges. The cost is that
+    an unrecognised comment blocks until it is handled explicitly; the cost of
+    the other choice is a merge nobody inspected.
+    """
+    out: list[dict[str, Any]] = []
+    for comment in comments:
+        body = str(comment.get("body", ""))
+        if STATUS_MARKER in body:
+            continue
+        if skip_reason(body) is not None:
+            continue
+        out.append(finding_from_conversation(comment))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# The handled-findings record
+# ---------------------------------------------------------------------------
+
+
+def load_handled(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        raise Refused(f"handled-findings file does not exist: {path}")
+    parsed: Any = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(parsed, list):
+        raise Refused(f"{path} must contain a JSON list of handled findings")
+    handled: list[dict[str, Any]] = []
+    for index, entry in enumerate(parsed):
+        if not isinstance(entry, dict):
+            raise Refused(f"{path} entry {index} is not an object")
+        record: dict[str, Any] = entry
+        missing = [f for f in HANDLED_REQUIRED_FIELDS if f not in record]
+        if missing:
+            raise Refused(
+                f"{path} entry {index} is missing required fields: {', '.join(missing)}"
+            )
+        decision = record["decision"]
+        if decision not in DECISIONS:
+            raise Refused(
+                f"{path} entry {index} has decision {decision!r}; "
+                f"it must be one of {', '.join(DECISIONS)}"
+            )
+        if (
+            decision in DECISIONS_NEEDING_CONFIRMATION
+            and not str(record.get("reason") or "").strip()
+        ):
+            raise Refused(f"{path} entry {index} is {decision} and must carry a reason")
+        handled.append(record)
+    return handled
+
+
+# ---------------------------------------------------------------------------
+# Evidence, written BEFORE the merge
+# ---------------------------------------------------------------------------
+
+
+def audit_dir() -> Path:
+    override = os.environ.get("CODEANT_MERGE_AUDIT_DIR")
+    if override:
+        return Path(override)
+    return REPO_ROOT / ".audit" / "merges"
+
+
+def write_evidence(evidence: dict[str, Any]) -> Path:
+    directory = audit_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"pr-{evidence['pr']}-{evidence['head_sha']}.json"
+    path.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", "utf-8")
+    return path
+
+
+def build_evidence(
+    *,
+    repository: str,
+    pr: int,
+    head: str,
+    status: str,
+    reviewed_exact_head: bool,
+    reviews: list[dict[str, Any]],
+    line_comments: list[dict[str, Any]],
+    findings: list[dict[str, Any]],
+    handled: list[dict[str, Any]],
+    exception_reason: str | None,
+    marker_commit: str | None,
+    dry_run: bool,
+) -> dict[str, Any]:
+    notes: list[str] = [LIMITATION_SENTENCE]
+    if not reviewed_exact_head:
+        notes.append(EXCEPTION_SENTENCE)
+    return {
+        "repository": repository,
+        "pr": pr,
+        "head_sha": head,
+        "checked_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "merger": "controlled-merge-script",
+        "codeant_status": status,
+        "codeant_reviewed_exact_head": reviewed_exact_head,
+        "codeant_review_count": len(reviews),
+        "codeant_line_comment_count": len(line_comments),
+        "codeant_findings": findings,
+        "findings_handled": handled,
+        "exception_reason": exception_reason,
+        # False because it is true of reality. GitHub is not enforcing this.
+        "direct_github_merge_protection": False,
+        "codeant_login": CODEANT_LOGIN,
+        "codeant_user_type": CODEANT_USER_TYPE,
+        "codeant_status_marker_commit": marker_commit,
+        "merge_control_model": "single-controlled-merger",
+        "github_ui_merge_blocking": "NOT_ENABLED",
+        "direct_gh_pr_merge_bypass": "OUTSIDE_CONTROL",
+        "dry_run": dry_run,
+        "limitation": LIMITATION_SENTENCE,
+        "notes": notes,
+    }
+
+
+# ---------------------------------------------------------------------------
+# The four outcomes
+# ---------------------------------------------------------------------------
+
+
+def classify(
+    *,
+    head: str,
+    reviews: list[dict[str, Any]],
+    line_comments: list[dict[str, Any]],
+    conversation: list[dict[str, Any]],
+) -> tuple[str, list[dict[str, Any]], str | None]:
+    """Return (status, findings, exception_reason). Exactly one status fires."""
+    head_reviews = reviews_on_head(reviews, head)
+    head_comments = line_comments_on_head(line_comments, head)
+    conversation_findings = actionable_conversation(conversation)
+
+    # A REVIEW at the head is the only thing that makes this head reviewed. A
+    # line comment landing on the head does NOT, because GitHub re-anchors a
+    # comment's `commit_id` forward onto later commits it still applies to.
+    # Measured on pull request 30, 2026-08-10: comment 3747520565 was created
+    # at 07:41:02 against 6686752, never edited, and now reports commit_id
+    # d2b84996 - a head CodeAnt never reviewed.
+    if head_reviews:
+        findings = [finding_from_line_comment(c) for c in head_comments]
+        findings.extend(conversation_findings)
+        return "REVIEWED", findings, None
+
+    if reviews or line_comments:
+        # Evidence exists, but for other code. Never current evidence. The
+        # findings are still enumerated so the operator can see them; the
+        # outcome is still STALE and it still refuses.
+        findings = [finding_from_line_comment(c) for c in head_comments]
+        findings.extend(conversation_findings)
+        return "STALE", findings, None
+
+    for comment in conversation:
+        reason = skip_reason(str(comment.get("body", "")))
+        if reason is not None:
+            return "SKIPPED", conversation_findings, reason
+
+    return "ABSENT", conversation_findings, "no-codeant-activity-on-this-pull-request"
+
+
+# ---------------------------------------------------------------------------
+# Printing
+# ---------------------------------------------------------------------------
+
+
+def out(line: str = "") -> None:
+    print(line, flush=True)
+
+
+def print_findings(findings: list[dict[str, Any]]) -> None:
+    """Every finding, always. A finding that is not printed is a finding hidden."""
+    if not findings:
+        return
+    out("")
+    out(f"CODEANT_FINDING_LIST ({len(findings)})")
+    for finding in findings:
+        where = finding["file"] or "(no file)"
+        if finding["line"] is not None:
+            where = f"{where}:{finding['line']}"
+        out(f"  - id={finding['id']} severity={finding['severity']} {where}")
+        out(
+            f"    source={finding['source']} "
+            f"head_attributable={str(finding['head_attributable']).lower()}"
+        )
+        out(f"    {finding['summary']}")
+
+
+def print_handled(handled: list[dict[str, Any]]) -> None:
+    if not handled:
+        return
+    out("")
+    out(f"FINDINGS_HANDLED ({len(handled)})")
+    for record in handled:
+        out(
+            f"  - id={record['id']} {record['file']}:{record['line']} "
+            f"severity={record['severity']} decision={record['decision']}"
+        )
+        out(f"    guard: {record['guard']}")
+        out(f"    test:  {record['test_command']}")
+        out(f"    result: {record['result']}")
+        if record["decision"] in DECISIONS_NEEDING_CONFIRMATION:
+            out(f"    reason: {record.get('reason')}")
+
+
+def print_control_model() -> None:
+    out("")
+    out("MERGE_CONTROL_MODEL=single-controlled-merger")
+    out("GITHUB_UI_MERGE_BLOCKING=NOT_ENABLED")
+    out("DIRECT_GH_PR_MERGE_BYPASS=OUTSIDE_CONTROL")
+
+
+# ---------------------------------------------------------------------------
+# The merge
+# ---------------------------------------------------------------------------
+
+
+def do_merge(pr: int) -> None:
+    """The only merge invocation in this repository."""
+    _run([_gh_binary(), *MERGE_SUBCOMMAND, str(pr), *MERGE_FLAGS])
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+
+def decide(
+    *,
+    status: str,
+    findings: list[dict[str, Any]],
+    handled: list[dict[str, Any]],
+    confirm_exceptions: bool,
+) -> None:
+    """Raise `Refused` unless this outcome is allowed to merge."""
+    if status == "STALE":
+        raise Refused(
+            "CODEANT_REVIEW_STALE - an older review is never current evidence."
+        )
+
+    if status == "REVIEWED" and findings:
+        handled_by_id = {str(r["id"]): r for r in handled}
+        unhandled = [f for f in findings if f["id"] not in handled_by_id]
+        if unhandled:
+            raise Refused(
+                f"{len(unhandled)} CodeAnt finding(s) on this head are not "
+                "handled. Fix the bug, add a regression test or structural "
+                "guard, push, and let CodeAnt review the NEW head. Code "
+                "changing is not resolution."
+            )
+        fixed = [f for f in findings if handled_by_id[f["id"]]["decision"] == "FIXED"]
+        if fixed:
+            raise Refused(
+                f"{len(fixed)} finding(s) are recorded FIXED, but the head "
+                "still carries them. A fix changes the head. Push it and let "
+                "CodeAnt review the new exact head."
+            )
+        if not confirm_exceptions:
+            raise Refused(
+                "Every finding is FALSE_POSITIVE or ACCEPTED_RISK. That "
+                "requires explicit confirmation: re-run with "
+                "--confirm-exceptions."
+            )
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="merge-pr-with-codeant",
+        description="Merge a pull request, but only after inspecting CodeAnt's "
+        "review of its exact current head.",
+    )
+    parser.add_argument("pr", type=int, help="pull request number")
+    parser.add_argument(
+        "--handled",
+        type=Path,
+        default=None,
+        help="JSON file recording how each CodeAnt finding was handled",
+    )
+    parser.add_argument(
+        "--confirm-exceptions",
+        action="store_true",
+        help="explicitly confirm FALSE_POSITIVE / ACCEPTED_RISK findings",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="inspect and write evidence, but do not merge",
+    )
+    args = parser.parse_args(argv)
+    pr: int = args.pr
+
+    repository = read_repository()
+    pull_request = read_pull_request(pr)
+    base = pull_request.get("baseRefName")
+    head = head_of(pull_request, pr)
+
+    out(f"REPOSITORY={repository}")
+    out(f"PR={pr}")
+    out(f"BASE={base}")
+    out(f"HEAD={head}")
+    out(f"CODEANT_LOGIN={CODEANT_LOGIN}")
+
+    reviews = fetch_reviews(repository, pr)
+    line_comments = fetch_line_comments(repository, pr)
+    conversation = fetch_conversation_comments(repository, pr)
+
+    marker_commit: str | None = None
+    for comment in conversation:
+        found = status_marker_commit(str(comment.get("body", "")))
+        if found is not None:
+            marker_commit = found
+
+    status, findings, exception_reason = classify(
+        head=head,
+        reviews=reviews,
+        line_comments=line_comments,
+        conversation=conversation,
+    )
+    reviewed_exact_head = bool(reviews_on_head(reviews, head))
+
+    handled = load_handled(args.handled) if args.handled is not None else []
+
+    out(f"CODEANT_REVIEW_COUNT={len(reviews)}")
+    out(f"CODEANT_LINE_COMMENT_COUNT={len(line_comments)}")
+    out(f"CODEANT_STATUS={status}")
+    out(f"CODEANT_STATUS_MARKER_COMMIT={marker_commit}")
+
+    if status == "REVIEWED":
+        out("CODEANT_REVIEWED")
+        out(f"CODEANT_HEAD={head}")
+        out(f"CODEANT_FINDINGS={len(findings)}")
+        out("CODEANT_REVIEWED=YES")
+    elif status == "STALE":
+        out("CODEANT_REVIEW_STALE")
+        for review in reviews:
+            out(f"CODEANT_REVIEWED_SHA={review.get('commit_id')}")
+        out(f"CURRENT_HEAD={head}")
+        out("CODEANT_REVIEWED=NO")
+    elif status == "SKIPPED":
+        out("CODEANT_SKIPPED")
+        out("CODEANT_STATUS=SKIPPED")
+        out(f"CODEANT_REASON={exception_reason}")
+        out("CODEANT_REVIEWED=NO")
+    else:
+        out("CODEANT_ABSENT")
+        out(f"CODEANT_REASON={exception_reason}")
+        out("CODEANT_REVIEWED=NO")
+
+    print_findings(findings)
+    print_handled(handled)
+    print_control_model()
+
+    evidence = build_evidence(
+        repository=repository,
+        pr=pr,
+        head=head,
+        status=status,
+        reviewed_exact_head=reviewed_exact_head,
+        reviews=reviews,
+        line_comments=line_comments,
+        findings=findings,
+        handled=handled,
+        exception_reason=exception_reason,
+        marker_commit=marker_commit,
+        dry_run=bool(args.dry_run),
+    )
+
+    try:
+        decide(
+            status=status,
+            findings=findings,
+            handled=handled,
+            confirm_exceptions=bool(args.confirm_exceptions),
+        )
+    except Refused as refusal:
+        evidence["refused"] = str(refusal)
+        path = write_evidence(evidence)
+        out("")
+        out(f"EVIDENCE={path}")
+        out("MERGE_REFUSED")
+        out(str(refusal))
+        return 1
+
+    # Evidence is written BEFORE the merge. Afterwards is a record of what
+    # already happened; before is the thing that had to be true to proceed.
+    evidence["refused"] = None
+    path = write_evidence(evidence)
+    out("")
+    out(f"EVIDENCE={path}")
+
+    # The head race. Nothing merges that was not inspected.
+    final_head = read_head_sha(pr)
+    out(f"FINAL_HEAD={final_head}")
+    if final_head != head:
+        out("HEAD_CHANGED_DURING_REVIEW")
+        out(f"INSPECTED={head}")
+        out(f"NOW={final_head}")
+        out("MERGE_REFUSED")
+        out("Restart against the new head. Never merge a SHA you did not inspect.")
+        return 1
+
+    if args.dry_run:
+        out("MERGE_NOT_ATTEMPTED_DRY_RUN")
+        return 0
+
+    do_merge(pr)
+    out("MERGED")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except Refused as refusal:  # bad input, caught before anything was inspected
+        print(f"MERGE_REFUSED\n{refusal}", file=sys.stderr)
+        sys.exit(1)
+    except CommandFailed as failure:
+        print(f"COMMAND_FAILED\n{failure}", file=sys.stderr)
+        sys.exit(2)
