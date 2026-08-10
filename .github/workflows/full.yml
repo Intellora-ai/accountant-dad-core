@@ -26,6 +26,7 @@ env:
   # See pr-fast.yml. Without this the mutation score silently under-reports.
   COVERAGE_CORE: pytrace
   FORCE_COLOR: "1"
+  GH_TOKEN: ${{ github.token }}
 
 jobs:
   full-tests:

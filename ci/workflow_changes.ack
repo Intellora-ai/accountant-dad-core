@@ -24,17 +24,24 @@
 # One fingerprint per line, exactly as the checker prints it.
 #
 # ---------------------------------------------------------------------------
-# Nothing is acknowledged yet, because nothing under .github/** has changed.
+# DIFF B IS APPLIED. DIFF A IS NOT.
 #
-# The workflow diff recommended in artifacts/gate_integrity_audit.md is stated
-# there and deliberately NOT applied - editing .github/** needs the owner's yes
-# for that specific change (standing rule 6).
+# The owner authorised Diff B and only Diff B, in writing, on 2026-08-10:
+# `administration: read` under `permissions:`, and `GH_TOKEN: ${{ github.token }}`
+# under the workflow-level `env:`, in pr-fast.yml and full.yml. Four added
+# lines across two files, no deletion, no step, no job, no gate, no threshold.
+# The two fingerprints below are what that produces, and they are the only
+# lines in this file that are live.
 #
-# These ten fingerprints are what Diff A + Diff B produce, measured by running
-# the checker against the patched tree on 2026-08-10. Uncommenting them is the
-# second half of applying the patch; the first half is the YAML.
+# WHY IT WAS NEEDED. ci/test_protection.py's live protection tests call
+# `gh api`. No job set GH_TOKEN, so `gh` was unauthenticated on every hosted
+# run and all of them skipped - green squares that measured nothing.
 #
-# Diff A - the repairs
+# Diff A - the repairs. STILL NOT APPLIED, STILL NOT AUTHORISED.
+# Measured against a patched tree on 2026-08-10 and kept here so applying it
+# later is uncommenting rather than re-deriving. Uncommenting any line below
+# without the owner's yes for that specific change is a standing-rule 6
+# violation, and the line is not evidence that the step exists.
 # STEP_ADDED:.github/workflows/pr-fast.yml:pr-fast:lockfile
 # STEP_ADDED:.github/workflows/pr-fast.yml:pr-fast:gate-integrity
 # STEP_RUN_CHANGED:.github/workflows/pr-fast.yml:pr-fast:evidence
@@ -44,7 +51,7 @@
 # STEP_ADDED:.github/workflows/watchdog.yml:ruleset-drift:sync dependencies from the lockfile
 # STEP_ADDED:.github/workflows/watchdog.yml:ruleset-drift:live-protection-test
 #
-# Diff B - the token that keeps the protection test from failing the PR path
-# WORKFLOW_HEADER_CHANGED:.github/workflows/pr-fast.yml:header
-# WORKFLOW_HEADER_CHANGED:.github/workflows/full.yml:header
+# Diff B - the token that lets the protection test actually run. APPLIED.
+WORKFLOW_HEADER_CHANGED:.github/workflows/pr-fast.yml:header
+WORKFLOW_HEADER_CHANGED:.github/workflows/full.yml:header
 # ---------------------------------------------------------------------------

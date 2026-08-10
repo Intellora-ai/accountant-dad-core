@@ -37,6 +37,7 @@ env:
   # 87.92% instead of 94.34%. Measured on this repository 2026-08-07.
   COVERAGE_CORE: pytrace
   FORCE_COLOR: "1"
+  GH_TOKEN: ${{ github.token }}
 
 jobs:
   pr-fast:
