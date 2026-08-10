@@ -70,6 +70,33 @@
 #   have been destroyed: D-07 declared licence mode · D-08 the cloud-start gate
 #   · D-11 N = 10 (settled) · D-10 the merge queue · D-03 Tally.ERP 9 ·
 #   D-04 the runtime dependency · D-05 supplier identity · D-06 stale index.
+#
+# SECOND LABEL SET, 2026-08-10 - the owner's six answers.
+#   A second instruction arrived carrying six owner answers, labelled D-01,
+#   D-03, D-04, D-05, D-06 and D-22. FIVE OF THE SIX LABELS ARE CORRECT and
+#   were written straight onto the id they name. ONE COLLIDES.
+#
+#     owner's label                       actual id     why
+#     ---------------------------------   -----------   ------------------------
+#     D-01 Tally licence                  D-01          correct
+#     D-03 reconciliation policy          D-12 + D-29   COLLISION - see below
+#     D-04 first runtime dependency       D-04          correct
+#     D-05 supplier legal identity        D-05          correct
+#     D-06 live Tally vs stale memory     D-06          correct
+#     D-22 detector launch gate           D-22          correct
+#
+#   THE COLLISION, stated plainly. D-03 in this repository is "is Tally.ERP 9
+#   in scope". It is NOT the reconciliation question and it is still OPEN and
+#   untouched. The question the owner actually answered - what a bulk reversal
+#   does when one voucher's outcome cannot be named - is D-12, settled
+#   2026-08-09. D-12 left ONE half open, and that half never carried a D-
+#   number: it lived only as "Defect D3, OPEN OWNER DECISION" in
+#   accountant/reversal.py reconcile() and in the strict-xfail test
+#   tests/test_reversal_recovery.py::
+#   test_a_resume_writes_nothing_more_when_the_reconciliation_settled_nothing.
+#   That half is now D-29, allocated next free after D-28. NOTHING WAS
+#   RENUMBERED. Both ids are recorded and cross-linked, exactly as
+#   artifacts/document_contradictions.md row 24 requires.
 
 version: 1
 generated_from_commit: "53dd60d6c9b0dd9bfb2a1564398c3510cf93a7b8"
@@ -870,21 +897,34 @@ decisions:
       - "A. Buy a legitimate non-Educational licence. Roughly Rs 885 per the earlier price check. The contract fixture can then run and the Phase 2 exit closes."
       - "B. Stay on Educational for good. Phase 2 stays BLOCKED_ENVIRONMENT permanently and no live evidence is ever obtainable."
     recommended_default: "B, by inaction. Nothing is bought, nothing is bypassed, nothing is simulated. This is what happens if nobody answers."
-    owner_answer: null
-    status: OPEN
+    owner_answer: >-
+      OWNER, 2026-08-10, verbatim - "Use a legitimate non-Educational licence if
+      you want real Tally validation. Until physically available, remain
+      BLOCKED_ENVIRONMENT." A STATED PREFERENCE IS NOT A LICENCE. Nothing here
+      buys one, and the standing instructions of D-26 are unchanged - do not
+      purchase, activate, bypass or simulate a non-Educational licence.
+    status: BLOCKED_ENVIRONMENT
     evidence_needed: >-
       VERBATIM, INSTRUCTION ONE - PROJECT_STATE.md section 19 step 20 -
       "OWNER: buy a non-Educational TallyPrime licence -> unblocks 16 and 19".
       VERBATIM, INSTRUCTION TWO - PROJECT_STATE.md section 24, headed OWNER
       DECISION 2026-08-08 - "Do not purchase, activate, bypass or simulate a
-      non-Educational licence." Instruction two is the later of the two and is
-      labelled an owner decision, so it PROBABLY supersedes. That is a guess and
-      it is not being acted on. One of these two lines is stale and only the
-      owner can say which.
+      non-Educational licence." ANSWERED 2026-08-10 - the two lines are not
+      after all a contradiction. Line one names what the owner would prefer if
+      real Tally validation is wanted; line two names what may be done from
+      here, which is nothing. Both stay. Neither is deleted. Educational mode
+      accepts vouchers only on the 1st, 2nd and 31st, so the frozen 2026-08-07
+      fixture is refused - measured 2026-08-08, 2026-08-07 REJECTED and
+      2026-08-31 ACCEPTED.
     next_action: >-
-      One sentence from the owner - "buy the licence" or "stay on Educational" -
-      and which of the two lines to delete. Until then B-02 stays open and
-      everything downstream reports BLOCKED_ENVIRONMENT.
+      NOTHING AN AGENT CAN DO. The owner physically obtains a licence, or this
+      stays where it is. Until a licence exists on the machine - RealTally
+      validation is BLOCKED_ENVIRONMENT, the phase 5 live validation run is
+      BLOCKED_ENVIRONMENT, B-02 stays open, and LG-14, LG-18 and LG-19 stay
+      NOT_PASSED. FOUR THINGS ARE FORBIDDEN, restated because this is the entry
+      people reach for - never change the frozen 2026-08-07 fixture, never
+      bypass Educational mode, never simulate a licence, never claim RealTally
+      evidence that was not produced by a licensed run.
 
   - id: "D-02"
     question: "Is the 2026-08-07 fixture date frozen, or may it be changed to suit the environment?"
@@ -927,6 +967,23 @@ decisions:
     recommended_default: "Stay stdlib-only. This is the safe default and it is what the frozen plan already says."
     owner_answer: null
     status: OPEN
+    owner_standing_rule: |-
+      OWNER, 2026-08-10, verbatim - "no new runtime dependency is approved
+      automatically." The question of WHICH dependency stays OPEN. The rule
+      about HOW one may ever be added is now fixed, and it is eight things that
+      must all be written down BEFORE any dependency is added:
+        1. the exact dependency, by name and version
+        2. why it is needed, and what breaks without it
+        3. its licence
+        4. its security impact
+        5. its deployment impact
+        6. whether it violates the current policy, which is dependencies = []
+        7. the smallest alternative that was considered, and why it lost
+        8. the register entry recording all seven of the above
+      WHAT MAY STILL PROCEED - cloud work on architecture, threat model,
+      protocol, test design, data flow and connector boundaries. That work must
+      not add the dependency and must not build an irreversible runtime around
+      one.
     evidence_needed: >-
       pyproject.toml has dependencies = [] - verified 2026-08-10.
       ARCHITECTURE.md section 10 lists 'a web framework' under deliberately
@@ -938,7 +995,11 @@ decisions:
       'D-04 territory'. A coordinator instruction referred to the cloud
       runtime-dependency question as D-11; D-11 is already N = 10, so it is
       recorded here instead.
-    next_action: "Owner approves a named dependency or confirms stdlib-only. Answering it also unblocks option C of D-16."
+    next_action: >-
+      Owner approves ONE NAMED dependency, with all eight records above filled
+      in, or confirms stdlib-only. Answering it also unblocks option C of D-16.
+      Still blocked while this is open - option C of D-16, and any framework
+      for the local front door.
 
   - id: "D-05"
     question: >-
@@ -948,8 +1009,15 @@ decisions:
       - "A. Same supplier. Fewer questions asked, and an LLP invoice can post against Ltd-only history."
       - "B. Different suppliers. Safer, and every suffix variant becomes a new unknown vendor that has to be answered for."
     recommended_default: "A, the current behaviour, which is the less safe of the two. That is exactly why this is in the register rather than left to the code."
-    owner_answer: null
-    status: OPEN
+    owner_answer: >-
+      B, SEPARATE. OWNER, 2026-08-10, verbatim - "Treat legal forms as
+      meaningful by default. Do not silently merge Ltd, Pvt Ltd, LLP, Inc, Corp,
+      or & Co. If identity is ambiguous, ask or hand over." TWO THINGS ARE NOW
+      SEPARATE AND MUST STAY SEPARATE. Technical normalisation - Unicode form,
+      case, whitespace - is one thing and may continue. Business identity is a
+      different thing. Normalisation must not destroy legal-form information.
+      An ambiguous identity is a question to the person, never a silent merge.
+    status: ANSWERED
     evidence_needed: >-
       Measured 2026-08-09 - LLP, Inc, Corp and Corporation are KEPT and do not
       collide; the six named above are stripped. So a sole proprietor 'Sharma
@@ -962,7 +1030,14 @@ decisions:
       owner's own Tally - count the party names in read_vouchers that differ
       only by a stripped suffix. Zero pairs means the strip costs them nothing;
       one pair means it is already merging two of their own suppliers.
-    next_action: "Owner says 'same' or 'separate'. Or run the count above first - it is one read and it makes the decision cheap."
+    next_action: >-
+      ANSWERED 2026-08-10, NOT YET IMPLEMENTED. The code still strips the six
+      suffixes and tests/test_memory.py:1000-1007 still cements that. This entry
+      becomes IMPLEMENTED_AFTER_OWNER_DECISION only when a NAMED TEST proves
+      that a bare name and its Ltd, Pvt Ltd, LLP, Inc, Corp and & Co variants
+      are different suppliers, and that Unicode and whitespace normalisation
+      still happens. UNBLOCKED BY THIS ANSWER - the wrong-vendor risk now has a
+      rule to build to. STILL BLOCKED - nothing; no other decision waits on it.
 
   - id: "D-06"
     question: "When the memory index and the live ledger disagree, which one wins?"
@@ -971,8 +1046,14 @@ decisions:
       - "The index wins and the staleness is surfaced to the person."
       - "Refuse and ask."
     recommended_default: "The current behaviour, where the index can win. It is the unsafe one."
-    owner_answer: null
-    status: OPEN
+    owner_answer: >-
+      LIVE TALLY WINS. OWNER, 2026-08-10, verbatim - "Live Tally wins over stale
+      memory. If live Tally and memory disagree, make the entry UNCLEAR and ask
+      instead of silently posting." REQUIRED BEHAVIOUR - show the conflict to
+      the person, record both sources, and never let stale memory silently
+      override contradictory current Tally data. A disagreement is a question,
+      not a posting.
+    status: ANSWERED
     evidence_needed: >-
       Reproduced 2026-08-09 - bootstrap 'Sharma Traders -> Purchases' from 40
       vouchers, then post 60 'Sharma Traders -> Repairs & Maintenance' by hand
@@ -987,9 +1068,14 @@ decisions:
       gets SHARPER in the cloud shape, not softer, because a connector offline
       for a week has a staler index.
     next_action: >-
-      Owner picks which source wins. The code fix is small; the rule is not
-      something code may choose. This is a real wrong-account risk and is one of
-      the three worth answering first.
+      ANSWERED 2026-08-10, NOT YET IMPLEMENTED. vendor_switch at
+      accountant/detect/detectors.py:85 still names its history parameter
+      `_history` and still never reads it, so today the live ledger is passed in
+      and discarded. This entry becomes IMPLEMENTED_AFTER_OWNER_DECISION only
+      when a NAMED TEST proves the reproduction above now ends in an UNCLEAR
+      entry with a question, showing both sources, instead of a silent post.
+      UNBLOCKED BY THIS ANSWER - the wrong-account risk now has a rule.
+      STILL BLOCKED - nothing else waits on it.
 
   - id: "D-07"
     question: "May a declared licence mode be trusted when the real one cannot be read?"
@@ -1088,8 +1174,15 @@ decisions:
       leaves 1 to 3 gone. Four failure categories, and UNKNOWN_OUTCOME is never
       treated as a rejection. Settled 2026-08-09.
     status: IMPLEMENTED_AFTER_OWNER_DECISION
-    evidence_needed: "Full state machine in ARCHITECTURE.md section 4.14, implemented in accountant/reversal.py. tests/test_bulk_reversal.py (41 tests), _web (11), _cli (9)."
-    next_action: "None."
+    evidence_needed: >-
+      Full state machine in ARCHITECTURE.md section 4.14, implemented in
+      accountant/reversal.py. tests/test_bulk_reversal.py (41 tests), _web (11),
+      _cli (9). NARROWED 2026-08-10 - D-12 settled the batch policy but left one
+      half open, and accountant/reversal.py reconcile() says so in its own
+      comment: refuse the whole batch, or skip the unknown voucher and finish
+      the rest. That half is now D-29 and the answer is REFUSE THE WHOLE BATCH.
+      D-12 is NOT superseded; every word of its 2026-08-09 answer still stands.
+    next_action: "None for D-12 itself. The half it left open is D-29, answered 2026-08-10."
 
   - id: "D-13"
     question: "The phase-number collision - an external planning message called the readiness gate Phase 6, and the repository already called the first detector Phase 6."
@@ -1230,18 +1323,36 @@ decisions:
       B. A customer does not experience an aggregate; they experience their own
       book. This is a recommendation, not a decision, and nothing is being acted
       on until the owner answers.
-    owner_answer: null
-    status: OPEN
+    owner_answer: >-
+      B, and both numbers are reported. OWNER, 2026-08-10, verbatim - "Use both
+      aggregate and worst-department results. For launch, do not hide a
+      department that fails." THE GATE THAT FOLLOWS - aggregate 6.29 is a PASS,
+      worst department DHSC 33.33 is NOT_PASSED, the target is at or under 10,
+      and therefore THE OVERALL DETECTOR LAUNCH GATE IS NOT_PASSED. It stays
+      NOT_PASSED until either the worst-department rule is satisfied, or that
+      department is taken out of scope by an explicit owner scope decision.
+      EVERY DETECTOR REPORT MUST NOW CARRY SEVEN THINGS - the aggregate, the
+      held-out slice, the worst department, every department's own value, the
+      denominator, the formula, and false-alarm examples.
+    status: ANSWERED
     evidence_needed: >-
-      Measured, artifacts/detector_evidence.json - aggregate 6.29 PASS,
-      held-out 2.90 PASS, DHSC 33.33 NOT_PASSED, and DBT has zero clean entries
-      so it reports 'not measured', which is not a pass either. The failing
-      detector on DHSC is `magnitude`. Note the headroom - the calibration half
-      has headroom of ZERO entries, so one more false alarm there flips it.
+      Measured, artifacts/detector_evidence.md and artifacts/detector_evidence.json -
+      aggregate 6.29 PASS, held-out 2.90 PASS, DHSC 33.33 NOT_PASSED, and DBT
+      has zero clean entries so it reports 'not measured', which is not a pass
+      either. All seven departments, per 100 clean entries - MHCLG 0.00,
+      DFT 0.00, HMT 0.00, DWP 3.70, DEFRA 5.26, DHSC 33.33, DBT not measured.
+      The failing detector on DHSC is `magnitude`. Note the headroom - the
+      calibration half has headroom of ZERO entries, so one more false alarm
+      there flips it.
     next_action: >-
-      Owner picks A, B or C. Until then LG-20 is NOT_PASSED and the launch
-      question is undecided rather than quietly answered by whichever number
-      gets quoted first.
+      ANSWERED 2026-08-10. LG-20 is NOT_PASSED and now stays NOT_PASSED for a
+      DECIDED reason rather than an undecided one. UNBLOCKED BY THIS ANSWER -
+      the launch rule itself; the question is no longer answerable by whichever
+      number gets quoted first. STILL BLOCKED - launch, until DHSC is inside 10
+      or is taken out of scope by a named owner decision, and until every
+      detector report carries the seven items above. This entry becomes
+      IMPLEMENTED_AFTER_OWNER_DECISION only when a NAMED TEST proves a report
+      missing any of the seven is refused.
 
   - id: "D-23"
     question: "Which input types must work at first launch?"
@@ -1343,6 +1454,55 @@ decisions:
       attempts refused with 403. The refusals are the evidence that the boundary
       is real rather than a promise.
     next_action: "None."
+
+  # ---- D-29 allocated 2026-08-10, next free after D-28. It is the half D-12
+  #      left open. The owner labelled this answer "D-03"; D-03 is Tally.ERP 9
+  #      scope and was NOT renumbered. See the SECOND LABEL SET note in the
+  #      header of this file.
+
+  - id: "D-29"
+    question: >-
+      A bulk reversal stops with one voucher whose outcome nobody can name. Six
+      other vouchers are known and still need cleaning up. Does the resume
+      refuse the WHOLE batch, or skip the unknown voucher and finish the rest?
+      This is the one half D-12 left open.
+    options:
+      - "A. Refuse the whole batch. Safest. Outstanding cleanup can never finish while one voucher's fate is unknown."
+      - "B. Skip the unknown voucher and carry on. Cleanup finishes, and a batch continues past an unresolved unknown."
+    recommended_default: "None was invented. accountant/reversal.py says in its own comment that both readings are defensible, that they are mutually exclusive, and that the choice is an accounting-operations decision rather than an engineering one."
+    owner_answer: >-
+      A, REFUSE THE WHOLE BATCH. OWNER, 2026-08-10, verbatim - "REFUSE THE WHOLE
+      BATCH WHEN ANY VOUCHER HAS UNKNOWN_OUTCOME. Safety beats partial cleanup.
+      Never delete six known vouchers while one voucher's fate is unknown."
+      REQUIRED BEHAVIOUR, six parts - a resume is refused while any voucher is
+      still unknown; no further voucher is deleted; every known result stays
+      recorded; the operator is shown the unresolved voucher; a separate
+      reconciliation operation is required; and a resume is permitted only once
+      every voucher has a known verified state.
+    status: ANSWERED
+    evidence_needed: >-
+      THE DEFECT THIS SETTLES, measured. accountant/reversal.py reconcile()
+      returns reconciled=True on every path, including the one where every read
+      raised. resume() then opens, and after a reconciliation that settled
+      nothing it removed six more vouchers from a company holding one voucher
+      whose fate was unknown - nine of ten gone. The strict-xfail test that pins
+      it is tests/test_reversal_recovery.py::
+      test_a_resume_writes_nothing_more_when_the_reconciliation_settled_nothing,
+      and its reason string names this as an open owner decision, "Defect D3".
+      The existing test it conflicts with is
+      test_an_unknown_outcome_voucher_is_never_retried_by_a_resume, which
+      currently requires resume to proceed and skip. That test now encodes the
+      losing option and must change. D-12's own state machine already agrees
+      with the owner in spirit - RETRYABLE in accountant/reversal.py deliberately
+      excludes the unknown state.
+    next_action: >-
+      ANSWERED 2026-08-10, NOT YET IMPLEMENTED. Another agent is changing
+      accountant/reversal.py. This entry becomes IMPLEMENTED_AFTER_OWNER_DECISION
+      only when the strict xfail above flips to a passing test under its own
+      name. UNBLOCKED BY THIS ANSWER - the reversal recovery path, which had two
+      mutually exclusive readings and now has one. STILL BLOCKED - nothing else;
+      no other decision waits behind it.
+
 blockers:
 
   - id: "B-01"
@@ -1373,8 +1533,12 @@ blockers:
       ACCEPTED, deletion works. Only the date is refused, so this is an
       environment limit and not a connector defect.
     unblocked_by: >-
-      An owner decision, D-01, which is OPEN and self-contradictory in the
-      record. THE FIXTURE IS NEVER EDITED TO MAKE IT PASS.
+      A physical licence, and nothing else. D-01 was answered on 2026-08-10 -
+      a legitimate non-Educational licence is what the owner would use if real
+      Tally validation is wanted - and that changed NOTHING here, because a
+      stated preference is not a licence. D-01 is BLOCKED_ENVIRONMENT and this
+      blocker stays open until a licence physically exists on the machine.
+      THE FIXTURE IS NEVER EDITED TO MAKE IT PASS.
     workstreams_blocked: ["2", "5-LIVE", "LG-14", "LG-18", "LG-19"]
 
   - id: "B-03"
@@ -1590,7 +1754,14 @@ launch_gates:
   - id: "LG-20"
     text: "N1 is inside its target on every reported slice, not only on the aggregate."
     test: "tests/test_n1.py::test_one_department_is_still_above_the_target_and_is_not_hidden"
-    evidence: "DHSC measures 33.33 against a target of 10. Aggregate 6.29 PASS, held-out 2.90 PASS. Which of these is the launch rule is OPEN decision D-22."
+    evidence: >-
+      artifacts/detector_evidence.md. DHSC measures 33.33 against a target of
+      10. Aggregate 6.29 PASS, held-out 2.90 PASS. THE REASON THIS GATE IS
+      NOT_PASSED IS NOW A DECISION AND NOT AN ARGUMENT - D-22, answered
+      2026-08-10 - both the aggregate and the worst department count, and a
+      failing department is not hidden. The gate clears when DHSC is inside 10,
+      or when that department is taken out of scope by an explicit owner scope
+      decision. Nothing else clears it.
     status: NOT_PASSED
 
   - id: "LG-21"
