@@ -1,0 +1,59 @@
+{
+  "case_id": "GT-0009",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "text",
+  "category": "line_items",
+  "mime": "text/plain",
+  "document": "GT-0009.txt",
+  "format_fidelity": "native_text",
+  "raw_fields": {
+    "date": "2026-09-09",
+    "party": "HEALTH RESEARCH AUTHORITY",
+    "subtotal": "1092.00",
+    "tax_amount": "196.56",
+    "total": "1288.56",
+    "line_items": []
+  },
+  "gst_context": {
+    "hsn_or_sac": "998311",
+    "rate": "18.00",
+    "supplier_state": "27",
+    "buyer_state": "27",
+    "place_of_supply": "27",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-09-09",
+    "party": "HEALTH RESEARCH AUTHORITY",
+    "total_amount": "1288.56",
+    "tax_amount": "196.56",
+    "line_items": []
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "verbatim supplier name from the published DHSC file",
+    "notes": "text / line_items / slot 0",
+    "variation": {
+      "date_format": "iso",
+      "currency": "pound",
+      "grouping": "indian",
+      "tax_label": "GST",
+      "total_label": "TOTAL",
+      "layout": "wrapped",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "cf592c0e9687bd269c38382e49552f804449a7fbb51d4a6aebe8c8ab9c259f7c",
+  "sha256": "8e7df56ffa16d3e04dd0325dfd9f5492654f3748b843dcd88c6710fc545a07e9",
+  "document_bytes": 484
+}

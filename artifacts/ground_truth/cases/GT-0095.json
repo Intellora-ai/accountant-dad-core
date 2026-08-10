@@ -1,0 +1,69 @@
+{
+  "case_id": "GT-0095",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "DOCX",
+  "category": "tax_labels",
+  "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "document": "GT-0095.docx",
+  "format_fidelity": "native_text",
+  "raw_fields": {
+    "date": "2026-11-11",
+    "party": "CARE QUALITY COMMISSION (CQC) CQC033",
+    "subtotal": "1864.00",
+    "tax_amount": "93.20",
+    "total": "1957.20",
+    "line_items": [
+      {
+        "description": "STEEL TUBES 40MM",
+        "amount": "1864.00"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "3824",
+    "rate": "5.00",
+    "supplier_state": "07",
+    "buyer_state": "07",
+    "place_of_supply": "07",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-11-11",
+    "party": "CARE QUALITY COMMISSION (CQC) CQC033",
+    "total_amount": "1957.20",
+    "tax_amount": "93.20",
+    "line_items": [
+      {
+        "description": "STEEL TUBES 40MM",
+        "amount": "1864.00"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "verbatim supplier name from the published DHSC file",
+    "notes": "DOCX / tax_labels / slot 2",
+    "variation": {
+      "date_format": "dmy_dash",
+      "currency": "rs",
+      "grouping": "western",
+      "tax_label": "GST",
+      "total_label": "AMOUNT PAYABLE",
+      "layout": "block",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "2cf74cdd72ab8a6ada71cbe7a68e31dc5946ad07790d1c8cdfa54ca7daa6a63f",
+  "sha256": "bf5618d87af327bb7ce099993364f635ec3dce8e54baa75b924c7b727d61663e",
+  "document_bytes": 1440
+}

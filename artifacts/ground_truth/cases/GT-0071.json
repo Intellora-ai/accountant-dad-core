@@ -1,0 +1,85 @@
+{
+  "case_id": "GT-0071",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "JPG",
+  "category": "line_items",
+  "mime": "image/jpeg",
+  "document": "GT-0071.jpg",
+  "format_fidelity": "container_only",
+  "raw_fields": {
+    "date": "2026-11-15",
+    "party": "SAS SOFTWARE LTD",
+    "subtotal": "8520.00",
+    "tax_amount": "426.00",
+    "total": "8946.00",
+    "line_items": [
+      {
+        "description": "STEEL TUBES 40MM",
+        "amount": "1420.00"
+      },
+      {
+        "description": "VEHICLE MAINTENANCE",
+        "amount": "2840.00"
+      },
+      {
+        "description": "PORTLAND CEMENT 53 GRADE",
+        "amount": "4260.00"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "3824",
+    "rate": "5.00",
+    "supplier_state": "07",
+    "buyer_state": "07",
+    "place_of_supply": "07",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-11-15",
+    "party": "SAS SOFTWARE LTD",
+    "total_amount": "8946.00",
+    "tax_amount": "426.00",
+    "line_items": [
+      {
+        "description": "STEEL TUBES 40MM",
+        "amount": "1420.00"
+      },
+      {
+        "description": "VEHICLE MAINTENANCE",
+        "amount": "2840.00"
+      },
+      {
+        "description": "PORTLAND CEMENT 53 GRADE",
+        "amount": "4260.00"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "verbatim supplier name from the published DWP file",
+    "notes": "JPG / line_items / slot 2",
+    "variation": {
+      "date_format": "dmy_dash",
+      "currency": "rs",
+      "grouping": "western",
+      "tax_label": "GST",
+      "total_label": "AMOUNT PAYABLE",
+      "layout": "wrapped",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "def8cb191a8b359578a2b5d2a938403c1539be20ca8ce57530a9e4f158f47da4",
+  "sha256": "9096868ecc61f73563e4355d5120e862ba02dee127662397d284843f053361b9",
+  "document_bytes": 733
+}

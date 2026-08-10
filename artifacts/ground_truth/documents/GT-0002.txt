@@ -1,0 +1,13 @@
+TAX INVOICE
+INVOICE NO: GT/0002
+DATE: 2026-02-02
+SUPPLIER: SHARMA TRADERS
+HSN/SAC: 9954
+PLACE OF SUPPLY: 29
+--------------------------------------------------------------
+DESCRIPTION                                  AMOUNT
+OFFICE CHAIRS                                           143.50
+--------------------------------------------------------------
+SUBTOTAL                                                143.50
+GST                                                      17.22
+TOTAL                                                   160.72

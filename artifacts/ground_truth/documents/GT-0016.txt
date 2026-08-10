@@ -1,0 +1,13 @@
+TAX INVOICE
+INVOICE NO: GT/0016
+DATE: 16 APR 2026
+SUPPLIER: NARMADA PACKAGING CO
+HSN/SAC: 7306
+PLACE OF SUPPLY: 36
+--------------------------------------------------------------
+DESCRIPTION                                  AMOUNT
+ANNUAL SOFTWARE LICENCE                                 402.50
+--------------------------------------------------------------
+SUBTOTAL                                                402.50
+OUTPUT TAX                                              112.70
+TOTAL DUE                                               515.20

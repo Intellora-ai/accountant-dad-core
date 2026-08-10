@@ -1,0 +1,14 @@
+TAX INVOICE
+                                           INVOICE NO: GT/0007
+                                              DATE: 07-07-2026
+                SUPPLIER: CARE QUALITY COMMISSION (CQC) CQC033
+                                                 HSN/SAC: 3824
+                                           PLACE OF SUPPLY: 19
+--------------------------------------------------------------
+DESCRIPTION                                  AMOUNT
+SCAFFOLDING HIRE                                        236.00
+ELECTRICAL FITTINGS                                     472.00
+--------------------------------------------------------------
+SUBTOTAL                                                708.00
+GST                                                      35.40
+TOTAL                                                   743.40

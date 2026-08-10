@@ -1,0 +1,80 @@
+{
+  "case_id": "GT-0037",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "PDF",
+  "category": "adversarial",
+  "mime": "application/pdf",
+  "document": "GT-0037.pdf",
+  "format_fidelity": "text_operators",
+  "raw_fields": {
+    "date": "2026-01-09",
+    "party": "CORNWALL COUNCIL",
+    "subtotal": "2373.00",
+    "tax_amount": "427.14",
+    "total": "2800.14",
+    "line_items": [
+      {
+        "description": "PORTLAND CEMENT 53 GRADE",
+        "amount": "791.00"
+      },
+      {
+        "description": "OFFICE CHAIRS",
+        "amount": "1582.00"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "998311",
+    "rate": "18.00",
+    "supplier_state": "27",
+    "buyer_state": "24",
+    "place_of_supply": "24",
+    "tax_mode": "INTER_STATE"
+  },
+  "expected": {
+    "date": "2026-01-09",
+    "party": "CORNWALL COUNCIL",
+    "total_amount": "2800.14",
+    "tax_amount": "427.14",
+    "line_items": [
+      {
+        "description": "PORTLAND CEMENT 53 GRADE",
+        "amount": "791.00"
+      },
+      {
+        "description": "OFFICE CHAIRS",
+        "amount": "1582.00"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "verbatim supplier name from the published DEFRA file",
+    "notes": "PDF / adversarial / slot 0",
+    "variation": {
+      "date_format": "dmy_slash",
+      "currency": "rs",
+      "grouping": "indian",
+      "tax_label": "CGST/SGST",
+      "total_label": "AMOUNT PAYABLE",
+      "layout": "two_column",
+      "subtotal_last": true,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": [
+        "PURCHASE ORDER: 4500091827",
+        "TERMS: NET 30 DAYS. INTEREST 24% PER ANNUM AFTER DUE DATE."
+      ]
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "c2745aa103b411f0fec4442be599f83861e25f440309346987a159e6b9afac15",
+  "sha256": "62cb893fa5e7f745367c308ccb0245b2b7504bc47f635d5d9109c7a356fe95fd",
+  "document_bytes": 1498
+}

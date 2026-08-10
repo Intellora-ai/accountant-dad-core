@@ -1,0 +1,69 @@
+{
+  "case_id": "GT-0094",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "DOCX",
+  "category": "tax_labels",
+  "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "document": "GT-0094.docx",
+  "format_fidelity": "native_text",
+  "raw_fields": {
+    "date": "2026-10-10",
+    "party": "RAO OFFICE SUPPLIES",
+    "subtotal": "1845.50",
+    "tax_amount": "221.46",
+    "total": "2066.96",
+    "line_items": [
+      {
+        "description": "PACKAGING MATERIAL",
+        "amount": "1845.50"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "9954",
+    "rate": "12.00",
+    "supplier_state": "29",
+    "buyer_state": "06",
+    "place_of_supply": "06",
+    "tax_mode": "INTER_STATE"
+  },
+  "expected": {
+    "date": "2026-10-10",
+    "party": "RAO OFFICE SUPPLIES",
+    "total_amount": "2066.96",
+    "tax_amount": "221.46",
+    "line_items": [
+      {
+        "description": "PACKAGING MATERIAL",
+        "amount": "1845.50"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "invented vendor name",
+    "notes": "DOCX / tax_labels / slot 1",
+    "variation": {
+      "date_format": "dmy_slash",
+      "currency": "none",
+      "grouping": "western",
+      "tax_label": "OUTPUT TAX",
+      "total_label": "GRAND TOTAL",
+      "layout": "block",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "30cfc55d1fa38f5849abe0eb66ae19de5de406c513e3b954e1618102e17f2e70",
+  "sha256": "e58658b712d969b02ee22a2ec4feec4b2def9721d831d23e1d17e1ae65542102",
+  "document_bytes": 1418
+}

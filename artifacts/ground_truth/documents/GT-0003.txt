@@ -1,0 +1,13 @@
+TAX INVOICE
+INVOICE NO: GT/0003
+DATE: 2026-03-03
+SUPPLIER: BARKING & DAGENHAM LB
+HSN/SAC: 3824
+PLACE OF SUPPLY: 07
+--------------------------------------------------------------
+DESCRIPTION                                  AMOUNT
+SITE SURVEY FEES                                        162.00
+--------------------------------------------------------------
+SUBTOTAL                                                162.00
+GST                                                       8.10
+TOTAL                                                   170.10

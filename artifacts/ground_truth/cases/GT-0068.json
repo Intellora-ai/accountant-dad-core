@@ -1,0 +1,77 @@
+{
+  "case_id": "GT-0068",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "JPG",
+  "category": "layout",
+  "mime": "image/jpeg",
+  "document": "GT-0068.jpg",
+  "format_fidelity": "container_only",
+  "raw_fields": {
+    "date": "2026-08-12",
+    "party": "KRISHNA ENTERPRISES",
+    "subtotal": "4093.50",
+    "tax_amount": "1146.18",
+    "total": "5239.68",
+    "line_items": [
+      {
+        "description": "ELECTRICAL FITTINGS",
+        "amount": "1364.50"
+      },
+      {
+        "description": "CONSULTANCY RETAINER",
+        "amount": "2729.00"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "7306",
+    "rate": "28.00",
+    "supplier_state": "33",
+    "buyer_state": "33",
+    "place_of_supply": "33",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-08-12",
+    "party": "KRISHNA ENTERPRISES",
+    "total_amount": "5239.68",
+    "tax_amount": "1146.18",
+    "line_items": [
+      {
+        "description": "ELECTRICAL FITTINGS",
+        "amount": "1364.50"
+      },
+      {
+        "description": "CONSULTANCY RETAINER",
+        "amount": "2729.00"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "invented vendor name",
+    "notes": "JPG / layout / slot 3",
+    "variation": {
+      "date_format": "dmy_long",
+      "currency": "rs",
+      "grouping": "western",
+      "tax_label": "GST",
+      "total_label": "TOTAL",
+      "layout": "wrapped",
+      "subtotal_last": false,
+      "pages": 2,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "d73a9c5efc28008fa05e6c99de6dbda02070ef9a16fce494af152137e1836622",
+  "sha256": "7f316753e2949b8a2919b8476c076b06236dda0ba27ae54cec6a257cf47cc5c9",
+  "document_bytes": 822
+}

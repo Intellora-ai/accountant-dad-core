@@ -1,0 +1,80 @@
+{
+  "case_id": "GT-0060",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "PNG",
+  "category": "adversarial",
+  "mime": "image/png",
+  "document": "GT-0060.png",
+  "format_fidelity": "rendered_raster",
+  "raw_fields": {
+    "date": "2026-12-04",
+    "party": "SINGH TRANSPORT COMPANY",
+    "subtotal": "3649.50",
+    "tax_amount": "1021.86",
+    "total": "4671.36",
+    "line_items": [
+      {
+        "description": "VEHICLE MAINTENANCE",
+        "amount": "1216.50"
+      },
+      {
+        "description": "PORTLAND CEMENT 53 GRADE",
+        "amount": "2433.00"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "7306",
+    "rate": "28.00",
+    "supplier_state": "33",
+    "buyer_state": "33",
+    "place_of_supply": "33",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-12-04",
+    "party": "SINGH TRANSPORT COMPANY",
+    "total_amount": "4671.36",
+    "tax_amount": "1021.86",
+    "line_items": [
+      {
+        "description": "VEHICLE MAINTENANCE",
+        "amount": "1216.50"
+      },
+      {
+        "description": "PORTLAND CEMENT 53 GRADE",
+        "amount": "2433.00"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "invented vendor name",
+    "notes": "PNG / adversarial / slot 3",
+    "variation": {
+      "date_format": "iso",
+      "currency": "rs",
+      "grouping": "western",
+      "tax_label": "TAX",
+      "total_label": "TOTAL",
+      "layout": "table",
+      "subtotal_last": true,
+      "pages": 1,
+      "rotate": false,
+      "ink": 190,
+      "decoys": [
+        "DELIVERY CHALLAN 7781 DATED 02/01/2026",
+        "CONTACT: 022 4004 1188"
+      ]
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "9c679bbd17eb5ed35453caab5f115cd8a2dc644b7a40cfeb59422152a1164ab1",
+  "sha256": "519649bf55ca4aea53d13bbb22efdece563375c64b14f9cec0e4ff097f3d8465",
+  "document_bytes": 2100
+}

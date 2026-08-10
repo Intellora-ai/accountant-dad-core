@@ -1,0 +1,13 @@
+TAX INVOICE
+INVOICE NO: GT/0015
+DATE: 15-03-2026
+SUPPLIER: GREAT WESTERN RAILWAY
+HSN/SAC: 3824
+PLACE OF SUPPLY: 07
+--------------------------------------------------------------
+DESCRIPTION                                  AMOUNT
+SITE SURVEY FEES                                    384.00 GBP
+--------------------------------------------------------------
+SUBTOTAL                                            384.00 GBP
+IGST                                                 19.20 GBP
+AMOUNT PAYABLE                                      403.20 GBP

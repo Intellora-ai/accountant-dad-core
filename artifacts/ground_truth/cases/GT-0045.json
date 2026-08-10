@@ -1,0 +1,77 @@
+{
+  "case_id": "GT-0045",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "PNG",
+  "category": "layout",
+  "mime": "image/png",
+  "document": "GT-0045.png",
+  "format_fidelity": "rendered_raster",
+  "raw_fields": {
+    "date": "2026-09-17",
+    "party": "SHEFFIELD CITY COUNCIL",
+    "subtotal": "2817.00",
+    "tax_amount": "507.06",
+    "total": "3324.06",
+    "line_items": [
+      {
+        "description": "CONSULTANCY RETAINER",
+        "amount": "939.00"
+      },
+      {
+        "description": "PACKAGING MATERIAL",
+        "amount": "1878.00"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "998311",
+    "rate": "18.00",
+    "supplier_state": "27",
+    "buyer_state": "27",
+    "place_of_supply": "27",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-09-17",
+    "party": "SHEFFIELD CITY COUNCIL",
+    "total_amount": "3324.06",
+    "tax_amount": "507.06",
+    "line_items": [
+      {
+        "description": "CONSULTANCY RETAINER",
+        "amount": "939.00"
+      },
+      {
+        "description": "PACKAGING MATERIAL",
+        "amount": "1878.00"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "verbatim supplier name from the published MHCLG file",
+    "notes": "PNG / layout / slot 0",
+    "variation": {
+      "date_format": "iso",
+      "currency": "pound",
+      "grouping": "indian",
+      "tax_label": "GST",
+      "total_label": "TOTAL",
+      "layout": "block",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "1a8afdba26d203defafa526e5f161343660ee511f2bed73b8cfa052be52056f7",
+  "sha256": "830c67e9eae94e152f573892dca4f469707ba7efe25bf187edf80765238419ab",
+  "document_bytes": 1623
+}

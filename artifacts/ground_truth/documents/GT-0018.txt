@@ -1,0 +1,23 @@
+TAX INVOICE
+                                           INVOICE NO: GT/0018
+                                              DATE: 18-06-2026
+                                    SUPPLIER: IYER ELECTRICALS
+                                                 HSN/SAC: 9954
+                                           PLACE OF SUPPLY: 29
+--------------------------------------------------------------
+DESCRIPTION                                  AMOUNT
+PRINTED STATIONERY                                  439.50 GBP
+SCAFFOLDING HIRE                                    879.00 GBP
+ELECTRICAL FITTINGS                               1,318.50 GBP
+VOLUME DISCOUNT                                    -263.70 GBP
+--------------------------------------------------------------
+IGST                                                284.80 GBP
+TOTAL DUE                                         2,658.10 GBP
+SUBTOTAL                                          2,373.30 GBP
+PREVIOUS BALANCE: 9,999.00
+CREDIT NOTE APPLIED EARLIER: 250.00
+PAGE 1 OF 2
+CONTINUATION SHEET
+SUPPLIER: IYER ELECTRICALS
+TOTAL DUE                                         2,658.10 GBP
+PAGE 2 OF 2

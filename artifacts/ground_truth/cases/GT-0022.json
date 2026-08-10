@@ -1,0 +1,69 @@
+{
+  "case_id": "GT-0022",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "PDF",
+  "category": "clean",
+  "mime": "application/pdf",
+  "document": "GT-0022.pdf",
+  "format_fidelity": "text_operators",
+  "raw_fields": {
+    "date": "2026-10-22",
+    "party": "SHARMA TRADERS",
+    "subtotal": "513.50",
+    "tax_amount": "61.62",
+    "total": "575.12",
+    "line_items": [
+      {
+        "description": "PACKAGING MATERIAL",
+        "amount": "513.50"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "9954",
+    "rate": "12.00",
+    "supplier_state": "29",
+    "buyer_state": "06",
+    "place_of_supply": "06",
+    "tax_mode": "INTER_STATE"
+  },
+  "expected": {
+    "date": "2026-10-22",
+    "party": "SHARMA TRADERS",
+    "total_amount": "575.12",
+    "tax_amount": "61.62",
+    "line_items": [
+      {
+        "description": "PACKAGING MATERIAL",
+        "amount": "513.50"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "invented vendor name",
+    "notes": "PDF / clean / slot 1",
+    "variation": {
+      "date_format": "iso",
+      "currency": "none",
+      "grouping": "western",
+      "tax_label": "GST",
+      "total_label": "TOTAL",
+      "layout": "block",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "d2da6295aba7bad541a76a6caa17da14e2367fcc17facc223995df3a0fbee3db",
+  "sha256": "6a6ebfcb1fbb4ee2e2dd4dc1c2d701784050d5603bfc8a0e35b269cc674bca7b",
+  "document_bytes": 1245
+}

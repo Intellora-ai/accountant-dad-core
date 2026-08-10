@@ -1,0 +1,69 @@
+{
+  "case_id": "GT-0070",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "JPG",
+  "category": "line_items",
+  "mime": "image/jpeg",
+  "document": "GT-0070.jpg",
+  "format_fidelity": "container_only",
+  "raw_fields": {
+    "date": "2026-10-14",
+    "party": "DECCAN LOGISTICS PVT LTD",
+    "subtotal": "1401.50",
+    "tax_amount": "168.18",
+    "total": "1569.68",
+    "line_items": [
+      {
+        "description": "PACKAGING MATERIAL",
+        "amount": "1401.50"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "9954",
+    "rate": "12.00",
+    "supplier_state": "29",
+    "buyer_state": "06",
+    "place_of_supply": "06",
+    "tax_mode": "INTER_STATE"
+  },
+  "expected": {
+    "date": "2026-10-14",
+    "party": "DECCAN LOGISTICS PVT LTD",
+    "total_amount": "1569.68",
+    "tax_amount": "168.18",
+    "line_items": [
+      {
+        "description": "PACKAGING MATERIAL",
+        "amount": "1401.50"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "invented vendor name",
+    "notes": "JPG / line_items / slot 1",
+    "variation": {
+      "date_format": "dmy_slash",
+      "currency": "none",
+      "grouping": "western",
+      "tax_label": "GST",
+      "total_label": "GRAND TOTAL",
+      "layout": "table",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "63f7e206d9930d95b4d58023fde01a88328842025f818e91ccd8841925fb5063",
+  "sha256": "91ea3a613aff0a29a01762950989869e4f2cca75188ebacd2f673021b48a6c8e",
+  "document_bytes": 610
+}

@@ -1,0 +1,14 @@
+TAX INVOICE
+INVOICE NO: GT/0006
+DATE: 06/06/2026
+SUPPLIER: GUPTA HARDWARE STORES
+HSN/SAC: 9954
+PLACE OF SUPPLY: 29
+--------------------------------------------------------------
+DESCRIPTION                                  AMOUNT
+| PRINTED STATIONERY                         |      217.50 GBP|
+| SCAFFOLDING HIRE                           |      435.00 GBP|
+--------------------------------------------------------------
+SUBTOTAL                                            652.50 GBP
+GST                                                  78.30 GBP
+TOTAL                                               730.80 GBP

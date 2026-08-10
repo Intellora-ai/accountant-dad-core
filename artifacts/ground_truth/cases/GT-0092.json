@@ -1,0 +1,117 @@
+{
+  "case_id": "GT-0092",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "DOCX",
+  "category": "line_items",
+  "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "document": "GT-0092.docx",
+  "format_fidelity": "native_text",
+  "raw_fields": {
+    "date": "2026-08-08",
+    "party": "PATEL STEEL AND TUBES",
+    "subtotal": "50638.00",
+    "tax_amount": "14178.64",
+    "total": "64816.64",
+    "line_items": [
+      {
+        "description": "ELECTRICAL FITTINGS",
+        "amount": "1808.50"
+      },
+      {
+        "description": "CONSULTANCY RETAINER",
+        "amount": "3617.00"
+      },
+      {
+        "description": "PACKAGING MATERIAL",
+        "amount": "5425.50"
+      },
+      {
+        "description": "STEEL TUBES 40MM",
+        "amount": "7234.00"
+      },
+      {
+        "description": "VEHICLE MAINTENANCE",
+        "amount": "9042.50"
+      },
+      {
+        "description": "PORTLAND CEMENT 53 GRADE",
+        "amount": "10851.00"
+      },
+      {
+        "description": "OFFICE CHAIRS",
+        "amount": "12659.50"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "7306",
+    "rate": "28.00",
+    "supplier_state": "33",
+    "buyer_state": "33",
+    "place_of_supply": "33",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-08-08",
+    "party": "PATEL STEEL AND TUBES",
+    "total_amount": "64816.64",
+    "tax_amount": "14178.64",
+    "line_items": [
+      {
+        "description": "ELECTRICAL FITTINGS",
+        "amount": "1808.50"
+      },
+      {
+        "description": "CONSULTANCY RETAINER",
+        "amount": "3617.00"
+      },
+      {
+        "description": "PACKAGING MATERIAL",
+        "amount": "5425.50"
+      },
+      {
+        "description": "STEEL TUBES 40MM",
+        "amount": "7234.00"
+      },
+      {
+        "description": "VEHICLE MAINTENANCE",
+        "amount": "9042.50"
+      },
+      {
+        "description": "PORTLAND CEMENT 53 GRADE",
+        "amount": "10851.00"
+      },
+      {
+        "description": "OFFICE CHAIRS",
+        "amount": "12659.50"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "invented vendor name",
+    "notes": "DOCX / line_items / slot 3",
+    "variation": {
+      "date_format": "dmy_long",
+      "currency": "rs",
+      "grouping": "western",
+      "tax_label": "GST",
+      "total_label": "TOTAL DUE",
+      "layout": "table",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "6ba7eeb79fe3f36f79effd6b74be8aa38a3429064eaf4c49b35ec37c45996327",
+  "sha256": "e90604956fcc7c9c8b2cd0625e719c6c5f4a323d051b14b9a949dc66993fc3da",
+  "document_bytes": 1585
+}

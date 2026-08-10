@@ -1,0 +1,14 @@
+TAX INVOICE
+INVOICE NO: GT/0005
+DATE: 2026-05-05
+SUPPLIER: BEDFORD UNITARY AUTHORITY
+HSN/SAC: 998311
+PLACE OF SUPPLY: 27
+--------------------------------------------------------------
+DESCRIPTION                                  AMOUNT
+COURIER AND FREIGHT                                 RS. 199.00
+PRINTED STATIONERY                                  RS. 398.00
+--------------------------------------------------------------
+SUBTOTAL                                            RS. 597.00
+GST                                                 RS. 107.46
+TOTAL                                               RS. 704.46

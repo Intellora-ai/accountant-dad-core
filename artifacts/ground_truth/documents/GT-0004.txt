@@ -1,0 +1,13 @@
+TAX INVOICE
+INVOICE NO: GT/0004
+DATE: 2026-04-04
+SUPPLIER: VERMA CEMENT WORKS
+HSN/SAC: 7306
+PLACE OF SUPPLY: 36
+--------------------------------------------------------------
+DESCRIPTION                                  AMOUNT
+ANNUAL SOFTWARE LICENCE                                 180.50
+--------------------------------------------------------------
+SUBTOTAL                                                180.50
+GST                                                      50.54
+TOTAL                                                   231.04

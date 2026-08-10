@@ -1,0 +1,12 @@
+TAX INVOICE
+INVOICE NO: GT/0009
+DATE: 2026-09-09
+SUPPLIER: HEALTH RESEARCH AUTHORITY
+HSN/SAC: 998311
+PLACE OF SUPPLY: 27
+--------------------------------------------------------------
+SUPPLY AS PER AGREEMENT. NO ITEMISED BREAKDOWN.
+--------------------------------------------------------------
+SUBTOTAL                                          1,092.00 GBP
+GST                                                 196.56 GBP
+TOTAL                                             1,288.56 GBP

@@ -1,0 +1,62 @@
+{
+  "case_id": "GT-0099",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "DOCX",
+  "category": "adversarial",
+  "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "document": "GT-0099.docx",
+  "format_fidelity": "native_text",
+  "raw_fields": {
+    "date": "2026-03-15",
+    "party": "UK HEALTH SECURITY AGENCY (UKHSA)",
+    "subtotal": "7752.00",
+    "tax_amount": "387.60",
+    "total": "8139.60",
+    "line_items": []
+  },
+  "gst_context": {
+    "hsn_or_sac": "3824",
+    "rate": "5.00",
+    "supplier_state": "07",
+    "buyer_state": "07",
+    "place_of_supply": "07",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-03-15",
+    "party": "UK HEALTH SECURITY AGENCY (UKHSA)",
+    "total_amount": "8139.60",
+    "tax_amount": "387.60",
+    "line_items": []
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "verbatim supplier name from the published DHSC file",
+    "notes": "DOCX / adversarial / slot 2",
+    "variation": {
+      "date_format": "dmy_long",
+      "currency": "none",
+      "grouping": "indian",
+      "tax_label": "GST @ 18%",
+      "total_label": "GRAND TOTAL",
+      "layout": "wrapped",
+      "subtotal_last": true,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": [
+        "ROUND OFF SHOWN FOR INFORMATION: 0.004",
+        "UNROUNDED TAX WORKING: 188.998"
+      ]
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "27139cd67708226fce473bf56c32b742c8a20091597d4e0654dce5ed39a3aaaf",
+  "sha256": "f2ac3b090cc19080c6bd2e2ac1702b1ccc40c520257d385ab3a8043b3ef5795a",
+  "document_bytes": 1490
+}

@@ -1,0 +1,69 @@
+{
+  "case_id": "GT-0035",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "PDF",
+  "category": "tax_labels",
+  "mime": "application/pdf",
+  "document": "GT-0035.pdf",
+  "format_fidelity": "text_operators",
+  "raw_fields": {
+    "date": "2026-11-07",
+    "party": "CHICHESTER HARBOUR AONB",
+    "subtotal": "754.00",
+    "tax_amount": "37.70",
+    "total": "791.70",
+    "line_items": [
+      {
+        "description": "STEEL TUBES 40MM",
+        "amount": "754.00"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "3824",
+    "rate": "5.00",
+    "supplier_state": "07",
+    "buyer_state": "07",
+    "place_of_supply": "07",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-11-07",
+    "party": "CHICHESTER HARBOUR AONB",
+    "total_amount": "791.70",
+    "tax_amount": "37.70",
+    "line_items": [
+      {
+        "description": "STEEL TUBES 40MM",
+        "amount": "754.00"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "verbatim supplier name from the published DEFRA file",
+    "notes": "PDF / tax_labels / slot 2",
+    "variation": {
+      "date_format": "dmy_dash",
+      "currency": "rs",
+      "grouping": "western",
+      "tax_label": "GST",
+      "total_label": "AMOUNT PAYABLE",
+      "layout": "block",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "acd59870703cac4bf13575f04ca43006945bd8d33331ff200d6aabe524f346b0",
+  "sha256": "48e9356c37350cf7792afb42d535640ec80445c9011792e6242ec5447c40e00b",
+  "document_bytes": 1254
+}

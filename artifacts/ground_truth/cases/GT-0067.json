@@ -1,0 +1,77 @@
+{
+  "case_id": "GT-0067",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "JPG",
+  "category": "layout",
+  "mime": "image/jpeg",
+  "document": "GT-0067.jpg",
+  "format_fidelity": "container_only",
+  "raw_fields": {
+    "date": "2026-07-11",
+    "party": "CAPITA BUSINESS SERVICES LTD",
+    "subtotal": "4038.00",
+    "tax_amount": "201.90",
+    "total": "4239.90",
+    "line_items": [
+      {
+        "description": "SCAFFOLDING HIRE",
+        "amount": "1346.00"
+      },
+      {
+        "description": "ELECTRICAL FITTINGS",
+        "amount": "2692.00"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "3824",
+    "rate": "5.00",
+    "supplier_state": "07",
+    "buyer_state": "19",
+    "place_of_supply": "19",
+    "tax_mode": "INTER_STATE"
+  },
+  "expected": {
+    "date": "2026-07-11",
+    "party": "CAPITA BUSINESS SERVICES LTD",
+    "total_amount": "4239.90",
+    "tax_amount": "201.90",
+    "line_items": [
+      {
+        "description": "SCAFFOLDING HIRE",
+        "amount": "1346.00"
+      },
+      {
+        "description": "ELECTRICAL FITTINGS",
+        "amount": "2692.00"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "verbatim supplier name from the published DWP file",
+    "notes": "JPG / layout / slot 2",
+    "variation": {
+      "date_format": "dmy_dash",
+      "currency": "none",
+      "grouping": "western",
+      "tax_label": "GST",
+      "total_label": "TOTAL",
+      "layout": "right",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "4fab23305cc4e8c965390adabebdda4bed6ce95a02365e6dc77535462f4b7953",
+  "sha256": "23d5ee4ad40a1b2b2f409fb132ae74be55f8fa5f78793b3d0bcf184a7c42a57d",
+  "document_bytes": 884
+}

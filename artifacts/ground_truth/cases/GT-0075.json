@@ -1,0 +1,69 @@
+{
+  "case_id": "GT-0075",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "JPG",
+  "category": "tax_labels",
+  "mime": "image/jpeg",
+  "document": "GT-0075.jpg",
+  "format_fidelity": "container_only",
+  "raw_fields": {
+    "date": "2026-03-19",
+    "party": "WILTSHIRE COUNCIL",
+    "subtotal": "1494.00",
+    "tax_amount": "74.70",
+    "total": "1568.70",
+    "line_items": [
+      {
+        "description": "SITE SURVEY FEES",
+        "amount": "1494.00"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "3824",
+    "rate": "5.00",
+    "supplier_state": "07",
+    "buyer_state": "07",
+    "place_of_supply": "07",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-03-19",
+    "party": "WILTSHIRE COUNCIL",
+    "total_amount": "1568.70",
+    "tax_amount": "74.70",
+    "line_items": [
+      {
+        "description": "SITE SURVEY FEES",
+        "amount": "1494.00"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "verbatim supplier name from the published DEFRA file",
+    "notes": "JPG / tax_labels / slot 2",
+    "variation": {
+      "date_format": "dmy_dash",
+      "currency": "pound",
+      "grouping": "indian",
+      "tax_label": "IGST",
+      "total_label": "AMOUNT PAYABLE",
+      "layout": "block",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "838fb97358fe23ed1dca9d67e034b283bf8314a93fc2c075c2bb35f6779ed34b",
+  "sha256": "02cb67c76cdf6678168ff4b7d9630beeea98bf01cb8f653b2973e471f6ee61de",
+  "document_bytes": 602
+}

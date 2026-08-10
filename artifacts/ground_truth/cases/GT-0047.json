@@ -1,0 +1,77 @@
+{
+  "case_id": "GT-0047",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "PNG",
+  "category": "layout",
+  "mime": "image/png",
+  "document": "GT-0047.png",
+  "format_fidelity": "rendered_raster",
+  "raw_fields": {
+    "date": "2026-11-19",
+    "party": "BARKING & DAGENHAM LB",
+    "subtotal": "2928.00",
+    "tax_amount": "146.40",
+    "total": "3074.40",
+    "line_items": [
+      {
+        "description": "STEEL TUBES 40MM",
+        "amount": "976.00"
+      },
+      {
+        "description": "VEHICLE MAINTENANCE",
+        "amount": "1952.00"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "3824",
+    "rate": "5.00",
+    "supplier_state": "07",
+    "buyer_state": "07",
+    "place_of_supply": "07",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-11-19",
+    "party": "BARKING & DAGENHAM LB",
+    "total_amount": "3074.40",
+    "tax_amount": "146.40",
+    "line_items": [
+      {
+        "description": "STEEL TUBES 40MM",
+        "amount": "976.00"
+      },
+      {
+        "description": "VEHICLE MAINTENANCE",
+        "amount": "1952.00"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "verbatim supplier name from the published MHCLG file",
+    "notes": "PNG / layout / slot 2",
+    "variation": {
+      "date_format": "dmy_dash",
+      "currency": "rs",
+      "grouping": "western",
+      "tax_label": "GST",
+      "total_label": "TOTAL",
+      "layout": "right",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "22486007249c63e351bf24d8bbb3b52ed5e8ad7e21d9c04b161b7107d02200ae",
+  "sha256": "58185169651db919a77bbb6016b105e4be434e377e90249c4dd9c88cf41a0b20",
+  "document_bytes": 1662
+}

@@ -1,0 +1,96 @@
+{
+  "case_id": "GT-0078",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "JPG",
+  "category": "adversarial",
+  "mime": "image/jpeg",
+  "document": "GT-0078.jpg",
+  "format_fidelity": "container_only",
+  "raw_fields": {
+    "date": "2026-06-22",
+    "party": "IYER ELECTRICALS",
+    "subtotal": "8367.30",
+    "tax_amount": "1004.08",
+    "total": "9371.38",
+    "line_items": [
+      {
+        "description": "PRINTED STATIONERY",
+        "amount": "1549.50"
+      },
+      {
+        "description": "SCAFFOLDING HIRE",
+        "amount": "3099.00"
+      },
+      {
+        "description": "ELECTRICAL FITTINGS",
+        "amount": "4648.50"
+      },
+      {
+        "description": "VOLUME DISCOUNT",
+        "amount": "-929.70"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "9954",
+    "rate": "12.00",
+    "supplier_state": "29",
+    "buyer_state": "29",
+    "place_of_supply": "29",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-06-22",
+    "party": "IYER ELECTRICALS",
+    "total_amount": "9371.38",
+    "tax_amount": "1004.08",
+    "line_items": [
+      {
+        "description": "PRINTED STATIONERY",
+        "amount": "1549.50"
+      },
+      {
+        "description": "SCAFFOLDING HIRE",
+        "amount": "3099.00"
+      },
+      {
+        "description": "ELECTRICAL FITTINGS",
+        "amount": "4648.50"
+      },
+      {
+        "description": "VOLUME DISCOUNT",
+        "amount": "-929.70"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "invented vendor name",
+    "notes": "JPG / adversarial / slot 1",
+    "variation": {
+      "date_format": "dmy_dash",
+      "currency": "pound",
+      "grouping": "western",
+      "tax_label": "IGST",
+      "total_label": "TOTAL DUE",
+      "layout": "right",
+      "subtotal_last": true,
+      "pages": 2,
+      "rotate": false,
+      "ink": 0,
+      "decoys": [
+        "PREVIOUS BALANCE: 9,999.00",
+        "CREDIT NOTE APPLIED EARLIER: 250.00"
+      ]
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "a942583f2bcfb6daf989dc9e2dd1abee502ff145c46ec6a20fef1d342059319f",
+  "sha256": "7294fc32d2cca19598234e13bbefd378484f51ff00604e4737b41ae235ed474d",
+  "document_bytes": 1233
+}

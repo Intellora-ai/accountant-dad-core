@@ -1,0 +1,13 @@
+TAX INVOICE
+INVOICE NO: GT/0013
+DATE: 2026-01-13
+SUPPLIER: NHS COUNTER FRAUD AUTHORITY
+HSN/SAC: 998311
+PLACE OF SUPPLY: 24
+--------------------------------------------------------------
+DESCRIPTION                                  AMOUNT
+PORTLAND CEMENT 53 GRADE                                347.00
+--------------------------------------------------------------
+SUBTOTAL                                                347.00
+GST @ 18%                                                62.46
+TOTAL                                                   409.46

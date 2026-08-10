@@ -1,0 +1,80 @@
+{
+  "case_id": "GT-0097",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "DOCX",
+  "category": "adversarial",
+  "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "document": "GT-0097.docx",
+  "format_fidelity": "native_text",
+  "raw_fields": {
+    "date": "2026-01-13",
+    "party": "HEALTH RESEARCH AUTHORITY",
+    "subtotal": "5703.00",
+    "tax_amount": "1026.54",
+    "total": "6729.54",
+    "line_items": [
+      {
+        "description": "PORTLAND CEMENT 53 GRADE",
+        "amount": "1901.00"
+      },
+      {
+        "description": "OFFICE CHAIRS",
+        "amount": "3802.00"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "998311",
+    "rate": "18.00",
+    "supplier_state": "27",
+    "buyer_state": "24",
+    "place_of_supply": "24",
+    "tax_mode": "INTER_STATE"
+  },
+  "expected": {
+    "date": "2026-01-13",
+    "party": "HEALTH RESEARCH AUTHORITY",
+    "total_amount": "6729.54",
+    "tax_amount": "1026.54",
+    "line_items": [
+      {
+        "description": "PORTLAND CEMENT 53 GRADE",
+        "amount": "1901.00"
+      },
+      {
+        "description": "OFFICE CHAIRS",
+        "amount": "3802.00"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "verbatim supplier name from the published DHSC file",
+    "notes": "DOCX / adversarial / slot 0",
+    "variation": {
+      "date_format": "dmy_slash",
+      "currency": "rs",
+      "grouping": "indian",
+      "tax_label": "CGST/SGST",
+      "total_label": "AMOUNT PAYABLE",
+      "layout": "two_column",
+      "subtotal_last": true,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": [
+        "PURCHASE ORDER: 4500091827",
+        "TERMS: NET 30 DAYS. INTEREST 24% PER ANNUM AFTER DUE DATE."
+      ]
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "a1ea8e25c2458afe525da2550ac7ffef33cb607f079de2444994a49aaf442700",
+  "sha256": "7d1f50316b01f9088f72170b4231f1df8c10c0753cf3eb737353318ed0f07b5c",
+  "document_bytes": 1536
+}

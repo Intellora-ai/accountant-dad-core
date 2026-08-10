@@ -1,0 +1,64 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 7 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 7 0 R >> >> /Contents 6 0 R >>
+endobj
+5 0 obj
+<< /Length 466 >>
+stream
+BT /F1 9 Tf 40 800 Td 12 TL
+(TAX INVOICE) Tj T*
+(INVOICE NO: GT/0028) Tj T*
+(DATE: 28 APR 2026) Tj T*
+(SUPPLIER: KRISHNA ENTERPRISES) Tj T*
+(HSN/SAC: 7306) Tj T*
+(PLACE OF SUPPLY: 36) Tj T*
+(--------------------------------------------------------------) Tj T*
+(DESCRIPTION                                  AMOUNT) Tj T*
+(ANNUAL SOFTWARE LICENCE                                 624.50) Tj T*
+(COURIER AND FREIGHT                                   1,249.00) Tj T*
+ET
+endstream
+endobj
+6 0 obj
+<< /Length 491 >>
+stream
+BT /F1 9 Tf 40 800 Td 12 TL
+(--------------------------------------------------------------) Tj T*
+(SUBTOTAL                                              1,873.50) Tj T*
+(GST                                                     524.58) Tj T*
+(TOTAL                                                 2,398.08) Tj T*
+(PAGE 1 OF 2) Tj T*
+(CONTINUATION SHEET) Tj T*
+(SUPPLIER: KRISHNA ENTERPRISES) Tj T*
+(TOTAL                                                 2,398.08) Tj T*
+(PAGE 2 OF 2) Tj T*
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000121 00000 n 
+0000000247 00000 n 
+0000000373 00000 n 
+0000000889 00000 n 
+0000001430 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+1527
+%%EOF

@@ -22,6 +22,21 @@ from typing import Protocol, runtime_checkable
 
 NOT_FOUND = "not_found"
 
+#: The one media type a sentence a person typed arrives as.
+#:
+#: PHASE 8 PR-1. `TypedTextExtractor.extract` took `_mime` and threw it away,
+#: and the cost of throwing it away was measured on the five input types before
+#: this constant existed:
+#:
+#:     %PDF-1.7 ...          total_paise = 170,     source "typed_text"
+#:     PNG with a tEXt chunk total_paise = 420000,  source "typed_text"
+#:     JPEG with a COM       total_paise = 3133700, source "typed_text"
+#:
+#: Those are not blanks and they are not `not_found`. They are invented numbers
+#: wearing a real backend's name, which is worse than either, because a blank
+#: asks the person a question and an invented total does not.
+TYPED_TEXT_MIME = "text/plain"
+
 
 @dataclass(frozen=True)
 class LineItem:
@@ -82,6 +97,17 @@ _PARTY = re.compile(
 _HUNDRED = Decimal(100)
 
 
+def _media_type(mime: str) -> str:
+    """`text/plain; charset=utf-8` -> `text/plain`. Nothing is parsed past the `;`.
+
+    A real form sends the charset parameter, and refusing `text/plain;
+    charset=utf-8` because of eight trailing characters would be a refusal
+    nobody could act on. Splitting on `;` is the whole of it: this reads the
+    caller's own declaration, never the bytes.
+    """
+    return mime.split(";", 1)[0].strip().lower()
+
+
 def _to_paise(text: str) -> int | None:
     """Exact paise, or None when the string is not an amount in paise.
 
@@ -117,12 +143,64 @@ class TypedTextExtractor:
     """A person typed a sentence. Pull the fields out of it.
 
     This is string parsing, not document reading. It never touches an image.
+
+    IT NOW REFUSES WHAT IT CANNOT READ, RATHER THAN GUESSING AT IT
+    -------------------------------------------------------------
+    "It never touches an image" was a promise in a docstring, and the
+    parameter that could have kept it was named `_mime` and discarded. Handed a
+    PDF, a PNG or a JPEG, this class decoded the container with
+    `errors="replace"` and ran a money regex over the wreckage. The numbers it
+    returned are recorded beside `TYPED_TEXT_MIME` above; each arrived with
+    `per_field_source["total_paise"] == "typed_text"`, so nothing downstream
+    could tell the invented total from a read one.
+
+    A second, quieter case, measured the same day on real published bytes:
+    `"paid Café Ltd 4200 for supplies"` encoded cp1252 came back with
+    `party == "Caf"`, sourced `typed_text`. The é became U+FFFD, `_PARTY`
+    stopped at it, and a TRUNCATED supplier name went on to
+    `propose_account`, where a name that does not match history is a new
+    vendor. A wrong party is not a missing party.
+
+    Both are closed the same way and for the same reason: this backend states
+    what it can read, and everything else is an explicit `not_found` carrying
+    the sentence saying why. Refusing is not reading — no container is parsed,
+    no byte is interpreted, and adding a real reader is still somebody else's
+    job behind the same Protocol.
     """
 
     name = "typed_text"
 
-    def extract(self, data: bytes, _mime: str) -> ExtractedRecord:
-        text = data.decode("utf-8", errors="replace")
+    def _refuse(self, reason: str) -> ExtractedRecord:
+        """Every field `not_found`, with this reason on each of them.
+
+        `UnavailableExtractor` and not a second record built here, for the
+        reason `registry.GuardedExtractor.outage` already gives: two places
+        that build this shape is how one of them ends up without a reason on
+        it, which is a silent blank wearing a label.
+        """
+        return UnavailableExtractor(reason, name=self.name).extract(b"", "")
+
+    def extract(self, data: bytes, mime: str) -> ExtractedRecord:
+        declared = _media_type(mime)
+        if declared != TYPED_TEXT_MIME:
+            return self._refuse(
+                f"{self.name} reads a sentence a person typed and was handed "
+                f"{declared or 'no media type'}; reading a document is the "
+                f"third-party backend's job and no backend is selected"
+            )
+
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            # Strict, not `errors="replace"`. Replacing produced a party name
+            # with the wrong letters in it and no way for a later stage to
+            # know. A caller may declare text/plain and send anything.
+            return self._refuse(
+                f"{self.name} was handed {declared} that is not UTF-8 text "
+                f"(byte {exc.start} is not valid UTF-8), and guessing at the "
+                f"missing letters would change a supplier's name"
+            )
+
         src: dict[str, str] = {}
 
         amounts = _AMOUNT.findall(text)

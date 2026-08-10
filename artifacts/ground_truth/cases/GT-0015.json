@@ -1,0 +1,69 @@
+{
+  "case_id": "GT-0015",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "text",
+  "category": "tax_labels",
+  "mime": "text/plain",
+  "document": "GT-0015.txt",
+  "format_fidelity": "native_text",
+  "raw_fields": {
+    "date": "2026-03-15",
+    "party": "GREAT WESTERN RAILWAY",
+    "subtotal": "384.00",
+    "tax_amount": "19.20",
+    "total": "403.20",
+    "line_items": [
+      {
+        "description": "SITE SURVEY FEES",
+        "amount": "384.00"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "3824",
+    "rate": "5.00",
+    "supplier_state": "07",
+    "buyer_state": "07",
+    "place_of_supply": "07",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-03-15",
+    "party": "GREAT WESTERN RAILWAY",
+    "total_amount": "403.20",
+    "tax_amount": "19.20",
+    "line_items": [
+      {
+        "description": "SITE SURVEY FEES",
+        "amount": "384.00"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "verbatim supplier name from the published DFT file",
+    "notes": "text / tax_labels / slot 2",
+    "variation": {
+      "date_format": "dmy_dash",
+      "currency": "pound",
+      "grouping": "indian",
+      "tax_label": "IGST",
+      "total_label": "AMOUNT PAYABLE",
+      "layout": "block",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "4ab774ff20154f7f7cb7aa5cd820bc00f70a36d2111830b8a0d8f2cea10da33f",
+  "sha256": "ad5811de8165443d1ae83acd21bfa273046356074fd11f3685a353a8853c67ac",
+  "document_bytes": 545
+}

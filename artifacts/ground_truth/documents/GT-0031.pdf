@@ -1,0 +1,48 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 818 >>
+stream
+BT /F1 9 Tf 40 800 Td 12 TL
+(TAX INVOICE) Tj T*
+(INVOICE NO: GT/0031) Tj T*
+(DATE: 03-07-2026) Tj T*
+(SUPPLIER: WILTSHIRE COUNCIL) Tj T*
+(HSN/SAC: 3824) Tj T*
+(PLACE OF SUPPLY: 19) Tj T*
+(--------------------------------------------------------------) Tj T*
+(DESCRIPTION                                  AMOUNT) Tj T*
+(SCAFFOLDING HIRE                                        680.00) Tj T*
+(ELECTRICAL FITTINGS                                   1,360.00) Tj T*
+(CONSULTANCY RETAINER                                  2,040.00) Tj T*
+(--------------------------------------------------------------) Tj T*
+(SUBTOTAL                                              4,080.00) Tj T*
+(GST                                                     204.00) Tj T*
+(AMOUNT PAYABLE                                        4,284.00) Tj T*
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000001109 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1206
+%%EOF

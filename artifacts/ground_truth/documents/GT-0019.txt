@@ -1,0 +1,14 @@
+TAX INVOICE
+INVOICE NO: GT/0019
+DATE: 19 JUL 2026
+SUPPLIER: GOVIA THAMESLINK RAILWAY LIMITED
+HSN/SAC: 3824
+PLACE OF SUPPLY: 19
+--------------------------------------------------------------
+SUPPLY AS PER AGREEMENT. NO ITEMISED BREAKDOWN.
+--------------------------------------------------------------
+GST @ 18%                                                91.60
+GRAND TOTAL                                           1,923.60
+SUBTOTAL                                              1,832.00
+ROUND OFF SHOWN FOR INFORMATION: 0.004
+UNROUNDED TAX WORKING: 188.998

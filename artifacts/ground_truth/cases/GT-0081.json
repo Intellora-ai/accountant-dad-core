@@ -1,0 +1,69 @@
+{
+  "case_id": "GT-0081",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "DOCX",
+  "category": "clean",
+  "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "document": "GT-0081.docx",
+  "format_fidelity": "native_text",
+  "raw_fields": {
+    "date": "2026-09-25",
+    "party": "CORNWALL COUNCIL",
+    "subtotal": "1605.00",
+    "tax_amount": "288.90",
+    "total": "1893.90",
+    "line_items": [
+      {
+        "description": "CONSULTANCY RETAINER",
+        "amount": "1605.00"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "998311",
+    "rate": "18.00",
+    "supplier_state": "27",
+    "buyer_state": "27",
+    "place_of_supply": "27",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-09-25",
+    "party": "CORNWALL COUNCIL",
+    "total_amount": "1893.90",
+    "tax_amount": "288.90",
+    "line_items": [
+      {
+        "description": "CONSULTANCY RETAINER",
+        "amount": "1605.00"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "verbatim supplier name from the published DEFRA file",
+    "notes": "DOCX / clean / slot 0",
+    "variation": {
+      "date_format": "iso",
+      "currency": "none",
+      "grouping": "western",
+      "tax_label": "GST",
+      "total_label": "TOTAL",
+      "layout": "block",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "41b1c60169f39857fd15b419ef218894f87512a8ac374e5e5394946cbc0dd02f",
+  "sha256": "3e867da7dae8a27be6a3557c599dfb212f06a8777d48162e3ae8e7be3fc999ca",
+  "document_bytes": 1414
+}

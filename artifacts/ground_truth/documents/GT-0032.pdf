@@ -1,0 +1,52 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 1114 >>
+stream
+BT /F1 9 Tf 40 800 Td 12 TL
+(TAX INVOICE) Tj T*
+(INVOICE NO: GT/0032) Tj T*
+(DATE: 04 AUG 2026) Tj T*
+(SUPPLIER: PATEL STEEL AND TUBES) Tj T*
+(HSN/SAC: 7306) Tj T*
+(PLACE OF SUPPLY: 33) Tj T*
+(--------------------------------------------------------------) Tj T*
+(DESCRIPTION                                  AMOUNT) Tj T*
+(| ELECTRICAL FITTINGS                        |      RS. 698.50|) Tj T*
+(| CONSULTANCY RETAINER                       |    RS. 1,397.00|) Tj T*
+(| PACKAGING MATERIAL                         |    RS. 2,095.50|) Tj T*
+(| STEEL TUBES 40MM                           |    RS. 2,794.00|) Tj T*
+(| VEHICLE MAINTENANCE                        |    RS. 3,492.50|) Tj T*
+(| PORTLAND CEMENT 53 GRADE                   |    RS. 4,191.00|) Tj T*
+(| OFFICE CHAIRS                              |    RS. 4,889.50|) Tj T*
+(--------------------------------------------------------------) Tj T*
+(SUBTOTAL                                         RS. 19,558.00) Tj T*
+(GST                                               RS. 5,476.24) Tj T*
+(TOTAL DUE                                        RS. 25,034.24) Tj T*
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000001406 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1503
+%%EOF

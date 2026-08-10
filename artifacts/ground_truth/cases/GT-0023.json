@@ -1,0 +1,69 @@
+{
+  "case_id": "GT-0023",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "PDF",
+  "category": "clean",
+  "mime": "application/pdf",
+  "document": "GT-0023.pdf",
+  "format_fidelity": "text_operators",
+  "raw_fields": {
+    "date": "2026-11-23",
+    "party": "CAPITA BUSINESS SERVICES LTD",
+    "subtotal": "532.00",
+    "tax_amount": "26.60",
+    "total": "558.60",
+    "line_items": [
+      {
+        "description": "STEEL TUBES 40MM",
+        "amount": "532.00"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "3824",
+    "rate": "5.00",
+    "supplier_state": "07",
+    "buyer_state": "07",
+    "place_of_supply": "07",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-11-23",
+    "party": "CAPITA BUSINESS SERVICES LTD",
+    "total_amount": "558.60",
+    "tax_amount": "26.60",
+    "line_items": [
+      {
+        "description": "STEEL TUBES 40MM",
+        "amount": "532.00"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "verbatim supplier name from the published DWP file",
+    "notes": "PDF / clean / slot 2",
+    "variation": {
+      "date_format": "iso",
+      "currency": "none",
+      "grouping": "western",
+      "tax_label": "GST",
+      "total_label": "TOTAL",
+      "layout": "block",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "4ed64092df262f1038b29beba7b421037e0055c0a2a049eeec1e3a1adc83f2b2",
+  "sha256": "31e9b265be639be3b40d8ff4d5408e7da88823f217b33de57b19ad2d058b03fe",
+  "document_bytes": 1259
+}
