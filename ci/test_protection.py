@@ -18,14 +18,45 @@ fail rather than report a hollow success.
 
     pytest ci/test_protection.py -v
 
-Skips itself when there is no network or no `gh`, because a skipped test that
-announces itself is honest and a fabricated pass is not.
+BEHAVIOUR WHEN THE PREREQUISITES ARE ABSENT - CHANGED 2026-08-10
+----------------------------------------------------------------
+This module used to carry an unconditional module-level skip:
+
+    pytestmark = pytest.mark.skipif(not reachable(), ...)
+
+`reachable()` shells out to `gh api repos/<repo>`. No CI job in this repository
+sets GH_TOKEN, so `gh` was unauthenticated on every hosted run, `reachable()`
+was False on every hosted run, and all nine tests below skipped on every hosted
+run. A test that always skips is a green square that measured nothing.
+
+It now has three outcomes, not two:
+
+    prerequisites present            run the real tests against the real API
+    absent, and CI                   FAIL, naming the missing prerequisite
+    absent, and a developer laptop   skip, reported as
+                                     LOCAL_ENVIRONMENT_UNAVAILABLE
+
+WARNING TO WHOEVER APPLIES THIS: the CI branch fails today, because no workflow
+job supplies a token. The Python change and the workflow step that supplies
+`GH_TOKEN` must be applied together, or every pull request goes red. The
+recommended workflow diff is stated in artifacts/gate_integrity_audit.md and is
+deliberately NOT applied here - editing .github/** needs the owner's yes for
+that specific change.
+
+WHY 401 IS NO LONGER PROOF
+--------------------------
+`FORBIDDEN_STATUSES` used to be (401, 403, 404). 401 means "you did not
+authenticate". An unauthenticated caller is refused everything, so a removed or
+expired token made every assertion below pass - for entirely the wrong reason.
+403 and 404 come back to an identity GitHub recognises and then declines, which
+is the thing being asserted. 401 is now a missing prerequisite, not a refusal.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import tomllib
@@ -39,7 +70,14 @@ CONTRACT = ROOT / "ci" / "gates.toml"
 
 # Operations that must be refused. Each is a real, destructive change to
 # protection - not a dry run and not a probe against a fake endpoint.
-FORBIDDEN_STATUSES = (401, 403, 404)
+#
+# 403 "Resource not accessible by personal access token" and 404 (GitHub hides
+# resources an identity may not touch) are refusals OF A RECOGNISED IDENTITY.
+# That is the claim being tested.
+FORBIDDEN_STATUSES = (403, 404)
+
+# 401 is not a refusal, it is an absence. Never counted as proof.
+UNAUTHENTICATED_STATUSES = (401,)
 
 
 def contract() -> dict[str, Any]:
@@ -67,10 +105,52 @@ def reachable() -> bool:
     return gh("api", f"repos/{REPO}", "--jq", ".name").returncode == 0
 
 
-pytestmark = pytest.mark.skipif(
-    not reachable(),
-    reason="no gh or no network: refusing to fake a protection result",
-)
+def in_ci() -> bool:
+    """GitHub sets GITHUB_ACTIONS on every hosted runner. CI is the general case."""
+    return os.environ.get("GITHUB_ACTIONS") == "true" or os.environ.get("CI") == "true"
+
+
+def missing_prerequisite() -> str | None:
+    """Exactly what is missing, or None when the live test can really run."""
+    if shutil.which("gh") is None:
+        return "the `gh` CLI is not on PATH"
+    probe = gh("api", f"repos/{REPO}", "--jq", ".name")
+    if probe.returncode == 0:
+        return None
+    blob = (probe.stdout + probe.stderr).lower()
+    if any(str(code) in blob for code in UNAUTHENTICATED_STATUSES):
+        return (
+            "`gh` is unauthenticated (HTTP 401). No token means every call is "
+            "refused, which would make every assertion below pass for the wrong "
+            "reason. Set GH_TOKEN to the identity whose permissions are being "
+            "tested."
+        )
+    return f"`gh api repos/{REPO}` failed: {probe.stderr.strip() or 'no output'}"
+
+
+@pytest.fixture(autouse=True)
+def live_github_or_an_honest_verdict() -> None:
+    """Three outcomes, never a silent one.
+
+    The old module-level skipif had two, and the one it always took on a hosted
+    runner was the one that measured nothing.
+    """
+    problem = missing_prerequisite()
+    if problem is None:
+        return
+    if in_ci():
+        pytest.fail(
+            "PROTECTION_TEST_PREREQUISITES_MISSING - refusing to skip in CI.\n"
+            f"  {problem}\n"
+            "  This test is the only thing that proves the identity CI runs as "
+            "cannot weaken branch protection. Skipping it in CI is a green square "
+            "that measured nothing, which is how it behaved on every hosted run "
+            "before 2026-08-10.\n"
+            "  Owner action: give the job a GH_TOKEN for the identity being "
+            "tested. See artifacts/gate_integrity_audit.md.",
+            pytrace=False,
+        )
+    pytest.skip(f"LOCAL_ENVIRONMENT_UNAVAILABLE: {problem}")
 
 
 def ruleset_id() -> int:
@@ -95,10 +175,24 @@ def canonical(rid: int) -> str:
 
 
 def refused(result: subprocess.CompletedProcess[str]) -> bool:
-    """True when GitHub refused the operation, rather than it merely erroring."""
+    """True when GitHub refused the operation, rather than it merely erroring.
+
+    A 401 is not a refusal of this identity - it is the absence of an identity.
+    It stops the test rather than satisfying it: an expired or removed token
+    would otherwise turn every assertion in this file green.
+    """
     if result.returncode == 0:
         return False
     blob = (result.stdout + result.stderr).lower()
+    if any(str(code) in blob for code in UNAUTHENTICATED_STATUSES):
+        pytest.fail(
+            "PROTECTION_TEST_UNAUTHENTICATED - the call came back 401.\n"
+            "  Nobody was refused; nobody asked. A 401 proves nothing about "
+            "whether this identity can weaken protection, and treating it as "
+            "proof is how a removed token turns this whole file green.\n"
+            f"  {result.stdout.strip()}\n  {result.stderr.strip()}",
+            pytrace=False,
+        )
     if "not accessible" in blob or "must have admin" in blob:
         return True
     return any(str(code) in blob for code in FORBIDDEN_STATUSES)

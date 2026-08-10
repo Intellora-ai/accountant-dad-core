@@ -37,11 +37,23 @@ class Drift:
 
     problems: list[str] = field(default_factory=list[str])
     checked: list[str] = field(default_factory=list[str])
+    observed: list[str] = field(default_factory=list[str])
 
     def require(self, ok: bool, description: str, detail: str) -> None:
         self.checked.append(description)
         if not ok:
             self.problems.append(f"{description} — {detail}")
+
+    def observe(self, description: str, value: object) -> None:
+        """Print a live value without judging it.
+
+        For settings the owner has not chosen yet. Asserting a floor here would
+        mean inventing a number the owner never gave, and a floor of zero
+        defends nothing. Printing it means a silent revert is at least VISIBLE
+        in the step summary, which is strictly better than nothing and is not
+        dressed up as enforcement.
+        """
+        self.observed.append(f"{description}: {value!r}")
 
     @property
     def clean(self) -> bool:
@@ -72,6 +84,8 @@ def contract() -> dict[str, Any]:
 def audit(repo: str) -> Drift:
     meta = contract()["meta"]
     expected_check = str(meta["required_pr_check"])
+    expected_mq_check = str(meta["required_mq_check"])
+    expected_app_id = int(meta["required_check_app_id"])
     drift = Drift()
 
     rulesets = gh_api(f"repos/{repo}/rulesets")
@@ -85,6 +99,19 @@ def audit(repo: str) -> Drift:
     if not active:
         return drift
 
+    # EVERY branch ruleset, not just the first. `active[0]` used to be the whole
+    # audit: a second ruleset could carry a bypass actor and this would never
+    # look at it.
+    for extra in active[1:]:
+        extra_full = gh_api(f"repos/{repo}/rulesets/{extra['id']}")
+        extra_bypass: list[Any] = list(extra_full.get("bypass_actors") or [])
+        drift.require(
+            not extra_bypass,
+            f"ruleset {extra['id']} ({extra.get('name')!r}) has no bypass actors",
+            f"{len(extra_bypass)} actor(s) can bypass it: {extra_bypass}",
+        )
+    drift.observe("branch rulesets on this repository", [r["id"] for r in active])
+
     full = gh_api(f"repos/{repo}/rulesets/{active[0]['id']}")
     rules = {r["type"]: r.get("parameters", {}) for r in full.get("rules", [])}
 
@@ -92,6 +119,23 @@ def audit(repo: str) -> Drift:
         full.get("enforcement") == "active",
         "ruleset is active",
         f"enforcement is {full.get('enforcement')!r}",
+    )
+
+    # A ruleset whose conditions match nothing has every rule intact and
+    # protects nothing. Every check below would still pass.
+    ref_name: dict[str, Any] = dict(full.get("conditions", {}).get("ref_name", {}))
+    include: list[str] = list(ref_name.get("include") or [])
+    exclude: list[str] = list(ref_name.get("exclude") or [])
+    drift.require(
+        "~DEFAULT_BRANCH" in include or "~ALL" in include,
+        "the ruleset actually applies to the default branch",
+        f"conditions.ref_name.include is {include}, which may not cover main. "
+        "Every rule below can be intact while the ruleset matches no branch.",
+    )
+    drift.require(
+        not exclude,
+        "no branch is excluded from the ruleset",
+        f"conditions.ref_name.exclude is {exclude}",
     )
 
     bypass: list[Any] = list(full.get("bypass_actors") or [])
@@ -109,12 +153,48 @@ def audit(repo: str) -> Drift:
     )
 
     if status is not None:
-        contexts = [c.get("context") for c in status.get("required_status_checks", [])]
-        drift.require(
-            expected_check in contexts,
-            f"{expected_check} is required",
-            f"required checks are {contexts}, missing {expected_check!r}",
-        )
+        entries: list[dict[str, Any]] = list(status.get("required_status_checks", []))
+        contexts = [c.get("context") for c in entries]
+        for wanted in (expected_check, expected_mq_check):
+            drift.require(
+                wanted in contexts,
+                f"{wanted} is required",
+                f"required checks are {contexts}, missing {wanted!r}",
+            )
+
+        # WHO is allowed to report the check, not just that the name is listed.
+        #
+        # A required context is satisfied by whoever writes a status with that
+        # string. Any GitHub App installed on this repository with
+        # `commit statuses: write` can write `pr-fast: success` and satisfy the
+        # requirement without a single gate having run. Pinning integration_id
+        # means only that app's reports count.
+        #
+        # The owner pinned both contexts to app 15368 on 2026-08-10T06:51:46Z.
+        # This repository has more than one app that reports checks - measured
+        # the same day, `github-actions` is 15368 and `claude` is 1236702 - so
+        # the pin is load-bearing, not decorative.
+        #
+        # Until 2026-08-10 this audit asserted only the NAME. An unpinned
+        # context would have reported a clean 9/9.
+        for entry in entries:
+            name = entry.get("context")
+            if name not in (expected_check, expected_mq_check):
+                continue
+            got = entry.get("integration_id")
+            drift.require(
+                got is not None,
+                f"{name} is pinned to a single app",
+                "integration_id is absent, so ANY app or user with "
+                "`commit statuses: write` can report this check as successful "
+                "and satisfy the requirement without running a gate",
+            )
+            drift.require(
+                got is None or int(got) == expected_app_id,
+                f"{name} is pinned to app {expected_app_id}",
+                f"it is pinned to app {got}, not to the app the contract names",
+            )
+
         drift.require(
             bool(status.get("strict_required_status_checks_policy")),
             "branch must be up to date with main",
@@ -136,6 +216,32 @@ def audit(repo: str) -> Drift:
         "direct pushes to main are blocked",
         "the pull_request rule is gone, so main can be pushed to directly",
     )
+
+    # OBSERVED, NOT ASSERTED - and this is the honest gap in this file.
+    #
+    # The owner has not set a review requirement: as of 2026-08-10 the live
+    # values are required_approving_review_count = 0 and
+    # require_code_owner_review = false. Asserting a floor would mean writing a
+    # number the owner never gave, and a floor of zero defends nothing.
+    #
+    # So they are printed instead. The consequence, stated plainly: if the owner
+    # raises the review count tomorrow and it is silently reverted the day
+    # after, THIS AUDIT WILL STILL REPORT CLEAN. The moment a number is set,
+    # move these two lines from observe() to require() against the owner's
+    # value. See artifacts/gate_integrity_audit.md, R2.
+    pull_request = rules.get("pull_request")
+    if pull_request is not None:
+        for key in (
+            "required_approving_review_count",
+            "require_code_owner_review",
+            "require_last_push_approval",
+            "dismiss_stale_reviews_on_push",
+        ):
+            drift.observe(f"pull_request.{key}", pull_request.get(key))
+        drift.observe(
+            "pull_request.allowed_merge_methods",
+            pull_request.get("allowed_merge_methods"),
+        )
 
     return drift
 
@@ -167,6 +273,7 @@ def main() -> int:
                     "repository": repo,
                     "clean": drift.clean,
                     "checked": drift.checked,
+                    "observed": drift.observed,
                     "problems": drift.problems,
                 },
                 indent=2,
@@ -178,6 +285,11 @@ def main() -> int:
     for description in drift.checked:
         broken = any(p.startswith(description) for p in drift.problems)
         print(f"  {'✗' if broken else '✓'} {description}")
+
+    if drift.observed:
+        print("\n  observed, NOT asserted — a silent revert here is invisible:")
+        for line in drift.observed:
+            print(f"    · {line}")
 
     if drift.clean:
         print("\nPASS — protection matches the contract")

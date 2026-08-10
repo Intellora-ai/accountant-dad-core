@@ -7,6 +7,18 @@
 # Standing rule: the number of gates may only go UP. A commit that shortens
 # this list is a violation regardless of reason.
 #
+# THIS FILE CANNOT DETECT ITS OWN SHORTENING. tests/test_gate_contract.py
+# compares it with ci/gates.toml - two files in the same commit - so deleting a
+# name from both leaves `19 >= 19` and every assertion passes. Since 2026-08-10
+# ci/check_workflow_integrity.py also reads this file from `origin/main`, which
+# a pull request cannot edit while it is being graded, and fails on any name
+# that main has and the branch does not.
+#
+# RESIDUAL HOLE, STATED: once a pull request merges, main's copy IS the merged
+# copy. The comparison protects the pull request under review and nothing after
+# it. Closing that needs a GitHub-side rule - artifacts/gate_integrity_audit.md,
+# section 10.
+#
 # locked at 20 gates, 2026-08-08
 cached-mutation
 changed-coverage
