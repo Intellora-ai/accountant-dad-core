@@ -968,11 +968,43 @@ asserts refusal. It never fakes a denial.
         "do_not_enforce_on_create": false,
         "strict_required_status_checks_policy": true,
         "required_status_checks": [
-          { "context": "pr-fast" },
+          { "context": "pr-fast", "integration_id": 15368 },
           { "context": "ci-gate", "integration_id": 15368 } ] } }
   ]
 }
 ```
+
+**CORRECTED 2026-08-10. The snapshot above previously showed
+`{ "context": "pr-fast" }` with no `integration_id`.** That was true when it
+was written and is no longer true. Re-read live at **2026-08-10T06:59:21Z**,
+both required contexts carry `integration_id: 15368`, which
+`gh api apps/github-actions` resolves to GitHub Actions.
+
+```
+ruleset updated_at, as recorded here before   2026-08-08T07:53:43.446+05:30
+ruleset updated_at, read 2026-08-10T06:59:21Z 2026-08-10T12:21:46.474+05:30
+                                              ( = 2026-08-10T06:51:46Z )
+```
+
+The old snapshot is kept in this paragraph rather than erased, because an
+unpinned required check is a real finding and a struck record is evidence in a
+way a vanished one is not. This document does not claim to know who applied
+the pin; it records that the ruleset changed at that instant and what the
+state is now.
+
+**Why the pin is the control.** An unpinned required context can be satisfied
+by any actor holding `commit statuses: write` — the check name is matched, no
+workflow runs, and the branch goes green. Pinning binds the context to one
+app id.
+
+**The gap that is still open, and it is not the pin.** `ci/check_ruleset.py`
+runs nine drift checks. At lines 111-122 it asserts the required *context
+name* is present and that the strict policy is on. **It never inspects
+`integration_id`.** If `pr-fast` were unpinned again, the audit would still
+report clean. The pin has been applied and is not defended.
+`HUMAN_ACTION_REQUIRED` — see
+[`artifacts/codeant_integration.md`](../artifacts/codeant_integration.md)
+§A.5.
 
 **`bypass_actors: []` binds repository admins too.** `--admin` force-merge was
 refused, which proves it rather than asserting it.
@@ -3228,3 +3260,115 @@ The guard that came out of it is now a test rather than a habit: any future
 measurement must show the resolved `accountant.__file__` inside the intended
 worktree before its result is recorded — which is precisely the assertion that
 makes §41.4 admissible.
+
+## §42 CodeAnt AI — what happened, and what is still unmeasured
+
+The design — what CodeAnt is allowed to do and what it may never authorise —
+is [`ARCHITECTURE.md` §19](./ARCHITECTURE.md). The full record, with every
+command and its output, is
+[`artifacts/codeant_integration.md`](../artifacts/codeant_integration.md).
+This section records only what happened.
+
+### §42.1 What happened
+
+The owner installed the CodeAnt AI GitHub App on
+`Intellora-ai/accountant-dad-core` on **2026-08-10**, reported from the
+installation page as *"Installed 4 minutes ago"*, approximately
+**06:47Z**. Installation `152579228`, developer CodeAnt-AI.
+
+Nothing has been observed from it, and **that is not a finding about CodeAnt**.
+
+```
+installed         NOT_MEASURED   the endpoint that would confirm it returns
+                                 HTTP 404 without Administration; the owner
+                                 reports it installed and that is recorded
+                                 as a report, not as a measurement
+review observed   NOT_MEASURED   meaning NOT YET MEASURABLE
+configuration     NOT_IMPLEMENTED  GitHub-app-managed; no file exists in the
+                                 tree and no filename was invented
+fixtures          BLOCKED        12 defined, 0 run
+```
+
+### §42.2 The correction that matters more than the result
+
+An earlier pass checked pull requests 26, 27 and 28, found no CodeAnt review,
+and was about to record `NOT_OBSERVED`.
+
+```
+PR 28  created 2026-08-10T05:57:29Z  merged 2026-08-10T06:11:49Z
+PR 27  created 2026-08-10T05:19:21Z  merged 2026-08-10T05:31:29Z
+PR 26  created 2026-08-10T04:52:26Z  merged 2026-08-10T05:05:55Z
+installed (owner-reported)           approximately 06:47Z
+```
+
+**All three were created and merged before the app existed on this
+repository.** Their silence proves nothing. `NOT_OBSERVED` would have
+asserted that CodeAnt was given a chance and did nothing; the honest label is
+`NOT_MEASURED`, meaning not yet measurable. There were also **zero open pull
+requests** at 2026-08-10T06:54:02Z, so no live head existed either.
+
+**Both surfaces were checked, not one.** A GitHub App can post a commit
+status, which never appears in `/check-runs`. Reading only `/check-runs` would
+have produced a confident false negative. Every check run on this repository
+is `app.id 15368`, GitHub Actions; commit statuses total zero.
+
+The evidence that would change the record is one thing and it is cheap: **one
+pull request opened after approximately 2026-08-10T06:47Z**, then read both
+surfaces on its head.
+
+### §42.3 The permissions, and the reduction that is not available
+
+Read from the installation page and recorded verbatim:
+
+```
+Read        actions · administration · deployments · metadata · repository hooks
+Read+write  checks · code · commit statuses · issues · pull requests
+Repo access Only select repositories -> Intellora-ai/accountant-dad-core
+```
+
+`permissions_reduced: HUMAN_ACTION_REQUIRED`, with an honest qualification:
+**GitHub App permissions are declared by the app's developer, not selected by
+the installer.** There is no per-permission toggle. `code: write` cannot be
+switched off while the app remains installed. The levers that exist are
+repository scope (already limited to this one repository), pinning every
+required check, and uninstall.
+
+This identity cannot change any of it, which is the Stage 0 design working:
+
+```
+$ gh api repos/Intellora-ai/accountant-dad-core/branches/main/protection
+{"message":"Resource not accessible by personal access token", ... "status":"403"}
+                                                 measured 2026-08-10T06:53:36Z
+```
+
+The same 403 comes back from `actions/permissions` and `hooks`. The account
+holds the admin role; the token deliberately does not carry Administration.
+
+Two threat-model lines, both capability statements rather than accusations:
+**`code: write` exceeds what a review layer needs** — reading a diff and
+writing a comment does not require the ability to push a commit; and
+**`administration: read` lets it read the ruleset configuration** — it cannot
+alter protection, but it can see exactly how the repository is protected.
+
+### §42.4 The twelve fixtures, defined and not run
+
+Twelve review fixtures are written up as precise, runnable edits — exact file,
+exact line, exact change — so that whoever runs them does not re-derive them:
+deleting a safety regression test · unconditional `xfail` · unconditional
+`skip` · weakening a GST assertion · removing `raw_subject` persistence ·
+indexing on the stripped subject only · removing duplicate-voucher protection
+· removing read-back verification · deleting `security-scan` from a workflow ·
+swapping `uv lock --check` for `uv sync --frozen` · adding an unverified
+measurement · claiming a question rate of zero without the fixture.
+
+**None were applied and no branches were created for them.** Several are
+genuine safety regressions and two touch `.github/**`, which needs a
+per-change owner approval under the standing rules.
+
+    fixtures detected  0 / 12
+    misses             0
+    both are 0 because 0 have been run, not because 0 were found
+
+Most of the twelve are already caught by a deterministic guard — the D-05 AST
+guard, the GST safety sweep, `ci/check_stubs.py`, the locked twenty-gate set.
+**If CodeAnt later misses one, the miss is recorded and the guard stays.**

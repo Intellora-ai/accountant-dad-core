@@ -1772,3 +1772,98 @@ the five input types are the same five already frozen as `S1` in
 **If implementation inspection later contradicts an assumption, scope is not
 silently changed.** The contradiction is recorded, the affected exit is marked
 `BLOCKED`, and independent work continues.
+
+## 19. The review layer — deterministic gates and the advisory reviewer
+
+This section says how the review layer **should work**. What actually happened
+when CodeAnt AI was installed — and what is still unmeasured — is recorded in
+[`PROJECT_STATE.md` §42](./PROJECT_STATE.md) and, in full, in
+[`artifacts/codeant_integration.md`](../artifacts/codeant_integration.md).
+This document does not restate those measurements; it defines the design they
+are measured against.
+
+### 19.1 Two layers, and only one of them is authority
+
+```
+        a pull request
+              |
+     +--------+---------+
+     |                  |
+ DETERMINISTIC      ADVISORY
+ 20 gates in        CodeAnt AI
+ ci/gates.toml      reads the diff
+ 23 AST guards      may post a review
+ GST safety sweep   may post nothing
+ ci/check_stubs.py
+     |                  |
+  pass / fail        an opinion
+     |                  |
+  MERGE AUTHORITY    NO AUTHORITY
+```
+
+**The left column decides. The right column advises.** The design property
+that keeps that true is not a policy document — it is the ruleset. Merge
+authority is exactly the set of required status checks, and each one is pinned
+to a specific GitHub App id. A required check that names a context but pins no
+app can be satisfied by *any* actor holding `commit statuses: write`, which is
+why the pin is the control and the context name is not.
+
+### 19.2 What CodeAnt may do
+
+- Read the diff on a pull request.
+- Post a review, a review comment, or an issue comment.
+- Post a commit status **that no rule depends on**.
+
+### 19.3 What CodeAnt may never do, by design
+
+| Never | What prevents it |
+|---|---|
+| be a required merge check | `required_for_merge: false`; the required contexts are pinned to GitHub Actions |
+| stand as evidence that tests passed | only a check run from the pinned app is that |
+| replace a deterministic guard | see §19.4 |
+| change branch protection or required checks | its grant is `administration: read` — read-only |
+
+**A silent reviewer and an approving reviewer are the same signal: none.**
+Nothing in the merge path reads either one. This is deliberate. A reviewer
+whose absence blocks a merge is a required check wearing a different name, and
+it would make availability of a third-party service a dependency of shipping.
+
+### 19.4 The replacement rule
+
+**An advisory layer is added to a deterministic one. It never subtracts from
+it.**
+
+If CodeAnt reports a finding that a guard already catches, the guard stays —
+duplication between a probabilistic reviewer and a deterministic check is not
+waste, it is the point. If CodeAnt misses something a guard catches, **the
+miss is recorded and the guard stays**. There is no configuration, threshold,
+or review outcome that authorises removing a guard, because a reviewer that
+can retire a check is a check with an off switch.
+
+The concrete pairings that matter most:
+
+```
+stripped-subject indexing  ->  the D-05 AST structural guard
+weakened GST assertion     ->  the 30-case GST safety sweep
+workflow tampering         ->  ci/check_stubs.py + the locked gate-name set
+```
+
+### 19.5 What a review layer needs, and what this one holds
+
+A reviewer reads a diff and writes a comment. That needs read access to code
+and write access to pull requests and issues. **`code: write` is more than
+that**, and it is worth stating plainly rather than tolerating quietly.
+
+GitHub App permissions are declared by the app's developer, not chosen by the
+installer, so there is no per-permission toggle to turn it off. The controls
+that do exist are architectural: limit repository scope, pin every required
+check to a known app, and keep the drift audit honest. The first two are in
+place. The third has a measured gap — `ci/check_ruleset.py` checks that a
+required context is *present* but never inspects its `integration_id`, so a
+pin can be removed without the audit noticing. Closing that is a human action
+recorded in the integration artifact, not a design change here.
+
+**The general principle, which outlives this particular vendor:** any
+third-party app installed on this repository is advisory until a pinned
+required check says otherwise, and the pin — not the app's own claims about
+itself — is the thing this architecture trusts.

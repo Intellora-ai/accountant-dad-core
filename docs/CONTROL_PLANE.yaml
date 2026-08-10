@@ -2331,3 +2331,132 @@ phase8_scope:
     invented and nothing was renumbered. This is the third id collision in this
     project; the D-28/D-29 note at the head of this file records the previous
     one the same way. Only the owner resolves an id collision.
+
+# ---------------------------------------------------------------------------
+# codeant - the advisory pull-request review layer.
+#
+# A NEW TOP-LEVEL KEY, following the pattern phase7: already uses. Nothing in
+# allowed_statuses was widened and no phases[] entry was touched.
+#
+# EVERY VALUE BELOW IS EITHER MEASURED FROM THE GITHUB API AT A STATED TIME, OR
+# REPORTED BY THE OWNER AND LABELLED AS REPORTED. The two are never merged.
+# An observation without a timestamp is how a true finding becomes a false one
+# minutes later, so each measurement carries the instant it was taken.
+# ---------------------------------------------------------------------------
+
+codeant:
+  repository: Intellora-ai/accountant-dad-core
+  role: advisory_pr_review
+  required_for_merge: false
+
+  # NOT true, and not false. Installation is not readable from this identity:
+  # GET repos/Intellora-ai/accountant-dad-core/installations returns HTTP 404
+  # because listing it needs Administration, which this token deliberately
+  # lacks. The owner reports it installed. Both facts are kept side by side.
+  installed: NOT_MEASURED
+  installed_evidence: >-
+    Owner-reported from the GitHub installation page on 2026-08-10, shown as
+    "Installed 4 minutes ago", i.e. approximately 2026-08-10T06:47Z. Not
+    independently verifiable from this identity: GET
+    repos/Intellora-ai/accountant-dad-core/installations returned HTTP 404 at
+    2026-08-10T06:53:36Z, and GET orgs/Intellora-ai/installations returned
+    HTTP 404 at the same instant. A 404 on these endpoints is how GitHub
+    refuses a token without Administration; it is not evidence of absence.
+  installation_id_owner_reported: 152579228
+  developer_owner_reported: "CodeAnt-AI, https://codeant.ai"
+
+  # The observable question, kept separate from the installation question.
+  review_observed_on_pr: NOT_MEASURED
+  review_observed_note: >-
+    NOT_MEASURED here means NOT YET MEASURABLE, which is weaker than
+    NOT_OBSERVED and must not be read as it. No pull-request head exists that
+    was created after the reported installation, so CodeAnt has not yet had an
+    opportunity to post anything. Recording NOT_OBSERVED would assert that it
+    was given a chance and did nothing, which the evidence does not support.
+  pull_requests_checked: [26, 27, 28]
+  pull_requests_checked_note: >-
+    All three were created AND merged before the reported installation time.
+    PR 28, the newest, was created 2026-08-10T05:57:29Z and merged
+    2026-08-10T06:11:49Z - about 35 minutes before installation. Their silence
+    is therefore expected and proves nothing about the app's current state.
+  open_pull_requests_at_measurement: 0
+  evidence_needed_to_change_this: >-
+    One pull request opened after approximately 2026-08-10T06:47Z. Then read
+    both surfaces on its head commit - /check-runs AND /statuses - because a
+    GitHub App can post a commit status, which never appears in check-runs.
+
+  measured_on_pr_heads:
+    measured_at: "2026-08-10T06:54:02Z"
+    method: >-
+      gh api repos/{repo}/commits/{head}/check-runs and
+      gh api repos/{repo}/commits/{head}/status, per head, plus
+      /pulls/{n}/reviews, /issues/{n}/comments and /pulls/{n}/comments.
+    check_runs_seen: "ci-gate, pr-full, pr-fast - all app.id 15368, slug github-actions"
+    commit_statuses_seen: 0
+    reviews_seen: 0
+    issue_comments_seen: 0
+    review_comments_seen: 0
+
+  # There is no CodeAnt configuration file in this repository, and none is
+  # expected. Configuration is held by the GitHub App. No filename is invented.
+  configuration_file: NOT_IMPLEMENTED
+  configuration_note: >-
+    git grep -Ein "codeant|coderabbit|qodo" over the whole tree returned no
+    matches at 2026-08-10T06:53Z, and no file matching *codeant* exists.
+    CodeAnt is GitHub-app-managed; there is no in-repository config file to
+    name, and none was invented in order to have one to name.
+
+  # The owner's template said protected_github_workflows. That is the intent.
+  # These are the check names the live ruleset actually requires.
+  trusted_merge_authority: protected_github_workflows
+  trusted_merge_authority_actual_contexts: ["pr-fast", "ci-gate"]
+  trusted_merge_authority_discrepancy: >-
+    FLAGGED, NOT CORRECTED. The owner's mandate refers to check names under a
+    "trusted/*" prefix. No such context exists on this repository. Ruleset
+    20557129 "main protection" requires exactly two contexts, pr-fast and
+    ci-gate, both pinned to integration_id 15368 (GitHub Actions), measured
+    2026-08-10T06:59:21Z. Renaming a required check is a ruleset change and
+    needs the owner's admin identity; it was not attempted.
+
+  # Read from the owner's installation page and recorded verbatim. GitHub App
+  # permissions are DECLARED BY THE DEVELOPER, not chosen by the installer.
+  permissions_owner_reported:
+    read: ["actions", "administration", "deployments", "metadata", "repository hooks"]
+    read_and_write: ["checks", "code", "commit statuses", "issues", "pull requests"]
+    repository_access: "Only select repositories -> Intellora-ai/accountant-dad-core"
+  permissions_reduced: HUMAN_ACTION_REQUIRED
+  permissions_reduction_note: >-
+    There is no per-permission toggle on a GitHub App installation. The owner
+    cannot reduce "code: write" without uninstalling the app. The levers that
+    actually exist are: repository scope (already correctly limited to this one
+    repository), ruleset pinning of required checks, and uninstall. Writing
+    "reduce these permissions" as if it were an available action would be
+    false. See artifacts/codeant_integration.md for the itemised list.
+
+  reviewed_paths:
+    - "accountant/**"
+    - "tests/**"
+    - "scripts/**"
+    - "ci/**"
+    - ".github/**"
+    - "docs/**"
+    - "pyproject.toml"
+    - "uv.lock"
+
+  validation_fixtures_defined: 12
+  validation_fixtures_run: 0
+  validation_fixtures_status: BLOCKED
+  validation_fixtures_note: >-
+    Defined and made runnable in artifacts/codeant_integration.md, and
+    deliberately NOT applied. A reviewer that has not yet had a pull request to
+    review cannot be measured, and several fixtures are genuine safety
+    regressions. Two of the twelve touch .github/**, which needs a per-change
+    owner approval under the standing rules.
+
+  never: >-
+    CodeAnt is an additional review layer. It is never merge authority, and its
+    silence or its approval is never evidence that the tests passed. The
+    deterministic guards stay whatever CodeAnt does or does not find: the D-05
+    AST guard, the GST safety sweep, ci/check_stubs.py, and the twenty gates in
+    ci/gates.toml. If CodeAnt later misses a fixture, record the miss and keep
+    the guard.
