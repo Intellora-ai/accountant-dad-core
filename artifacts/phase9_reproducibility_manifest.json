@@ -4,8 +4,24 @@
   "evidence_class": "PUBLIC_DATA_EVIDENCE",
   "determinism_verdict": "REPRODUCIBLE",
   "measured_on": "2026-08-10",
-  "output_sha256": "83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4",
+  "output_sha256": "98d60c6099434db74c4301f9427568562abb0d4fe136f620a6c192e1479701c0",
   "output_produced_by": "tests.test_cross_organisation.experiment_text",
+  "contract_change": {
+    "headline": "The output hash moved on 2026-08-10. The number was not quietly swapped, and the finding did not change.",
+    "old_output_sha256": "83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4",
+    "new_output_sha256": "98d60c6099434db74c4301f9427568562abb0d4fe136f620a6c192e1479701c0",
+    "why": "Owner decision D-05 (2026-08-10) rules that a company's legal form is part of its identity and must not be stripped as noise. accountant/memory/index.py:normalise_vendor therefore keeps it: \"Accenture (UK) Ltd\" now folds to accenture_uk_ltd, where before D-05 it folded to accenture_uk. That supplier key is printed in the experiment text, so the text's bytes changed, so its sha256 changed.",
+    "how_much_of_the_text_changed": "one token, in one place. Taking the new 147-line experiment text and substituting accenture_uk_ltd back to accenture_uk reproduces 83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4 exactly. Every other byte, and so every number, is identical.",
+    "finding_before_and_after": {
+      "ordered pairs": "30, both",
+      "pairs at 0.00% cross-department": "30 of 30, both",
+      "best cross-department accuracy": "0.00%, both",
+      "best within-department accuracy": "86.21% (MHCLG), both",
+      "largest gap": "+86.21%, both"
+    },
+    "re_earned_not_edited": "the 11 hashes below were not find-and-replaced from a single run. All 10 runs were executed again on this branch, at all five seeds, and each reported the new hash independently.",
+    "import_provenance": "every run was executed with cwd set to this worktree, and accountant.__file__ was asserted to resolve inside it before the text was produced. A run whose accountant resolved to another checkout would have raised, not been recorded."
+  },
   "corpus_sha256": "830b987153adc8c999a1bb247ccb33ae4d8e4d5db4429883553bc1f710a8bd01",
   "corpus_covers": "sha256 over every committed fixture in accountant/ingest/fixtures/, name then bytes, in accountant.ingest.sources.ALL_SOURCES order",
   "taxonomy_sha256": "e8a8a1d75545033d3114f3c7c0563a76b938b8443910defd6917112e38369df7",
@@ -13,9 +29,9 @@
   "configuration_sha256": "04abf19a3291d7e5e3dda912eae95d7ffd1c75de37f90fc581829259534b1236",
   "configuration_covers": "sha256 over pyproject.toml then ci/gates.toml, path then bytes",
   "environment": {
-    "git_commit": "27333e9",
-    "git_commit_is": "the commit every measured module came from; this branch adds only tests/test_cross_organisation.py and two artifacts, and changes no module under accountant/",
-    "branch": "phase9/cross-organisation",
+    "git_commit": "2e11cea",
+    "git_commit_is": "the commit every measured module came from. accountant/ingest/, accountant/ingest/crossorg.py and accountant/score/harness.py are byte-identical to the ones the first measurement used. accountant/memory/index.py is NOT: owner decision D-05 changed how it folds a supplier name, and that is the whole reason the output hash moved. See contract_change below.",
+    "branch": "owner/d05-legal-identity",
     "python_version": "3.14.6",
     "python_implementation": "CPython",
     "os": "macOS-26.4.1-arm64-arm-64bit-Mach-O",
@@ -34,61 +50,61 @@
       "python_hash_seed": "0",
       "repeat": 1,
       "command": "PYTHONHASHSEED=0 COVERAGE_CORE=pytrace .venv/bin/python -c \"from tests.test_cross_organisation import experiment_text; print(experiment_text(), end='')\"",
-      "output_sha256": "83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4"
+      "output_sha256": "98d60c6099434db74c4301f9427568562abb0d4fe136f620a6c192e1479701c0"
     },
     {
       "python_hash_seed": "0",
       "repeat": 2,
       "command": "PYTHONHASHSEED=0 COVERAGE_CORE=pytrace .venv/bin/python -c \"from tests.test_cross_organisation import experiment_text; print(experiment_text(), end='')\"",
-      "output_sha256": "83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4"
+      "output_sha256": "98d60c6099434db74c4301f9427568562abb0d4fe136f620a6c192e1479701c0"
     },
     {
       "python_hash_seed": "1",
       "repeat": 1,
       "command": "PYTHONHASHSEED=1 COVERAGE_CORE=pytrace .venv/bin/python -c \"from tests.test_cross_organisation import experiment_text; print(experiment_text(), end='')\"",
-      "output_sha256": "83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4"
+      "output_sha256": "98d60c6099434db74c4301f9427568562abb0d4fe136f620a6c192e1479701c0"
     },
     {
       "python_hash_seed": "1",
       "repeat": 2,
       "command": "PYTHONHASHSEED=1 COVERAGE_CORE=pytrace .venv/bin/python -c \"from tests.test_cross_organisation import experiment_text; print(experiment_text(), end='')\"",
-      "output_sha256": "83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4"
+      "output_sha256": "98d60c6099434db74c4301f9427568562abb0d4fe136f620a6c192e1479701c0"
     },
     {
       "python_hash_seed": "12345",
       "repeat": 1,
       "command": "PYTHONHASHSEED=12345 COVERAGE_CORE=pytrace .venv/bin/python -c \"from tests.test_cross_organisation import experiment_text; print(experiment_text(), end='')\"",
-      "output_sha256": "83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4"
+      "output_sha256": "98d60c6099434db74c4301f9427568562abb0d4fe136f620a6c192e1479701c0"
     },
     {
       "python_hash_seed": "12345",
       "repeat": 2,
       "command": "PYTHONHASHSEED=12345 COVERAGE_CORE=pytrace .venv/bin/python -c \"from tests.test_cross_organisation import experiment_text; print(experiment_text(), end='')\"",
-      "output_sha256": "83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4"
+      "output_sha256": "98d60c6099434db74c4301f9427568562abb0d4fe136f620a6c192e1479701c0"
     },
     {
       "python_hash_seed": "99991",
       "repeat": 1,
       "command": "PYTHONHASHSEED=99991 COVERAGE_CORE=pytrace .venv/bin/python -c \"from tests.test_cross_organisation import experiment_text; print(experiment_text(), end='')\"",
-      "output_sha256": "83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4"
+      "output_sha256": "98d60c6099434db74c4301f9427568562abb0d4fe136f620a6c192e1479701c0"
     },
     {
       "python_hash_seed": "99991",
       "repeat": 2,
       "command": "PYTHONHASHSEED=99991 COVERAGE_CORE=pytrace .venv/bin/python -c \"from tests.test_cross_organisation import experiment_text; print(experiment_text(), end='')\"",
-      "output_sha256": "83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4"
+      "output_sha256": "98d60c6099434db74c4301f9427568562abb0d4fe136f620a6c192e1479701c0"
     },
     {
       "python_hash_seed": "random",
       "repeat": 1,
       "command": "PYTHONHASHSEED=random COVERAGE_CORE=pytrace .venv/bin/python -c \"from tests.test_cross_organisation import experiment_text; print(experiment_text(), end='')\"",
-      "output_sha256": "83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4"
+      "output_sha256": "98d60c6099434db74c4301f9427568562abb0d4fe136f620a6c192e1479701c0"
     },
     {
       "python_hash_seed": "random",
       "repeat": 2,
       "command": "PYTHONHASHSEED=random COVERAGE_CORE=pytrace .venv/bin/python -c \"from tests.test_cross_organisation import experiment_text; print(experiment_text(), end='')\"",
-      "output_sha256": "83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4"
+      "output_sha256": "98d60c6099434db74c4301f9427568562abb0d4fe136f620a6c192e1479701c0"
     }
   ],
   "runs_identical": true,

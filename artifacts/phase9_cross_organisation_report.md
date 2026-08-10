@@ -8,7 +8,16 @@ under the Open Government Licence v3.0, retrieved 2026-08-08.
 performance on Indian customer books.** No number here may be quoted as if it did.
 
 Output hash of the whole experiment:
-`83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4`
+`98d60c6099434db74c4301f9427568562abb0d4fe136f620a6c192e1479701c0`
+
+> **This hash changed on 2026-08-10, and the finding did not.** The earlier
+> published hash was
+> `83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4`.
+> Owner decision D-05 made a company's legal form part of its identity, so one
+> supplier key in the output text became `accenture_uk_ltd` where it used to be
+> `accenture_uk`. That is the entire byte difference. 30 pairs, 30 of 30 at
+> 0.00% cross-department, and 86.21% best within-department are the same numbers
+> before and after. Section 9.1 shows the working.
 
 ---
 
@@ -38,7 +47,10 @@ The two possible answers, and what each one costs:
 The experiment:
 
 1. Take one department. Cut its rows in half, in published order.
-2. Build a memory index from the earlier half (`accountant/memory/index.py`, unchanged).
+2. Build a memory index from the earlier half, using the shipped
+   `accountant/memory/index.py`. Nothing in it was written for this experiment.
+   It did change once since the first measurement — D-05, section 9.1 — and the
+   result did not move.
 3. **Within** = that index predicting the same department's later half.
 4. **Cross** = that same index predicting a *different* department's later half.
 5. **Gap** = within minus cross. One number per pair. Never pooled.
@@ -265,11 +277,12 @@ Full detail in `artifacts/phase9_reproducibility_manifest.json`.
 | Runs | 10 — every seed twice |
 | PYTHONHASHSEED values | 0, 1, 12345, 99991, random |
 | Identical output hashes | 10 of 10 |
-| Output sha256 | `83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4` |
+| Output sha256 | `98d60c6099434db74c4301f9427568562abb0d4fe136f620a6c192e1479701c0` |
+| Output sha256 before D-05 | `83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4` — see 9.1 |
 | Corpus sha256 | `830b987153adc8c999a1bb247ccb33ae4d8e4d5db4429883553bc1f710a8bd01` |
 | Taxonomy sha256 | `e8a8a1d75545033d3114f3c7c0563a76b938b8443910defd6917112e38369df7` |
 | Configuration sha256 | `04abf19a3291d7e5e3dda912eae95d7ffd1c75de37f90fc581829259534b1236` |
-| Code measured at commit | `27333e9` |
+| Code measured at commit | `2e11cea` |
 | Python | 3.14.6 (CPython) |
 | OS | macOS-26.4.1-arm64-arm-64bit-Mach-O, arm64 |
 | Tools | pytest 9.1.1, ruff 0.16.1, coverage 7.15.4, pyright 1.1.411 |
@@ -289,6 +302,57 @@ PYTHONHASHSEED=0 COVERAGE_CORE=pytrace .venv/bin/python -c \
 The measurement code lives in `tests/test_cross_organisation.py`, which is
 committed. There is no scratch script, so anybody with the repository can
 reproduce the hash.
+
+### 9.1 The output hash changed on 2026-08-10. The finding did not.
+
+If you saw an earlier copy of this report, it quoted a different hash. Here is
+the whole of what happened, so nobody has to take the new number on trust.
+
+| | |
+|---|---|
+| Hash before | `83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4` |
+| Hash now | `98d60c6099434db74c4301f9427568562abb0d4fe136f620a6c192e1479701c0` |
+| Reason, in one line | Owner decision D-05 made a company's legal form part of its identity, so `normalise_vendor` stopped stripping it. |
+
+D-05 (2026-08-10) rules that "Ltd", "PLC" and the rest are part of who was paid,
+not noise to be folded away. `accountant/memory/index.py` now keeps them:
+
+```
+normalise_vendor("Accenture (UK) Ltd")
+  before D-05   ->  accenture_uk
+  after  D-05   ->  accenture_uk_ltd
+```
+
+That key is printed once in the experiment text — in the shared-supplier block
+of section 5, check 2. So the text's bytes changed, so its sha256 changed.
+
+**One token, in one place.** Take the current 147-line experiment text, put
+`accenture_uk` back where `accenture_uk_ltd` now stands, and the sha256 is
+`83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4` again —
+the old hash, exactly. Every other byte is untouched, which is another way of
+saying every number in this report is untouched.
+
+Side by side:
+
+| Measurement | Before D-05 | After D-05 |
+|---|---|---|
+| Ordered pairs | 30 | 30 |
+| Pairs at 0.00% cross-department | 30 of 30 | 30 of 30 |
+| Best cross-department accuracy | 0.00% | 0.00% |
+| Best within-department accuracy | 86.21% (MHCLG) | 86.21% (MHCLG) |
+| Largest gap | +86.21% | +86.21% |
+| Shared suppliers, and agreements between them | 2, and 0 | 2, and 0 |
+
+**The new hash was re-earned, not edited in.** All ten runs — five seeds, twice
+each — were executed again on this branch, and each one independently reported
+`98d60c60…`. None of the eleven hashes in the manifest was copied from another.
+Each run also asserted, before producing any text, that `accountant` had been
+imported from this worktree and not from another checkout; a run that failed
+that check would have raised rather than been recorded.
+
+What did **not** change, and so was not re-measured: the corpus hash, the
+taxonomy hash, the configuration hash, the Python version, the OS, and the tool
+versions. The fixtures were not touched. D-05 changed code, not data.
 
 ---
 
