@@ -1,0 +1,2764 @@
+{
+  "schema": "accountant-dad/gst-rule-cases/1",
+  "built_by": "scripts/build_gst_rule_cases.py",
+  "evidence_class": "SYNTHETIC_EVIDENCE",
+  "note": "Party names, amounts, dates, GSTINs and jurisdiction records are invented. The RATES are not: every expected amount is derived from a rate read out of the CBIC notification named in `rate_authority`, and was computed with Decimal arithmetic in the builder rather than by the engine under test. Jurisdiction codes, names and State/Union-Territory kinds are fixture evidence; the engine compares them and never infers them.",
+  "counts": {
+    "intra_state": 20,
+    "inter_state": 20,
+    "missing_place_of_supply": 10,
+    "bad_rule": 10
+  },
+  "cases": [
+    {
+      "case_id": "gt-rules-intra-01",
+      "block": "intra_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "an intra-State supply of 2523 wholly inside Chandigarh splits into CGST and UTGST at the notified rates",
+      "supply_date": "2017-07-01",
+      "hsn_sac": "2523",
+      "taxable_paise": 20000,
+      "supplier": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": "04ABCDE1000F1Z0",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "1/2017-Central Tax (Rate), Schedule IV - 14%, S. No. 18",
+        "1/2017-Union Territory Tax (Rate), Schedule IV - 14%, S. No. 18"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "intra_state",
+        "cgst_paise": 2800,
+        "sgst_paise": 0,
+        "utgst_paise": 2800,
+        "igst_paise": 0,
+        "total_tax_paise": 5600,
+        "total_including_tax_paise": 25600,
+        "ledgers": [
+          "CGST",
+          "UTGST"
+        ],
+        "reason_contains": "intra-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-intra-02",
+      "block": "intra_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "an intra-State supply of 9972 wholly inside Andaman and Nicobar Islands splits into CGST and UTGST at the notified rates",
+      "supply_date": "2017-07-08",
+      "hsn_sac": "9972",
+      "taxable_paise": 30000,
+      "supplier": {
+        "code": "35",
+        "name": "Andaman and Nicobar Islands",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "35",
+        "name": "Andaman and Nicobar Islands",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "11/2017-Central Tax (Rate), Sl. No. 16, Heading 9972",
+        "11/2017-Union Territory Tax (Rate), Sl. No. 16, Heading 9972"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "intra_state",
+        "cgst_paise": 2700,
+        "sgst_paise": 0,
+        "utgst_paise": 2700,
+        "igst_paise": 0,
+        "total_tax_paise": 5400,
+        "total_including_tax_paise": 35400,
+        "ledgers": [
+          "CGST",
+          "UTGST"
+        ],
+        "reason_contains": "intra-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-intra-03",
+      "block": "intra_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "an intra-State supply of 9987 wholly inside Lakshadweep splits into CGST and UTGST at the notified rates",
+      "supply_date": "2017-07-15",
+      "hsn_sac": "9987",
+      "taxable_paise": 40000,
+      "supplier": {
+        "code": "31",
+        "name": "Lakshadweep",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "31",
+        "name": "Lakshadweep",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": "31ABCDE1002F1Z2",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "11/2017-Central Tax (Rate), Sl. No. 25, Heading 9987",
+        "11/2017-Union Territory Tax (Rate), Sl. No. 25, Heading 9987"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "intra_state",
+        "cgst_paise": 3600,
+        "sgst_paise": 0,
+        "utgst_paise": 3600,
+        "igst_paise": 0,
+        "total_tax_paise": 7200,
+        "total_including_tax_paise": 47200,
+        "ledgers": [
+          "CGST",
+          "UTGST"
+        ],
+        "reason_contains": "intra-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-intra-04",
+      "block": "intra_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "an intra-State supply of 2523 wholly inside Dadra and Nagar Haveli and Daman and Diu splits into CGST and UTGST at the notified rates",
+      "supply_date": "2017-07-22",
+      "hsn_sac": "2523",
+      "taxable_paise": 50000,
+      "supplier": {
+        "code": "26",
+        "name": "Dadra and Nagar Haveli and Daman and Diu",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "26",
+        "name": "Dadra and Nagar Haveli and Daman and Diu",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "1/2017-Central Tax (Rate), Schedule IV - 14%, S. No. 18",
+        "1/2017-Union Territory Tax (Rate), Schedule IV - 14%, S. No. 18"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "intra_state",
+        "cgst_paise": 7000,
+        "sgst_paise": 0,
+        "utgst_paise": 7000,
+        "igst_paise": 0,
+        "total_tax_paise": 14000,
+        "total_including_tax_paise": 64000,
+        "ledgers": [
+          "CGST",
+          "UTGST"
+        ],
+        "reason_contains": "intra-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-intra-05",
+      "block": "intra_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "an intra-State supply of 9972 wholly inside Ladakh splits into CGST and UTGST at the notified rates",
+      "supply_date": "2017-07-29",
+      "hsn_sac": "9972",
+      "taxable_paise": 60000,
+      "supplier": {
+        "code": "38",
+        "name": "Ladakh",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "38",
+        "name": "Ladakh",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": "38ABCDE1004F1Z4",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "11/2017-Central Tax (Rate), Sl. No. 16, Heading 9972",
+        "11/2017-Union Territory Tax (Rate), Sl. No. 16, Heading 9972"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "intra_state",
+        "cgst_paise": 5400,
+        "sgst_paise": 0,
+        "utgst_paise": 5400,
+        "igst_paise": 0,
+        "total_tax_paise": 10800,
+        "total_including_tax_paise": 70800,
+        "ledgers": [
+          "CGST",
+          "UTGST"
+        ],
+        "reason_contains": "intra-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-intra-06",
+      "block": "intra_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "an intra-State supply of 9987 wholly inside Chandigarh splits into CGST and UTGST at the notified rates",
+      "supply_date": "2017-08-05",
+      "hsn_sac": "9987",
+      "taxable_paise": 70000,
+      "supplier": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "11/2017-Central Tax (Rate), Sl. No. 25, Heading 9987",
+        "11/2017-Union Territory Tax (Rate), Sl. No. 25, Heading 9987"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "intra_state",
+        "cgst_paise": 6300,
+        "sgst_paise": 0,
+        "utgst_paise": 6300,
+        "igst_paise": 0,
+        "total_tax_paise": 12600,
+        "total_including_tax_paise": 82600,
+        "ledgers": [
+          "CGST",
+          "UTGST"
+        ],
+        "reason_contains": "intra-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-intra-07",
+      "block": "intra_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "an intra-State supply of 2523 wholly inside Andaman and Nicobar Islands splits into CGST and UTGST at the notified rates",
+      "supply_date": "2017-08-12",
+      "hsn_sac": "2523",
+      "taxable_paise": 80000,
+      "supplier": {
+        "code": "35",
+        "name": "Andaman and Nicobar Islands",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "35",
+        "name": "Andaman and Nicobar Islands",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": "35ABCDE1006F1Z6",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "1/2017-Central Tax (Rate), Schedule IV - 14%, S. No. 18",
+        "1/2017-Union Territory Tax (Rate), Schedule IV - 14%, S. No. 18"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "intra_state",
+        "cgst_paise": 11200,
+        "sgst_paise": 0,
+        "utgst_paise": 11200,
+        "igst_paise": 0,
+        "total_tax_paise": 22400,
+        "total_including_tax_paise": 102400,
+        "ledgers": [
+          "CGST",
+          "UTGST"
+        ],
+        "reason_contains": "intra-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-intra-08",
+      "block": "intra_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "an intra-State supply of 9972 wholly inside Lakshadweep splits into CGST and UTGST at the notified rates",
+      "supply_date": "2017-07-02",
+      "hsn_sac": "9972",
+      "taxable_paise": 90000,
+      "supplier": {
+        "code": "31",
+        "name": "Lakshadweep",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "31",
+        "name": "Lakshadweep",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "11/2017-Central Tax (Rate), Sl. No. 16, Heading 9972",
+        "11/2017-Union Territory Tax (Rate), Sl. No. 16, Heading 9972"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "intra_state",
+        "cgst_paise": 8100,
+        "sgst_paise": 0,
+        "utgst_paise": 8100,
+        "igst_paise": 0,
+        "total_tax_paise": 16200,
+        "total_including_tax_paise": 106200,
+        "ledgers": [
+          "CGST",
+          "UTGST"
+        ],
+        "reason_contains": "intra-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-intra-09",
+      "block": "intra_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "an intra-State supply of 9987 wholly inside Dadra and Nagar Haveli and Daman and Diu splits into CGST and UTGST at the notified rates",
+      "supply_date": "2017-07-09",
+      "hsn_sac": "9987",
+      "taxable_paise": 100000,
+      "supplier": {
+        "code": "26",
+        "name": "Dadra and Nagar Haveli and Daman and Diu",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "26",
+        "name": "Dadra and Nagar Haveli and Daman and Diu",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": "26ABCDE1008F1Z8",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "11/2017-Central Tax (Rate), Sl. No. 25, Heading 9987",
+        "11/2017-Union Territory Tax (Rate), Sl. No. 25, Heading 9987"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "intra_state",
+        "cgst_paise": 9000,
+        "sgst_paise": 0,
+        "utgst_paise": 9000,
+        "igst_paise": 0,
+        "total_tax_paise": 18000,
+        "total_including_tax_paise": 118000,
+        "ledgers": [
+          "CGST",
+          "UTGST"
+        ],
+        "reason_contains": "intra-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-intra-10",
+      "block": "intra_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "an intra-State supply of 2523 wholly inside Ladakh splits into CGST and UTGST at the notified rates",
+      "supply_date": "2017-07-16",
+      "hsn_sac": "2523",
+      "taxable_paise": 110000,
+      "supplier": {
+        "code": "38",
+        "name": "Ladakh",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "38",
+        "name": "Ladakh",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "1/2017-Central Tax (Rate), Schedule IV - 14%, S. No. 18",
+        "1/2017-Union Territory Tax (Rate), Schedule IV - 14%, S. No. 18"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "intra_state",
+        "cgst_paise": 15400,
+        "sgst_paise": 0,
+        "utgst_paise": 15400,
+        "igst_paise": 0,
+        "total_tax_paise": 30800,
+        "total_including_tax_paise": 140800,
+        "ledgers": [
+          "CGST",
+          "UTGST"
+        ],
+        "reason_contains": "intra-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-intra-11",
+      "block": "intra_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "an intra-State supply of 9972 wholly inside Chandigarh splits into CGST and UTGST at the notified rates",
+      "supply_date": "2017-07-23",
+      "hsn_sac": "9972",
+      "taxable_paise": 120000,
+      "supplier": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": "04ABCDE1010F1Z0",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "11/2017-Central Tax (Rate), Sl. No. 16, Heading 9972",
+        "11/2017-Union Territory Tax (Rate), Sl. No. 16, Heading 9972"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "intra_state",
+        "cgst_paise": 10800,
+        "sgst_paise": 0,
+        "utgst_paise": 10800,
+        "igst_paise": 0,
+        "total_tax_paise": 21600,
+        "total_including_tax_paise": 141600,
+        "ledgers": [
+          "CGST",
+          "UTGST"
+        ],
+        "reason_contains": "intra-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-intra-12",
+      "block": "intra_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "an intra-State supply of 9987 wholly inside Andaman and Nicobar Islands splits into CGST and UTGST at the notified rates",
+      "supply_date": "2017-07-30",
+      "hsn_sac": "9987",
+      "taxable_paise": 130000,
+      "supplier": {
+        "code": "35",
+        "name": "Andaman and Nicobar Islands",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "35",
+        "name": "Andaman and Nicobar Islands",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "11/2017-Central Tax (Rate), Sl. No. 25, Heading 9987",
+        "11/2017-Union Territory Tax (Rate), Sl. No. 25, Heading 9987"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "intra_state",
+        "cgst_paise": 11700,
+        "sgst_paise": 0,
+        "utgst_paise": 11700,
+        "igst_paise": 0,
+        "total_tax_paise": 23400,
+        "total_including_tax_paise": 153400,
+        "ledgers": [
+          "CGST",
+          "UTGST"
+        ],
+        "reason_contains": "intra-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-intra-13",
+      "block": "intra_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "an intra-State supply of 2523 wholly inside Lakshadweep splits into CGST and UTGST at the notified rates",
+      "supply_date": "2017-08-06",
+      "hsn_sac": "2523",
+      "taxable_paise": 140000,
+      "supplier": {
+        "code": "31",
+        "name": "Lakshadweep",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "31",
+        "name": "Lakshadweep",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": "31ABCDE1012F1Z2",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "1/2017-Central Tax (Rate), Schedule IV - 14%, S. No. 18",
+        "1/2017-Union Territory Tax (Rate), Schedule IV - 14%, S. No. 18"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "intra_state",
+        "cgst_paise": 19600,
+        "sgst_paise": 0,
+        "utgst_paise": 19600,
+        "igst_paise": 0,
+        "total_tax_paise": 39200,
+        "total_including_tax_paise": 179200,
+        "ledgers": [
+          "CGST",
+          "UTGST"
+        ],
+        "reason_contains": "intra-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-intra-14",
+      "block": "intra_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "an intra-State supply of 9972 wholly inside Dadra and Nagar Haveli and Daman and Diu splits into CGST and UTGST at the notified rates",
+      "supply_date": "2017-08-13",
+      "hsn_sac": "9972",
+      "taxable_paise": 150000,
+      "supplier": {
+        "code": "26",
+        "name": "Dadra and Nagar Haveli and Daman and Diu",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "26",
+        "name": "Dadra and Nagar Haveli and Daman and Diu",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "11/2017-Central Tax (Rate), Sl. No. 16, Heading 9972",
+        "11/2017-Union Territory Tax (Rate), Sl. No. 16, Heading 9972"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "intra_state",
+        "cgst_paise": 13500,
+        "sgst_paise": 0,
+        "utgst_paise": 13500,
+        "igst_paise": 0,
+        "total_tax_paise": 27000,
+        "total_including_tax_paise": 177000,
+        "ledgers": [
+          "CGST",
+          "UTGST"
+        ],
+        "reason_contains": "intra-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-intra-15",
+      "block": "intra_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "an intra-State supply of 9987 wholly inside Ladakh splits into CGST and UTGST at the notified rates",
+      "supply_date": "2017-07-03",
+      "hsn_sac": "9987",
+      "taxable_paise": 160000,
+      "supplier": {
+        "code": "38",
+        "name": "Ladakh",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "38",
+        "name": "Ladakh",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": "38ABCDE1014F1Z4",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "11/2017-Central Tax (Rate), Sl. No. 25, Heading 9987",
+        "11/2017-Union Territory Tax (Rate), Sl. No. 25, Heading 9987"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "intra_state",
+        "cgst_paise": 14400,
+        "sgst_paise": 0,
+        "utgst_paise": 14400,
+        "igst_paise": 0,
+        "total_tax_paise": 28800,
+        "total_including_tax_paise": 188800,
+        "ledgers": [
+          "CGST",
+          "UTGST"
+        ],
+        "reason_contains": "intra-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-intra-16",
+      "block": "intra_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "an intra-State supply of 2523 wholly inside Chandigarh splits into CGST and UTGST at the notified rates",
+      "supply_date": "2017-07-10",
+      "hsn_sac": "2523",
+      "taxable_paise": 170000,
+      "supplier": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "1/2017-Central Tax (Rate), Schedule IV - 14%, S. No. 18",
+        "1/2017-Union Territory Tax (Rate), Schedule IV - 14%, S. No. 18"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "intra_state",
+        "cgst_paise": 23800,
+        "sgst_paise": 0,
+        "utgst_paise": 23800,
+        "igst_paise": 0,
+        "total_tax_paise": 47600,
+        "total_including_tax_paise": 217600,
+        "ledgers": [
+          "CGST",
+          "UTGST"
+        ],
+        "reason_contains": "intra-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-intra-17",
+      "block": "intra_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "an intra-State supply of 9972 wholly inside Andaman and Nicobar Islands splits into CGST and UTGST at the notified rates",
+      "supply_date": "2017-07-17",
+      "hsn_sac": "9972",
+      "taxable_paise": 180000,
+      "supplier": {
+        "code": "35",
+        "name": "Andaman and Nicobar Islands",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "35",
+        "name": "Andaman and Nicobar Islands",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": "35ABCDE1016F1Z6",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "11/2017-Central Tax (Rate), Sl. No. 16, Heading 9972",
+        "11/2017-Union Territory Tax (Rate), Sl. No. 16, Heading 9972"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "intra_state",
+        "cgst_paise": 16200,
+        "sgst_paise": 0,
+        "utgst_paise": 16200,
+        "igst_paise": 0,
+        "total_tax_paise": 32400,
+        "total_including_tax_paise": 212400,
+        "ledgers": [
+          "CGST",
+          "UTGST"
+        ],
+        "reason_contains": "intra-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-intra-18",
+      "block": "intra_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "an intra-State supply of 9987 wholly inside Lakshadweep splits into CGST and UTGST at the notified rates",
+      "supply_date": "2017-07-24",
+      "hsn_sac": "9987",
+      "taxable_paise": 190000,
+      "supplier": {
+        "code": "31",
+        "name": "Lakshadweep",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "31",
+        "name": "Lakshadweep",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "11/2017-Central Tax (Rate), Sl. No. 25, Heading 9987",
+        "11/2017-Union Territory Tax (Rate), Sl. No. 25, Heading 9987"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "intra_state",
+        "cgst_paise": 17100,
+        "sgst_paise": 0,
+        "utgst_paise": 17100,
+        "igst_paise": 0,
+        "total_tax_paise": 34200,
+        "total_including_tax_paise": 224200,
+        "ledgers": [
+          "CGST",
+          "UTGST"
+        ],
+        "reason_contains": "intra-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-intra-19",
+      "block": "intra_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "an intra-State supply of 2523 wholly inside Dadra and Nagar Haveli and Daman and Diu splits into CGST and UTGST at the notified rates",
+      "supply_date": "2017-07-31",
+      "hsn_sac": "2523",
+      "taxable_paise": 200000,
+      "supplier": {
+        "code": "26",
+        "name": "Dadra and Nagar Haveli and Daman and Diu",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "26",
+        "name": "Dadra and Nagar Haveli and Daman and Diu",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": "26ABCDE1018F1Z8",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "1/2017-Central Tax (Rate), Schedule IV - 14%, S. No. 18",
+        "1/2017-Union Territory Tax (Rate), Schedule IV - 14%, S. No. 18"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "intra_state",
+        "cgst_paise": 28000,
+        "sgst_paise": 0,
+        "utgst_paise": 28000,
+        "igst_paise": 0,
+        "total_tax_paise": 56000,
+        "total_including_tax_paise": 256000,
+        "ledgers": [
+          "CGST",
+          "UTGST"
+        ],
+        "reason_contains": "intra-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-intra-20",
+      "block": "intra_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "an intra-State supply of 9972 wholly inside Ladakh splits into CGST and UTGST at the notified rates",
+      "supply_date": "2017-08-07",
+      "hsn_sac": "9972",
+      "taxable_paise": 210000,
+      "supplier": {
+        "code": "38",
+        "name": "Ladakh",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "38",
+        "name": "Ladakh",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "11/2017-Central Tax (Rate), Sl. No. 16, Heading 9972",
+        "11/2017-Union Territory Tax (Rate), Sl. No. 16, Heading 9972"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "intra_state",
+        "cgst_paise": 18900,
+        "sgst_paise": 0,
+        "utgst_paise": 18900,
+        "igst_paise": 0,
+        "total_tax_paise": 37800,
+        "total_including_tax_paise": 247800,
+        "ledgers": [
+          "CGST",
+          "UTGST"
+        ],
+        "reason_contains": "intra-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-inter-01",
+      "block": "inter_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supply of 2523 from Maharashtra to Chandigarh is inter-State and carries IGST only",
+      "supply_date": "2017-07-22",
+      "hsn_sac": "2523",
+      "taxable_paise": 30000,
+      "supplier": {
+        "code": "27",
+        "name": "Maharashtra",
+        "kind": "state"
+      },
+      "place_of_supply": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "1/2017-Integrated Tax (Rate), Schedule IV - 28%, S. No. 18"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "inter_state",
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 8400,
+        "total_tax_paise": 8400,
+        "total_including_tax_paise": 38400,
+        "ledgers": [
+          "IGST"
+        ],
+        "reason_contains": "inter-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-inter-02",
+      "block": "inter_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supply of 9972 from Andaman and Nicobar Islands to Gujarat is inter-State and carries IGST only",
+      "supply_date": "2017-07-29",
+      "hsn_sac": "9972",
+      "taxable_paise": 40000,
+      "supplier": {
+        "code": "35",
+        "name": "Andaman and Nicobar Islands",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "24",
+        "name": "Gujarat",
+        "kind": "state"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": "35ABCDE1001F1Z1",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "8/2017-Integrated Tax (Rate), Sl. No. 16, Heading 9972"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "inter_state",
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 7200,
+        "total_tax_paise": 7200,
+        "total_including_tax_paise": 47200,
+        "ledgers": [
+          "IGST"
+        ],
+        "reason_contains": "inter-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-inter-03",
+      "block": "inter_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supply of 9987 from Gujarat to Rajasthan is inter-State and carries IGST only",
+      "supply_date": "2017-08-05",
+      "hsn_sac": "9987",
+      "taxable_paise": 50000,
+      "supplier": {
+        "code": "24",
+        "name": "Gujarat",
+        "kind": "state"
+      },
+      "place_of_supply": {
+        "code": "08",
+        "name": "Rajasthan",
+        "kind": "state"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "8/2017-Integrated Tax (Rate), Sl. No. 25, Heading 9987"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "inter_state",
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 9000,
+        "total_tax_paise": 9000,
+        "total_including_tax_paise": 59000,
+        "ledgers": [
+          "IGST"
+        ],
+        "reason_contains": "inter-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-inter-04",
+      "block": "inter_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supply of 2523 from Tamil Nadu to Dadra and Nagar Haveli and Daman and Diu is inter-State and carries IGST only",
+      "supply_date": "2017-08-12",
+      "hsn_sac": "2523",
+      "taxable_paise": 60000,
+      "supplier": {
+        "code": "33",
+        "name": "Tamil Nadu",
+        "kind": "state"
+      },
+      "place_of_supply": {
+        "code": "26",
+        "name": "Dadra and Nagar Haveli and Daman and Diu",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": "33ABCDE1003F1Z3",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "1/2017-Integrated Tax (Rate), Schedule IV - 28%, S. No. 18"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "inter_state",
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 16800,
+        "total_tax_paise": 16800,
+        "total_including_tax_paise": 76800,
+        "ledgers": [
+          "IGST"
+        ],
+        "reason_contains": "inter-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-inter-05",
+      "block": "inter_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supply of 9972 from Ladakh to Maharashtra is inter-State and carries IGST only",
+      "supply_date": "2017-07-02",
+      "hsn_sac": "9972",
+      "taxable_paise": 70000,
+      "supplier": {
+        "code": "38",
+        "name": "Ladakh",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "27",
+        "name": "Maharashtra",
+        "kind": "state"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "8/2017-Integrated Tax (Rate), Sl. No. 16, Heading 9972"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "inter_state",
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 12600,
+        "total_tax_paise": 12600,
+        "total_including_tax_paise": 82600,
+        "ledgers": [
+          "IGST"
+        ],
+        "reason_contains": "inter-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-inter-06",
+      "block": "inter_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supply of 9987 from Maharashtra to Gujarat is inter-State and carries IGST only",
+      "supply_date": "2017-07-09",
+      "hsn_sac": "9987",
+      "taxable_paise": 80000,
+      "supplier": {
+        "code": "27",
+        "name": "Maharashtra",
+        "kind": "state"
+      },
+      "place_of_supply": {
+        "code": "24",
+        "name": "Gujarat",
+        "kind": "state"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": "27ABCDE1005F1Z5",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "8/2017-Integrated Tax (Rate), Sl. No. 25, Heading 9987"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "inter_state",
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 14400,
+        "total_tax_paise": 14400,
+        "total_including_tax_paise": 94400,
+        "ledgers": [
+          "IGST"
+        ],
+        "reason_contains": "inter-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-inter-07",
+      "block": "inter_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supply of 2523 from Karnataka to Andaman and Nicobar Islands is inter-State and carries IGST only",
+      "supply_date": "2017-07-16",
+      "hsn_sac": "2523",
+      "taxable_paise": 90000,
+      "supplier": {
+        "code": "29",
+        "name": "Karnataka",
+        "kind": "state"
+      },
+      "place_of_supply": {
+        "code": "35",
+        "name": "Andaman and Nicobar Islands",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "1/2017-Integrated Tax (Rate), Schedule IV - 28%, S. No. 18"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "inter_state",
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 25200,
+        "total_tax_paise": 25200,
+        "total_including_tax_paise": 115200,
+        "ledgers": [
+          "IGST"
+        ],
+        "reason_contains": "inter-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-inter-08",
+      "block": "inter_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supply of 9972 from Lakshadweep to Tamil Nadu is inter-State and carries IGST only",
+      "supply_date": "2017-07-23",
+      "hsn_sac": "9972",
+      "taxable_paise": 100000,
+      "supplier": {
+        "code": "31",
+        "name": "Lakshadweep",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "33",
+        "name": "Tamil Nadu",
+        "kind": "state"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": "31ABCDE1007F1Z7",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "8/2017-Integrated Tax (Rate), Sl. No. 16, Heading 9972"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "inter_state",
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 18000,
+        "total_tax_paise": 18000,
+        "total_including_tax_paise": 118000,
+        "ledgers": [
+          "IGST"
+        ],
+        "reason_contains": "inter-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-inter-09",
+      "block": "inter_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supply of 9987 from Tamil Nadu to Maharashtra is inter-State and carries IGST only",
+      "supply_date": "2017-07-30",
+      "hsn_sac": "9987",
+      "taxable_paise": 110000,
+      "supplier": {
+        "code": "33",
+        "name": "Tamil Nadu",
+        "kind": "state"
+      },
+      "place_of_supply": {
+        "code": "27",
+        "name": "Maharashtra",
+        "kind": "state"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "8/2017-Integrated Tax (Rate), Sl. No. 25, Heading 9987"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "inter_state",
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 19800,
+        "total_tax_paise": 19800,
+        "total_including_tax_paise": 129800,
+        "ledgers": [
+          "IGST"
+        ],
+        "reason_contains": "inter-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-inter-10",
+      "block": "inter_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supply of 2523 from Rajasthan to Ladakh is inter-State and carries IGST only",
+      "supply_date": "2017-08-06",
+      "hsn_sac": "2523",
+      "taxable_paise": 120000,
+      "supplier": {
+        "code": "08",
+        "name": "Rajasthan",
+        "kind": "state"
+      },
+      "place_of_supply": {
+        "code": "38",
+        "name": "Ladakh",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": "08ABCDE1009F1Z9",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "1/2017-Integrated Tax (Rate), Schedule IV - 28%, S. No. 18"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "inter_state",
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 33600,
+        "total_tax_paise": 33600,
+        "total_including_tax_paise": 153600,
+        "ledgers": [
+          "IGST"
+        ],
+        "reason_contains": "inter-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-inter-11",
+      "block": "inter_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supply of 9972 from Chandigarh to Karnataka is inter-State and carries IGST only",
+      "supply_date": "2017-08-13",
+      "hsn_sac": "9972",
+      "taxable_paise": 130000,
+      "supplier": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "29",
+        "name": "Karnataka",
+        "kind": "state"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "8/2017-Integrated Tax (Rate), Sl. No. 16, Heading 9972"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "inter_state",
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 23400,
+        "total_tax_paise": 23400,
+        "total_including_tax_paise": 153400,
+        "ledgers": [
+          "IGST"
+        ],
+        "reason_contains": "inter-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-inter-12",
+      "block": "inter_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supply of 9987 from Karnataka to Tamil Nadu is inter-State and carries IGST only",
+      "supply_date": "2017-07-03",
+      "hsn_sac": "9987",
+      "taxable_paise": 140000,
+      "supplier": {
+        "code": "29",
+        "name": "Karnataka",
+        "kind": "state"
+      },
+      "place_of_supply": {
+        "code": "33",
+        "name": "Tamil Nadu",
+        "kind": "state"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": "29ABCDE1011F1Z1",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "8/2017-Integrated Tax (Rate), Sl. No. 25, Heading 9987"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "inter_state",
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 25200,
+        "total_tax_paise": 25200,
+        "total_including_tax_paise": 165200,
+        "ledgers": [
+          "IGST"
+        ],
+        "reason_contains": "inter-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-inter-13",
+      "block": "inter_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supply of 2523 from Gujarat to Lakshadweep is inter-State and carries IGST only",
+      "supply_date": "2017-07-10",
+      "hsn_sac": "2523",
+      "taxable_paise": 150000,
+      "supplier": {
+        "code": "24",
+        "name": "Gujarat",
+        "kind": "state"
+      },
+      "place_of_supply": {
+        "code": "31",
+        "name": "Lakshadweep",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "1/2017-Integrated Tax (Rate), Schedule IV - 28%, S. No. 18"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "inter_state",
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 42000,
+        "total_tax_paise": 42000,
+        "total_including_tax_paise": 192000,
+        "ledgers": [
+          "IGST"
+        ],
+        "reason_contains": "inter-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-inter-14",
+      "block": "inter_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supply of 9972 from Dadra and Nagar Haveli and Daman and Diu to Rajasthan is inter-State and carries IGST only",
+      "supply_date": "2017-07-17",
+      "hsn_sac": "9972",
+      "taxable_paise": 160000,
+      "supplier": {
+        "code": "26",
+        "name": "Dadra and Nagar Haveli and Daman and Diu",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "08",
+        "name": "Rajasthan",
+        "kind": "state"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": "26ABCDE1013F1Z3",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "8/2017-Integrated Tax (Rate), Sl. No. 16, Heading 9972"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "inter_state",
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 28800,
+        "total_tax_paise": 28800,
+        "total_including_tax_paise": 188800,
+        "ledgers": [
+          "IGST"
+        ],
+        "reason_contains": "inter-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-inter-15",
+      "block": "inter_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supply of 9987 from Rajasthan to Karnataka is inter-State and carries IGST only",
+      "supply_date": "2017-07-24",
+      "hsn_sac": "9987",
+      "taxable_paise": 170000,
+      "supplier": {
+        "code": "08",
+        "name": "Rajasthan",
+        "kind": "state"
+      },
+      "place_of_supply": {
+        "code": "29",
+        "name": "Karnataka",
+        "kind": "state"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "8/2017-Integrated Tax (Rate), Sl. No. 25, Heading 9987"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "inter_state",
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 30600,
+        "total_tax_paise": 30600,
+        "total_including_tax_paise": 200600,
+        "ledgers": [
+          "IGST"
+        ],
+        "reason_contains": "inter-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-inter-16",
+      "block": "inter_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supply of 2523 from Maharashtra to Chandigarh is inter-State and carries IGST only",
+      "supply_date": "2017-07-31",
+      "hsn_sac": "2523",
+      "taxable_paise": 180000,
+      "supplier": {
+        "code": "27",
+        "name": "Maharashtra",
+        "kind": "state"
+      },
+      "place_of_supply": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": "27ABCDE1015F1Z5",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "1/2017-Integrated Tax (Rate), Schedule IV - 28%, S. No. 18"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "inter_state",
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 50400,
+        "total_tax_paise": 50400,
+        "total_including_tax_paise": 230400,
+        "ledgers": [
+          "IGST"
+        ],
+        "reason_contains": "inter-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-inter-17",
+      "block": "inter_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supply of 9972 from Andaman and Nicobar Islands to Gujarat is inter-State and carries IGST only",
+      "supply_date": "2017-08-07",
+      "hsn_sac": "9972",
+      "taxable_paise": 190000,
+      "supplier": {
+        "code": "35",
+        "name": "Andaman and Nicobar Islands",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "24",
+        "name": "Gujarat",
+        "kind": "state"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "8/2017-Integrated Tax (Rate), Sl. No. 16, Heading 9972"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "inter_state",
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 34200,
+        "total_tax_paise": 34200,
+        "total_including_tax_paise": 224200,
+        "ledgers": [
+          "IGST"
+        ],
+        "reason_contains": "inter-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-inter-18",
+      "block": "inter_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supply of 9987 from Gujarat to Rajasthan is inter-State and carries IGST only",
+      "supply_date": "2017-08-14",
+      "hsn_sac": "9987",
+      "taxable_paise": 200000,
+      "supplier": {
+        "code": "24",
+        "name": "Gujarat",
+        "kind": "state"
+      },
+      "place_of_supply": {
+        "code": "08",
+        "name": "Rajasthan",
+        "kind": "state"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": "24ABCDE1017F1Z7",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "8/2017-Integrated Tax (Rate), Sl. No. 25, Heading 9987"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "inter_state",
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 36000,
+        "total_tax_paise": 36000,
+        "total_including_tax_paise": 236000,
+        "ledgers": [
+          "IGST"
+        ],
+        "reason_contains": "inter-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-inter-19",
+      "block": "inter_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supply of 2523 from Tamil Nadu to Dadra and Nagar Haveli and Daman and Diu is inter-State and carries IGST only",
+      "supply_date": "2017-07-04",
+      "hsn_sac": "2523",
+      "taxable_paise": 210000,
+      "supplier": {
+        "code": "33",
+        "name": "Tamil Nadu",
+        "kind": "state"
+      },
+      "place_of_supply": {
+        "code": "26",
+        "name": "Dadra and Nagar Haveli and Daman and Diu",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "1/2017-Integrated Tax (Rate), Schedule IV - 28%, S. No. 18"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "inter_state",
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 58800,
+        "total_tax_paise": 58800,
+        "total_including_tax_paise": 268800,
+        "ledgers": [
+          "IGST"
+        ],
+        "reason_contains": "inter-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-inter-20",
+      "block": "inter_state",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supply of 9972 from Ladakh to Maharashtra is inter-State and carries IGST only",
+      "supply_date": "2017-07-11",
+      "hsn_sac": "9972",
+      "taxable_paise": 220000,
+      "supplier": {
+        "code": "38",
+        "name": "Ladakh",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "27",
+        "name": "Maharashtra",
+        "kind": "state"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": "38ABCDE1019F1Z9",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [
+        "8/2017-Integrated Tax (Rate), Sl. No. 16, Heading 9972"
+      ],
+      "expected": {
+        "outcome": "valid",
+        "supply_kind": "inter_state",
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 39600,
+        "total_tax_paise": 39600,
+        "total_including_tax_paise": 259600,
+        "ledgers": [
+          "IGST"
+        ],
+        "reason_contains": "inter-State supply"
+      }
+    },
+    {
+      "case_id": "gt-rules-nopos-01",
+      "block": "missing_place_of_supply",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "no place of supply at all",
+      "supply_date": "2017-07-15",
+      "hsn_sac": "2523",
+      "taxable_paise": 100000,
+      "supplier": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply": null,
+      "place_of_supply_stated_on_document": false,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [],
+      "expected": {
+        "outcome": "unclear",
+        "supply_kind": null,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 0,
+        "total_tax_paise": null,
+        "total_including_tax_paise": null,
+        "ledgers": [],
+        "reason_contains": "the place of supply is missing"
+      }
+    },
+    {
+      "case_id": "gt-rules-nopos-02",
+      "block": "missing_place_of_supply",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a place of supply that the document does not state",
+      "supply_date": "2017-07-15",
+      "hsn_sac": "2523",
+      "taxable_paise": 100000,
+      "supplier": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": false,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [],
+      "expected": {
+        "outcome": "unclear",
+        "supply_kind": null,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 0,
+        "total_tax_paise": null,
+        "total_including_tax_paise": null,
+        "ledgers": [],
+        "reason_contains": "never inferred"
+      }
+    },
+    {
+      "case_id": "gt-rules-nopos-03",
+      "block": "missing_place_of_supply",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "no supplier State",
+      "supply_date": "2017-07-15",
+      "hsn_sac": "2523",
+      "taxable_paise": 100000,
+      "supplier": null,
+      "place_of_supply": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [],
+      "expected": {
+        "outcome": "unclear",
+        "supply_kind": null,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 0,
+        "total_tax_paise": null,
+        "total_including_tax_paise": null,
+        "ledgers": [],
+        "reason_contains": "which State or Union Territory the supplier is in"
+      }
+    },
+    {
+      "case_id": "gt-rules-nopos-04",
+      "block": "missing_place_of_supply",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supplier GSTIN and nothing else \u2014 the case this rule exists for",
+      "supply_date": "2017-07-15",
+      "hsn_sac": "2523",
+      "taxable_paise": 100000,
+      "supplier": null,
+      "place_of_supply": null,
+      "place_of_supply_stated_on_document": false,
+      "supplier_gstin": "04ABCDE1001F1Z1",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [],
+      "expected": {
+        "outcome": "unclear",
+        "supply_kind": null,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 0,
+        "total_tax_paise": null,
+        "total_including_tax_paise": null,
+        "ledgers": [],
+        "reason_contains": "which State or Union Territory the supplier is in"
+      }
+    },
+    {
+      "case_id": "gt-rules-nopos-05",
+      "block": "missing_place_of_supply",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supplier State with a GSTIN, but no place of supply",
+      "supply_date": "2017-07-15",
+      "hsn_sac": "2523",
+      "taxable_paise": 100000,
+      "supplier": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply": null,
+      "place_of_supply_stated_on_document": false,
+      "supplier_gstin": "04ABCDE1002F1Z2",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [],
+      "expected": {
+        "outcome": "unclear",
+        "supply_kind": null,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 0,
+        "total_tax_paise": null,
+        "total_including_tax_paise": null,
+        "ledgers": [],
+        "reason_contains": "not used to fill this in"
+      }
+    },
+    {
+      "case_id": "gt-rules-nopos-06",
+      "block": "missing_place_of_supply",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a GSTIN whose state code contradicts the stated supplier State",
+      "supply_date": "2017-07-15",
+      "hsn_sac": "2523",
+      "taxable_paise": 100000,
+      "supplier": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": "27ABCDE1003F1Z3",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [],
+      "expected": {
+        "outcome": "not_valid",
+        "supply_kind": null,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 0,
+        "total_tax_paise": null,
+        "total_including_tax_paise": null,
+        "ledgers": [],
+        "reason_contains": "disagrees with itself"
+      }
+    },
+    {
+      "case_id": "gt-rules-nopos-07",
+      "block": "missing_place_of_supply",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a GSTIN that is not shaped like a GSTIN",
+      "supply_date": "2017-07-15",
+      "hsn_sac": "2523",
+      "taxable_paise": 100000,
+      "supplier": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": "04ABCDE1234",
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [],
+      "expected": {
+        "outcome": "not_valid",
+        "supply_kind": null,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 0,
+        "total_tax_paise": null,
+        "total_including_tax_paise": null,
+        "ledgers": [],
+        "reason_contains": "not shaped like a GSTIN"
+      }
+    },
+    {
+      "case_id": "gt-rules-nopos-08",
+      "block": "missing_place_of_supply",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a place of supply with a blank code",
+      "supply_date": "2017-07-15",
+      "hsn_sac": "2523",
+      "taxable_paise": 100000,
+      "supplier": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "",
+        "name": "",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [],
+      "expected": {
+        "outcome": "unclear",
+        "supply_kind": null,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 0,
+        "total_tax_paise": null,
+        "total_including_tax_paise": null,
+        "ledgers": [],
+        "reason_contains": "the place of supply is missing"
+      }
+    },
+    {
+      "case_id": "gt-rules-nopos-09",
+      "block": "missing_place_of_supply",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supplier with a blank code",
+      "supply_date": "2017-07-15",
+      "hsn_sac": "2523",
+      "taxable_paise": 100000,
+      "supplier": {
+        "code": "",
+        "name": "",
+        "kind": "state"
+      },
+      "place_of_supply": {
+        "code": "27",
+        "name": "Maharashtra",
+        "kind": "state"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [],
+      "expected": {
+        "outcome": "unclear",
+        "supply_kind": null,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 0,
+        "total_tax_paise": null,
+        "total_including_tax_paise": null,
+        "ledgers": [],
+        "reason_contains": "which State or Union Territory the supplier is in"
+      }
+    },
+    {
+      "case_id": "gt-rules-nopos-10",
+      "block": "missing_place_of_supply",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "both sides absent",
+      "supply_date": "2017-07-15",
+      "hsn_sac": "2523",
+      "taxable_paise": 100000,
+      "supplier": null,
+      "place_of_supply": null,
+      "place_of_supply_stated_on_document": false,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [],
+      "expected": {
+        "outcome": "unclear",
+        "supply_kind": null,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 0,
+        "total_tax_paise": null,
+        "total_including_tax_paise": null,
+        "ledgers": [],
+        "reason_contains": "which State or Union Territory the supplier is in"
+      }
+    },
+    {
+      "case_id": "gt-rules-badrule-01",
+      "block": "bad_rule",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "an HSN code the corpus has never seen",
+      "supply_date": "2017-07-29",
+      "hsn_sac": "8471",
+      "taxable_paise": 100000,
+      "supplier": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [],
+      "expected": {
+        "outcome": "unclear",
+        "supply_kind": null,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 0,
+        "total_tax_paise": null,
+        "total_including_tax_paise": null,
+        "ledgers": [],
+        "reason_contains": "not in the rules corpus"
+      }
+    },
+    {
+      "case_id": "gt-rules-badrule-02",
+      "block": "bad_rule",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a code one digit away from a known one \u2014 2524 must NOT be answered with 2523's twenty-eight per cent",
+      "supply_date": "2017-07-29",
+      "hsn_sac": "2524",
+      "taxable_paise": 100000,
+      "supplier": {
+        "code": "27",
+        "name": "Maharashtra",
+        "kind": "state"
+      },
+      "place_of_supply": {
+        "code": "29",
+        "name": "Karnataka",
+        "kind": "state"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [],
+      "expected": {
+        "outcome": "unclear",
+        "supply_kind": null,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 0,
+        "total_tax_paise": null,
+        "total_including_tax_paise": null,
+        "ledgers": [],
+        "reason_contains": "no similar code is used in its place"
+      }
+    },
+    {
+      "case_id": "gt-rules-badrule-03",
+      "block": "bad_rule",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "heading 4820, which the notification prints twice at two different rates \u2014 the corpus refuses rather than choosing",
+      "supply_date": "2017-07-29",
+      "hsn_sac": "4820",
+      "taxable_paise": 100000,
+      "supplier": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [],
+      "expected": {
+        "outcome": "unclear",
+        "supply_kind": null,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 0,
+        "total_tax_paise": null,
+        "total_including_tax_paise": null,
+        "ledgers": [],
+        "reason_contains": "does not choose between them"
+      }
+    },
+    {
+      "case_id": "gt-rules-badrule-04",
+      "block": "bad_rule",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supply dated before the notification came into force",
+      "supply_date": "2017-06-15",
+      "hsn_sac": "2523",
+      "taxable_paise": 100000,
+      "supplier": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [],
+      "expected": {
+        "outcome": "unclear",
+        "supply_kind": null,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 0,
+        "total_tax_paise": null,
+        "total_including_tax_paise": null,
+        "ledgers": [],
+        "reason_contains": "takes effect on 2017-07-01"
+      }
+    },
+    {
+      "case_id": "gt-rules-badrule-05",
+      "block": "bad_rule",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supply dated today \u2014 past the last day the amendment chain was checked, so the rate may be stale and is not used",
+      "supply_date": "2026-08-10",
+      "hsn_sac": "2523",
+      "taxable_paise": 100000,
+      "supplier": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [],
+      "expected": {
+        "outcome": "unclear",
+        "supply_kind": null,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 0,
+        "total_tax_paise": null,
+        "total_including_tax_paise": null,
+        "ledgers": [],
+        "reason_contains": "may be stale"
+      }
+    },
+    {
+      "case_id": "gt-rules-badrule-06",
+      "block": "bad_rule",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a supply dated one day after the amendment check \u2014 the boundary itself, not a date far away from it",
+      "supply_date": "2017-08-18",
+      "hsn_sac": "9987",
+      "taxable_paise": 100000,
+      "supplier": {
+        "code": "27",
+        "name": "Maharashtra",
+        "kind": "state"
+      },
+      "place_of_supply": {
+        "code": "29",
+        "name": "Karnataka",
+        "kind": "state"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [],
+      "expected": {
+        "outcome": "unclear",
+        "supply_kind": null,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 0,
+        "total_tax_paise": null,
+        "total_including_tax_paise": null,
+        "ledgers": [],
+        "reason_contains": "may be stale"
+      }
+    },
+    {
+      "case_id": "gt-rules-badrule-07",
+      "block": "bad_rule",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "an intra-State supply inside a State, where the SGST half has no source that may stand alone under Q1 = A",
+      "supply_date": "2017-07-29",
+      "hsn_sac": "2523",
+      "taxable_paise": 100000,
+      "supplier": {
+        "code": "27",
+        "name": "Maharashtra",
+        "kind": "state"
+      },
+      "place_of_supply": {
+        "code": "27",
+        "name": "Maharashtra",
+        "kind": "state"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [],
+      "expected": {
+        "outcome": "unclear",
+        "supply_kind": null,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 0,
+        "total_tax_paise": null,
+        "total_including_tax_paise": null,
+        "ledgers": [],
+        "reason_contains": "holds no SGST rate for any code"
+      }
+    },
+    {
+      "case_id": "gt-rules-badrule-08",
+      "block": "bad_rule",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a tax that is not a whole number of paise, with no official rounding rule to appeal to",
+      "supply_date": "2017-07-29",
+      "hsn_sac": "9987",
+      "taxable_paise": 1,
+      "supplier": {
+        "code": "27",
+        "name": "Maharashtra",
+        "kind": "state"
+      },
+      "place_of_supply": {
+        "code": "29",
+        "name": "Karnataka",
+        "kind": "state"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [],
+      "expected": {
+        "outcome": "unclear",
+        "supply_kind": null,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 0,
+        "total_tax_paise": null,
+        "total_including_tax_paise": null,
+        "ledgers": [],
+        "reason_contains": "not a whole number of paise"
+      }
+    },
+    {
+      "case_id": "gt-rules-badrule-09",
+      "block": "bad_rule",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a company whose chart of accounts has no IGST ledger",
+      "supply_date": "2017-07-29",
+      "hsn_sac": "2523",
+      "taxable_paise": 100000,
+      "supplier": {
+        "code": "27",
+        "name": "Maharashtra",
+        "kind": "state"
+      },
+      "place_of_supply": {
+        "code": "29",
+        "name": "Karnataka",
+        "kind": "state"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST"
+      ],
+      "rate_authority": [],
+      "expected": {
+        "outcome": "unclear",
+        "supply_kind": null,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 0,
+        "total_tax_paise": null,
+        "total_including_tax_paise": null,
+        "ledgers": [],
+        "reason_contains": "no ledger called IGST"
+      }
+    },
+    {
+      "case_id": "gt-rules-badrule-10",
+      "block": "bad_rule",
+      "evidence_class": "SYNTHETIC_EVIDENCE",
+      "what_it_tests": "a taxable amount of zero",
+      "supply_date": "2017-07-29",
+      "hsn_sac": "2523",
+      "taxable_paise": 0,
+      "supplier": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply": {
+        "code": "04",
+        "name": "Chandigarh",
+        "kind": "union_territory"
+      },
+      "place_of_supply_stated_on_document": true,
+      "supplier_gstin": null,
+      "chart_of_accounts": [
+        "Purchases",
+        "Sundry Expenses",
+        "Cash",
+        "CGST",
+        "SGST",
+        "UTGST",
+        "IGST"
+      ],
+      "rate_authority": [],
+      "expected": {
+        "outcome": "not_valid",
+        "supply_kind": null,
+        "cgst_paise": 0,
+        "sgst_paise": 0,
+        "utgst_paise": 0,
+        "igst_paise": 0,
+        "total_tax_paise": null,
+        "total_including_tax_paise": null,
+        "ledgers": [],
+        "reason_contains": "nothing to tax"
+      }
+    }
+  ]
+}
