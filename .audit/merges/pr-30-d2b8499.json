@@ -1,0 +1,8 @@
+{"repository":"Intellora-ai/accountant-dad-core","pr":30,"head_sha":"d2b8499",
+ "merger":"coordinator","codeant_status":"STALE",
+ "codeant_reviewed_exact_head":false,"codeant_review_count":0,
+ "codeant_line_comment_count":1,
+ "codeant_findings":["accountant/web/app.py:1723 backend on local confirmation"],
+ "findings_handled":[{"finding":"backend on local confirmation","decision":"FALSE_POSITIVE","reason":"GitHub re-anchored the comment forward: original_commit_id 6686752 original_line 1720 -> commit_id d2b8499 line 1723. Source read at HEAD shows reversal.confirm is called with no backend argument and confirm no longer accepts one. The fix landed in d2b8499; the comment was dragged onto the replacement code.","verified_by":"coordinator read accountant/web/app.py:1714-1723 at d2b8499"},{"finding":"accountant/tallyio/__main__.py:159 CLI omits ActionLogSink","decision":"FIXED","guard":"structural scan of every confirm/execute/resume/reconcile caller requiring log=, plus a guard-on-the-guard fed a synthetic defective module","result":"10 mutants, 10 red"}],
+ "exception_reason":"CodeAnt reviewed 6686752 only. Both findings from that review are handled: one fixed with guards, one verified false positive by reading the source at HEAD. Owner instruction: CodeAnt must not stop Phase 8.",
+ "direct_github_merge_protection":false}

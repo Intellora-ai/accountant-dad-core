@@ -1,0 +1,40 @@
+{
+  "pr": 30,
+  "title": "Phase 8 PR-5: seven-field reversal history, and the transition that was never recorded",
+  "branch": "phase8/reversal-history",
+  "head": "ee1850360bd23ebf4b116e0b8d40ccad58936579",
+  "base": "b96f01b",
+  "recorded_before_merge": true,
+  "gates": {
+    "pr-fast": "SUCCESS",
+    "pr-full": "SUCCESS",
+    "ci-gate": "SUCCESS",
+    "mergeStateStatus": "CLEAN",
+    "run": "31375312986"
+  },
+  "codeant_status": "OBSERVED",
+  "codeant_findings": [
+    {
+      "path": "accountant/tallyio/__main__.py",
+      "original_line": 159,
+      "severity": "Critical",
+      "claim": "CLI confirms and executes the batch with no ActionLogSink, so destructive CLI reversals leave no durable history.",
+      "verdict": "CONFIRMED, FIXED",
+      "fix": "--audit-log PATH added, required whenever --yes is passed (__main__.py:116, :167). MemoryStore(args.audit_log) constructed at :205 and passed as log= to both confirm (:213) and execute (:218).",
+      "evidence": "git show origin/phase8/reversal-history:accountant/tallyio/__main__.py"
+    },
+    {
+      "path": "accountant/web/app.py",
+      "original_line": 1720,
+      "reanchored_line": 1977,
+      "severity": "Major",
+      "claim": "confirm() recorded with backend=type(live.client).__name__, falsely attributing a local operator transition to the Tally backend.",
+      "verdict": "CONFIRMED, FIXED",
+      "fix": "backend parameter removed from reversal.confirm's signature entirely, not merely left unset. The web call site passes only log, company_key, run_id.",
+      "evidence": "git show origin/phase8/reversal-history:accountant/web/app.py, lines 1965-1978"
+    }
+  ],
+  "reanchoring_note": "GitHub moved the app.py comment's commit_id forward from 6686752 to ee18503 and its line from 1720 to 1977 after the fix landed. A live-finding heuristic of commit_id==head AND line!=null therefore reports a false positive; both findings were verified against source rather than against comment metadata.",
+  "verification": "2434 passed, 5 xfailed at ee18503. .github untouched. No frozen fixture edited.",
+  "decision": "MERGE"
+}
