@@ -1,0 +1,115 @@
+{
+  "artifact": "artifacts/phase9_cross_organisation_report.md",
+  "experiment": "phase 9, child 8 - does an account mapping transfer between organisations?",
+  "evidence_class": "PUBLIC_DATA_EVIDENCE",
+  "determinism_verdict": "REPRODUCIBLE",
+  "measured_on": "2026-08-10",
+  "output_sha256": "83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4",
+  "output_produced_by": "tests.test_cross_organisation.experiment_text",
+  "corpus_sha256": "830b987153adc8c999a1bb247ccb33ae4d8e4d5db4429883553bc1f710a8bd01",
+  "corpus_covers": "sha256 over every committed fixture in accountant/ingest/fixtures/, name then bytes, in accountant.ingest.sources.ALL_SOURCES order",
+  "taxonomy_sha256": "e8a8a1d75545033d3114f3c7c0563a76b938b8443910defd6917112e38369df7",
+  "taxonomy_covers": "sha256 over accountant/taxonomy/*.py, name then bytes, sorted by name",
+  "configuration_sha256": "04abf19a3291d7e5e3dda912eae95d7ffd1c75de37f90fc581829259534b1236",
+  "configuration_covers": "sha256 over pyproject.toml then ci/gates.toml, path then bytes",
+  "environment": {
+    "git_commit": "27333e9",
+    "git_commit_is": "the commit every measured module came from; this branch adds only tests/test_cross_organisation.py and two artifacts, and changes no module under accountant/",
+    "branch": "phase9/cross-organisation",
+    "python_version": "3.14.6",
+    "python_implementation": "CPython",
+    "os": "macOS-26.4.1-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "interpreter": "/Users/tanveersidhu/ACCOUNTANT/.venv/bin/python",
+    "tool_versions": {
+      "pytest": "9.1.1",
+      "ruff": "0.16.1",
+      "coverage": "7.15.4",
+      "pyright": "1.1.411"
+    },
+    "network": "none - every byte read came from a committed fixture; accountant/ingest/fetch.py was not called"
+  },
+  "runs": [
+    {
+      "python_hash_seed": "0",
+      "repeat": 1,
+      "command": "PYTHONHASHSEED=0 COVERAGE_CORE=pytrace .venv/bin/python -c \"from tests.test_cross_organisation import experiment_text; print(experiment_text(), end='')\"",
+      "output_sha256": "83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4"
+    },
+    {
+      "python_hash_seed": "0",
+      "repeat": 2,
+      "command": "PYTHONHASHSEED=0 COVERAGE_CORE=pytrace .venv/bin/python -c \"from tests.test_cross_organisation import experiment_text; print(experiment_text(), end='')\"",
+      "output_sha256": "83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4"
+    },
+    {
+      "python_hash_seed": "1",
+      "repeat": 1,
+      "command": "PYTHONHASHSEED=1 COVERAGE_CORE=pytrace .venv/bin/python -c \"from tests.test_cross_organisation import experiment_text; print(experiment_text(), end='')\"",
+      "output_sha256": "83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4"
+    },
+    {
+      "python_hash_seed": "1",
+      "repeat": 2,
+      "command": "PYTHONHASHSEED=1 COVERAGE_CORE=pytrace .venv/bin/python -c \"from tests.test_cross_organisation import experiment_text; print(experiment_text(), end='')\"",
+      "output_sha256": "83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4"
+    },
+    {
+      "python_hash_seed": "12345",
+      "repeat": 1,
+      "command": "PYTHONHASHSEED=12345 COVERAGE_CORE=pytrace .venv/bin/python -c \"from tests.test_cross_organisation import experiment_text; print(experiment_text(), end='')\"",
+      "output_sha256": "83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4"
+    },
+    {
+      "python_hash_seed": "12345",
+      "repeat": 2,
+      "command": "PYTHONHASHSEED=12345 COVERAGE_CORE=pytrace .venv/bin/python -c \"from tests.test_cross_organisation import experiment_text; print(experiment_text(), end='')\"",
+      "output_sha256": "83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4"
+    },
+    {
+      "python_hash_seed": "99991",
+      "repeat": 1,
+      "command": "PYTHONHASHSEED=99991 COVERAGE_CORE=pytrace .venv/bin/python -c \"from tests.test_cross_organisation import experiment_text; print(experiment_text(), end='')\"",
+      "output_sha256": "83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4"
+    },
+    {
+      "python_hash_seed": "99991",
+      "repeat": 2,
+      "command": "PYTHONHASHSEED=99991 COVERAGE_CORE=pytrace .venv/bin/python -c \"from tests.test_cross_organisation import experiment_text; print(experiment_text(), end='')\"",
+      "output_sha256": "83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4"
+    },
+    {
+      "python_hash_seed": "random",
+      "repeat": 1,
+      "command": "PYTHONHASHSEED=random COVERAGE_CORE=pytrace .venv/bin/python -c \"from tests.test_cross_organisation import experiment_text; print(experiment_text(), end='')\"",
+      "output_sha256": "83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4"
+    },
+    {
+      "python_hash_seed": "random",
+      "repeat": 2,
+      "command": "PYTHONHASHSEED=random COVERAGE_CORE=pytrace .venv/bin/python -c \"from tests.test_cross_organisation import experiment_text; print(experiment_text(), end='')\"",
+      "output_sha256": "83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4"
+    }
+  ],
+  "runs_identical": true,
+  "seeds_tested": ["0", "1", "12345", "99991", "random"],
+  "why_five_seeds": "two runs in one process share a hash seed, so they cannot catch set or dict iteration order leaking into the output. Five seeds including one chosen at random can.",
+  "not_measurable": [
+    {
+      "number": "N2, review time as a fraction of read-everything time",
+      "reason": "N2 needs R (seconds to read one entry) and D (seconds to dismiss one flag). Both are self-timed inputs and nobody has supplied them. The harness refuses to invent a default, and so does this manifest."
+    },
+    {
+      "number": "N3, catch rate per injected error type",
+      "reason": "nobody injected errors into a real government ledger, so there is no answer key. The harness reports FAIL on absent evidence rather than a vacuous PASS."
+    },
+    {
+      "number": "any transfer result involving DBT",
+      "reason": "the Department for Business and Trade publishes the narration column and leaves every cell in it empty. 0 of 28 committed rows load, all 28 rejected for empty narration, so DBT cannot be either side of a pair."
+    },
+    {
+      "number": "performance on Indian customer books",
+      "reason": "no Indian transaction-level ledger data is published. This corpus tests the mechanism and the transfer question only."
+    }
+  ]
+}
