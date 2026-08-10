@@ -1580,3 +1580,195 @@ changing it is not this document's job.
 This is the distinction that keeps an environment limitation from being reported
 as a product failure, and it runs the other way too: no amount of adapter or
 detector work turns into live evidence without the two human actions.
+
+---
+
+## 18. Phase 8 scope — frozen, and what it means for the design
+
+The owner answered eight scope questions and marked the scope frozen against the
+frozen plan. They are final and are not to be asked again. The answers
+themselves, and the owner's scope marker verbatim, live in
+[`OWNER_DECISIONS.md`](./OWNER_DECISIONS.md); the full operational detail,
+including every count and gate, lives in
+[`artifacts/phase8_scope.md`](../artifacts/phase8_scope.md). What follows is
+only the part that constrains the *design*.
+
+*The marker is not reproduced on this line. `scripts/validate_project_truth.py`
+reads any phase number beside an upper-case token as a phase-status claim, and
+the scope marker is not one of the six statuses the control plane allows. It is
+recorded verbatim in the three documents that check names it does not scan.*
+
+### 18.1 Rule sources — an authority hierarchy, enforced at load time
+
+```
+1. official CBIC notification / circular
+2. official Income Tax Department notification / circular
+3. official GST Council material   — supplementary context ONLY
+4. no commercial API               — not a source, not a dependency
+```
+
+GST Council press releases and rate-finder pages may be recorded as
+supplementary references. **They can never be the sole authority for a
+production rule.**
+
+Every rule carries eight fields, and a rule missing any of them is not a rule
+this system will load:
+
+```
+source URL · source title · issuing authority · notification/circular number
+if available · retrieval date · effective date · rule version · jurisdiction
+```
+
+**When an official source cannot be retrieved or verified**, the rule takes
+status `SOURCE_UNVERIFIED`, cannot load into production, and the result the user
+sees is `NOT_FOUND` or `UNCLEAR` with no automatic posting. **A stale rate is
+never silently used.** This is the same shape as the licence read in §15: an
+unknown fact fails closed rather than rendering as a confident answer.
+
+### 18.2 Corpus scope — observed codes only
+
+Not the full HSN/SAC set. Not a top-N. Not a frequency cutoff. The corpus is
+exactly:
+
+```
+codes observed in verified company history
++ explicitly approved test fixtures
+```
+
+Every unseen code returns `NOT_FOUND`. **A rate is never guessed from a similar
+code**, and a code is never added merely to increase coverage. Coverage that was
+bought by guessing is worse than a gap, because a gap is visible.
+
+### 18.3 The GST posting boundary
+
+**GST posting stays off. This is a deliberate safety boundary, not a failed
+test.** The rules corpus and the evidence model may be built. Automatic GST
+posting is not enabled until a later, explicit owner decision.
+
+```
+GST posting                              = NOT_IMPLEMENTED
+CGST/SGST/IGST split                     = NOT_IMPLEMENTED
+place of supply                          = NOT_IMPLEMENTED
+GST ledger selection                     = NOT_IMPLEMENTED
+successful GST posting with tax lines    = NOT_MEASURED
+```
+
+Never post on supplier GSTIN alone, on company history alone, on a guessed
+state, or on a guessed rate. No partial split. No silent place-of-supply
+inference.
+
+The connector already enforces the boundary at the wire:
+`tests/test_real_tally.py::test_a_gst_voucher_is_refused_rather_than_silently_stripped`
+asserts that a voucher carrying `gst_paise` is refused rather than written
+without its tax lines — because a wrong statutory entry that looks fine is worse
+than a refusal.
+
+### 18.4 Extraction — stub only
+
+`StubExtractor` serves the contract and safety tests. `UnavailableExtractor`
+stays supported. No production backend is selected.
+
+```
+real extraction accuracy   = NOT_MEASURED
+S2                         = NOT_MEASURED
+production backend         = NOT_SELECTED
+adapter contract           = measurable
+five-input-type real extraction = INCOMPLETE
+```
+
+**A stub returning `not_found` cannot satisfy the real extraction-quality
+exit.** Extraction is therefore not to be described as complete. No customer
+bill goes to a third party without explicit approval — the backend choice is
+`H-01` in §16.4.
+
+### 18.5 Evaluation corpus — every case labelled
+
+Four labels, one per case, no case unlabelled:
+
+```
+SYNTHETIC_EVIDENCE · THIRD_PARTY_PUBLIC_EVIDENCE
+REAL_ANONYMISED_EVIDENCE · HELD_OUT_CUSTOMER_LIKE_EVIDENCE
+```
+
+Synthetic cases may test mechanics, schema, provenance and adversarial
+behaviour. **They are never described as real-bill accuracy evidence.** Without
+real bills, real-bill accuracy and `S2` stay unmeasured, and the gap is never
+filled by calling generated documents real.
+
+### 18.6 Delivery shape — five sequential PRs
+
+```
+PR-1  five input-type contracts and fixtures
+PR-2  four detector expansion and measurements
+PR-3  rules corpus and source provenance
+PR-4  UI provenance
+PR-5  full reversal history
+```
+
+Each merges and is confirmed in `origin/main` before the next begins
+integration. Never one 5,000-line change.
+
+### 18.7 Detectors — root cause before the feature
+
+The four detectors are `vendor_switch`, `first_use`, `magnitude` and
+`gst_anomaly` — `ALL_DETECTORS` in `accountant/detect/detectors.py:205`.
+
+Order of work, and the order is the point: reproduce the baseline first, then
+isolate the account driving the false alarms, then fix **the root cause, not the
+threshold**, then add a regression test for that account, then re-run the
+corpus, then enable all four and measure N1.
+
+Tuning a threshold until a metric passes is already forbidden by §5 of this
+document. A feature flag may be used during development only — **it can never
+be used to claim the all-four exit while production runs one detector.**
+
+### 18.8 Actor labels — coarse by design, and said so
+
+Exactly two labels: `accountant_dad` for system-generated actions, `operator`
+for actions answered through the UI. They ride on the existing `action_log`
+(`accountant/memory/store.py:123`) and add no authentication dependency.
+
+```
+authenticated user identity = NOT_IMPLEMENTED
+actor provenance            = coarse-grained system/operator
+```
+
+**`operator` is not a real authenticated identity and is not to be presented as
+one.** Approving an identity subsystem is `H-05` in §16.4.
+
+Every reversal event carries seven fields:
+
+```
+previous state · new state · reason · actor · timestamp
+company/document scope · evidence
+```
+
+**Design gap, measured not assumed.** The `action_log` table as it stands has
+eleven columns — `company_key`, `ts`, `action`, `outcome`, `reason`, `run_id`,
+`backend`, `operation_id`, `voucher_id`, `vendor_id`, `detail`. It carries no
+`actor` column and no previous-state column. Four of the seven fields map onto
+existing columns; `actor` and `previous state` do not exist yet. Extending the
+table is a schema change, not an authentication dependency, so it is compatible
+with the decision above — but "use the existing `action_log`" cannot be read as
+"unchanged".
+
+### 18.9 Approved assumptions
+
+```
+provenance in UI      the existing draft screen displays detector/rule,
+                      source URL, evidence and explanation per decision
+four detectors        vendor_switch, first_use, magnitude, gst_anomaly
+full reversal history extends the existing action_log
+five input types      text, PDF, PNG, JPG, DOCX
+web implementation    existing stdlib http.server unless separately approved
+```
+
+All five were checked against the code and all five hold today:
+`ALL_DETECTORS` names those four detectors; `action_log` exists;
+`accountant/web/app.py:35` imports `HTTPServer` from the standard library; and
+the five input types are the same five already frozen as `S1` in
+[`PROJECT_STATE.md` §6](./PROJECT_STATE.md) and §4 of this document.
+
+**If implementation inspection later contradicts an assumption, scope is not
+silently changed.** The contradiction is recorded, the affected exit is marked
+`BLOCKED`, and independent work continues.
