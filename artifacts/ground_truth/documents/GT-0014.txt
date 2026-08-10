@@ -1,0 +1,14 @@
+TAX INVOICE
+INVOICE NO: GT/0014
+DATE: 14/02/2026
+SUPPLIER: RAO OFFICE SUPPLIES
+HSN/SAC: 9954
+PLACE OF SUPPLY: 29
+--------------------------------------------------------------
+DESCRIPTION                                  AMOUNT
+OFFICE CHAIRS                                       RS. 365.50
+--------------------------------------------------------------
+SUBTOTAL                                            RS. 365.50
+CGST                                                 RS. 21.93
+SGST                                                 RS. 21.93
+GRAND TOTAL                                         RS. 409.36

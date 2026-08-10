@@ -1,0 +1,80 @@
+{
+  "case_id": "GT-0100",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "DOCX",
+  "category": "adversarial",
+  "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "document": "GT-0100.docx",
+  "format_fidelity": "native_text",
+  "raw_fields": {
+    "date": "2026-04-16",
+    "party": "SINGH TRANSPORT COMPANY",
+    "subtotal": "5869.50",
+    "tax_amount": "1643.46",
+    "total": "7512.96",
+    "line_items": [
+      {
+        "description": "ANNUAL SOFTWARE LICENCE",
+        "amount": "1956.50"
+      },
+      {
+        "description": "COURIER AND FREIGHT",
+        "amount": "3913.00"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "7306",
+    "rate": "28.00",
+    "supplier_state": "33",
+    "buyer_state": "36",
+    "place_of_supply": "36",
+    "tax_mode": "INTER_STATE"
+  },
+  "expected": {
+    "date": "2026-04-16",
+    "party": "SINGH TRANSPORT COMPANY",
+    "total_amount": "7512.96",
+    "tax_amount": "1643.46",
+    "line_items": [
+      {
+        "description": "ANNUAL SOFTWARE LICENCE",
+        "amount": "1956.50"
+      },
+      {
+        "description": "COURIER AND FREIGHT",
+        "amount": "3913.00"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "invented vendor name",
+    "notes": "DOCX / adversarial / slot 3",
+    "variation": {
+      "date_format": "iso",
+      "currency": "rs",
+      "grouping": "western",
+      "tax_label": "TAX",
+      "total_label": "TOTAL",
+      "layout": "table",
+      "subtotal_last": true,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": [
+        "DELIVERY CHALLAN 7781 DATED 02/01/2026",
+        "CONTACT: 022 4004 1188"
+      ]
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "25240e1566c98843245ed98839e591eebe75f3a70aca185d4344fc35a4df3ef6",
+  "sha256": "cbb69b76d6b3c11a7b0b169fa1131adfb915201fafe2a1d6d67edc30963a99ca",
+  "document_bytes": 1516
+}

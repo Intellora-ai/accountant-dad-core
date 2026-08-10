@@ -1,0 +1,62 @@
+{
+  "case_id": "GT-0019",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "text",
+  "category": "adversarial",
+  "mime": "text/plain",
+  "document": "GT-0019.txt",
+  "format_fidelity": "native_text",
+  "raw_fields": {
+    "date": "2026-07-19",
+    "party": "GOVIA THAMESLINK RAILWAY LIMITED",
+    "subtotal": "1832.00",
+    "tax_amount": "91.60",
+    "total": "1923.60",
+    "line_items": []
+  },
+  "gst_context": {
+    "hsn_or_sac": "3824",
+    "rate": "5.00",
+    "supplier_state": "07",
+    "buyer_state": "19",
+    "place_of_supply": "19",
+    "tax_mode": "INTER_STATE"
+  },
+  "expected": {
+    "date": "2026-07-19",
+    "party": "GOVIA THAMESLINK RAILWAY LIMITED",
+    "total_amount": "1923.60",
+    "tax_amount": "91.60",
+    "line_items": []
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "verbatim supplier name from the published DFT file",
+    "notes": "text / adversarial / slot 2",
+    "variation": {
+      "date_format": "dmy_long",
+      "currency": "none",
+      "grouping": "indian",
+      "tax_label": "GST @ 18%",
+      "total_label": "GRAND TOTAL",
+      "layout": "wrapped",
+      "subtotal_last": true,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": [
+        "ROUND OFF SHOWN FOR INFORMATION: 0.004",
+        "UNROUNDED TAX WORKING: 188.998"
+      ]
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "76ebfab4430df452b9949cc0d95b6b2292aa2ff719f1e136daafc8dde1eed653",
+  "sha256": "b6c5dba9d01980cc84fc08f51b7e11985d52af896d4f29a3d39fda8866ae66b8",
+  "document_bytes": 560
+}

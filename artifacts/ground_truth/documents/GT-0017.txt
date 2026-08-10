@@ -1,0 +1,15 @@
+TAX INVOICE
+INVOICE NO: GT/0017               DATE: 17/05/2026
+SUPPLIER: NORTHERN TRAINS LIMITED HSN/SAC: 998311
+PLACE OF SUPPLY: 27
+--------------------------------------------------------------
+DESCRIPTION                                  AMOUNT
+COURIER AND FREIGHT                                 RS. 421.00
+PRINTED STATIONERY                                  RS. 842.00
+--------------------------------------------------------------
+CGST                                                RS. 113.67
+SGST                                                RS. 113.67
+AMOUNT PAYABLE                                    RS. 1,490.34
+SUBTOTAL                                          RS. 1,263.00
+PURCHASE ORDER: 4500091827
+TERMS: NET 30 DAYS. INTEREST 24% PER ANNUM AFTER DUE DATE.

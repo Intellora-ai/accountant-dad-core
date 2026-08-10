@@ -1,0 +1,96 @@
+{
+  "case_id": "GT-0058",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "PNG",
+  "category": "adversarial",
+  "mime": "image/png",
+  "document": "GT-0058.png",
+  "format_fidelity": "rendered_raster",
+  "raw_fields": {
+    "date": "2026-10-02",
+    "party": "IYER ELECTRICALS",
+    "subtotal": "6369.30",
+    "tax_amount": "764.32",
+    "total": "7133.62",
+    "line_items": [
+      {
+        "description": "PACKAGING MATERIAL",
+        "amount": "1179.50"
+      },
+      {
+        "description": "STEEL TUBES 40MM",
+        "amount": "2359.00"
+      },
+      {
+        "description": "VEHICLE MAINTENANCE",
+        "amount": "3538.50"
+      },
+      {
+        "description": "VOLUME DISCOUNT",
+        "amount": "-707.70"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "9954",
+    "rate": "12.00",
+    "supplier_state": "29",
+    "buyer_state": "06",
+    "place_of_supply": "06",
+    "tax_mode": "INTER_STATE"
+  },
+  "expected": {
+    "date": "2026-10-02",
+    "party": "IYER ELECTRICALS",
+    "total_amount": "7133.62",
+    "tax_amount": "764.32",
+    "line_items": [
+      {
+        "description": "PACKAGING MATERIAL",
+        "amount": "1179.50"
+      },
+      {
+        "description": "STEEL TUBES 40MM",
+        "amount": "2359.00"
+      },
+      {
+        "description": "VEHICLE MAINTENANCE",
+        "amount": "3538.50"
+      },
+      {
+        "description": "VOLUME DISCOUNT",
+        "amount": "-707.70"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "invented vendor name",
+    "notes": "PNG / adversarial / slot 1",
+    "variation": {
+      "date_format": "dmy_dash",
+      "currency": "pound",
+      "grouping": "western",
+      "tax_label": "IGST",
+      "total_label": "TOTAL DUE",
+      "layout": "right",
+      "subtotal_last": true,
+      "pages": 2,
+      "rotate": false,
+      "ink": 0,
+      "decoys": [
+        "PREVIOUS BALANCE: 9,999.00",
+        "CREDIT NOTE APPLIED EARLIER: 250.00"
+      ]
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "ba21572cc2dbdd2230afff5ee7b6441c59d0d57c52897289f62cceac33e4e21e",
+  "sha256": "cb161656b4bb0c5bc427d61ed3c3835b972c869b571b9d47728d2aa61466861f",
+  "document_bytes": 2693
+}

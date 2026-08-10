@@ -1,0 +1,96 @@
+{
+  "case_id": "GT-0098",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "DOCX",
+  "category": "adversarial",
+  "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "document": "GT-0098.docx",
+  "format_fidelity": "native_text",
+  "raw_fields": {
+    "date": "2026-02-14",
+    "party": "IYER ELECTRICALS",
+    "subtotal": "10365.30",
+    "tax_amount": "1243.84",
+    "total": "11609.14",
+    "line_items": [
+      {
+        "description": "OFFICE CHAIRS",
+        "amount": "1919.50"
+      },
+      {
+        "description": "SITE SURVEY FEES",
+        "amount": "3839.00"
+      },
+      {
+        "description": "ANNUAL SOFTWARE LICENCE",
+        "amount": "5758.50"
+      },
+      {
+        "description": "VOLUME DISCOUNT",
+        "amount": "-1151.70"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "9954",
+    "rate": "12.00",
+    "supplier_state": "29",
+    "buyer_state": "29",
+    "place_of_supply": "29",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-02-14",
+    "party": "IYER ELECTRICALS",
+    "total_amount": "11609.14",
+    "tax_amount": "1243.84",
+    "line_items": [
+      {
+        "description": "OFFICE CHAIRS",
+        "amount": "1919.50"
+      },
+      {
+        "description": "SITE SURVEY FEES",
+        "amount": "3839.00"
+      },
+      {
+        "description": "ANNUAL SOFTWARE LICENCE",
+        "amount": "5758.50"
+      },
+      {
+        "description": "VOLUME DISCOUNT",
+        "amount": "-1151.70"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "invented vendor name",
+    "notes": "DOCX / adversarial / slot 1",
+    "variation": {
+      "date_format": "dmy_dash",
+      "currency": "pound",
+      "grouping": "western",
+      "tax_label": "IGST",
+      "total_label": "TOTAL DUE",
+      "layout": "right",
+      "subtotal_last": true,
+      "pages": 2,
+      "rotate": false,
+      "ink": 0,
+      "decoys": [
+        "PREVIOUS BALANCE: 9,999.00",
+        "CREDIT NOTE APPLIED EARLIER: 250.00"
+      ]
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "6a027978774c535b2a83cdfe6a800d7875f49557f710f8e96026d2d62a25d8df",
+  "sha256": "2118f74fe8f569bc7cd705f99ccd77d5be56d1674be8a2ea8a4f9431477357a9",
+  "document_bytes": 1588
+}

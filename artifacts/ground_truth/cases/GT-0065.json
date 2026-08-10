@@ -1,0 +1,77 @@
+{
+  "case_id": "GT-0065",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "JPG",
+  "category": "layout",
+  "mime": "image/jpeg",
+  "document": "GT-0065.jpg",
+  "format_fidelity": "container_only",
+  "raw_fields": {
+    "date": "2026-05-09",
+    "party": "BALFOUR BEATTY VINCI JV - HS2 (N2)",
+    "subtotal": "3927.00",
+    "tax_amount": "706.86",
+    "total": "4633.86",
+    "line_items": [
+      {
+        "description": "COURIER AND FREIGHT",
+        "amount": "1309.00"
+      },
+      {
+        "description": "PRINTED STATIONERY",
+        "amount": "2618.00"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "998311",
+    "rate": "18.00",
+    "supplier_state": "27",
+    "buyer_state": "27",
+    "place_of_supply": "27",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-05-09",
+    "party": "BALFOUR BEATTY VINCI JV - HS2 (N2)",
+    "total_amount": "4633.86",
+    "tax_amount": "706.86",
+    "line_items": [
+      {
+        "description": "COURIER AND FREIGHT",
+        "amount": "1309.00"
+      },
+      {
+        "description": "PRINTED STATIONERY",
+        "amount": "2618.00"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "verbatim supplier name from the published DFT file",
+    "notes": "JPG / layout / slot 0",
+    "variation": {
+      "date_format": "iso",
+      "currency": "rs",
+      "grouping": "western",
+      "tax_label": "GST",
+      "total_label": "TOTAL",
+      "layout": "block",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "8ba78d899c2dd285103e6fe62e3f6eb718824a702e678315df4d5068ef7c1f3c",
+  "sha256": "254876db48c3516345d2628da59634c348499532a57702adbf8883b7d4fa79cc",
+  "document_bytes": 687
+}

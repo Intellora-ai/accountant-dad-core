@@ -1,0 +1,15 @@
+TAX INVOICE
+INVOICE NO: GT/0011
+DATE: 11-11-2026
+SUPPLIER: UK HEALTH SECURITY AGENCY (UKHSA)
+HSN/SAC: 3824
+PLACE OF SUPPLY: 07
+--------------------------------------------------------------
+DESCRIPTION                                  AMOUNT
+STEEL TUBES 40MM                                    RS. 310.00
+VEHICLE MAINTENANCE                                 RS. 620.00
+PORTLAND CEMENT 53 GRADE                            RS. 930.00
+--------------------------------------------------------------
+SUBTOTAL                                          RS. 1,860.00
+GST                                                  RS. 93.00
+AMOUNT PAYABLE                                    RS. 1,953.00

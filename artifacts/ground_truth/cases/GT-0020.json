@@ -1,0 +1,80 @@
+{
+  "case_id": "GT-0020",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "text",
+  "category": "adversarial",
+  "mime": "text/plain",
+  "document": "GT-0020.txt",
+  "format_fidelity": "native_text",
+  "raw_fields": {
+    "date": "2026-08-20",
+    "party": "SINGH TRANSPORT COMPANY",
+    "subtotal": "1429.50",
+    "tax_amount": "400.26",
+    "total": "1829.76",
+    "line_items": [
+      {
+        "description": "ELECTRICAL FITTINGS",
+        "amount": "476.50"
+      },
+      {
+        "description": "CONSULTANCY RETAINER",
+        "amount": "953.00"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "7306",
+    "rate": "28.00",
+    "supplier_state": "33",
+    "buyer_state": "33",
+    "place_of_supply": "33",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-08-20",
+    "party": "SINGH TRANSPORT COMPANY",
+    "total_amount": "1829.76",
+    "tax_amount": "400.26",
+    "line_items": [
+      {
+        "description": "ELECTRICAL FITTINGS",
+        "amount": "476.50"
+      },
+      {
+        "description": "CONSULTANCY RETAINER",
+        "amount": "953.00"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "invented vendor name",
+    "notes": "text / adversarial / slot 3",
+    "variation": {
+      "date_format": "iso",
+      "currency": "rs",
+      "grouping": "western",
+      "tax_label": "TAX",
+      "total_label": "TOTAL",
+      "layout": "table",
+      "subtotal_last": true,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": [
+        "DELIVERY CHALLAN 7781 DATED 02/01/2026",
+        "CONTACT: 022 4004 1188"
+      ]
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "fba9ca5c731d4d0a9ce5707aa652f00b541ca2645e644b0044d5889428d9b824",
+  "sha256": "6487b16195e29594ef6e63717a6deae3efd2f920d51a9c3f3996fd626f8ceec3",
+  "document_bytes": 674
+}

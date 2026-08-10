@@ -1,0 +1,19 @@
+TAX INVOICE
+INVOICE NO: GT/0012
+DATE: 12 DEC 2026
+SUPPLIER: PATEL STEEL AND TUBES
+HSN/SAC: 7306
+PLACE OF SUPPLY: 33
+--------------------------------------------------------------
+DESCRIPTION                                  AMOUNT
+| VEHICLE MAINTENANCE                        |      328.50 GBP|
+| PORTLAND CEMENT 53 GRADE                   |      657.00 GBP|
+| OFFICE CHAIRS                              |      985.50 GBP|
+| SITE SURVEY FEES                           |    1,314.00 GBP|
+| ANNUAL SOFTWARE LICENCE                    |    1,642.50 GBP|
+| COURIER AND FREIGHT                        |    1,971.00 GBP|
+| PRINTED STATIONERY                         |    2,299.50 GBP|
+--------------------------------------------------------------
+SUBTOTAL                                          9,198.00 GBP
+GST                                               2,575.44 GBP
+TOTAL DUE                                        11,773.44 GBP

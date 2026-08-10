@@ -1,0 +1,13 @@
+TAX INVOICE
+INVOICE NO: GT/0010
+DATE: 10/10/2026
+SUPPLIER: DECCAN LOGISTICS PVT LTD
+HSN/SAC: 9954
+PLACE OF SUPPLY: 06
+--------------------------------------------------------------
+DESCRIPTION                                  AMOUNT
+| PACKAGING MATERIAL                         |          291.50|
+--------------------------------------------------------------
+SUBTOTAL                                                291.50
+GST                                                      34.98
+GRAND TOTAL                                             326.48

@@ -1,0 +1,96 @@
+{
+  "case_id": "GT-0038",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "PDF",
+  "category": "adversarial",
+  "mime": "application/pdf",
+  "document": "GT-0038.pdf",
+  "format_fidelity": "text_operators",
+  "raw_fields": {
+    "date": "2026-02-10",
+    "party": "IYER ELECTRICALS",
+    "subtotal": "4371.30",
+    "tax_amount": "524.56",
+    "total": "4895.86",
+    "line_items": [
+      {
+        "description": "OFFICE CHAIRS",
+        "amount": "809.50"
+      },
+      {
+        "description": "SITE SURVEY FEES",
+        "amount": "1619.00"
+      },
+      {
+        "description": "ANNUAL SOFTWARE LICENCE",
+        "amount": "2428.50"
+      },
+      {
+        "description": "VOLUME DISCOUNT",
+        "amount": "-485.70"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "9954",
+    "rate": "12.00",
+    "supplier_state": "29",
+    "buyer_state": "29",
+    "place_of_supply": "29",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-02-10",
+    "party": "IYER ELECTRICALS",
+    "total_amount": "4895.86",
+    "tax_amount": "524.56",
+    "line_items": [
+      {
+        "description": "OFFICE CHAIRS",
+        "amount": "809.50"
+      },
+      {
+        "description": "SITE SURVEY FEES",
+        "amount": "1619.00"
+      },
+      {
+        "description": "ANNUAL SOFTWARE LICENCE",
+        "amount": "2428.50"
+      },
+      {
+        "description": "VOLUME DISCOUNT",
+        "amount": "-485.70"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "invented vendor name",
+    "notes": "PDF / adversarial / slot 1",
+    "variation": {
+      "date_format": "dmy_dash",
+      "currency": "pound",
+      "grouping": "western",
+      "tax_label": "IGST",
+      "total_label": "TOTAL DUE",
+      "layout": "right",
+      "subtotal_last": true,
+      "pages": 2,
+      "rotate": false,
+      "ink": 0,
+      "decoys": [
+        "PREVIOUS BALANCE: 9,999.00",
+        "CREDIT NOTE APPLIED EARLIER: 250.00"
+      ]
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "dd4e758f5ecac95afeec2c1456b2bb4674444cd1b10340849ad56e80768a3974",
+  "sha256": "5a3276e73e79b947a59eb25bd80eaab8b0a096ce265c930bfb32aacc64755115",
+  "document_bytes": 2182
+}

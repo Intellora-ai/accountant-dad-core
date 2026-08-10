@@ -1,0 +1,1068 @@
+{
+  "benchmark_label": "S2_ENGINEERING_BENCHMARK",
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "case_count": 100,
+  "by_input_type": {
+    "text": 20,
+    "PDF": 20,
+    "PNG": 20,
+    "JPG": 20,
+    "DOCX": 20
+  },
+  "by_category": {
+    "clean": 20,
+    "layout": 20,
+    "line_items": 20,
+    "tax_labels": 20,
+    "adversarial": 20
+  },
+  "by_corpus_label": {
+    "SYNTHETIC_EVIDENCE": 100
+  },
+  "matrix": {
+    "text": {
+      "clean": 4,
+      "layout": 4,
+      "line_items": 4,
+      "tax_labels": 4,
+      "adversarial": 4
+    },
+    "PDF": {
+      "clean": 4,
+      "layout": 4,
+      "line_items": 4,
+      "tax_labels": 4,
+      "adversarial": 4
+    },
+    "PNG": {
+      "clean": 4,
+      "layout": 4,
+      "line_items": 4,
+      "tax_labels": 4,
+      "adversarial": 4
+    },
+    "JPG": {
+      "clean": 4,
+      "layout": 4,
+      "line_items": 4,
+      "tax_labels": 4,
+      "adversarial": 4
+    },
+    "DOCX": {
+      "clean": 4,
+      "layout": 4,
+      "line_items": 4,
+      "tax_labels": 4,
+      "adversarial": 4
+    }
+  },
+  "blocked_input_types": {
+    "JPG": "a baseline JPEG needs a DCT and Huffman entropy coding, and with no image library permitted nothing here can verify that the bytes decode; an unverifiable encoder would be a claim with no measurement behind it"
+  },
+  "gate_per_field": 95,
+  "reachable_ceiling": 80,
+  "reachable_ceiling_reason": "a baseline JPEG needs a DCT and Huffman entropy coding, and with no image library permitted nothing here can verify that the bytes decode; an unverifiable encoder would be a claim with no measurement behind it",
+  "cases": [
+    {
+      "case_id": "GT-0001",
+      "input_type": "text",
+      "category": "clean",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0001.txt",
+      "sha256": "bf65bc1403d96f13346d78cf32f9504dae36fb4b19cdb18f3f7d6d724adf10b1",
+      "generation_hash": "fca33dfa08ab4ea1161a1c902b7b31d6d16aea65ab9e3b988038aece430cb156"
+    },
+    {
+      "case_id": "GT-0002",
+      "input_type": "text",
+      "category": "clean",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0002.txt",
+      "sha256": "249bbaaaedd85c97225718193569c9a57e7c2f03c246ad19c2ed1b0d51cee25e",
+      "generation_hash": "179a3dacad5cef704ecb4723ee861a6f7d0f9ab29a786b4675f6f33ac5cd62cd"
+    },
+    {
+      "case_id": "GT-0003",
+      "input_type": "text",
+      "category": "clean",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0003.txt",
+      "sha256": "3f8bc94da0d906a267854055f4bb03bdd0c6fa2e31bd96b74059f8206b0515dd",
+      "generation_hash": "04e63af8d3ac4a794b79aea7b053fd05ed9c46e9f59860d86b091ec2a9ed8c93"
+    },
+    {
+      "case_id": "GT-0004",
+      "input_type": "text",
+      "category": "clean",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0004.txt",
+      "sha256": "5348aa3226b3728c1fa4989a88a89c98a3f05ed21218cd4ec5471fcac85240a1",
+      "generation_hash": "a5d287945a29b2ab0524c17cf6b0ce54388504ce1ba71cf9ad5b3130bc3ee596"
+    },
+    {
+      "case_id": "GT-0005",
+      "input_type": "text",
+      "category": "layout",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0005.txt",
+      "sha256": "2d36528b8895e5c93c00b5be184a44c177fd84144266230963b4f3d376817b9c",
+      "generation_hash": "a2b22d55e24a3cabe3fd5583cfecddffc6b0bf693458ab0a688c07d7b3b56f7d"
+    },
+    {
+      "case_id": "GT-0006",
+      "input_type": "text",
+      "category": "layout",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0006.txt",
+      "sha256": "e25e6b3dbed0e8ca471b0930cdf83bde7b07ace0c869cfab2f7503c6083bd960",
+      "generation_hash": "6d9a41f4155e5cc254d66ab471460886b82d5dd097ab7c57ffe27d2712509ecf"
+    },
+    {
+      "case_id": "GT-0007",
+      "input_type": "text",
+      "category": "layout",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0007.txt",
+      "sha256": "7a47281ba72960ed104933ad622b503446c15e9fbe4134c99bc8c31c2700f37d",
+      "generation_hash": "18beff1e4696ca0c417be0d747805b1fe1c83fdf2fc0d70b9c43ee38d5981a40"
+    },
+    {
+      "case_id": "GT-0008",
+      "input_type": "text",
+      "category": "layout",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0008.txt",
+      "sha256": "d927e42942c913325ef5f7802cb52b16a12c47dd9c19b01d11dca7b4e86942e9",
+      "generation_hash": "9f206285d90d97f9357f66d84cfc17199454997ce50fff65d50130a749f2c4dd"
+    },
+    {
+      "case_id": "GT-0009",
+      "input_type": "text",
+      "category": "line_items",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0009.txt",
+      "sha256": "8e7df56ffa16d3e04dd0325dfd9f5492654f3748b843dcd88c6710fc545a07e9",
+      "generation_hash": "cf592c0e9687bd269c38382e49552f804449a7fbb51d4a6aebe8c8ab9c259f7c"
+    },
+    {
+      "case_id": "GT-0010",
+      "input_type": "text",
+      "category": "line_items",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0010.txt",
+      "sha256": "8dcf3ffae5873123ea33e3f7ff2c01866014334ee02cc2527fd5eb74bdf93b05",
+      "generation_hash": "9dfc7f1e82cd72b0fc19a15735d8b935da01149f494fa6f7bb1cf4eabb89751f"
+    },
+    {
+      "case_id": "GT-0011",
+      "input_type": "text",
+      "category": "line_items",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0011.txt",
+      "sha256": "98890f8b34364ef7176a45e62d7ce2f5efe4e2ac06eaac76330442b96ba9bdc6",
+      "generation_hash": "7e155825c504494211c1fb93feb681aa5780a6b60cf6672c68b0621885e16b9d"
+    },
+    {
+      "case_id": "GT-0012",
+      "input_type": "text",
+      "category": "line_items",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0012.txt",
+      "sha256": "82da5d24270cc47ebb666b2f7e4ed224f7116eec114c999dabdfe93f2fa5351b",
+      "generation_hash": "4fc69cb2b87f63872f01dd94e381f0aee18dccb15301757d2e6d54b9a3d39655"
+    },
+    {
+      "case_id": "GT-0013",
+      "input_type": "text",
+      "category": "tax_labels",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0013.txt",
+      "sha256": "29ae41e09514316a77023fc4712a48d7dc71369683fe569b9ccc5dc044b9ade9",
+      "generation_hash": "a874f7daada8949567237e27ef4628c170a2d48bd4c513b42162645a3769db99"
+    },
+    {
+      "case_id": "GT-0014",
+      "input_type": "text",
+      "category": "tax_labels",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0014.txt",
+      "sha256": "74fd00491dfcf6fcc8096d49351b1a7f1a4bd7f9c28356c360160fa89d2a0f6a",
+      "generation_hash": "68056dc55a1a7796980fd0b5b6537ea224ccc4c18ec70caf869bc45af607b276"
+    },
+    {
+      "case_id": "GT-0015",
+      "input_type": "text",
+      "category": "tax_labels",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0015.txt",
+      "sha256": "ad5811de8165443d1ae83acd21bfa273046356074fd11f3685a353a8853c67ac",
+      "generation_hash": "4ab774ff20154f7f7cb7aa5cd820bc00f70a36d2111830b8a0d8f2cea10da33f"
+    },
+    {
+      "case_id": "GT-0016",
+      "input_type": "text",
+      "category": "tax_labels",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0016.txt",
+      "sha256": "b4ebb3cba78a1f7ddbe2b4c121aa5551b38264f28d368797d10324ec7eb0265a",
+      "generation_hash": "03a23ca7716d3cce45201df04729075e409f2f804ab19316a10ef884718ecb58"
+    },
+    {
+      "case_id": "GT-0017",
+      "input_type": "text",
+      "category": "adversarial",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0017.txt",
+      "sha256": "67a9dd6219c3f7496155ddc57b5fed4fa49f0f765c03fc2f7f5ccfd584a7c3b4",
+      "generation_hash": "3aabe8df6d447c88a58e847a184094d54651a6bfaa88d1e242cc3c1638349695"
+    },
+    {
+      "case_id": "GT-0018",
+      "input_type": "text",
+      "category": "adversarial",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0018.txt",
+      "sha256": "26fd91147d5b4202c29524b580eb8ab0e4db30569ea58c0d682f9ada34699f0f",
+      "generation_hash": "8b23e4dcedf5e55e72e42c1f633a655ee0a0b7b75cb15c2769e51ad0864aee8d"
+    },
+    {
+      "case_id": "GT-0019",
+      "input_type": "text",
+      "category": "adversarial",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0019.txt",
+      "sha256": "b6c5dba9d01980cc84fc08f51b7e11985d52af896d4f29a3d39fda8866ae66b8",
+      "generation_hash": "76ebfab4430df452b9949cc0d95b6b2292aa2ff719f1e136daafc8dde1eed653"
+    },
+    {
+      "case_id": "GT-0020",
+      "input_type": "text",
+      "category": "adversarial",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0020.txt",
+      "sha256": "6487b16195e29594ef6e63717a6deae3efd2f920d51a9c3f3996fd626f8ceec3",
+      "generation_hash": "fba9ca5c731d4d0a9ce5707aa652f00b541ca2645e644b0044d5889428d9b824"
+    },
+    {
+      "case_id": "GT-0021",
+      "input_type": "PDF",
+      "category": "clean",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0021.pdf",
+      "sha256": "13b202841ddf2a4f01c8b7eced567693ae49affafbd250545f061208eec029f7",
+      "generation_hash": "2cf5ae7cb366073d1484f7724377e3f66e8746d7954bd7e4853d0175b8c275d4"
+    },
+    {
+      "case_id": "GT-0022",
+      "input_type": "PDF",
+      "category": "clean",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0022.pdf",
+      "sha256": "6a6ebfcb1fbb4ee2e2dd4dc1c2d701784050d5603bfc8a0e35b269cc674bca7b",
+      "generation_hash": "d2da6295aba7bad541a76a6caa17da14e2367fcc17facc223995df3a0fbee3db"
+    },
+    {
+      "case_id": "GT-0023",
+      "input_type": "PDF",
+      "category": "clean",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0023.pdf",
+      "sha256": "31e9b265be639be3b40d8ff4d5408e7da88823f217b33de57b19ad2d058b03fe",
+      "generation_hash": "4ed64092df262f1038b29beba7b421037e0055c0a2a049eeec1e3a1adc83f2b2"
+    },
+    {
+      "case_id": "GT-0024",
+      "input_type": "PDF",
+      "category": "clean",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0024.pdf",
+      "sha256": "37cc1188c7b96830de268fc8f02a7d37db3853698fe89b61078b900c4d74663c",
+      "generation_hash": "d36d020c419f7e5d2282acaa7b98642f290c4254f235bb30a7198b686e149049"
+    },
+    {
+      "case_id": "GT-0025",
+      "input_type": "PDF",
+      "category": "layout",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0025.pdf",
+      "sha256": "55f758912a7522591e331271f92c99e945fdfda48c4d6eb01273499aececc867",
+      "generation_hash": "a56817406ce4c3761dc69b48c5c539ffc396e40e39d4434b69e6cb2e7f2629d3"
+    },
+    {
+      "case_id": "GT-0026",
+      "input_type": "PDF",
+      "category": "layout",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0026.pdf",
+      "sha256": "fd60ba7d40e0d66636cbe9cf0c2e603ca8ef48ccd03ac6b3a6b734cc16040fd3",
+      "generation_hash": "3acd5a3584496171f42338b937274a2f3676ee97be8c2359d9f7e31de220790f"
+    },
+    {
+      "case_id": "GT-0027",
+      "input_type": "PDF",
+      "category": "layout",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0027.pdf",
+      "sha256": "689936a12a74d7e176b9cee536e01f85312a0ee865fe636e125dd6fead7dc538",
+      "generation_hash": "23d9f0b796b9e3b0645623b369d522c8f8d2163b3c965d7c69092b21582f9233"
+    },
+    {
+      "case_id": "GT-0028",
+      "input_type": "PDF",
+      "category": "layout",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0028.pdf",
+      "sha256": "14348aa17fac31b01c986c2118c229b6d70ce0f98fa468804c2b9f2dd9ef5b58",
+      "generation_hash": "3a2deb4128acb5b2b33c7bb58180f249279375450a8df95d4cd785610f427527"
+    },
+    {
+      "case_id": "GT-0029",
+      "input_type": "PDF",
+      "category": "line_items",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0029.pdf",
+      "sha256": "942d1228a006958b3ebbfbbb1762063e420d9f495cfec6774824e3ab7aca8ad3",
+      "generation_hash": "2e30803c968c515c6971013a68bd28942580fa3d9fde02fa4074346d32b53211"
+    },
+    {
+      "case_id": "GT-0030",
+      "input_type": "PDF",
+      "category": "line_items",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0030.pdf",
+      "sha256": "7362e85e8df78c769d702b5767332a091269601d7bba073cbafa50e039117401",
+      "generation_hash": "2f3b092c780bb9fcb1c0ad6e99128846645dc83febe8cca589f24babefcf1cb0"
+    },
+    {
+      "case_id": "GT-0031",
+      "input_type": "PDF",
+      "category": "line_items",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0031.pdf",
+      "sha256": "e06544b33feefd976878ad8becbf9422b7977e1dc29d181b79297a6b2377c0ed",
+      "generation_hash": "3292f4ed194b2148a4486f2b1b9a0c752137d12e541bf95df06c637ba39b1c94"
+    },
+    {
+      "case_id": "GT-0032",
+      "input_type": "PDF",
+      "category": "line_items",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0032.pdf",
+      "sha256": "71a768531a5cc7e72b0efa0a8610f5c7c29aa9a67af074afa56eceb4b15a3416",
+      "generation_hash": "01ee214dc17b4661d7f516b93960df29c73b2fb3cd58128758b90caa2687417f"
+    },
+    {
+      "case_id": "GT-0033",
+      "input_type": "PDF",
+      "category": "tax_labels",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0033.pdf",
+      "sha256": "d2109840c0568c8590e3d97566ef7e3810033f200e79943ef6e87f019e1a3655",
+      "generation_hash": "7f5917ecae411175de1bcf6e4dc14f18d6a0bf1527e20abb01340d55097d6f4c"
+    },
+    {
+      "case_id": "GT-0034",
+      "input_type": "PDF",
+      "category": "tax_labels",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0034.pdf",
+      "sha256": "28a1f192282b3f3a1462e5d837f400af8a44c746a6ba9b92fb098d6747ebf7d7",
+      "generation_hash": "04c86ede6675afa3cbdd4a0239a7c2aeb2644d9bd2dd6c6c6c6e36f98c530b34"
+    },
+    {
+      "case_id": "GT-0035",
+      "input_type": "PDF",
+      "category": "tax_labels",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0035.pdf",
+      "sha256": "48e9356c37350cf7792afb42d535640ec80445c9011792e6242ec5447c40e00b",
+      "generation_hash": "acd59870703cac4bf13575f04ca43006945bd8d33331ff200d6aabe524f346b0"
+    },
+    {
+      "case_id": "GT-0036",
+      "input_type": "PDF",
+      "category": "tax_labels",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0036.pdf",
+      "sha256": "6417b24e3707ff19cc26fd2c1f90970d2b2e352b22139c4d9f638641b0de6c79",
+      "generation_hash": "423be81a29ea68b3026862f4a1ea3c4313b8754e3fe6a85c9d96840dca8f1f05"
+    },
+    {
+      "case_id": "GT-0037",
+      "input_type": "PDF",
+      "category": "adversarial",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0037.pdf",
+      "sha256": "62cb893fa5e7f745367c308ccb0245b2b7504bc47f635d5d9109c7a356fe95fd",
+      "generation_hash": "c2745aa103b411f0fec4442be599f83861e25f440309346987a159e6b9afac15"
+    },
+    {
+      "case_id": "GT-0038",
+      "input_type": "PDF",
+      "category": "adversarial",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0038.pdf",
+      "sha256": "5a3276e73e79b947a59eb25bd80eaab8b0a096ce265c930bfb32aacc64755115",
+      "generation_hash": "dd4e758f5ecac95afeec2c1456b2bb4674444cd1b10340849ad56e80768a3974"
+    },
+    {
+      "case_id": "GT-0039",
+      "input_type": "PDF",
+      "category": "adversarial",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0039.pdf",
+      "sha256": "6475f360ddffb9be2fa927862fe6ffdc00f8f073287bea0686a445e3fee2311d",
+      "generation_hash": "bdd8ea5f7fac5fe67ed92ecb94a5b9f3e75cc589a4b397332cc41f6014342ad5"
+    },
+    {
+      "case_id": "GT-0040",
+      "input_type": "PDF",
+      "category": "adversarial",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0040.pdf",
+      "sha256": "971113ef999fa18860559589049d662d344a384a47748bdb0e366064059c3ea7",
+      "generation_hash": "0a4cef97e400e2a57bd2fa32eef2025842da6c4fb3294538e0e4dc29e93b4b60"
+    },
+    {
+      "case_id": "GT-0041",
+      "input_type": "PNG",
+      "category": "clean",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0041.png",
+      "sha256": "9e395059174f5ac936ddb741e5b78c63cb92b32b6997c8004a2cfbca2543121e",
+      "generation_hash": "66d03342929f875de210a3a90c44460e8afec98408b5dc75c913e803b7468100"
+    },
+    {
+      "case_id": "GT-0042",
+      "input_type": "PNG",
+      "category": "clean",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0042.png",
+      "sha256": "f1a7e571cb6229625124a76e09269ddc3ef04e53940267236664adf9736db1f6",
+      "generation_hash": "41f00222d10d7c50ac04bac4d5a0cec9bb50b7be47fa01e54c9b1383afea95da"
+    },
+    {
+      "case_id": "GT-0043",
+      "input_type": "PNG",
+      "category": "clean",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0043.png",
+      "sha256": "2781686338721c50fe0f47687bc148d3a88f5219b2b5329f0af3c67183ce4738",
+      "generation_hash": "929e110582d86127470d88a3f9d735f733988e8778db4d55392d2123035fa8b2"
+    },
+    {
+      "case_id": "GT-0044",
+      "input_type": "PNG",
+      "category": "clean",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0044.png",
+      "sha256": "2c57ab0c98d081110a57c27654801d098b391e32d03308a0eaeb9d647b1c9ab1",
+      "generation_hash": "0fa70766ebf740742592e516b510094127b69c5fbf1b015c41cd233d3d0d73f1"
+    },
+    {
+      "case_id": "GT-0045",
+      "input_type": "PNG",
+      "category": "layout",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0045.png",
+      "sha256": "830c67e9eae94e152f573892dca4f469707ba7efe25bf187edf80765238419ab",
+      "generation_hash": "1a8afdba26d203defafa526e5f161343660ee511f2bed73b8cfa052be52056f7"
+    },
+    {
+      "case_id": "GT-0046",
+      "input_type": "PNG",
+      "category": "layout",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0046.png",
+      "sha256": "5cca1b82ad39a9515e911f0c16ba5514a4cd8c75b42971b8a2e3b8cf9461c7a7",
+      "generation_hash": "6116fd35f44caa262e3eaae2f1e4d363a2aca055e9087d4bae9062f6944a1834"
+    },
+    {
+      "case_id": "GT-0047",
+      "input_type": "PNG",
+      "category": "layout",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0047.png",
+      "sha256": "58185169651db919a77bbb6016b105e4be434e377e90249c4dd9c88cf41a0b20",
+      "generation_hash": "22486007249c63e351bf24d8bbb3b52ed5e8ad7e21d9c04b161b7107d02200ae"
+    },
+    {
+      "case_id": "GT-0048",
+      "input_type": "PNG",
+      "category": "layout",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0048.png",
+      "sha256": "f54a55f9dc0dc0d41e54bd01227b53d769685d74e0d1025e6239cc5fb42b3eb0",
+      "generation_hash": "e560fa3c8e00c98e43297b6b289592334ace653ab64146c46f153719b6b2bb7b"
+    },
+    {
+      "case_id": "GT-0049",
+      "input_type": "PNG",
+      "category": "line_items",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0049.png",
+      "sha256": "e655fc5572d4d76cda4ce9a5622d75161a73a04b46595d42f4c92a22ab590fe1",
+      "generation_hash": "de05dcad33035df2239068dd2649ba71ff96baf34f70cbf7c3e22f4dc646d46e"
+    },
+    {
+      "case_id": "GT-0050",
+      "input_type": "PNG",
+      "category": "line_items",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0050.png",
+      "sha256": "7febb004b9cb425e8618ce7dfa6ed59166f7bba39d29cb0cb75470f5ad1b63af",
+      "generation_hash": "832140adcd86450e22833fe7bf38e31abedc163e0658678e3c8184123267d46d"
+    },
+    {
+      "case_id": "GT-0051",
+      "input_type": "PNG",
+      "category": "line_items",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0051.png",
+      "sha256": "6bd1e4d25cfcc882cbec83aa4b06a5dd8b2af05a27cbbe6df4a0f093d0a0fd96",
+      "generation_hash": "603961ff9f596932f25b2c444bd48e452d39e4c79aa0a79239f673083345e7ac"
+    },
+    {
+      "case_id": "GT-0052",
+      "input_type": "PNG",
+      "category": "line_items",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0052.png",
+      "sha256": "e670e90f68483b98c138f2367b8c07069fa2bf94d347d1332d4383fd2b2a551d",
+      "generation_hash": "892872ad23daee3b394c45a8372f813907d2a47d35992ee3b1a584bd7371283f"
+    },
+    {
+      "case_id": "GT-0053",
+      "input_type": "PNG",
+      "category": "tax_labels",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0053.png",
+      "sha256": "1a239b1cfca2ccb5e1ef0710cc72f6d6417d1b054ce37f273a7aec96242c6752",
+      "generation_hash": "1beeb18ac56b99a89483cda3db5e272cab98b2363f01ec3a2434dc710a38aa09"
+    },
+    {
+      "case_id": "GT-0054",
+      "input_type": "PNG",
+      "category": "tax_labels",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0054.png",
+      "sha256": "fa3b6d08738ed958a5c834385f7ae1b4699b39b3bbca25630b2ede8a1fb87b85",
+      "generation_hash": "9e2c8a4526950ad2e78d74d5e628db40bbcb1b058e4b2cae584a35500c596612"
+    },
+    {
+      "case_id": "GT-0055",
+      "input_type": "PNG",
+      "category": "tax_labels",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0055.png",
+      "sha256": "89cdf5b3e965789c3608ca4273d1368393e21198c2e47a5f534215b94cbbb6f8",
+      "generation_hash": "52d40fc74a11a8c939028b13d3a1220262cd1e22b335dd9e494625733ff40fb2"
+    },
+    {
+      "case_id": "GT-0056",
+      "input_type": "PNG",
+      "category": "tax_labels",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0056.png",
+      "sha256": "47ebcc9fa6515a6e1e54903ac9b2985eaa527511146b2ee4ba05f3c97882082e",
+      "generation_hash": "15a3853a5b388dbe59f3bd933cbaf751c6c62660f0737f463e14e76c0be04078"
+    },
+    {
+      "case_id": "GT-0057",
+      "input_type": "PNG",
+      "category": "adversarial",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0057.png",
+      "sha256": "94b93074bbf2191fcfb637bfc41a469d7635d703da7cf98c73dad7064aa6e215",
+      "generation_hash": "26821227ebf7256deee1808014460bed9cd14207b1a2f711cff2453664231d8b"
+    },
+    {
+      "case_id": "GT-0058",
+      "input_type": "PNG",
+      "category": "adversarial",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0058.png",
+      "sha256": "cb161656b4bb0c5bc427d61ed3c3835b972c869b571b9d47728d2aa61466861f",
+      "generation_hash": "ba21572cc2dbdd2230afff5ee7b6441c59d0d57c52897289f62cceac33e4e21e"
+    },
+    {
+      "case_id": "GT-0059",
+      "input_type": "PNG",
+      "category": "adversarial",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0059.png",
+      "sha256": "ef82fac6357b15b6c2d9d1ae0f33362b2c1630870a3f60b9ed5d3ddbf983150c",
+      "generation_hash": "a1df4a843e7bb2fe6213b9b79ae401c9f31fe2b997a31c5978553fd46ee8829a"
+    },
+    {
+      "case_id": "GT-0060",
+      "input_type": "PNG",
+      "category": "adversarial",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0060.png",
+      "sha256": "519649bf55ca4aea53d13bbb22efdece563375c64b14f9cec0e4ff097f3d8465",
+      "generation_hash": "9c679bbd17eb5ed35453caab5f115cd8a2dc644b7a40cfeb59422152a1164ab1"
+    },
+    {
+      "case_id": "GT-0061",
+      "input_type": "JPG",
+      "category": "clean",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0061.jpg",
+      "sha256": "62830a14713c1e8a1e825d00f8912792bf4c71e82c3aca490f9b364293e755b5",
+      "generation_hash": "9276bf423cb96abf6d4fec7d68c7d4dbb2f3806c0df037fbab2e1399899eb105"
+    },
+    {
+      "case_id": "GT-0062",
+      "input_type": "JPG",
+      "category": "clean",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0062.jpg",
+      "sha256": "7d89af401cd7655351dfd8d135dcfcf1fd152a564ae5b1ab1a0185a1c4e1fd9f",
+      "generation_hash": "5bb9f4fa7123f8f1684ab6a208342c7073798d40189ef8088e95731c674fd10b"
+    },
+    {
+      "case_id": "GT-0063",
+      "input_type": "JPG",
+      "category": "clean",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0063.jpg",
+      "sha256": "fdf5592acf92004aaf6391d4551c0e6033ef0082e2043df24d94885aaea62565",
+      "generation_hash": "3f58b909176538f5f95ed6da099678071d4c7fb891ba126cadaa6fd7cee85820"
+    },
+    {
+      "case_id": "GT-0064",
+      "input_type": "JPG",
+      "category": "clean",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0064.jpg",
+      "sha256": "5ceff509b8cd1d8775194733de841ffe227582e7522a5991aaa545c1e6bc81f2",
+      "generation_hash": "f7f61ee406d42c0aba1e6f874f6b95ebd861e44ba40f47e5a067791f01bf8f86"
+    },
+    {
+      "case_id": "GT-0065",
+      "input_type": "JPG",
+      "category": "layout",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0065.jpg",
+      "sha256": "254876db48c3516345d2628da59634c348499532a57702adbf8883b7d4fa79cc",
+      "generation_hash": "8ba78d899c2dd285103e6fe62e3f6eb718824a702e678315df4d5068ef7c1f3c"
+    },
+    {
+      "case_id": "GT-0066",
+      "input_type": "JPG",
+      "category": "layout",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0066.jpg",
+      "sha256": "1ac197928a657cae81078b2cc8c7b0f5e6d4736be1f821be3d9d0da67dc1d63c",
+      "generation_hash": "4dcf09c1dec132aba6888d4074e33852f5f733f46c2f57438edd4f47469b47fd"
+    },
+    {
+      "case_id": "GT-0067",
+      "input_type": "JPG",
+      "category": "layout",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0067.jpg",
+      "sha256": "23d5ee4ad40a1b2b2f409fb132ae74be55f8fa5f78793b3d0bcf184a7c42a57d",
+      "generation_hash": "4fab23305cc4e8c965390adabebdda4bed6ce95a02365e6dc77535462f4b7953"
+    },
+    {
+      "case_id": "GT-0068",
+      "input_type": "JPG",
+      "category": "layout",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0068.jpg",
+      "sha256": "7f316753e2949b8a2919b8476c076b06236dda0ba27ae54cec6a257cf47cc5c9",
+      "generation_hash": "d73a9c5efc28008fa05e6c99de6dbda02070ef9a16fce494af152137e1836622"
+    },
+    {
+      "case_id": "GT-0069",
+      "input_type": "JPG",
+      "category": "line_items",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0069.jpg",
+      "sha256": "885bbb132b1465bc7153e6179a1eb9a535707d978ec726a9e7a0090f79338a3c",
+      "generation_hash": "4d9057ba6a8bded5a11fa3fe5f8c23e7171f66fcedf88f64207c018a7f9f7122"
+    },
+    {
+      "case_id": "GT-0070",
+      "input_type": "JPG",
+      "category": "line_items",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0070.jpg",
+      "sha256": "91ea3a613aff0a29a01762950989869e4f2cca75188ebacd2f673021b48a6c8e",
+      "generation_hash": "63f7e206d9930d95b4d58023fde01a88328842025f818e91ccd8841925fb5063"
+    },
+    {
+      "case_id": "GT-0071",
+      "input_type": "JPG",
+      "category": "line_items",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0071.jpg",
+      "sha256": "9096868ecc61f73563e4355d5120e862ba02dee127662397d284843f053361b9",
+      "generation_hash": "def8cb191a8b359578a2b5d2a938403c1539be20ca8ce57530a9e4f158f47da4"
+    },
+    {
+      "case_id": "GT-0072",
+      "input_type": "JPG",
+      "category": "line_items",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0072.jpg",
+      "sha256": "b29a201112c930db1c0a9511b0950690c845377e70c8521cf0ddb74b45298a1e",
+      "generation_hash": "b9840c56329048937caf0876b78bb4f9ed3fc2a5a825eae35778718957d31a2e"
+    },
+    {
+      "case_id": "GT-0073",
+      "input_type": "JPG",
+      "category": "tax_labels",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0073.jpg",
+      "sha256": "9493c589d55bd555943c20fd8ce32a9e1f1fea5e4207036759cb5b0a19e86181",
+      "generation_hash": "3cede303900135283fd60a95945a81436db8578736c7353e01adadb18d0b9d4a"
+    },
+    {
+      "case_id": "GT-0074",
+      "input_type": "JPG",
+      "category": "tax_labels",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0074.jpg",
+      "sha256": "45d58ce52237794b2f07d8634d1c81c652ce8af544a3fc42b89b78d88fbaa661",
+      "generation_hash": "d95ef6631cb54a88e6779bcf6a265b55c635f22d7dadcb827b2c4206d3d41574"
+    },
+    {
+      "case_id": "GT-0075",
+      "input_type": "JPG",
+      "category": "tax_labels",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0075.jpg",
+      "sha256": "02cb67c76cdf6678168ff4b7d9630beeea98bf01cb8f653b2973e471f6ee61de",
+      "generation_hash": "838fb97358fe23ed1dca9d67e034b283bf8314a93fc2c075c2bb35f6779ed34b"
+    },
+    {
+      "case_id": "GT-0076",
+      "input_type": "JPG",
+      "category": "tax_labels",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0076.jpg",
+      "sha256": "fbb7bacc6dcfe99ea7f05b95ba0c9116d546eb66a827a522858d38493fbf2c50",
+      "generation_hash": "78f8b32242ed6378535bc749a195e4f83c8cf9aff022e9b2cd8aa773aaff1314"
+    },
+    {
+      "case_id": "GT-0077",
+      "input_type": "JPG",
+      "category": "adversarial",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0077.jpg",
+      "sha256": "f77b8ba382734c7cc4b22fb4dd32340e2a79729009ce65845a90d45b7dce1929",
+      "generation_hash": "474f7f594c06ae76bb0747b9c6fcc4b122c0edaeb5de91f698161beb5b61ab48"
+    },
+    {
+      "case_id": "GT-0078",
+      "input_type": "JPG",
+      "category": "adversarial",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0078.jpg",
+      "sha256": "7294fc32d2cca19598234e13bbefd378484f51ff00604e4737b41ae235ed474d",
+      "generation_hash": "a942583f2bcfb6daf989dc9e2dd1abee502ff145c46ec6a20fef1d342059319f"
+    },
+    {
+      "case_id": "GT-0079",
+      "input_type": "JPG",
+      "category": "adversarial",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0079.jpg",
+      "sha256": "ec08e6ba4fc69cb4601c5345350f9e2ddedccb5f12e731995d6c40d9fef9e4b4",
+      "generation_hash": "546aa242386aecbd941bc7ed0c22f3c12d1b72c6b11b1802766c00cfe78d864d"
+    },
+    {
+      "case_id": "GT-0080",
+      "input_type": "JPG",
+      "category": "adversarial",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0080.jpg",
+      "sha256": "3aa482cfd4b00bf0b8069fba70b898867c5d8a592e325b3373f0cef0c3e6e201",
+      "generation_hash": "d718733a537fc6bcf15b84f823fc36668bcc43c4e1b6686453581aa89a80cec5"
+    },
+    {
+      "case_id": "GT-0081",
+      "input_type": "DOCX",
+      "category": "clean",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0081.docx",
+      "sha256": "3e867da7dae8a27be6a3557c599dfb212f06a8777d48162e3ae8e7be3fc999ca",
+      "generation_hash": "41b1c60169f39857fd15b419ef218894f87512a8ac374e5e5394946cbc0dd02f"
+    },
+    {
+      "case_id": "GT-0082",
+      "input_type": "DOCX",
+      "category": "clean",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0082.docx",
+      "sha256": "e3321fd72e1b2df49dc5e862e0a1df430c11ce1ba2bc6def1b169644995858a0",
+      "generation_hash": "12fceda3227c9f19ef091dcdb8e72f85c8988f652e1985af199462b26fa4bf73"
+    },
+    {
+      "case_id": "GT-0083",
+      "input_type": "DOCX",
+      "category": "clean",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0083.docx",
+      "sha256": "801c2bbcd0c798c80050aa2bb18b9d34e07b591c87fa69ddf14a5fdca73ab603",
+      "generation_hash": "71dc2fed9619ab0a3be2a7b864febfb692dfcef52a5b463d85f6a4ca4071d6b6"
+    },
+    {
+      "case_id": "GT-0084",
+      "input_type": "DOCX",
+      "category": "clean",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0084.docx",
+      "sha256": "58b42e27f03001d79bef4d1254a7c0a46d1b1e6dc158776acd9390a9b77d89fa",
+      "generation_hash": "3ad306be260f1281bf6e8785c8af41a862e79fb47884d68b20dfc84ef40d56f3"
+    },
+    {
+      "case_id": "GT-0085",
+      "input_type": "DOCX",
+      "category": "layout",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0085.docx",
+      "sha256": "f0cf691d5228216f8a5b99a26fc84a78da0c828d1d2674c9cde847c9b43b83ee",
+      "generation_hash": "d6c9fa2379e6d730abf1c7c62e9a2f54d9643cb26431f2973ff431fdfd48260e"
+    },
+    {
+      "case_id": "GT-0086",
+      "input_type": "DOCX",
+      "category": "layout",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0086.docx",
+      "sha256": "2dfa9bc962f1cc139eeeb27d162f07a355012c9901cc4dafd256a4892e1f35bc",
+      "generation_hash": "b2deb81b37f5ad456d0c420d4327281b0a86900cd60b04c6b3de1ff3fd3512c2"
+    },
+    {
+      "case_id": "GT-0087",
+      "input_type": "DOCX",
+      "category": "layout",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0087.docx",
+      "sha256": "8d12d4c8b884ce6b487ce0b87ca0a4461dbcccbcea14e549ae63182baf2bbf1c",
+      "generation_hash": "bc634790174543aa04864187b061ca345b15f58ca792eb9330ac75768104b235"
+    },
+    {
+      "case_id": "GT-0088",
+      "input_type": "DOCX",
+      "category": "layout",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0088.docx",
+      "sha256": "e3f3edafa1aceb0c1c3f32125a7c80fb612f1c3035b0832e1ba77ec0c5216ae8",
+      "generation_hash": "e2048168509b4ddc461f8303b26d3152165db0b368119b9c0ad30e3c9882ef75"
+    },
+    {
+      "case_id": "GT-0089",
+      "input_type": "DOCX",
+      "category": "line_items",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0089.docx",
+      "sha256": "3af01478edcc9915cf240ba65cdc0bbee5987c1b69fa06a269739773e997defa",
+      "generation_hash": "2daaf8b458e6236858fadf76064425507dc79b45f279c697d5d9354ffbee9889"
+    },
+    {
+      "case_id": "GT-0090",
+      "input_type": "DOCX",
+      "category": "line_items",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0090.docx",
+      "sha256": "58f305f6becc5c1dea62cbac2540ae1e61a9cee3bce1e8bdd6dfeef0fb625d19",
+      "generation_hash": "a1367cd74a6ebc9eb01ce4f97f14be23eb639577f8ef64868c7442476b917d8e"
+    },
+    {
+      "case_id": "GT-0091",
+      "input_type": "DOCX",
+      "category": "line_items",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0091.docx",
+      "sha256": "051535d64cebce153bdb15fb2a67471ce50a9871b4b85b48b554aa4b4f91add4",
+      "generation_hash": "f3935ce8bfb65e051ebebffa7fee704f79c94c7f427e30331785d8598408784c"
+    },
+    {
+      "case_id": "GT-0092",
+      "input_type": "DOCX",
+      "category": "line_items",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0092.docx",
+      "sha256": "e90604956fcc7c9c8b2cd0625e719c6c5f4a323d051b14b9a949dc66993fc3da",
+      "generation_hash": "6ba7eeb79fe3f36f79effd6b74be8aa38a3429064eaf4c49b35ec37c45996327"
+    },
+    {
+      "case_id": "GT-0093",
+      "input_type": "DOCX",
+      "category": "tax_labels",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0093.docx",
+      "sha256": "b727f21c28939dcee6d2b6b15553c70b39184f865fbf44965351fb737210da5d",
+      "generation_hash": "941c35a4467b73fe2ec36d4deb78e8b59c510da89c99375ae21a6c48bf0ba49e"
+    },
+    {
+      "case_id": "GT-0094",
+      "input_type": "DOCX",
+      "category": "tax_labels",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0094.docx",
+      "sha256": "e58658b712d969b02ee22a2ec4feec4b2def9721d831d23e1d17e1ae65542102",
+      "generation_hash": "30cfc55d1fa38f5849abe0eb66ae19de5de406c513e3b954e1618102e17f2e70"
+    },
+    {
+      "case_id": "GT-0095",
+      "input_type": "DOCX",
+      "category": "tax_labels",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0095.docx",
+      "sha256": "bf5618d87af327bb7ce099993364f635ec3dce8e54baa75b924c7b727d61663e",
+      "generation_hash": "2cf74cdd72ab8a6ada71cbe7a68e31dc5946ad07790d1c8cdfa54ca7daa6a63f"
+    },
+    {
+      "case_id": "GT-0096",
+      "input_type": "DOCX",
+      "category": "tax_labels",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0096.docx",
+      "sha256": "0237b421a39acb39666f1b8728475c96bb58dd5799bd97f50d2cd8b11625fbd8",
+      "generation_hash": "6085406d452c99e9143723d2bb8fcf691cb23bbf8bffe0eb42888b0fed05254c"
+    },
+    {
+      "case_id": "GT-0097",
+      "input_type": "DOCX",
+      "category": "adversarial",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0097.docx",
+      "sha256": "7d1f50316b01f9088f72170b4231f1df8c10c0753cf3eb737353318ed0f07b5c",
+      "generation_hash": "a1ea8e25c2458afe525da2550ac7ffef33cb607f079de2444994a49aaf442700"
+    },
+    {
+      "case_id": "GT-0098",
+      "input_type": "DOCX",
+      "category": "adversarial",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0098.docx",
+      "sha256": "2118f74fe8f569bc7cd705f99ccd77d5be56d1674be8a2ea8a4f9431477357a9",
+      "generation_hash": "6a027978774c535b2a83cdfe6a800d7875f49557f710f8e96026d2d62a25d8df"
+    },
+    {
+      "case_id": "GT-0099",
+      "input_type": "DOCX",
+      "category": "adversarial",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0099.docx",
+      "sha256": "f2ac3b090cc19080c6bd2e2ac1702b1ccc40c520257d385ab3a8043b3ef5795a",
+      "generation_hash": "27139cd67708226fce473bf56c32b742c8a20091597d4e0654dce5ed39a3aaaf"
+    },
+    {
+      "case_id": "GT-0100",
+      "input_type": "DOCX",
+      "category": "adversarial",
+      "corpus_label": "SYNTHETIC_EVIDENCE",
+      "source_label": "GENERATED_GROUND_TRUTH",
+      "document": "GT-0100.docx",
+      "sha256": "cbb69b76d6b3c11a7b0b169fa1131adfb915201fafe2a1d6d67edc30963a99ca",
+      "generation_hash": "25240e1566c98843245ed98839e591eebe75f3a70aca185d4344fc35a4df3ef6"
+    }
+  ]
+}

@@ -1,0 +1,117 @@
+{
+  "case_id": "GT-0052",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "PNG",
+  "category": "line_items",
+  "mime": "image/png",
+  "document": "GT-0052.png",
+  "format_fidelity": "rendered_raster",
+  "raw_fields": {
+    "date": "2026-04-24",
+    "party": "PATEL STEEL AND TUBES",
+    "subtotal": "29918.00",
+    "tax_amount": "8377.04",
+    "total": "38295.04",
+    "line_items": [
+      {
+        "description": "ANNUAL SOFTWARE LICENCE",
+        "amount": "1068.50"
+      },
+      {
+        "description": "COURIER AND FREIGHT",
+        "amount": "2137.00"
+      },
+      {
+        "description": "PRINTED STATIONERY",
+        "amount": "3205.50"
+      },
+      {
+        "description": "SCAFFOLDING HIRE",
+        "amount": "4274.00"
+      },
+      {
+        "description": "ELECTRICAL FITTINGS",
+        "amount": "5342.50"
+      },
+      {
+        "description": "CONSULTANCY RETAINER",
+        "amount": "6411.00"
+      },
+      {
+        "description": "PACKAGING MATERIAL",
+        "amount": "7479.50"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "7306",
+    "rate": "28.00",
+    "supplier_state": "33",
+    "buyer_state": "36",
+    "place_of_supply": "36",
+    "tax_mode": "INTER_STATE"
+  },
+  "expected": {
+    "date": "2026-04-24",
+    "party": "PATEL STEEL AND TUBES",
+    "total_amount": "38295.04",
+    "tax_amount": "8377.04",
+    "line_items": [
+      {
+        "description": "ANNUAL SOFTWARE LICENCE",
+        "amount": "1068.50"
+      },
+      {
+        "description": "COURIER AND FREIGHT",
+        "amount": "2137.00"
+      },
+      {
+        "description": "PRINTED STATIONERY",
+        "amount": "3205.50"
+      },
+      {
+        "description": "SCAFFOLDING HIRE",
+        "amount": "4274.00"
+      },
+      {
+        "description": "ELECTRICAL FITTINGS",
+        "amount": "5342.50"
+      },
+      {
+        "description": "CONSULTANCY RETAINER",
+        "amount": "6411.00"
+      },
+      {
+        "description": "PACKAGING MATERIAL",
+        "amount": "7479.50"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "invented vendor name",
+    "notes": "PNG / line_items / slot 3",
+    "variation": {
+      "date_format": "dmy_long",
+      "currency": "none",
+      "grouping": "western",
+      "tax_label": "GST",
+      "total_label": "TOTAL DUE",
+      "layout": "table",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "892872ad23daee3b394c45a8372f813907d2a47d35992ee3b1a584bd7371283f",
+  "sha256": "e670e90f68483b98c138f2367b8c07069fa2bf94d347d1332d4383fd2b2a551d",
+  "document_bytes": 2514
+}

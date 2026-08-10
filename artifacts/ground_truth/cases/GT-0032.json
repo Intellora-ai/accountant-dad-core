@@ -1,0 +1,117 @@
+{
+  "case_id": "GT-0032",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "PDF",
+  "category": "line_items",
+  "mime": "application/pdf",
+  "document": "GT-0032.pdf",
+  "format_fidelity": "text_operators",
+  "raw_fields": {
+    "date": "2026-08-04",
+    "party": "PATEL STEEL AND TUBES",
+    "subtotal": "19558.00",
+    "tax_amount": "5476.24",
+    "total": "25034.24",
+    "line_items": [
+      {
+        "description": "ELECTRICAL FITTINGS",
+        "amount": "698.50"
+      },
+      {
+        "description": "CONSULTANCY RETAINER",
+        "amount": "1397.00"
+      },
+      {
+        "description": "PACKAGING MATERIAL",
+        "amount": "2095.50"
+      },
+      {
+        "description": "STEEL TUBES 40MM",
+        "amount": "2794.00"
+      },
+      {
+        "description": "VEHICLE MAINTENANCE",
+        "amount": "3492.50"
+      },
+      {
+        "description": "PORTLAND CEMENT 53 GRADE",
+        "amount": "4191.00"
+      },
+      {
+        "description": "OFFICE CHAIRS",
+        "amount": "4889.50"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "7306",
+    "rate": "28.00",
+    "supplier_state": "33",
+    "buyer_state": "33",
+    "place_of_supply": "33",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-08-04",
+    "party": "PATEL STEEL AND TUBES",
+    "total_amount": "25034.24",
+    "tax_amount": "5476.24",
+    "line_items": [
+      {
+        "description": "ELECTRICAL FITTINGS",
+        "amount": "698.50"
+      },
+      {
+        "description": "CONSULTANCY RETAINER",
+        "amount": "1397.00"
+      },
+      {
+        "description": "PACKAGING MATERIAL",
+        "amount": "2095.50"
+      },
+      {
+        "description": "STEEL TUBES 40MM",
+        "amount": "2794.00"
+      },
+      {
+        "description": "VEHICLE MAINTENANCE",
+        "amount": "3492.50"
+      },
+      {
+        "description": "PORTLAND CEMENT 53 GRADE",
+        "amount": "4191.00"
+      },
+      {
+        "description": "OFFICE CHAIRS",
+        "amount": "4889.50"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "invented vendor name",
+    "notes": "PDF / line_items / slot 3",
+    "variation": {
+      "date_format": "dmy_long",
+      "currency": "rs",
+      "grouping": "western",
+      "tax_label": "GST",
+      "total_label": "TOTAL DUE",
+      "layout": "table",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "01ee214dc17b4661d7f516b93960df29c73b2fb3cd58128758b90caa2687417f",
+  "sha256": "71a768531a5cc7e72b0efa0a8610f5c7c29aa9a67af074afa56eceb4b15a3416",
+  "document_bytes": 1687
+}

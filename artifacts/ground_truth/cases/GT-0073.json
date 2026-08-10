@@ -1,0 +1,69 @@
+{
+  "case_id": "GT-0073",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "JPG",
+  "category": "tax_labels",
+  "mime": "image/jpeg",
+  "document": "GT-0073.jpg",
+  "format_fidelity": "container_only",
+  "raw_fields": {
+    "date": "2026-01-17",
+    "party": "SERCO LIMITED",
+    "subtotal": "1457.00",
+    "tax_amount": "262.26",
+    "total": "1719.26",
+    "line_items": [
+      {
+        "description": "PORTLAND CEMENT 53 GRADE",
+        "amount": "1457.00"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "998311",
+    "rate": "18.00",
+    "supplier_state": "27",
+    "buyer_state": "24",
+    "place_of_supply": "24",
+    "tax_mode": "INTER_STATE"
+  },
+  "expected": {
+    "date": "2026-01-17",
+    "party": "SERCO LIMITED",
+    "total_amount": "1719.26",
+    "tax_amount": "262.26",
+    "line_items": [
+      {
+        "description": "PORTLAND CEMENT 53 GRADE",
+        "amount": "1457.00"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "verbatim supplier name from the published DWP file",
+    "notes": "JPG / tax_labels / slot 0",
+    "variation": {
+      "date_format": "iso",
+      "currency": "none",
+      "grouping": "western",
+      "tax_label": "GST @ 18%",
+      "total_label": "TOTAL",
+      "layout": "block",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "3cede303900135283fd60a95945a81436db8578736c7353e01adadb18d0b9d4a",
+  "sha256": "9493c589d55bd555943c20fd8ce32a9e1f1fea5e4207036759cb5b0a19e86181",
+  "document_bytes": 600
+}

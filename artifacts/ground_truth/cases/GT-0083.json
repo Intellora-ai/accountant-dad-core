@@ -1,0 +1,69 @@
+{
+  "case_id": "GT-0083",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "DOCX",
+  "category": "clean",
+  "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "document": "GT-0083.docx",
+  "format_fidelity": "native_text",
+  "raw_fields": {
+    "date": "2026-11-27",
+    "party": "KPMG LLP",
+    "subtotal": "1642.00",
+    "tax_amount": "82.10",
+    "total": "1724.10",
+    "line_items": [
+      {
+        "description": "STEEL TUBES 40MM",
+        "amount": "1642.00"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "3824",
+    "rate": "5.00",
+    "supplier_state": "07",
+    "buyer_state": "07",
+    "place_of_supply": "07",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-11-27",
+    "party": "KPMG LLP",
+    "total_amount": "1724.10",
+    "tax_amount": "82.10",
+    "line_items": [
+      {
+        "description": "STEEL TUBES 40MM",
+        "amount": "1642.00"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "verbatim supplier name from the published HMT file",
+    "notes": "DOCX / clean / slot 2",
+    "variation": {
+      "date_format": "iso",
+      "currency": "none",
+      "grouping": "western",
+      "tax_label": "GST",
+      "total_label": "TOTAL",
+      "layout": "block",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "71dc2fed9619ab0a3be2a7b864febfb692dfcef52a5b463d85f6a4ca4071d6b6",
+  "sha256": "801c2bbcd0c798c80050aa2bb18b9d34e07b591c87fa69ddf14a5fdca73ab603",
+  "document_bytes": 1405
+}

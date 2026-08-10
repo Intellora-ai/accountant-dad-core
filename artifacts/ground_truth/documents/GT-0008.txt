@@ -1,0 +1,19 @@
+TAX INVOICE
+INVOICE NO: GT/0008
+DATE: 08 AUG 2026
+SUPPLIER: KRISHNA ENTERPRISES
+HSN/SAC: 7306
+PLACE OF SUPPLY: 33
+--------------------------------------------------------------
+DESCRIPTION                                  AMOUNT
+ELECTRICAL FITTINGS                                 RS. 254.50
+CONSULTANCY RETAINER                                RS. 509.00
+--------------------------------------------------------------
+SUBTOTAL                                            RS. 763.50
+GST                                                 RS. 213.78
+TOTAL                                               RS. 977.28
+PAGE 1 OF 2
+CONTINUATION SHEET
+SUPPLIER: KRISHNA ENTERPRISES
+TOTAL                                               RS. 977.28
+PAGE 2 OF 2

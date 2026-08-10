@@ -1,0 +1,62 @@
+{
+  "case_id": "GT-0059",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "PNG",
+  "category": "adversarial",
+  "mime": "image/png",
+  "document": "GT-0059.png",
+  "format_fidelity": "rendered_raster",
+  "raw_fields": {
+    "date": "2026-11-03",
+    "party": "GREAT WESTERN RAILWAY",
+    "subtotal": "4792.00",
+    "tax_amount": "239.60",
+    "total": "5031.60",
+    "line_items": []
+  },
+  "gst_context": {
+    "hsn_or_sac": "3824",
+    "rate": "5.00",
+    "supplier_state": "07",
+    "buyer_state": "07",
+    "place_of_supply": "07",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-11-03",
+    "party": "GREAT WESTERN RAILWAY",
+    "total_amount": "5031.60",
+    "tax_amount": "239.60",
+    "line_items": []
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "verbatim supplier name from the published DFT file",
+    "notes": "PNG / adversarial / slot 2",
+    "variation": {
+      "date_format": "dmy_long",
+      "currency": "none",
+      "grouping": "indian",
+      "tax_label": "GST @ 18%",
+      "total_label": "GRAND TOTAL",
+      "layout": "wrapped",
+      "subtotal_last": true,
+      "pages": 1,
+      "rotate": true,
+      "ink": 0,
+      "decoys": [
+        "ROUND OFF SHOWN FOR INFORMATION: 0.004",
+        "UNROUNDED TAX WORKING: 188.998"
+      ]
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "a1df4a843e7bb2fe6213b9b79ae401c9f31fe2b997a31c5978553fd46ee8829a",
+  "sha256": "ef82fac6357b15b6c2d9d1ae0f33362b2c1630870a3f60b9ed5d3ddbf983150c",
+  "document_bytes": 2117
+}

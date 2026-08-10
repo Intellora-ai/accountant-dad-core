@@ -1,0 +1,117 @@
+{
+  "case_id": "GT-0012",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "text",
+  "category": "line_items",
+  "mime": "text/plain",
+  "document": "GT-0012.txt",
+  "format_fidelity": "native_text",
+  "raw_fields": {
+    "date": "2026-12-12",
+    "party": "PATEL STEEL AND TUBES",
+    "subtotal": "9198.00",
+    "tax_amount": "2575.44",
+    "total": "11773.44",
+    "line_items": [
+      {
+        "description": "VEHICLE MAINTENANCE",
+        "amount": "328.50"
+      },
+      {
+        "description": "PORTLAND CEMENT 53 GRADE",
+        "amount": "657.00"
+      },
+      {
+        "description": "OFFICE CHAIRS",
+        "amount": "985.50"
+      },
+      {
+        "description": "SITE SURVEY FEES",
+        "amount": "1314.00"
+      },
+      {
+        "description": "ANNUAL SOFTWARE LICENCE",
+        "amount": "1642.50"
+      },
+      {
+        "description": "COURIER AND FREIGHT",
+        "amount": "1971.00"
+      },
+      {
+        "description": "PRINTED STATIONERY",
+        "amount": "2299.50"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "7306",
+    "rate": "28.00",
+    "supplier_state": "33",
+    "buyer_state": "33",
+    "place_of_supply": "33",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-12-12",
+    "party": "PATEL STEEL AND TUBES",
+    "total_amount": "11773.44",
+    "tax_amount": "2575.44",
+    "line_items": [
+      {
+        "description": "VEHICLE MAINTENANCE",
+        "amount": "328.50"
+      },
+      {
+        "description": "PORTLAND CEMENT 53 GRADE",
+        "amount": "657.00"
+      },
+      {
+        "description": "OFFICE CHAIRS",
+        "amount": "985.50"
+      },
+      {
+        "description": "SITE SURVEY FEES",
+        "amount": "1314.00"
+      },
+      {
+        "description": "ANNUAL SOFTWARE LICENCE",
+        "amount": "1642.50"
+      },
+      {
+        "description": "COURIER AND FREIGHT",
+        "amount": "1971.00"
+      },
+      {
+        "description": "PRINTED STATIONERY",
+        "amount": "2299.50"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "invented vendor name",
+    "notes": "text / line_items / slot 3",
+    "variation": {
+      "date_format": "dmy_long",
+      "currency": "pound",
+      "grouping": "indian",
+      "tax_label": "GST",
+      "total_label": "TOTAL DUE",
+      "layout": "table",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "4fc69cb2b87f63872f01dd94e381f0aee18dccb15301757d2e6d54b9a3d39655",
+  "sha256": "82da5d24270cc47ebb666b2f7e4ed224f7116eec114c999dabdfe93f2fa5351b",
+  "document_bytes": 931
+}

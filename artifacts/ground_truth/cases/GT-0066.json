@@ -1,0 +1,77 @@
+{
+  "case_id": "GT-0066",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "JPG",
+  "category": "layout",
+  "mime": "image/jpeg",
+  "document": "GT-0066.jpg",
+  "format_fidelity": "container_only",
+  "raw_fields": {
+    "date": "2026-06-10",
+    "party": "GUPTA HARDWARE STORES",
+    "subtotal": "3982.50",
+    "tax_amount": "477.90",
+    "total": "4460.40",
+    "line_items": [
+      {
+        "description": "PRINTED STATIONERY",
+        "amount": "1327.50"
+      },
+      {
+        "description": "SCAFFOLDING HIRE",
+        "amount": "2655.00"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "9954",
+    "rate": "12.00",
+    "supplier_state": "29",
+    "buyer_state": "29",
+    "place_of_supply": "29",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-06-10",
+    "party": "GUPTA HARDWARE STORES",
+    "total_amount": "4460.40",
+    "tax_amount": "477.90",
+    "line_items": [
+      {
+        "description": "PRINTED STATIONERY",
+        "amount": "1327.50"
+      },
+      {
+        "description": "SCAFFOLDING HIRE",
+        "amount": "2655.00"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "invented vendor name",
+    "notes": "JPG / layout / slot 1",
+    "variation": {
+      "date_format": "dmy_slash",
+      "currency": "pound",
+      "grouping": "indian",
+      "tax_label": "GST",
+      "total_label": "TOTAL",
+      "layout": "table",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "4dcf09c1dec132aba6888d4074e33852f5f733f46c2f57438edd4f47469b47fd",
+  "sha256": "1ac197928a657cae81078b2cc8c7b0f5e6d4736be1f821be3d9d0da67dc1d63c",
+  "document_bytes": 674
+}

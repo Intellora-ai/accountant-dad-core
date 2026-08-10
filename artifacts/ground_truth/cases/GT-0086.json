@@ -1,0 +1,77 @@
+{
+  "case_id": "GT-0086",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "DOCX",
+  "category": "layout",
+  "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "document": "GT-0086.docx",
+  "format_fidelity": "native_text",
+  "raw_fields": {
+    "date": "2026-02-02",
+    "party": "GUPTA HARDWARE STORES",
+    "subtotal": "5092.50",
+    "tax_amount": "611.10",
+    "total": "5703.60",
+    "line_items": [
+      {
+        "description": "OFFICE CHAIRS",
+        "amount": "1697.50"
+      },
+      {
+        "description": "SITE SURVEY FEES",
+        "amount": "3395.00"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "9954",
+    "rate": "12.00",
+    "supplier_state": "29",
+    "buyer_state": "29",
+    "place_of_supply": "29",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-02-02",
+    "party": "GUPTA HARDWARE STORES",
+    "total_amount": "5703.60",
+    "tax_amount": "611.10",
+    "line_items": [
+      {
+        "description": "OFFICE CHAIRS",
+        "amount": "1697.50"
+      },
+      {
+        "description": "SITE SURVEY FEES",
+        "amount": "3395.00"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "invented vendor name",
+    "notes": "DOCX / layout / slot 1",
+    "variation": {
+      "date_format": "dmy_slash",
+      "currency": "rs",
+      "grouping": "western",
+      "tax_label": "GST",
+      "total_label": "TOTAL",
+      "layout": "table",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "b2deb81b37f5ad456d0c420d4327281b0a86900cd60b04c6b3de1ff3fd3512c2",
+  "sha256": "2dfa9bc962f1cc139eeeb27d162f07a355012c9901cc4dafd256a4892e1f35bc",
+  "document_bytes": 1459
+}

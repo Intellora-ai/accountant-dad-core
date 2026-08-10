@@ -1,0 +1,69 @@
+{
+  "case_id": "GT-0024",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "PDF",
+  "category": "clean",
+  "mime": "application/pdf",
+  "document": "GT-0024.pdf",
+  "format_fidelity": "text_operators",
+  "raw_fields": {
+    "date": "2026-12-24",
+    "party": "VERMA CEMENT WORKS",
+    "subtotal": "550.50",
+    "tax_amount": "154.14",
+    "total": "704.64",
+    "line_items": [
+      {
+        "description": "VEHICLE MAINTENANCE",
+        "amount": "550.50"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "7306",
+    "rate": "28.00",
+    "supplier_state": "33",
+    "buyer_state": "33",
+    "place_of_supply": "33",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-12-24",
+    "party": "VERMA CEMENT WORKS",
+    "total_amount": "704.64",
+    "tax_amount": "154.14",
+    "line_items": [
+      {
+        "description": "VEHICLE MAINTENANCE",
+        "amount": "550.50"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "invented vendor name",
+    "notes": "PDF / clean / slot 3",
+    "variation": {
+      "date_format": "iso",
+      "currency": "none",
+      "grouping": "western",
+      "tax_label": "GST",
+      "total_label": "TOTAL",
+      "layout": "block",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "d36d020c419f7e5d2282acaa7b98642f290c4254f235bb30a7198b686e149049",
+  "sha256": "37cc1188c7b96830de268fc8f02a7d37db3853698fe89b61078b900c4d74663c",
+  "document_bytes": 1249
+}

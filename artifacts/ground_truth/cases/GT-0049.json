@@ -1,0 +1,59 @@
+{
+  "case_id": "GT-0049",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "PNG",
+  "category": "line_items",
+  "mime": "image/png",
+  "document": "GT-0049.png",
+  "format_fidelity": "rendered_raster",
+  "raw_fields": {
+    "date": "2026-01-21",
+    "party": "BEDFORD UNITARY AUTHORITY",
+    "subtotal": "4052.00",
+    "tax_amount": "729.36",
+    "total": "4781.36",
+    "line_items": []
+  },
+  "gst_context": {
+    "hsn_or_sac": "998311",
+    "rate": "18.00",
+    "supplier_state": "27",
+    "buyer_state": "24",
+    "place_of_supply": "24",
+    "tax_mode": "INTER_STATE"
+  },
+  "expected": {
+    "date": "2026-01-21",
+    "party": "BEDFORD UNITARY AUTHORITY",
+    "total_amount": "4781.36",
+    "tax_amount": "729.36",
+    "line_items": []
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "verbatim supplier name from the published MHCLG file",
+    "notes": "PNG / line_items / slot 0",
+    "variation": {
+      "date_format": "iso",
+      "currency": "none",
+      "grouping": "western",
+      "tax_label": "GST",
+      "total_label": "TOTAL",
+      "layout": "wrapped",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "de05dcad33035df2239068dd2649ba71ff96baf34f70cbf7c3e22f4dc646d46e",
+  "sha256": "e655fc5572d4d76cda4ce9a5622d75161a73a04b46595d42f4c92a22ab590fe1",
+  "document_bytes": 1418
+}

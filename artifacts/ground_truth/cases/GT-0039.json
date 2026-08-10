@@ -1,0 +1,62 @@
+{
+  "case_id": "GT-0039",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "PDF",
+  "category": "adversarial",
+  "mime": "application/pdf",
+  "document": "GT-0039.pdf",
+  "format_fidelity": "text_operators",
+  "raw_fields": {
+    "date": "2026-03-11",
+    "party": "KPMG LLP",
+    "subtotal": "3312.00",
+    "tax_amount": "165.60",
+    "total": "3477.60",
+    "line_items": []
+  },
+  "gst_context": {
+    "hsn_or_sac": "3824",
+    "rate": "5.00",
+    "supplier_state": "07",
+    "buyer_state": "07",
+    "place_of_supply": "07",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-03-11",
+    "party": "KPMG LLP",
+    "total_amount": "3477.60",
+    "tax_amount": "165.60",
+    "line_items": []
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "verbatim supplier name from the published HMT file",
+    "notes": "PDF / adversarial / slot 2",
+    "variation": {
+      "date_format": "dmy_long",
+      "currency": "none",
+      "grouping": "indian",
+      "tax_label": "GST @ 18%",
+      "total_label": "GRAND TOTAL",
+      "layout": "wrapped",
+      "subtotal_last": true,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": [
+        "ROUND OFF SHOWN FOR INFORMATION: 0.004",
+        "UNROUNDED TAX WORKING: 188.998"
+      ]
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "bdd8ea5f7fac5fe67ed92ecb94a5b9f3e75cc589a4b397332cc41f6014342ad5",
+  "sha256": "6475f360ddffb9be2fa927862fe6ffdc00f8f073287bea0686a445e3fee2311d",
+  "document_bytes": 1251
+}

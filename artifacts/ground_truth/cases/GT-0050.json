@@ -1,0 +1,69 @@
+{
+  "case_id": "GT-0050",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "PNG",
+  "category": "line_items",
+  "mime": "image/png",
+  "document": "GT-0050.png",
+  "format_fidelity": "rendered_raster",
+  "raw_fields": {
+    "date": "2026-02-22",
+    "party": "DECCAN LOGISTICS PVT LTD",
+    "subtotal": "1031.50",
+    "tax_amount": "123.78",
+    "total": "1155.28",
+    "line_items": [
+      {
+        "description": "OFFICE CHAIRS",
+        "amount": "1031.50"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "9954",
+    "rate": "12.00",
+    "supplier_state": "29",
+    "buyer_state": "29",
+    "place_of_supply": "29",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-02-22",
+    "party": "DECCAN LOGISTICS PVT LTD",
+    "total_amount": "1155.28",
+    "tax_amount": "123.78",
+    "line_items": [
+      {
+        "description": "OFFICE CHAIRS",
+        "amount": "1031.50"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "invented vendor name",
+    "notes": "PNG / line_items / slot 1",
+    "variation": {
+      "date_format": "dmy_slash",
+      "currency": "rs",
+      "grouping": "western",
+      "tax_label": "GST",
+      "total_label": "GRAND TOTAL",
+      "layout": "table",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "832140adcd86450e22833fe7bf38e31abedc163e0658678e3c8184123267d46d",
+  "sha256": "7febb004b9cb425e8618ce7dfa6ed59166f7bba39d29cb0cb75470f5ad1b63af",
+  "document_bytes": 1460
+}

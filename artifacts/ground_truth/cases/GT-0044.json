@@ -1,0 +1,69 @@
+{
+  "case_id": "GT-0044",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "PNG",
+  "category": "clean",
+  "mime": "image/png",
+  "document": "GT-0044.png",
+  "format_fidelity": "rendered_raster",
+  "raw_fields": {
+    "date": "2026-08-16",
+    "party": "VERMA CEMENT WORKS",
+    "subtotal": "920.50",
+    "tax_amount": "257.74",
+    "total": "1178.24",
+    "line_items": [
+      {
+        "description": "ELECTRICAL FITTINGS",
+        "amount": "920.50"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "7306",
+    "rate": "28.00",
+    "supplier_state": "33",
+    "buyer_state": "33",
+    "place_of_supply": "33",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-08-16",
+    "party": "VERMA CEMENT WORKS",
+    "total_amount": "1178.24",
+    "tax_amount": "257.74",
+    "line_items": [
+      {
+        "description": "ELECTRICAL FITTINGS",
+        "amount": "920.50"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "invented vendor name",
+    "notes": "PNG / clean / slot 3",
+    "variation": {
+      "date_format": "iso",
+      "currency": "none",
+      "grouping": "western",
+      "tax_label": "GST",
+      "total_label": "TOTAL",
+      "layout": "block",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "0fa70766ebf740742592e516b510094127b69c5fbf1b015c41cd233d3d0d73f1",
+  "sha256": "2c57ab0c98d081110a57c27654801d098b391e32d03308a0eaeb9d647b1c9ab1",
+  "document_bytes": 1406
+}

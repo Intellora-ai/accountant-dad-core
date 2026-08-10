@@ -1332,3 +1332,129 @@ def test_a_gst_bill_over_http_explains_the_tax_instead_of_reporting_a_breakage(
     assert status == 200
     assert "broke" not in body.lower()
     assert "tax" in body.lower() or "gst" in body.lower()
+
+
+# =============================================================================
+# PHASE 8 PR-1 — the typed-text backend refuses what it cannot read
+# =============================================================================
+#
+# `TypedTextExtractor.extract` took its second parameter as `_mime` and threw
+# it away. Measured on the five input types before the parameter was honoured:
+#
+#     %PDF-1.7 ...           total_paise = 170,     source "typed_text"
+#     PNG with a tEXt chunk  total_paise = 420000,  source "typed_text"
+#     JPEG with a COM        total_paise = 3133700, source "typed_text"
+#
+# None of those is a blank and none is a `not_found`. Each is an invented
+# number carrying a real backend's name, which is the one failure this
+# repository defines as worse than a refusal: a refusal is visible and asks the
+# person a question, an invented total posts.
+#
+# A second case, on real published bytes: `"paid Café Ltd 4200 for supplies"`
+# encoded cp1252 came back with `party == "Caf"`, sourced `typed_text` — the é
+# became U+FFFD under `errors="replace"`, `_PARTY` stopped at it, and a
+# TRUNCATED supplier name went on to `propose_account`, where a name that does
+# not match history creates a new vendor.
+#
+# Neither could be fixed by choosing different fixtures. No arrangement of
+# bytes on disk stops a money regex matching the digits in `%PDF-1.7`, and
+# picking documents that happen to dodge it is how a corpus is tuned to pass.
+
+
+TYPED_TEXT_REFUSALS = (
+    (
+        "a PDF",
+        b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n",
+        "application/pdf",
+    ),
+    ("a PNG", b"\x89PNG\r\n\x1a\n\x00\x00\x00\x10tEXtnote\x004200", "image/png"),
+    ("a JPEG", b"\xff\xd8\xff\xfe\x00\x10invoice 31337\xff\xd9", "image/jpeg"),
+    (
+        "a DOCX",
+        b"PK\x03\x04word/document.xml 4200",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ),
+    ("no media type at all", b"paid Sharma Traders 4200", ""),
+)
+
+
+@pytest.mark.parametrize(
+    ("label", "data", "mime"),
+    TYPED_TEXT_REFUSALS,
+    ids=[c[0] for c in TYPED_TEXT_REFUSALS],
+)
+def test_the_typed_text_backend_invents_nothing_from_a_document(
+    label: str, data: bytes, mime: str
+) -> None:
+    record = TypedTextExtractor().extract(data, mime)
+
+    assert record.complete is True, label
+    assert field_values(record) == dict.fromkeys(ExtractedRecord.FIELDS, None), label
+    assert not_found_fields(record) == set(ExtractedRecord.FIELDS), label
+    for name in ExtractedRecord.FIELDS:
+        reason = record.per_field_source[name]
+        assert reason.startswith(f"{NOT_FOUND}: "), (label, name, reason)
+        assert "typed_text" in reason, (label, name)
+
+
+def test_a_refusal_by_media_type_still_names_the_backend_that_refused() -> None:
+    """A row that cannot say WHICH backend declined is not evidence about any
+    of them - the same argument `UnavailableExtractor` records for its `name`."""
+    record = TypedTextExtractor().extract(b"%PDF-1.7\n", "application/pdf")
+
+    assert record.backend == "typed_text"
+    assert "application/pdf" in record.per_field_source["total_paise"]
+
+
+def test_the_charset_parameter_is_not_a_reason_to_refuse_a_typed_sentence() -> None:
+    """A real form sends `text/plain; charset=utf-8`. Refusing over eight
+    trailing characters would be a refusal nobody could act on."""
+    with_parameter = TypedTextExtractor().extract(BILL, "text/plain; charset=utf-8")
+    plain = TypedTextExtractor().extract(BILL, "text/plain")
+
+    assert with_parameter.total_paise == plain.total_paise == 420000
+    assert with_parameter.party == plain.party == "Sharma Traders"
+
+
+def test_bytes_that_are_not_utf8_are_refused_rather_than_half_decoded() -> None:
+    """The cp1252 case, on the encoding the published DEFRA, DfT, DWP and
+    MHCLG files actually use. `errors="replace"` returned party "Caf", which is
+    not a missing supplier - it is a DIFFERENT supplier, and it is sourced."""
+    cp1252 = "paid Café Ltd 4200 for supplies".encode("cp1252")
+
+    record = TypedTextExtractor().extract(cp1252, "text/plain")
+
+    assert record.party is None
+    assert record.total_paise is None
+    assert record.per_field_source["party"].startswith(f"{NOT_FOUND}: ")
+    assert "not UTF-8" in record.per_field_source["party"]
+
+
+def test_a_typed_sentence_with_real_accented_letters_still_reads() -> None:
+    """The disconfirming case. A guard that refused every non-ASCII supplier
+    would be deleted the first time somebody typed one, and the fix would be to
+    put `errors="replace"` back."""
+    record = TypedTextExtractor().extract(
+        "paid Café Ltd 4200 for supplies".encode(), "text/plain"
+    )
+
+    assert record.total_paise == 420000
+    assert record.party == "Café Ltd"
+
+
+def test_the_refusal_reaches_the_draft_as_a_question_and_never_as_a_number() -> None:
+    """The consequence, end to end. A PDF used to produce a draft carrying
+    ₹1.70 that came from the string `%PDF-1.7`."""
+    memory = memory_for(tally())
+
+    draft = pipeline.build_draft(
+        COMPANY,
+        b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n",
+        "application/pdf",
+        TypedTextExtractor(),
+        memory,
+        today=TODAY,
+    )
+
+    assert draft.voucher.amount_paise == 0
+    assert draft.voucher.party == ""

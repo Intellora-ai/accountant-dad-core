@@ -1,0 +1,69 @@
+{
+  "case_id": "GT-0053",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "PNG",
+  "category": "tax_labels",
+  "mime": "image/png",
+  "document": "GT-0053.png",
+  "format_fidelity": "rendered_raster",
+  "raw_fields": {
+    "date": "2026-05-25",
+    "party": "HEALTH RESEARCH AUTHORITY",
+    "subtotal": "1087.00",
+    "tax_amount": "195.66",
+    "total": "1282.66",
+    "line_items": [
+      {
+        "description": "COURIER AND FREIGHT",
+        "amount": "1087.00"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "998311",
+    "rate": "18.00",
+    "supplier_state": "27",
+    "buyer_state": "27",
+    "place_of_supply": "27",
+    "tax_mode": "INTRA_STATE"
+  },
+  "expected": {
+    "date": "2026-05-25",
+    "party": "HEALTH RESEARCH AUTHORITY",
+    "total_amount": "1282.66",
+    "tax_amount": "195.66",
+    "line_items": [
+      {
+        "description": "COURIER AND FREIGHT",
+        "amount": "1087.00"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "verbatim supplier name from the published DHSC file",
+    "notes": "PNG / tax_labels / slot 0",
+    "variation": {
+      "date_format": "iso",
+      "currency": "rs",
+      "grouping": "western",
+      "tax_label": "GST",
+      "total_label": "TOTAL",
+      "layout": "block",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "1beeb18ac56b99a89483cda3db5e272cab98b2363f01ec3a2434dc710a38aa09",
+  "sha256": "1a239b1cfca2ccb5e1ef0710cc72f6d6417d1b054ce37f273a7aec96242c6752",
+  "document_bytes": 1451
+}

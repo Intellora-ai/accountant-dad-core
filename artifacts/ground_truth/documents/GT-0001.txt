@@ -1,0 +1,13 @@
+TAX INVOICE
+INVOICE NO: GT/0001
+DATE: 2026-01-01
+SUPPLIER: SHEFFIELD CITY COUNCIL
+HSN/SAC: 998311
+PLACE OF SUPPLY: 24
+--------------------------------------------------------------
+DESCRIPTION                                  AMOUNT
+PORTLAND CEMENT 53 GRADE                                125.00
+--------------------------------------------------------------
+SUBTOTAL                                                125.00
+GST                                                      22.50
+TOTAL                                                   147.50

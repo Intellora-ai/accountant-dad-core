@@ -1,0 +1,69 @@
+{
+  "case_id": "GT-0016",
+  "source_label": "GENERATED_GROUND_TRUTH",
+  "corpus_label": "SYNTHETIC_EVIDENCE",
+  "input_type": "text",
+  "category": "tax_labels",
+  "mime": "text/plain",
+  "document": "GT-0016.txt",
+  "format_fidelity": "native_text",
+  "raw_fields": {
+    "date": "2026-04-16",
+    "party": "NARMADA PACKAGING CO",
+    "subtotal": "402.50",
+    "tax_amount": "112.70",
+    "total": "515.20",
+    "line_items": [
+      {
+        "description": "ANNUAL SOFTWARE LICENCE",
+        "amount": "402.50"
+      }
+    ]
+  },
+  "gst_context": {
+    "hsn_or_sac": "7306",
+    "rate": "28.00",
+    "supplier_state": "33",
+    "buyer_state": "36",
+    "place_of_supply": "36",
+    "tax_mode": "INTER_STATE"
+  },
+  "expected": {
+    "date": "2026-04-16",
+    "party": "NARMADA PACKAGING CO",
+    "total_amount": "515.20",
+    "tax_amount": "112.70",
+    "line_items": [
+      {
+        "description": "ANNUAL SOFTWARE LICENCE",
+        "amount": "402.50"
+      }
+    ]
+  },
+  "rule_ids": [],
+  "source_urls": [],
+  "provenance": {
+    "generated_by": "scripts/build_ground_truth.py",
+    "generation_version": "1",
+    "content_source": "invented vendor name",
+    "notes": "text / tax_labels / slot 3",
+    "variation": {
+      "date_format": "dmy_long",
+      "currency": "none",
+      "grouping": "western",
+      "tax_label": "OUTPUT TAX",
+      "total_label": "TOTAL DUE",
+      "layout": "block",
+      "subtotal_last": false,
+      "pages": 1,
+      "rotate": false,
+      "ink": 0,
+      "decoys": []
+    }
+  },
+  "generation_version": "1",
+  "created_at": "2026-08-10",
+  "generation_hash": "03a23ca7716d3cce45201df04729075e409f2f804ab19316a10ef884718ecb58",
+  "sha256": "b4ebb3cba78a1f7ddbe2b4c121aa5551b38264f28d368797d10324ec7eb0265a",
+  "document_bytes": 545
+}

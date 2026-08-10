@@ -1,0 +1,49 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 833 >>
+stream
+BT /F1 9 Tf 40 800 Td 12 TL
+(TAX INVOICE) Tj T*
+(INVOICE NO: GT/0040) Tj T*
+(DATE: 2026-04-12) Tj T*
+(SUPPLIER: SINGH TRANSPORT COMPANY) Tj T*
+(HSN/SAC: 7306) Tj T*
+(PLACE OF SUPPLY: 36) Tj T*
+(--------------------------------------------------------------) Tj T*
+(DESCRIPTION                                  AMOUNT) Tj T*
+(| ANNUAL SOFTWARE LICENCE                    |      RS. 846.50|) Tj T*
+(| COURIER AND FREIGHT                        |    RS. 1,693.00|) Tj T*
+(--------------------------------------------------------------) Tj T*
+(TAX                                                 RS. 711.06) Tj T*
+(TOTAL                                             RS. 3,250.56) Tj T*
+(SUBTOTAL                                          RS. 2,539.50) Tj T*
+(DELIVERY CHALLAN 7781 DATED 02/01/2026) Tj T*
+(CONTACT: 022 4004 1188) Tj T*
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000001124 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1221
+%%EOF
