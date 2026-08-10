@@ -1,0 +1,44 @@
+{
+  "pr": 31,
+  "title": "Phase 8 PR-2: the ceiling that came from the split, and an N1 that fails honestly",
+  "branch": "phase8/detectors",
+  "head": "f5de90c192e819c421658281fda7e88288935c05",
+  "base": "1b52bbe",
+  "recorded_before_merge": true,
+  "gates": {
+    "mergeStateStatus": "CLEAN",
+    "pr-fast": "SUCCESS",
+    "pr-full": "SUCCESS",
+    "ci-gate": "SUCCESS"
+  },
+  "local_verification": "2494 passed, 5 xfailed at f5de90c. .github diff empty.",
+  "codeant_status": "OBSERVED",
+  "codeant_findings": [
+    {
+      "path": "accountant/detect/detectors.py",
+      "original_commit": "db17ec0",
+      "claim": "The magnitude flag's reason asserts a ceiling over the account's whole history, but the detector only ever sees the slice of history the caller passed it.",
+      "verdict": "CONFIRMED, FIXED",
+      "fix": "Reason narrowed to what the evidence supports: 'of the N earlier entries on it in the history this check was given, the largest is X'. Route (b), stating the evidence window, was rejected by the fixing agent as unsound - the detector cannot know what the caller withheld, so any sentence describing the window is itself an unverifiable claim.",
+      "measured_damage": "On DHSC-00035 the old wording quoted 21,300,000 paise while 10 further postings to that account, dated earlier, were never shown to the detector - the largest 740,000,000, 35x the number in the flag."
+    },
+    {
+      "path": "tests/test_phase8_detectors.py",
+      "original_commit": "db17ec0",
+      "claim": "Assertion `narrowed > 2 * as_given * 8 // 10` is too weak to pin the claim it exists to protect.",
+      "verdict": "CONFIRMED, FIXED",
+      "fix": "Replaced with `(as_given, narrowed) == (44, 78)`, `175 * as_given <= 100 * narrowed < 180 * as_given`, and `narrowed < 2 * as_given`. Verified to accept 77/78/79 and reject 70, 71, 80, 88, 880.",
+      "note": "The old assertion accepted 71, 88 and 880 alike, which is why the coordinator's own false claim of 'more than doubles, 44 to 78' survived two repetitions. 44 to 78 is 1.77x, not >2x."
+    },
+    {
+      "path": "tests/test_phase8_detectors.py",
+      "original_commit": "db17ec0",
+      "claim": "Docstring prose does not match the data it describes.",
+      "verdict": "CONFIRMED, FIXED",
+      "fix": "'Three trusts have at most one entry' is false - measured, they hold 1, 2 or 3 each. Rather than making prose match code, the agent re-read the data: not one of the six flagged entries has a trust with enough prior evidence for a per-trust ceiling to exist, so a per-trust ceiling would have abstained on all sixteen rather than corrected the six."
+    }
+  ],
+  "mutation": "8 mutants, 8 caught.",
+  "reanchoring_note": "All three comments sit on db17ec0 with line=null - GitHub marks them outdated after the rebase. Each fix was verified against source at f5de90c, not against comment metadata.",
+  "decision": "MERGE"
+}
