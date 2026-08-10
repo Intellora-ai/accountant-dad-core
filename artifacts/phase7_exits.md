@@ -1,7 +1,19 @@
 # Phase 7 — the extraction adapter
 
 Branch `phase7/adapter-contract`, on top of `main` at `1ca65a9` (D-06).
-Last measured 2026-08-10 at `dd65b8c`.
+Last measured 2026-08-10 at `fa7ba97`.
+
+> **WHAT CHANGED SINCE `dd65b8c`, IN ONE PARAGRAPH.** The HTTP reader outage was
+> the one row in this document reading **BLOCKED**. The owner ruled it fixed in
+> this branch rather than deferred to Phase 8, and it is: `app.configure()` now
+> takes an extractor, `Runtime` holds it, the route uses it, and a backend
+> failure becomes an explicit safe fallback. The outage matrix went from ten
+> scenarios to thirteen and every figure below was re-measured on `fa7ba97`.
+> `docs/CONTROL_PLANE.yaml` was corrected in the same commit and is no longer a
+> contradiction — see the last section.
+>
+> **WHAT DID NOT CHANGE.** This system still cannot post a tax line. Everything
+> the GST rows say is a SAFETY result. None of it is GST support.
 
 The rule this phase serves: **we write an adapter, never a reader.** Reading a
 bill is a commodity. TallyPrime 7.1 ships it. myBillBook gives it away. Others
@@ -37,13 +49,14 @@ A green local suite is not any of them and is never reported as one.
 
 | # | requirement | measured | target | gap | evidence | status |
 | --- | --- | --- | --- | --- | --- | --- |
-| 7.1 | swapping the backend changes NO code outside `accountant/extract/` | **0 sites, 0 names** | 0 | none | `tests/test_adapter_contract.py:769` `test_backend_selection_happens_nowhere_outside_the_package`; ratchet at `tests/test_adapter_contract.py:751` `KNOWN_SELECTION_SITES = frozenset()`; the lever is `accountant/extract/registry.py:67` `DEFAULT_BACKEND` | **PASS** |
-| 7.2 | a backend outage returns every field `not_found` with a stated reason, and the person types the entry instead | **10 scenarios × 7 properties**, 112 cases | 10 scenarios | none for the adapter; the HTTP surface is a separate row below | `tests/test_extract_outage.py:280`, `:300`, `:310`, `:389`, `:420` | **PASS** |
-| 7.3 | a STATIC test fails if a reader appears in `accountant/extract/` | **5 guards, 28 cases** | ≥1 guard | none | `tests/test_no_reader.py:187`, `:205`, `:305`, `:322`, `:419`, `:475` | **PASS** |
-| GST | a GST bill must not reach VALID and then be refused by the connector | **fixed 2026-08-10**; 4/4 tests pass with no marker; 30/30 sweep | 4/4 and 30/30 | none | `tests/test_adapter_contract.py:1147`, `:1160`, `:1176`, `:1287`; `tests/test_gst_safety_sweep.py` | **PASS** |
-| — | a reader outage over HTTP | unreachable: `app.configure()` takes no extractor | reachable | one parameter on `configure()` | see "A reader outage over HTTP" below | **BLOCKED** |
-| — | a GST bill that POSTS, with tax lines on it | no tax line can be built at all | Phase 8 | the whole of GST posting | nothing here builds one, and nothing was invented | **NOT_MEASURED** |
+| 7.1 | swapping the backend changes NO code outside `accountant/extract/` | **0 sites, 0 names**, over 45 modules | 0 | none | `tests/test_adapter_contract.py:789` `test_backend_selection_happens_nowhere_outside_the_package`; ratchet at `:771` `KNOWN_SELECTION_SITES = frozenset()`; the lever is `accountant/extract/registry.py:86` `DEFAULT_BACKEND` | **PASS** |
+| 7.2 | a backend outage returns every field `not_found` with a stated reason, and the person types the entry instead | **13 scenarios**, 10 through the pipeline + 3 over HTTP; 147 cases | 10 scenarios | none | `tests/test_extract_outage.py:304`, `:324`, `:334`, `:413`, `:444`, `:752`, `:777`, `:823`, `:851`, `:894`, `:908` | **PASS** |
+| 7.3 | a STATIC test fails if a reader appears in `accountant/extract/` | **6 guards, 28 cases** | ≥1 guard | none | `tests/test_no_reader.py:187`, `:205`, `:305`, `:322`, `:419`, `:475` | **PASS** |
+| GST | a GST bill must not reach VALID and then be refused by the connector | **fixed 2026-08-10**; 4/4 tests pass with no marker; 30/30 sweep | 4/4 and 30/30 | none | `tests/test_adapter_contract.py:1190`, `:1203`, `:1219`, `:1321`; `tests/test_gst_safety_sweep.py` | **PASS** |
+| — | a reader outage over HTTP | **3/3 scenarios safe**, driven over a real socket | 3 | none | `tests/test_extract_outage.py:752` onward; the seam is `accountant/web/app.py:637`, `:713`, `:1303` | **PASS** (was BLOCKED at `dd65b8c`) |
+| — | a GST bill that POSTS, with tax lines on it | no tax line can be built at all | next phase | the whole of GST posting | nothing here builds one, and nothing was invented | **NOT_MEASURED** |
 | — | third-party backend accuracy | no backend is connected | owner's call | — | `artifacts/extraction_backends.md`, untracked | **NOT_MEASURED** |
+| — | question rate | nobody ran it | — | — | — | **NOT_MEASURED** |
 
 ---
 
@@ -80,41 +93,60 @@ So the proof reads the AST:
 2. **Every reference is counted** — `ast.Name`, `ast.Attribute` and `ast.alias`,
    so an import, a renamed import, a construction and a method call are all
    caught. Comments and docstrings are not read.
-3. **Measured at `dd65b8c`:**
+3. **Measured at `fa7ba97`:**
 
-       backends derived     ServiceExtractor, StubExtractor,
+       backends derived     GuardedExtractor, ServiceExtractor, StubExtractor,
                             TypedTextExtractor, UnavailableExtractor
        modules scanned      45  (accountant/**, excluding accountant/extract/**)
        core sites           0
        whole-package sites  {}
        cost of a swap       0 lines outside the package
 
-   Confirmed independently of the AST scan by a plain text search for the four
+   The derived list grew from four to five and the site count did not move.
+   `GuardedExtractor` was added to the list by the DERIVATION, not by anybody
+   remembering — which is the property this design was chosen for, and it is
+   also the reason `web/app.py` reaches the guard through the `guarded()`
+   function: spelling the class there would have been a selection site.
+
+   Confirmed independently of the AST scan by a plain text search for the
    class names across `accountant/`, excluding `accountant/extract/`: no hits.
 
 4. **What the rest of the repository takes from the package:**
 
        accountant/pipeline.py       ExtractedRecord, Extractor, NOT_FOUND
        accountant/ingest/spend.py   NOT_FOUND
-       accountant/web/app.py        default_extractor
+       accountant/web/app.py        Extractor, default_extractor, guarded
 
-   All four are the abstract contract. `accountant/web/app.py:39` imports
-   `default_extractor`; `accountant/web/app.py:1254` calls it. No concrete
-   backend is named. `pipeline.build_draft` and `pipeline.run` annotate
-   `extractor: Extractor`, asserted from the AST at
-   `tests/test_adapter_contract.py:810`.
+   Every one is the abstract contract. `accountant/web/app.py:40` imports
+   `default_extractor` and `guarded`; `:713` calls them; `:1303` uses the
+   stored result. No concrete backend is named. `pipeline.build_draft` and
+   `pipeline.run` annotate `extractor: Extractor`, asserted from the AST at
+   `tests/test_adapter_contract.py:830`.
 
-`default_extractor` is in `CONTRACT`, the set of names a core module may depend
-on. That is a widening, not a weakening: the function names no backend, so a
-module calling it cannot be made to change by choosing a different one.
+`default_extractor` and, since `fa7ba97`, `guarded` are in `CONTRACT` — the set
+of names a core module may depend on. Both are widenings and neither is a
+weakening: both are `(...) -> Extractor`, neither takes or returns a named
+backend, so a module calling either cannot be made to change by choosing a
+different one.
+
+**The `guarded` widening was checked, not assumed.**
+`test_the_core_takes_only_the_contract_from_the_extraction_package` FAILED the
+moment `web/app.py` imported the name, and the name was added deliberately
+afterwards. `KNOWN_SELECTION_SITES` — the bound that actually carries exit 7.1 —
+is still the empty set and did not move. A new test at
+`tests/test_adapter_contract.py:868` now fails if a backend class is ever added
+to `CONTRACT`, closing the cheapest way to silence the allowlist check.
 
 ---
 
 ## 7.2 — outage fallback · PASS
 
-Ten scenarios, seven properties each, all asserted separately. "It failed
+**Thirteen scenarios: ten through `pipeline.run`, three over real HTTP.** The
+ten are below with seven properties each, all asserted separately — "it failed
 safely" is four different properties wearing one sentence and only one of them
-is about not crashing.
+is about not crashing. The three HTTP scenarios have their own section, "A
+reader outage over HTTP", further down; they were BLOCKED at `dd65b8c` and are
+measured here.
 
 | # | scenario | how it arrives | the sentence the person gets |
 | --- | --- | --- | --- |
@@ -163,7 +195,7 @@ true and an unguarded check makes it one paise.
 
 ## 7.3 — no reader built · PASS
 
-Five guards, 28 cases, at `tests/test_no_reader.py`.
+Six guards, 28 cases, at `tests/test_no_reader.py`.
 
 | guard | line | what it reads | what it catches |
 | --- | --- | --- | --- |
@@ -264,10 +296,10 @@ Run as ordinary tests, twice, same result both times.
 
 | test:line | required | actual | status |
 | --- | --- | --- | --- |
-| `test_a_gst_bill_without_tax_lines_cannot_be_valid` `:1147` | outcome is not VALID | NOT_VALID | **PASS** |
-| `test_a_gst_bill_with_incomplete_tax_data_asks_a_question_or_hands_over` `:1160` | UNCLEAR/NOT_VALID and the words mention the tax | NOT_VALID, reason names GST and the tax line | **PASS** |
-| `test_a_connector_refusal_cannot_happen_after_the_application_said_valid` `:1176` | VALID means the connector will take it | asserted both directions; no `write_attempted` row for the refused bill | **PASS** |
-| `test_a_gst_bill_over_http_explains_the_tax_instead_of_reporting_a_breakage` `:1287` | HTTP 200, explains the tax | HTTP 200, no "broke", the reason names the tax | **PASS** |
+| `test_a_gst_bill_without_tax_lines_cannot_be_valid` `:1190` | outcome is not VALID | NOT_VALID | **PASS** |
+| `test_a_gst_bill_with_incomplete_tax_data_asks_a_question_or_hands_over` `:1203` | UNCLEAR/NOT_VALID and the words mention the tax | NOT_VALID, reason names GST and the tax line | **PASS** |
+| `test_a_connector_refusal_cannot_happen_after_the_application_said_valid` `:1219` | VALID means the connector will take it | asserted both directions; no `write_attempted` row for the refused bill | **PASS** |
+| `test_a_gst_bill_over_http_explains_the_tax_instead_of_reporting_a_breakage` `:1321` | HTTP 200, explains the tax | HTTP 200, no "broke", the reason names the tax | **PASS** |
 
 ### Three other tests corrected, none weakened
 
@@ -321,36 +353,206 @@ tax field, and every arm-C case really does not.
 
 ---
 
-## A reader outage over HTTP — BLOCKED
+## A reader outage over HTTP — PASS. It was BLOCKED, and it is fixed.
+
+### What the block actually was
 
 ```
-web/app.py calls registry.default_extractor(), so the backend is chosen inside
-accountant/extract/ — but app.configure() takes a client, an identity and a
-store, and NO extractor. There is no seam through which a test can hand the
-RUNNING app a failing backend.
+web/app.py called registry.default_extractor() INSIDE the request handler.
+The backend was chosen inside accountant/extract/, which satisfied exit 7.1 —
+but it was chosen PER REQUEST, so nothing could hand the RUNNING app a failing
+backend, and app.configure() took a client, an identity and a store.
 ```
 
-Editing `DEFAULT_BACKEND` is monkey-patching a `Final` constant and proves
-something about the patch rather than about the shipped path.
+Two routes were rejected and both are worth keeping written down. Editing
+`DEFAULT_BACKEND` is patching a `Final` constant and proves something about the
+patch. Building a failing extractor inside the route would test a branch the
+shipped path does not have.
 
-**What lifts it:** one parameter on `configure()`, defaulting to
-`default_extractor()`, so a fixture can inject `UnavailableExtractor` the same
-way it already injects `FakeTally`.
+**The previous justification for deferring was itself corrected once, and the
+correction stood.** This document used to say adding the parameter "is a change
+to the web app beyond the one line exit 7.1 allows". That was wrong — exit 7.1
+is about backend SELECTION appearing outside the package, and a parameter
+defaulting to `default_extractor()` names no backend. The narrower reason given
+instead was that it changes the web app's public signature and belongs to
+whoever next opens that file deliberately. **The owner ruled on 2026-08-10 that
+it be fixed in this branch.** It is.
 
-**A previous justification here was wrong and is corrected rather than carried
-forward.** This document used to say that adding the parameter "is a change to
-the web app beyond the one line exit 7.1 allows". That is not right: exit 7.1 is
-about backend SELECTION appearing outside the package, and a parameter defaulting
-to `default_extractor()` names no backend, so it would create no selection site
-and the AST guard would say so. The real reason it is not done here is narrower
-and should be stated as such: it changes the web app's public signature, and
-that belongs to whoever next opens that file deliberately.
+### The seam, in four lines
 
-Status: **BLOCKED**. Not measured, not failed — unreachable without that change.
+| file:line | what |
+| --- | --- |
+| `accountant/web/app.py:637` | `configure(..., extractor: Extractor \| None = None)` |
+| `accountant/web/app.py:249` | `Runtime.extractor` — a field, **no default** |
+| `accountant/web/app.py:713` | `guarded(default_extractor() if extractor is None else extractor)` |
+| `accountant/web/app.py:1303` | `_run` passes `live.extractor`, and builds nothing |
+| `accountant/extract/registry.py:152` | `GuardedExtractor` — never raises, never blank |
+| `accountant/extract/registry.py:225` | `guarded()` — a FUNCTION, which is what keeps 7.1 at zero |
+
+**Why the guard is reached through a function and not a class name.** The AST
+scan derives its list of backends from the package: a class defining `extract`
+is a backend. `GuardedExtractor` defines `extract`, so the scan counted it as a
+fifth backend the moment it was written — and `web/app.py` spelling that class
+would have been a selection site. Measured after the change:
+`backend_sites() == {}`. Unchanged.
+
+### Why the guard has to exist at all
+
+`pipeline.build_draft` calls `extract` with no `try` around it, and
+`Handler.handle_one_request` turns any escaping exception into HTTP 503
+*"Something in Accountant Dad broke"*. `ServiceExtractor` promises never to
+raise; an object a deployment injects promises nothing. So the guard closes two
+failures, not one:
+
+| failure | what it looks like | what the guard does |
+| --- | --- | --- |
+| it raised | any `Exception` from a third-party backend | `service.reason_for(exc)` → this outage's own sentence |
+| it answered with junk | a client that returns `None` on failure | `MALFORMED` naming what arrived instead of a record |
+
+`KeyboardInterrupt` and `SystemExit` are deliberately not caught: somebody is
+stopping the process, and a tidy record would fight them.
+
+### The three scenarios, and why they are not all the same shape
+
+| # | scenario | how it arrives | the sentence the person gets |
+| --- | --- | --- | --- |
+| 1 | unavailable | a backend that **raises** `ConnectionError` | the reading service is not available |
+| 2 | timeout | a backend that **raises** `TimeoutError` | the reading service did not answer in time |
+| 3 | malformed response | a real `ServiceExtractor` with a broken transport — it **does not raise** | the reading service sent an answer we cannot use |
+
+Using only the raising kind would prove the guard and say nothing about the
+shipped adapter. Using only the reporting kind would leave the guard
+unexercised on the HTTP path, which is the same as not having measured it.
+
+### Measured, over a real socket, at `fa7ba97`
+
+| property | target | measured |
+| --- | --- | --- |
+| explicit safe fallback | 3/3 | **3/3** |
+| reasons recorded | 3/3 | **3/3** |
+| no silent blank | 3/3 | **3/3** |
+| no unsafe VALID | 3/3 | **3/3** — all three UNCLEAR |
+| no automatic post | 3/3 | **3/3** |
+| HTTP status | 200 | **200**, and the page never says "broke" |
+
+"Reason recorded" is checked in three places, because stored is not the same as
+visible: on `record.per_field_source`, on `Draft.provenance`, and in the
+rendered *"Where each field came from"* table the person is looking at.
+
+### The complete outage matrix — 13 scenarios
+
+| | scenarios | explicit fallback | reasons recorded | silent blanks | unsafe VALID | automatic posts |
+| --- | --- | --- | --- | --- | --- | --- |
+| through `pipeline.run` | 10 | 10/10 | 10/10 | 0 | 0 | 0 |
+| over HTTP | 3 | 3/3 | 3/3 | 0 | 0 | 0 |
+| **total** | **13** | **13/13** | **13/13** | **0** | **0** | **0** |
+
+Counted by `tests/test_extract_outage.py:908`, which drives all thirteen and
+asserts the dictionary of counts, so the figure is measured rather than added
+up by hand from a list of test names.
 
 ---
 
-## Mutants — 9 applied, 9 killed, 0 survived
+## The exits as exact counts
+
+Every figure was produced by the run recorded in "Provenance" and not carried
+forward from an earlier version of this document.
+
+### Exit 7.1 — adapter / backend swap
+
+| required | target given | **measured** | verdict |
+| --- | --- | --- | --- |
+| adapter contract tests | 25/25 | **47/47** | PASS, and the target is a floor, not the count |
+| backend swap tests | 10/10 | **24/24** (10 behavioural + 14 structural) | PASS |
+| interchangeable backends | 2/2 | **2/2** (`stub_backend`, `service_backend`) | PASS |
+| non-extract changes for a backend swap | 0 | **0** | PASS |
+| selection sites outside the package | 0 | **0**, over 45 modules | PASS |
+
+**The two targets do not match how this suite is organised, and the real
+numbers are reported instead of being made to fit.** The counts come from the
+section banners `tests/test_adapter_contract.py` already had, not from a
+judgement about what a test is "about":
+
+```
+  47  THE RECORD CONTRACT  +  the one place a backend is chosen   (lines 206-493)
+  10  THE SWAP, BEHAVIOURALLY                                     (lines 494-636)
+  14  THE SWAP, STRUCTURALLY                                      (lines 637-961)
+  15  MALFORMED ANSWERS                                           (lines 962-1040)
+   9  THE GST DEFECT                                              (line 1041 on)
+  ---
+  95  collected
+```
+
+"Backend swap = 10/10" matches the behavioural half exactly. The structural 14
+are the half a behavioural test cannot reach, so reporting the swap as 10 would
+undercount by the tests that actually settle exit 7.1. Nothing was split,
+renamed or padded to reach any figure.
+
+### Exit 7.2 — outage fallback
+
+| required | target | **measured** |
+| --- | --- | --- |
+| general outage scenarios safe | 10/10 | **10/10** |
+| HTTP outage scenarios safe | 3/3 | **3/3** |
+| explicit fallback results | 13/13 | **13/13** |
+| reasons recorded | 13/13 | **13/13** |
+| silent blanks | 0 | **0** |
+| unsafe VALID | 0 | **0** |
+| automatic posts | 0 | **0** |
+
+### Exit 7.3 — no reader
+
+| required | target | **measured** |
+| --- | --- | --- |
+| OCR imports | 0 | **0** |
+| image-reading imports | 0 | **0** |
+| layout-analysis imports | 0 | **0** |
+| reader dependencies | 0 | **0** (`project.dependencies == []`) |
+| forbidden AST findings | 0 | **0** |
+| imports that reach another program or a socket | 0 | **0** |
+| non-source files shipped in the package | 0 | **0**, of 4 files |
+| no-reader test | PASS | **PASS** — 28 cases, 6 guards |
+
+The three import figures are one measurement, not three: the guard is an
+ALLOWLIST of `sys.stdlib_module_names` plus `accountant`, so every third-party
+import is caught whether or not anybody has heard of the library. Zero
+third-party imports of any kind is therefore zero OCR, zero image and zero
+layout imports, and it also covers the library nobody has thought of yet.
+
+### GST safety bridge
+
+| required | target | **measured** |
+| --- | --- | --- |
+| GST safety tests, as ordinary tests | 4/4 PASS | **4/4 PASS** |
+| remaining GST xfails | 0 | **0** — no `xfail` string anywhere in either GST file |
+| unsafe GST VALID | 0 | **0**, over 30 sweep cases |
+| unsafe GST posts | 0 | **0**, over 30 sweep cases |
+
+---
+
+## Mutants — the HTTP seam, 5 applied, 5 killed, 0 survived
+
+The seam is new, so a green suite proves nothing about it until the guard has
+been made to fail. Every mutation was applied to the real file, run against
+`tests/test_extract_outage.py`, `tests/test_adapter_contract.py` and
+`tests/test_web.py` (275 tests, green baseline), and restored with
+`git checkout --`. Everything was committed at `fa7ba97` first, so each restore
+is exact — confirmed by `git diff HEAD` being empty afterwards.
+
+| # | mutation | result | what it proves |
+| --- | --- | --- | --- |
+| MU-H1 | the route ignores the configured extractor: `_run` calls `default_extractor()` again | **KILLED** — 26 failed, 249 passed | the injected backend is the one that runs, and the seam is not decoration |
+| MU-H2 | a failure returns a silent blank: every source becomes a bare `not_found` | **KILLED** — 22 failed, 253 passed | the reason is load-bearing, not cosmetic |
+| MU-H3 | a failure reports a generic reason instead of this outage's own | **KILLED** — 6 failed, 269 passed | two different outages cannot be told apart by a person if this survives |
+| MU-H4 | the guard is removed: `guarded()` hands the backend straight back | **KILLED** — 23 failed, 252 passed | a raising backend really would reach the 503 without it |
+| MU-H5 | the guard stops checking the answer is a record | **KILLED** — 1 failed, 274 passed | the `None`-returning backend case is covered by exactly one test, and it is a real one |
+
+MU-H1 and MU-H2 are the two the brief named. MU-H4 is the one that shows the
+guard is not redundant with `ServiceExtractor`'s own promise.
+
+---
+
+## Mutants from the earlier rounds — 9 applied, 9 killed, 0 survived
 
 A guard that has never failed is unproven whatever the green count is. Each
 mutation was applied to the real file, the tests were run, and the file was
@@ -377,26 +579,31 @@ exists to prevent, and it is invisible to every behavioural test in the file.
 
 | what | how it was run | result |
 | --- | --- | --- |
-| full suite, `COVERAGE_CORE=pytrace`, run 1 | local, `dd65b8c` | **PASS** — 2055 passed, 6 xfailed, 118s |
-| full suite, run 2 (determinism) | local, `dd65b8c` | **PASS** — 2055 passed, 6 xfailed, 118s, identical |
-| `tests/test_adapter_contract.py` | local | **PASS** — 94 passed, 0 xfailed |
-| `tests/test_extract_outage.py` | local | **PASS** — 112 passed |
+| full suite, `COVERAGE_CORE=pytrace` | local, `fa7ba97` | **PASS** — 2091 passed, 6 xfailed, 135s |
+| full suite at `dd65b8c`, for comparison | local, twice, identical | **PASS** — 2055 passed, 6 xfailed |
+| `tests/test_adapter_contract.py` | local | **PASS** — 95 passed, 0 xfailed |
+| `tests/test_extract_outage.py` | local | **PASS** — 147 passed |
 | `tests/test_no_reader.py` | local | **PASS** — 28 passed |
 | `tests/test_gst_safety_sweep.py` | local | **PASS** — 43 passed |
 | `ruff check .` | local | **PASS** — all checks passed |
 | `ruff format --check .` | local | **PASS** — 148 files |
-| `pyright` (strict) | local | **PASS** — 0 errors, 0 warnings |
-| `scripts/validate_project_truth.py` | local | **PASS** — 30 checks, 30 passed |
+| `pyright` (strict) | local | **PASS** — 0 errors, 0 warnings, 0 informations |
+| `scripts/validate_project_truth.py` | local, after the control-plane edit | **PASS** — 30 checks, 30 passed |
 | `scripts/guards` | local | **PASS** — all guards passed |
 | `git diff --check` | local | **PASS** — clean |
+| HTTP seam mutants | local, 5 applied and restored | **PASS** — 5 killed, 0 survived |
 | mutation score ≥ 90 | not run here | **GITHUB_REQUIRED** |
 | changed-line coverage ≥ 90 | not run here | **GITHUB_REQUIRED** |
 | full-suite coverage ≥ 90 | not run here | **GITHUB_REQUIRED** |
 | pr-fast · pr-full · ci-gate | not run here | **GITHUB_REQUIRED** |
 | security · dependency scan · workflow validation | not run here | **GITHUB_REQUIRED** |
-| a reader outage over HTTP | unreachable | **BLOCKED** |
+| a reader outage over HTTP | 3/3 safe over a real socket | **PASS** (was BLOCKED) |
 | a GST bill that posts with tax lines | not built, not invented | **NOT_MEASURED** |
-| question rate | nobody measured it | **NOT MEASURED** |
+| question rate | nobody measured it | **NOT_MEASURED** |
+
+The suite grew by 36: 35 in `tests/test_extract_outage.py` and one in
+`tests/test_adapter_contract.py` (the new rule that forbids adding a backend
+class to `CONTRACT`). No test was removed, skipped or weakened.
 
 ### The six xfails that remain, none of them GST
 
@@ -415,22 +622,87 @@ nobody has to go looking:
 | required | minimum | delivered |
 | --- | --- | --- |
 | adapter-contract | 25 | 47 |
-| backend-swap | 10 | 23 (10 behavioural, 13 structural) |
+| backend-swap | 10 | 24 (10 behavioural, 14 structural) |
 | malformed-response | 5 | 15 |
-| timeout/outage | 5 | 112 |
-| outage scenarios | 10 | 10, each with 7 properties |
+| timeout/outage | 5 | 147 |
+| outage scenarios | 10 | 13 — 10 with 7 properties each, 3 over HTTP with 5 |
 | GST | — | 9 in `test_adapter_contract.py` + 43 in `test_gst_safety_sweep.py` |
 | no-reader guards | — | 6 guards, 28 cases |
 
 ---
 
+## The GST truth, recorded verbatim
+
+This is the section to read if the only thing being taken from this document is
+whether GST works. It does not.
+
+```
+GST unsafe-VALID prevention                 = PASS
+GST safe refusal                            = PASS
+GST bill with tax lines successfully posted = NOT_MEASURED
+GST posting rate                            = NOT_MEASURED
+CGST/SGST/IGST split                        = NOT_IMPLEMENTED
+place-of-supply rules                       = NOT_IMPLEMENTED
+GST ledger mapping                          = NOT_IMPLEMENTED
+GST rules corpus                            = the next phase
+```
+
+**Arm C of the 30-case sweep is "tax correctly absent, or an unsupported tax
+state".** It is **not** "a GST bill with tax lines successfully posted". No such
+case exists in this system, and none was invented. Arm C is the disconfirming
+arm and it is why the other twenty mean anything: without it, a system that
+refuses every bill scores 20/20.
+
+What this system does with a bill carrying GST is refuse it and hand it to the
+person, with the tax named. That is safe. It is not GST support, and the two
+must never be written as one PASS.
+
+---
+
+## The control plane — corrected in this branch
+
+`docs/CONTROL_PLANE.yaml` recorded Phase 7 as `NOT_STARTED` with all three exit
+criteria `met: false` and the evidence *"None of the three exit observables has
+been attempted"*. Every clause of that was false. Corrected at `fa7ba97`, and
+the before/after is stated so the change is auditable rather than silent:
+
+| | before | after |
+| --- | --- | --- |
+| `phases[id: "7"].status` | `NOT_STARTED` | `PARTIALLY_VERIFIED` |
+| exit criterion 1 (`met`) | `false` | `true`, with the AST measurement as evidence |
+| exit criterion 2 (`met`) | `false` | `true`, with the 13-scenario matrix as evidence |
+| exit criterion 3 (`met`) | `false` | `true`, with the six-guard measurement as evidence |
+| a `phase7:` record | absent | a new top-level key |
+
+**`PARTIALLY_VERIFIED` and not `PASSED`, deliberately.** The three exit
+observables were seen. What has not run against this branch is every gate that
+blocks a merge — mutation, changed-line coverage, full-suite coverage, security,
+dependency scan, workflow validation, `pr-fast`, `pr-full`, `ci-gate` — and no
+pull request exists.
+
+**`allowed_statuses` was NOT widened.** It has six values and every phase status
+is checked against it. The richer Phase 7 record — `READY_FOR_PR`,
+`NOT_MEASURED`, `NOT_IMPLEMENTED`, and the pointer to the next phase — needs a
+vocabulary that list does not have, and the cheap move is to widen the list.
+That check exists to guard the phase table; widening it to fit one record is the
+weakening this project forbids. So the vocabulary stays at six and the record
+lives under a separate top-level `phase7:` key that binds nothing else.
+
+`scripts/validate_project_truth.py` was 30/30 before the edit and is 30/30
+after it. No document under `docs/` asserts a Phase 7 status, so nothing
+contradicts the change.
+
+**Lines actually edited:** the `phases[id: "7"]` block, which is at lines
+360-378 in this checkout, plus an insertion immediately before `metrics:`.
+Phases 6, 8, 9 and 10 were diffed byte for byte afterwards and are identical.
+
+---
+
 ## Two things a reader should not conclude
 
-**That Phase 7 is merged.** It is not. This branch is committed locally at
-`dd65b8c`; no PR has been opened, on the owner's instruction.
+**That Phase 7 is merged.** It is not. This branch is committed locally; no PR
+has been opened and nothing has been pushed, on the owner's instruction. The
+coordinator opens the PR and moves the status on from `READY_FOR_PR`.
 
-**That the control plane knows any of this.** `docs/CONTROL_PLANE.yaml:360-378`
-still records Phase 7 as `NOT_STARTED` with all three exit criteria
-`met: false`. That is stale as of this branch and was deliberately left alone:
-moving a phase status is an owner action, not an agent's. Flagged here so it is
-not discovered later as a silent contradiction.
+**That any GST feature works.** See "The GST truth" above. The GST rows in this
+document are safety results and nothing else.
