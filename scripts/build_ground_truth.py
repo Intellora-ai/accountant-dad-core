@@ -1400,5 +1400,43 @@ def iter_case_paths(root: Path = CORPUS_ROOT) -> Iterable[Path]:
     return sorted((root / "cases").glob("GT-*.json"))
 
 
+def load_cases(root: Path = CORPUS_ROOT) -> tuple[dict[str, Any], ...]:
+    """The contract `scripts/run_ground_truth.py` documents, implemented here.
+
+        load_cases(root: pathlib.Path) -> Sequence[Mapping[str, Any]]
+
+    This file exposed `build_cases()`, `load_records()` and `main()` and none of
+    the three names the runner looks for, so the S2 section reported
+    `BLOCKED - awaiting scripts/build_ground_truth.py` while the pack had in
+    fact been built and committed. A blocked gate that names a file sitting in
+    the repository is a contract failure between two halves, not a missing
+    dependency, and it stayed invisible because BLOCKED reads like a fact about
+    the world rather than a fact about wiring.
+
+    `input_path` is relative to `root`, because that is what the runner joins.
+    `renderable` is carried through rather than recomputed: it is the flag EXIT
+    1 needs to keep the 20 unrenderable JPG cases out of its denominator, and
+    deriving it twice in two places is how the two numbers drift apart.
+    """
+    out: list[dict[str, Any]] = []
+    for path in iter_case_paths(root):
+        record: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        out.append(
+            {
+                "case_id": record["case_id"],
+                "input_path": f"documents/{record['document']}",
+                "mime": record["mime"],
+                "input_type": record["input_type"],
+                "category": record["category"],
+                "format_fidelity": record["format_fidelity"],
+                "renderable": record["input_type"] != "JPG",
+                "expected": record["expected"],
+                "corpus_label": record["corpus_label"],
+                "source_label": record["source_label"],
+            }
+        )
+    return tuple(out)
+
+
 if __name__ == "__main__":
     sys.exit(main())

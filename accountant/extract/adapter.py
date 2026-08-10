@@ -236,6 +236,16 @@ class TypedTextExtractor:
         )
 
 
+#: What the stub says about a field it was never handed. `NOT_FOUND` plus a
+#: reason, in the shape `UnavailableExtractor` already uses, so one rule reads
+#: both: a source that starts with `not_found` carries no value, and the text
+#: after the colon says why. Never a bare `not_found`.
+STUB_NOT_FOUND = (
+    f"{NOT_FOUND}: no production reader is configured, "
+    "so nothing was read from this document"
+)
+
+
 class StubExtractor:
     """Fixed answers. Lets the whole pipeline be tested with no real reader.
 
@@ -266,8 +276,15 @@ class StubExtractor:
             "total_paise": self.total_paise,
             "tax_paise": self.tax_paise,
         }
+        # A bare `not_found` says nothing a person could act on. EXIT 2 asks for
+        # every unread field to be explicit not_found WITH A REASON, and this
+        # stub is the backend a JPG meets while no production reader is
+        # selected (owner decision Q4 = B). Without the reason, "we have no
+        # reader" and "the reader looked and found nothing" are the same string
+        # in the audit trail, and those are different facts about the document.
         src = {
-            k: (self.name if v is not None else NOT_FOUND) for k, v in supplied.items()
+            k: (self.name if v is not None else STUB_NOT_FOUND)
+            for k, v in supplied.items()
         }
         return ExtractedRecord(
             date=self.date,

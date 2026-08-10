@@ -54,7 +54,7 @@ import pathlib
 import subprocess
 import sys
 import traceback
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -222,12 +222,23 @@ def pack_validator() -> tuple[Callable[..., Any] | None, str | None]:
 
     or be a `bool`, or be a `(ok, failures)` pair. Any of the three is accepted,
     because pinning the exact shape across two agents who cannot talk is how an
-    integration lands broken. `validate_manifest` and `main` are accepted as
-    names as well as `validate`.
+    integration lands broken. `validate_manifest` is accepted as a name as well
+    as `validate`.
+
+    `main` USED TO BE ACCEPTED HERE AND IS NOT ANY MORE. That is the defect this
+    file warned about, arriving through its own escape hatch: the sibling had no
+    `validate`, so the loader bound to `main(argv: list[str])`, this function
+    handed it `GT` (a `Path`), and argparse raised
+
+        TypeError: 'PosixPath' object is not iterable
+
+    which made `run_manifest` explode, which made the whole pack report
+    INVALIDATED and measure nothing at all. The name matched; the signature
+    never did, and nothing checked it. Every script has a `main` and its
+    signature is never the contract, so accepting that name was a guarantee of
+    binding to the wrong callable rather than reporting a missing one.
     """
-    return load_sibling(
-        "validate_ground_truth", ("validate", "validate_manifest", "main")
-    )
+    return load_sibling("validate_ground_truth", ("validate", "validate_manifest"))
 
 
 def pack_loader() -> tuple[Callable[..., Any] | None, str | None]:
@@ -297,15 +308,67 @@ def run_manifest(section: Section) -> None:
 # ---------------------------------------------------------------------------
 
 
+#: EXIT 1, owner-set 2026-08-10. Not derived here and not adjustable here.
+#:
+#: 80 renderable cases, >= 76 exact matches per named field. The 20 unrenderable
+#: JPG cases are deliberately NOT in this denominator: with them in it, the old
+#: `95 per 100 per field` was measuring OUR RENDERER rather than the reader, and
+#: a test whose ceiling is set by our own tooling says nothing about the thing
+#: under test.
+EXIT1_RENDERABLE_CASES = 80
+EXIT1_MATCHES_REQUIRED = 76
+
+
+def paise_from_decimal(text: object) -> int | None:
+    """`"147.50"` -> `14750`. None when the pack does not state the field."""
+    if text is None:
+        return None
+    whole, _, frac = str(text).partition(".")
+    return int(whole) * 100 + int((frac + "00")[:2])
+
+
+def field_matches(name: str, record: Any, want: Mapping[str, Any]) -> bool:
+    """Exact match on one named field. No tolerance, no normalisation.
+
+    EXIT 1 says `exact matches per named field`, so a near miss is a miss. The
+    pack stores money as a decimal string and the record carries integer paise,
+    which is a representation difference rather than a tolerance, so the string
+    is converted rather than the integer being rounded.
+    """
+    if name == "date":
+        got = record.date
+        return got is not None and got.isoformat() == str(want.get("date"))
+    if name == "party":
+        return record.party is not None and record.party == want.get("party")
+    if name == "total_paise":
+        return (
+            record.total_paise is not None
+            and record.total_paise == paise_from_decimal(want.get("total_amount"))
+        )
+    if name == "tax_paise":
+        return record.tax_paise is not None and record.tax_paise == paise_from_decimal(
+            want.get("tax_amount")
+        )
+    raise HarnessBroke(f"no comparison defined for the named field {name!r}")
+
+
 def run_s2(section: Section) -> None:
-    """Score the stub extractor per field, or say why it could not be scored.
+    """EXIT 1 and EXIT 2, scored separately, because they are different claims.
+
+    EXIT 1 asks how often the pipeline reproduces the truth on renderable input.
+    EXIT 2 asks whether an input nobody can read fails SAFELY. A backend that
+    scores zero and a backend that invents a value both fail EXIT 1; only one of
+    them also fails EXIT 2, and merging the two numbers would hide which.
 
     Owner decision Q4 = B. `StubExtractor` returns `not_found` for every field it
-    was not handed, and a stub returning `not_found` cannot satisfy the real
-    extraction-quality exit. A zero here is the correct reading of the world.
+    was not handed, so EXIT 1 is expected to read zero until a production backend
+    is selected. That zero is the correct reading of the world, not a defect in
+    the benchmark, and `PHASE_8_EXTRACTION = INCOMPLETE` is what it means.
     """
     loader, blocked = pack_loader()
     if loader is None:
+        section.blocked("exit1_generated_truth_extraction", blocked or BLOCKED)
+        section.blocked("exit2_unrenderable_input_is_explicit", blocked or BLOCKED)
         section.blocked("s2_extraction_scored", blocked or BLOCKED)
         section.facts["s2"] = NOT_MEASURED
         section.facts["s2_reason"] = blocked or BLOCKED
@@ -316,7 +379,11 @@ def run_s2(section: Section) -> None:
     cases = list(loader(GT))
     extractor = StubExtractor()
     per_field = dict.fromkeys(ExtractedRecord.FIELDS, 0)
+    exact = dict.fromkeys(ExtractedRecord.FIELDS, 0)
     scored = 0
+    renderable = 0
+    unrenderable = 0
+    unsafe: list[str] = []
     for case in cases:
         payload = case.get("input_bytes")
         if payload is None and case.get("input_path"):
@@ -331,9 +398,59 @@ def run_s2(section: Section) -> None:
             if record.per_field_source.get(name, NOT_FOUND) != NOT_FOUND:
                 per_field[name] += 1
 
+        if case.get("renderable", True):
+            renderable += 1
+            want = case.get("expected") or {}
+            for name in ExtractedRecord.FIELDS:
+                if field_matches(name, record, want):
+                    exact[name] += 1
+        else:
+            unrenderable += 1
+            # EXIT 2. Every field explicit not_found WITH a reason. A blank
+            # source string is a silent blank wearing the right key, and a
+            # value on an unreadable document is worse than either.
+            for name in ExtractedRecord.FIELDS:
+                source = record.per_field_source.get(name, "")
+                if not source.startswith(NOT_FOUND):
+                    unsafe.append(f"{case['case_id']} {name}: source is {source!r}")
+                elif source.strip() == NOT_FOUND:
+                    unsafe.append(f"{case['case_id']} {name}: not_found with no reason")
+
     section.facts["s2_cases_scored"] = scored
     section.facts["s2_per_field"] = per_field
     section.facts["s2_backend"] = extractor.name
+    section.facts["exit1_renderable_cases"] = renderable
+    section.facts["exit1_exact_per_field"] = exact
+    section.facts["exit1_required"] = EXIT1_MATCHES_REQUIRED
+    section.facts["exit2_unrenderable_cases"] = unrenderable
+    section.facts["exit2_unsafe"] = unsafe
+    section.facts["corpus_label"] = "SYNTHETIC_EVIDENCE"
+    section.facts["truth_label"] = "GENERATED_TRUTH"
+
+    section.gate(
+        "exit1_generated_truth_extraction",
+        renderable == EXIT1_RENDERABLE_CASES
+        and all(v >= EXIT1_MATCHES_REQUIRED for v in exact.values()),
+        (
+            f"{extractor.name} backend, {renderable} renderable cases, exact "
+            f"matches per field {exact}, required {EXIT1_MATCHES_REQUIRED}. "
+            "GENERATED_TRUTH from canonical JSON, SYNTHETIC_EVIDENCE, and never "
+            "evidence about real-world reader accuracy. Owner decision Q4 = B: "
+            "no production backend is selected, so a stub cannot pass this."
+        ),
+        measured=json.dumps(exact, sort_keys=True),
+    )
+    section.gate(
+        "exit2_unrenderable_input_is_explicit",
+        unrenderable > 0 and not unsafe,
+        (
+            f"{unrenderable} unrenderable cases; every named field explicit "
+            f"not_found with a reason. ADAPTER_CONTRACT, never reader accuracy. "
+            + ("; ".join(unsafe) if unsafe else "no silent blank, no fabricated value")
+        ),
+        measured=str(len(unsafe)),
+    )
+
     ok = scored > 0 and all(v == scored for v in per_field.values())
     section.gate(
         "s2_extraction_scored",

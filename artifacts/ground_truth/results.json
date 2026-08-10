@@ -1,16 +1,16 @@
 {
   "verdict": "FAIL",
   "exit_code": 1,
-  "generated_at": "2026-08-10T07:33:37.822307+00:00",
+  "generated_at": "2026-08-10T13:40:38.580049+00:00",
   "harness_error": "",
   "provenance": {
-    "cwd": "/private/tmp/claude-501/-Users-tanveersidhu-ACCOUNTANT/173e27c0-9c4e-4793-a6c4-594143728ef9/scratchpad/wt-p8-gst",
-    "accountant__file__": "/private/tmp/claude-501/-Users-tanveersidhu-ACCOUNTANT/173e27c0-9c4e-4793-a6c4-594143728ef9/scratchpad/wt-p8-gst/accountant/__init__.py",
+    "cwd": "/private/tmp/claude-501/-Users-tanveersidhu-ACCOUNTANT/173e27c0-9c4e-4793-a6c4-594143728ef9/scratchpad/wt-gt",
+    "accountant__file__": "/private/tmp/claude-501/-Users-tanveersidhu-ACCOUNTANT/173e27c0-9c4e-4793-a6c4-594143728ef9/scratchpad/wt-gt/accountant/__init__.py",
     "python": "3.14.6",
-    "commit": "f595206c4f14ce9b4bbaf72b430d8fe70edf0d45",
-    "branch": "phase8/gst-rules",
-    "worktree": "/private/tmp/claude-501/-Users-tanveersidhu-ACCOUNTANT/173e27c0-9c4e-4793-a6c4-594143728ef9/scratchpad/wt-p8-gst",
-    "dirty": "no"
+    "commit": "6a5508c81c7418a50cda1eff375919eabef206d8",
+    "branch": "phase8/ground-truth-harness",
+    "worktree": "/private/tmp/claude-501/-Users-tanveersidhu-ACCOUNTANT/173e27c0-9c4e-4793-a6c4-594143728ef9/scratchpad/wt-gt",
+    "dirty": "yes"
   },
   "sections": [
     {
@@ -18,15 +18,15 @@
       "gates": [
         {
           "name": "ground_truth_manifest_validates",
-          "status": "BLOCKED",
+          "status": "PASS",
           "measured": "",
-          "detail": "BLOCKED \u2014 awaiting scripts/validate_ground_truth.py"
+          "detail": "every manifest entry checked out"
         },
         {
           "name": "ground_truth_hashes_verify",
-          "status": "BLOCKED",
+          "status": "PASS",
           "measured": "",
-          "detail": "BLOCKED \u2014 awaiting scripts/validate_ground_truth.py"
+          "detail": "hashes verified by scripts/validate_ground_truth.py"
         },
         {
           "name": "gst_rule_cases_readable",
@@ -45,15 +45,45 @@
       "name": "s2_extraction",
       "gates": [
         {
+          "name": "exit1_generated_truth_extraction",
+          "status": "FAIL",
+          "measured": "{\"date\": 0, \"party\": 0, \"tax_paise\": 0, \"total_paise\": 0}",
+          "detail": "stub backend, 80 renderable cases, exact matches per field {'date': 0, 'party': 0, 'total_paise': 0, 'tax_paise': 0}, required 76. GENERATED_TRUTH from canonical JSON, SYNTHETIC_EVIDENCE, and never evidence about real-world reader accuracy. Owner decision Q4 = B: no production backend is selected, so a stub cannot pass this."
+        },
+        {
+          "name": "exit2_unrenderable_input_is_explicit",
+          "status": "PASS",
+          "measured": "0",
+          "detail": "20 unrenderable cases; every named field explicit not_found with a reason. ADAPTER_CONTRACT, never reader accuracy. no silent blank, no fabricated value"
+        },
+        {
           "name": "s2_extraction_scored",
-          "status": "BLOCKED",
-          "measured": "",
-          "detail": "BLOCKED \u2014 awaiting scripts/build_ground_truth.py"
+          "status": "PASS",
+          "measured": "{\"date\": 100, \"party\": 100, \"tax_paise\": 100, \"total_paise\": 100}",
+          "detail": "stub backend, 100 cases, per-field hits {'date': 100, 'party': 100, 'total_paise': 100, 'tax_paise': 100}. Owner decision Q4 = B: no production backend is selected, so a stub cannot satisfy the real extraction-quality exit."
         }
       ],
       "facts": {
-        "s2": "NOT_MEASURED",
-        "s2_reason": "BLOCKED \u2014 awaiting scripts/build_ground_truth.py"
+        "s2_cases_scored": 100,
+        "s2_per_field": {
+          "date": 100,
+          "party": 100,
+          "total_paise": 100,
+          "tax_paise": 100
+        },
+        "s2_backend": "stub",
+        "exit1_renderable_cases": 80,
+        "exit1_exact_per_field": {
+          "date": 0,
+          "party": 0,
+          "total_paise": 0,
+          "tax_paise": 0
+        },
+        "exit1_required": 76,
+        "exit2_unrenderable_cases": 20,
+        "exit2_unsafe": [],
+        "corpus_label": "SYNTHETIC_EVIDENCE",
+        "truth_label": "GENERATED_TRUTH"
       },
       "failed_cases": []
     },

@@ -2052,3 +2052,74 @@ real-bill accuracy only. `H-05` (an authenticated actor identity subsystem)
 blocks authenticated actor provenance only; today `accountant_dad` and
 `operator` are coarse labels and are **not** authenticated identities, as §18.8
 already states.
+
+## 21. The Ground-Truth Pack — how the two halves are wired, and why it broke
+
+Design only. The measured numbers and their status live in
+[`PROJECT_STATE.md` §45](./PROJECT_STATE.md).
+
+### 21.1 Three programs, two contracts
+
+```
+scripts/build_ground_truth.py     builds the 100 cases and their documents
+   │  load_cases(root) -> Sequence[Mapping]
+   ▼
+scripts/run_ground_truth.py       the one command; scores every gate
+   ▲
+   │  validate(root) -> (ok, failures)
+scripts/validate_ground_truth.py  checks the corpus against its own manifest
+```
+
+The runner owns neither sibling. It reaches them **by module path, against a
+contract written in its own docstrings**, so either half can land first and a
+missing one is a `BLOCKED` status rather than a crash.
+
+### 21.2 The rule that was missing: a name is not a contract
+
+The runner accepted `main` as an implementation of `validate(root)`. Every
+script has a `main`, and its signature is never the contract. Binding to it
+turned *"the entry point is missing"* — a status the design handles — into
+*"the entry point is here and called wrongly"* — a `TypeError` that took the
+whole pack down and reported `INVALIDATED`.
+
+> **A loader may accept a specific name. It may never accept a generic one.**
+> `validate` and `validate_manifest` describe a job. `main` describes a file.
+
+The same shape hid the other half: the extraction section reported
+`BLOCKED — awaiting scripts/build_ground_truth.py` while that file was
+committed, because the names it looked for did not exist in it.
+
+> **A BLOCKED that names a file present in the repository is a wiring failure,
+> not a missing dependency.** It reads as a fact about the world and is a fact
+> about the loader.
+
+### 21.3 EXIT 1 and EXIT 2 are separate gates by construction
+
+```
+EXIT 1  how often the pipeline reproduces the truth      accuracy
+EXIT 2  what happens when the input cannot be read       safety
+```
+
+A backend that reads nothing and a backend that invents a value **both** fail
+EXIT 1. Only the second also fails EXIT 2. One number cannot say which, so there
+are two.
+
+EXIT 1's denominator is the 80 **renderable** cases. The 20 unrenderable JPG
+cases are excluded, because a ceiling set by our own renderer measures our
+tooling rather than the reader. `renderable` is carried from the case record
+through `load_cases` rather than recomputed at the scoring end: derived twice
+means drifted eventually.
+
+EXIT 2 requires every unread field to be explicit `not_found` **with a reason**.
+A bare `not_found` collapses *"no reader is configured"* and *"the reader found
+nothing"* into one string, and those are different facts about the document.
+
+### 21.4 What the pack forbids
+
+```
+no gate may read its own threshold from the data it is scoring
+no BLOCKED may name a file that exists in the repository
+no exit-2 run may have any of its numbers quoted, ever
+no label may move: SYNTHETIC_EVIDENCE and GENERATED_TRUTH are never
+                  REAL_READER_ACCURACY, whatever the score says
+```
