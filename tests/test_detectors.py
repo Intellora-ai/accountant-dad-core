@@ -28,6 +28,13 @@ from accountant.schema import Flag, MatchResult, MatchStatus, Outcome, Voucher
 TODAY = datetime.date(2026, 8, 7)
 ACCOUNTS = ("Purchases", "Rent", "Repairs & Maintenance", "Cash", "Bank")
 
+# History happens BEFORE the entry it is history for. Dated explicitly since
+# 2026-08-10, when `magnitude` stopped counting rows that are not prior to an
+# entry into that entry's ceiling - the root-cause fix for the DHSC
+# `Additions NCB PDC` false alarms. Every assertion below is unchanged; the
+# fixture stopped claiming that a payment can be its own precedent.
+EARLIER = TODAY - datetime.timedelta(days=1)
+
 
 def v(
     account: str = "Purchases",
@@ -35,10 +42,11 @@ def v(
     gst: int | None = None,
     party: str = "Sharma Traders",
     vid: str = "d1",
+    when: datetime.date = TODAY,
 ) -> Voucher:
     return Voucher(
         id=vid,
-        date=TODAY,
+        date=when,
         party=party,
         narration="x",
         debit_account=account,
@@ -56,7 +64,14 @@ def history(
     party: str = "Sharma Traders",
 ) -> tuple[Voucher, ...]:
     return tuple(
-        v(account=account, amount=amount, gst=gst, party=party, vid=f"h{i}")
+        v(
+            account=account,
+            amount=amount,
+            gst=gst,
+            party=party,
+            vid=f"h{i}",
+            when=EARLIER,
+        )
         for i in range(n)
     )
 

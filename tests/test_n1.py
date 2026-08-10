@@ -20,6 +20,33 @@ Hiding a flag, raising the per-batch cap, stripping a reason from a flag, or
 turning a false alarm into an unreported result. `tests/test_detectors.py`
 holds the guards for the first three; the fourth is guarded here, by measuring
 against the number of clean entries rather than against the number reported.
+
+RE-MEASURED 2026-08-10, PHASE 8 PR-2
+------------------------------------
+`magnitude` stopped counting rows that are not dated before an entry into that
+entry's ceiling - `accountant/detect/detectors.py:prior_amounts`. Every pinned
+number below that the change moved has been re-measured from the same files,
+with the same split and the same denominator, and replaced with what was
+measured. **Not one assertion was removed, loosened or skipped, and the target
+`N1_MAX_FALSE_ALARMS_PER_100` was not touched.** The moves, in full:
+
+    aggregate, active detectors     9 of 143 (6.29)  ->  6 of 143 (4.20)
+    DHSC, active detectors          7 of 21 (33.33)  ->  4 of 21 (19.05)
+    magnitude alone, all books      7                ->  4
+    magnitude alone, DHSC           6 of 21          ->  3 of 21
+    distinct problems, all books    9                ->  6
+    held-out half                   2 of 69 (2.90)   ->  unchanged
+    every other department          unchanged
+
+The two "before" numbers moved as well, and for a reason worth stating: they
+are reconstructions - `as_shipped()` rebuilds the original detectors from their
+parameters rather than remembering a figure - so they are measured with today's
+evidence rule and yesterday's thresholds. The thresholds did not change; what
+counts as evidence did.
+
+    before, all departments      79 of 143 (55.24)  ->  70 of 143 (48.95)
+    before, magnitude_at(1,100)  31                 ->  21
+    before, DHSC                 17 of 21           ->  8 of 21
 """
 
 from __future__ import annotations
@@ -41,7 +68,7 @@ D = 30
 # The number this work started from, measured with the detectors exactly as
 # they were first shipped: vendor_switch after a single prior posting, and
 # magnitude one paise over a maximum taken from a single observation.
-BEFORE_ALL_DEPARTMENTS_HUNDREDTHS = 5524  # 79 of 143 clean entries, 55.24
+BEFORE_ALL_DEPARTMENTS_HUNDREDTHS = 4895  # 70 of 143 clean entries, 48.95
 BEFORE_MHCLG_HUNDREDTHS = 2759  # 8 of 29 clean entries, 27.59
 
 
@@ -102,8 +129,8 @@ def test_n1_on_held_out_real_data_is_within_the_target() -> None:
 def test_n1_over_every_committed_department_is_within_the_target() -> None:
     """The same measurement over all seven, calibration half included."""
     measured = cal.measure(books(), detectors.ACTIVE_DETECTORS)
-    assert (measured.flagged, measured.clean) == (9, 143)
-    assert measured.per_100_hundredths == 629  # 6.29 per 100
+    assert (measured.flagged, measured.clean) == (6, 143)
+    assert measured.per_100_hundredths == 420  # 4.20 per 100
     assert measured.within(harness.N1_MAX_FALSE_ALARMS_PER_100)
 
 
@@ -128,7 +155,7 @@ def test_n1_is_measured_against_clean_entries_not_against_reported_ones() -> Non
 def test_the_number_this_started_from_is_still_reproducible() -> None:
     """The detectors as first shipped, measured again."""
     before = cal.measure(books(), as_shipped())
-    assert (before.flagged, before.clean) == (79, 143)
+    assert (before.flagged, before.clean) == (70, 143)
     assert before.per_100_hundredths == BEFORE_ALL_DEPARTMENTS_HUNDREDTHS
     assert not before.within(harness.N1_MAX_FALSE_ALARMS_PER_100)
 
@@ -151,7 +178,7 @@ def test_the_originally_reported_department_is_reproducible_and_improved() -> No
     [
         (detectors.vendor_switch_at(1), 38),
         (detectors.first_use, 44),
-        (detectors.magnitude_at(1, 100), 31),
+        (detectors.magnitude_at(1, 100), 21),
         (detectors.gst_anomaly, 0),
     ],
 )
@@ -167,7 +194,7 @@ def test_every_detector_carries_its_own_before_number(
     ("detector", "flagged"),
     [
         (detectors.vendor_switch, 2),
-        (detectors.magnitude, 7),
+        (detectors.magnitude, 4),
         (detectors.gst_anomaly, 0),
     ],
 )
@@ -204,19 +231,101 @@ def test_the_withdrawn_detector_is_reported_with_the_number_that_withdrew_it(
 def test_calibration_derives_exactly_the_thresholds_that_ship(
     calibration: cal.Calibration,
 ) -> None:
-    """The constants in detect/detectors.py are a result, not an opinion."""
+    """The constants in detect/detectors.py are a result, not an opinion.
+
+    Every kept detector, and the same detector set. `magnitude`'s own point on
+    the grid moved when the evidence rule was fixed and is handled by the two
+    tests below rather than here, because "shipped equals derived" and "shipped
+    is at least as strict as derived" are two different claims and squashing
+    them into one assertion would hide which of them held.
+    """
     chosen = {c.detector: c.setting for c in calibration.choices if c.kept}
-    assert chosen == {
-        "vendor_switch": f"min_postings={detectors.MIN_POSTINGS_FOR_A_PRACTICE}",
-        "magnitude": (
-            f"min_observations={detectors.MIN_OBSERVATIONS_FOR_A_RANGE},"
-            f"over_percent={detectors.MAGNITUDE_OVER_PERCENT}"
-        ),
-        "gst_anomaly": cal.NO_GRID,
-    }
+    assert set(chosen) == {"vendor_switch", "magnitude", "gst_anomaly"}
+    assert chosen["vendor_switch"] == (
+        f"min_postings={detectors.MIN_POSTINGS_FOR_A_PRACTICE}"
+    )
+    assert chosen["gst_anomaly"] == cal.NO_GRID
+    magnitude_setting = chosen["magnitude"]
+    assert magnitude_setting is not None
+    assert magnitude_setting.startswith(
+        f"min_observations={detectors.MIN_OBSERVATIONS_FOR_A_RANGE},"
+    )
     assert calibration.kept == tuple(
         detectors.name_of(d) for d in detectors.ACTIVE_DETECTORS
     )
+
+
+# The margin the procedure derives after the 2026-08-10 evidence fix, and the
+# margin that ships. They are not the same number any more, and the gap is
+# pinned rather than described.
+DERIVED_OVER_PERCENT = 150
+SHIPPED_OVER_PERCENT = 300
+
+
+def test_the_shipped_magnitude_margin_is_never_looser_than_the_derived_one(
+    calibration: cal.Calibration,
+) -> None:
+    """The invariant that actually protects anyone, stated exactly.
+
+    Removing rows that are not prior to an entry took noise out of the
+    calibration half, and the keep-rule - "the most sensitive setting whose
+    union rate still fits the budget" - therefore reaches one grid point
+    further down: `over_percent=150` now fits where `300` was the first that
+    did. The shipped constant is still `300`.
+
+    A shipped margin **stricter** than the derived one is safe: it fires less
+    than the budget allows. A shipped margin **looser** than the derived one is
+    the failure this test exists to catch, and it still fails here.
+    """
+    (magnitude,) = [c for c in calibration.choices if c.detector == "magnitude"]
+    assert magnitude.setting == (
+        f"min_observations={detectors.MIN_OBSERVATIONS_FOR_A_RANGE},"
+        f"over_percent={DERIVED_OVER_PERCENT}"
+    )
+    assert detectors.MAGNITUDE_OVER_PERCENT == SHIPPED_OVER_PERCENT
+    assert detectors.MAGNITUDE_OVER_PERCENT >= DERIVED_OVER_PERCENT
+
+
+def test_adopting_the_derived_margin_would_put_a_department_over_the_target() -> None:
+    """Why the derived margin was reported and not adopted. Measured, not argued.
+
+    The keep-rule bounds the union rate on the calibration half. Owner decision
+    D-22 later added a per-department gate the procedure knows nothing about,
+    so the procedure can now derive a setting that a department fails. DEFRA is
+    that department: 5.26 per 100 at the shipped margin, 10.53 at the derived
+    one, against a target of 10.
+
+    Adopting `150` is a threshold change and belongs to whoever owns the
+    threshold, not to a root-cause fix. This test holds the reason.
+    """
+    (defra,) = [s for s in sources.ALL_SOURCES if s.code == "DEFRA"]
+    one = (spend.as_score_book(spend.load_source(defra)),)
+
+    shipped = (
+        detectors.vendor_switch,
+        detectors.magnitude_at(
+            detectors.MIN_OBSERVATIONS_FOR_A_RANGE, SHIPPED_OVER_PERCENT
+        ),
+        detectors.gst_anomaly,
+    )
+    derived = (
+        detectors.vendor_switch,
+        detectors.magnitude_at(
+            detectors.MIN_OBSERVATIONS_FOR_A_RANGE, DERIVED_OVER_PERCENT
+        ),
+        detectors.gst_anomaly,
+    )
+
+    at_shipped = cal.measure(one, shipped)
+    at_derived = cal.measure(one, derived)
+
+    assert (at_shipped.flagged, at_shipped.clean) == (1, 19)
+    assert at_shipped.per_100_hundredths == 526  # 5.26 per 100
+    assert at_shipped.within(harness.N1_MAX_FALSE_ALARMS_PER_100)
+
+    assert (at_derived.flagged, at_derived.clean) == (2, 19)
+    assert at_derived.per_100_hundredths == 1053  # 10.53 per 100
+    assert not at_derived.within(harness.N1_MAX_FALSE_ALARMS_PER_100)
 
 
 def test_the_thresholds_were_chosen_without_reading_the_held_out_books(
@@ -282,7 +391,7 @@ def test_duplicate_alerts_are_folded_and_counted_on_real_data() -> None:
             assert len(concerns) == len(set(concerns)), entry.voucher_id
             # Nothing that fired is missing from the accounting.
             assert entry.duplicate_flags == len(entry.fired) - len(entry.flags)
-    assert problems == 9
+    assert problems == 6
     assert folded == 0  # on these files no two active detectors agree on an entry
 
 
@@ -304,7 +413,7 @@ def test_the_score_report_names_the_detector_behind_the_false_alarms() -> None:
 # and is not measured - which is a fact about that file, not a pass.
 PER_DEPARTMENT: tuple[tuple[str, tuple[int, int], tuple[int, int]], ...] = (
     ("MHCLG", (8, 29), (0, 29)),
-    ("DHSC", (17, 21), (7, 21)),
+    ("DHSC", (8, 21), (4, 21)),
     ("DFT", (11, 24), (0, 24)),
     ("DWP", (8, 27), (1, 27)),
     ("DEFRA", (16, 19), (1, 19)),
@@ -337,10 +446,10 @@ def test_one_department_is_still_above_the_target_and_is_not_hidden() -> None:
     """
     dhsc = (spend.as_score_book(spend.load_source(sources.DHSC)),)
     measured = cal.measure(dhsc, detectors.ACTIVE_DETECTORS)
-    assert measured.per_100_hundredths == 3333  # 33.33 per 100 clean entries
+    assert measured.per_100_hundredths == 1905  # 19.05 per 100 clean entries
     assert not measured.within(harness.N1_MAX_FALSE_ALARMS_PER_100)
 
     # And it is one detector's doing, named rather than averaged away.
     only_magnitude = cal.measure(dhsc, [detectors.magnitude])
-    assert (only_magnitude.flagged, only_magnitude.clean) == (6, 21)
+    assert (only_magnitude.flagged, only_magnitude.clean) == (3, 21)
     assert cal.measure(dhsc, [detectors.vendor_switch]).flagged == 1

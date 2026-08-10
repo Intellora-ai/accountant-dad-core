@@ -36,6 +36,18 @@ WHAT EACH DETECTOR READS, AND THE THRESHOLD IT NEEDS
 | `magnitude`    | amount_paise   | a *range*, and a wide margin over its top |
 | `gst_anomaly`  | gst_paise      | none needed - the account carried no tax  |
 
+A CEILING IS A CLAIM ABOUT WHAT CAME BEFORE
+-------------------------------------------
+`magnitude` is the only detector here whose answer depends on an *extreme*
+value of the history - the maximum - rather than on membership or a count. An
+extreme value is the statistic a wrongly-chosen slice of the history distorts
+most, and until 2026-08-10 the slice was wrong: every row the caller handed
+over counted towards the ceiling, including rows dated the same day as the
+entry being judged, which are not "what came before" by any reading.
+
+That is measured, not asserted. See `prior_amounts` and
+`artifacts/phase8_detectors.md`.
+
 Every threshold below was chosen by `accountant/score/calibration.py` on one set
 of clean books and then measured on a separate held-out set. None of them is a
 number somebody liked the look of, and each carries its measurement in
@@ -141,6 +153,80 @@ def first_use(
     ]
 
 
+def prior_amounts(proposed: Voucher, history: Sequence[Voucher]) -> list[int]:
+    """Amounts posted to this entry's account **before this entry's date**.
+
+    This is the whole of the 2026-08-10 root-cause fix, and it is a change to
+    what counts as evidence, not to how high any bar sits. Both calibrated
+    numbers - `MIN_OBSERVATIONS_FOR_A_RANGE` and `MAGNITUDE_OVER_PERCENT` -
+    are untouched by it, and a test pins both.
+
+    WHY THE DATE, MEASURED
+    ----------------------
+    Six of the nine false alarms in `artifacts/detector_gate.md` were one DHSC
+    account, `Additions NCB PDC` - Public Dividend Capital, lumpy capital
+    injections into NHS trusts. Its ceiling was 21,300,000 from ten prior rows.
+    The department publishes rows sorted by ascending amount inside each
+    payment date, and the evaluation split cuts a department at a fixed
+    position, so those ten rows are the ten CHEAPEST payments on that account:
+    21,300,000 is where the cut fell, not the top of anything.
+
+    Three of the six entries it then flagged are dated `2025-11-03` - the same
+    day as every row in the history it was compared against. A payment made on
+    the third cannot be evidence about the range a payment made on the third
+    falls outside of, and a 740,000,000 payment on that same day sat nine rows
+    further down the same file.
+
+    The discriminating experiment, all three run from the worktree:
+
+        actual split, ten cheapest rows as history   6 fires of 16
+        ten rows drawn at random from the same 26    mean 0.83, P(>=6) = 0.0009
+        history = every row of the first payment date  0 fires of 7
+
+    So the detector behaves sensibly on honest evidence and badly on a slice
+    that is biased by construction. Two rival explanations were tested and both
+    are weaker than this one on the same data.
+
+    Per-party ceilings do not help, and the sharpest way to say it is that
+    **not one of the six flagged entries has a trust with enough prior evidence
+    for a per-trust ceiling to exist at all** - four of the six trusts have no
+    earlier row on this account in the history supplied and the other two have
+    exactly one, against a minimum of two. A per-trust ceiling would not have
+    corrected those six, it would have gone silent on all sixteen scored rows.
+    Silence is not a fix. The eleven trusts hold 1, 2 or 3 entries each - one
+    trust with 1, five with 2, five with 3 - and within a single trust the
+    amounts on this one account span 151x, so even where a per-trust ceiling
+    could be computed it has no more claim to being a top than this one had.
+
+    History size alone does not explain it either. Counted across all seven
+    departments with the rule below in force, the false-alarm rate is not
+    monotonic in the size of the history:
+
+        prior entries    eligible    fired
+        2                       4        0
+        3                      10        1
+        10                      7        3
+        28                     27        0
+
+    One row of that table is the whole problem. `test_phase8_detectors.py`
+    holds every number in this docstring as an assertion.
+
+    Across all seven departments this rule removes three false alarms and
+    creates none, and 222 of the 1,103 history rows previously counted into a
+    ceiling were not prior to the entry they were counted against.
+
+    IT IS NOT A ONE-WAY KNOB. Dropping a same-day row can LOWER a ceiling and
+    make the detector fire where it was silent - the maximum may be the row
+    that was dropped. `test_phase8_detectors.py` holds a case that does exactly
+    that, so this cannot be read as a rule that only ever quietens things.
+    """
+    return [
+        v.amount_paise
+        for v in history
+        if v.debit_account == proposed.debit_account and v.date < proposed.date
+    ]
+
+
 def magnitude(
     proposed: Voucher,
     history: Sequence[Voucher],
@@ -151,13 +237,13 @@ def magnitude(
 ) -> list[Flag]:
     """The amount is far outside this account's own historical range.
 
-    Bound is the account's own observed maximum. No invented multiplier: the
-    margin over that maximum is calibrated, and the account must have enough
-    entries behind it for "maximum" to mean anything at all.
+    Bound is the account's own observed maximum **over entries that precede
+    this one**. No invented multiplier: the margin over that maximum is
+    calibrated, and the account must have enough PRIOR entries behind it for
+    "maximum" to mean anything at all. Too few, and it abstains - saying
+    nothing is honest, and a ceiling from evidence that is not evidence is not.
     """
-    seen = [
-        v.amount_paise for v in history if v.debit_account == proposed.debit_account
-    ]
+    seen = prior_amounts(proposed, history)
     if len(seen) < min_observations:
         return []
     high = max(seen)
@@ -168,10 +254,17 @@ def magnitude(
             voucher_id=proposed.id,
             detector="magnitude",
             severity=2,
+            # SCOPED ON PURPOSE, 2026-08-10. This says "of the entries this
+            # check was given", not "the highest posted before this entry",
+            # because the second is a claim the detector cannot support.
+            # `history` is whatever the caller handed over, and the caller may
+            # be holding back postings that really do precede this entry - the
+            # scoring harness does exactly that. See `prior_amounts`.
             reason=(
-                f"{proposed.amount_paise} paise to {proposed.debit_account}; "
-                f"highest ever posted to it is {high} paise across {len(seen)} "
-                f"entries, and this is over {over_percent} percent of that"
+                f"{proposed.amount_paise} paise to {proposed.debit_account}; of "
+                f"the {len(seen)} earlier entries on it in the history this "
+                f"check was given, the largest is {high} paise, and this is "
+                f"over {over_percent} percent of that"
             ),
         )
     ]
