@@ -157,7 +157,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         return EXIT_OK
 
     result = reversal.execute(
-        reversal.confirm(batch),
+        # `--yes` is the operator confirming the exact list just printed, and
+        # that is a state transition the history has to carry. This command has
+        # no store to append to, so it is recorded only when one is supplied;
+        # the web path always supplies one. Owner decision Q8 = A.
+        reversal.confirm(batch, company_key=args.company, run_id=identity.run_id),
         client,
         company_key=args.company,
         run_id=identity.run_id,

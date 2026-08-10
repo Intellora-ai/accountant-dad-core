@@ -242,6 +242,44 @@ class Decision:
         return ""
 
 
+#: What an unrecorded field reads back as. NEVER a guess, and never silently
+#: empty — an explicit "we did not record this" is evidence; a plausible
+#: default is a lie. Rows written before `actor` and `previous_state` existed
+#: hold SQL NULL in those columns and read back as this, exactly as
+#: `raw_subject` reads back as INCOMPLETE for the same reason.
+NOT_RECORDED = "NOT_RECORDED"
+
+
+class Actor(StrEnum):
+    """Who did it, to the only resolution this system honestly has.
+
+    Owner decision Q8 = A, 2026-08-10. Exactly two values and no third:
+
+        accountant_dad   the system did it of its own accord
+        operator         somebody answered it through the UI
+
+        authenticated user identity = NOT_IMPLEMENTED
+        actor provenance            = coarse-grained system/operator
+
+    `operator` IS NOT AN AUTHENTICATED IDENTITY and must never be described as
+    one. It says a human hand was on the control, not whose. There is no login,
+    no session, no user table and no `dependencies` entry behind it, because the
+    same decision that asked for these labels forbade adding an authentication
+    dependency to get them.
+
+    Wanting to know WHICH person is a different requirement with a different
+    cost, and it is not open for an agent to decide:
+
+        OWNER_DECISION_REQUIRED: approve an authenticated identity subsystem
+
+    That is H-05. Until it is answered, a row saying `operator` means one thing
+    only — a person, unnamed, was asked and answered.
+    """
+
+    ACCOUNTANT_DAD = "accountant_dad"
+    OPERATOR = "operator"
+
+
 @dataclass(frozen=True)
 class ActionLog:
     """One decision, recorded durably, with the reason it went that way.
@@ -258,6 +296,14 @@ class ActionLog:
 
     `backend` is recorded because a row that cannot say which Tally it came
     from cannot be used as evidence about any of them.
+
+    The last three fields arrived with Phase 8 PR-5 (owner decision Q8 = A) and
+    are additive: every one defaults, so no existing caller changed. `actor` and
+    `previous_state` default to `NOT_RECORDED` rather than to `""`, because a
+    row that does not carry them must SAY it does not carry them. An action with
+    no state machine behind it — a post, a dismissal, a company mismatch — has
+    no previous state to record and honestly reports `NOT_RECORDED`; only the
+    reversal path, which does have one, is required to fill them in.
     """
 
     ts: datetime.datetime
@@ -271,10 +317,35 @@ class ActionLog:
     voucher_id: str = ""
     vendor_id: str = ""
     detail: str = ""
+    #: `Actor` value, or `NOT_RECORDED`. Anything else is refused below.
+    actor: str = NOT_RECORDED
+    #: The state this thing was in BEFORE, so a history is reconstructable
+    #: rather than a list of endings. `NOT_RECORDED` where there is no state
+    #: machine, or on a row written before the column existed.
+    previous_state: str = NOT_RECORDED
+    #: Which batch a reversal event belongs to. Carried as its own field rather
+    #: than parsed back out of `detail`, for the same reason `action` exists.
+    batch_id: str = ""
 
     def __post_init__(self) -> None:
         if not self.reason.strip():
             raise ValueError(
                 f"action {self.action!r} for {self.company_key!r} must state "
                 "WHY it happened; a log row without a reason is a timestamp"
+            )
+        # Two labels or an explicit absence. A third value would be a claim
+        # about identity this system cannot support, and an empty string would
+        # be the absence pretending to be a value.
+        if self.actor not in (NOT_RECORDED, *Actor):
+            raise ValueError(
+                f"action {self.action!r} for {self.company_key!r} names actor "
+                f"{self.actor!r}; the only actors are "
+                f"{', '.join(a.value for a in Actor)} or {NOT_RECORDED}. "
+                "Authenticated user identity is NOT_IMPLEMENTED (H-05)."
+            )
+        if not self.previous_state.strip():
+            raise ValueError(
+                f"action {self.action!r} for {self.company_key!r} has a blank "
+                f"previous state; write {NOT_RECORDED} when there is none, so "
+                "the absence is a fact rather than an empty column"
             )

@@ -58,6 +58,43 @@ It never calls `client.reverse_by_operation_id`. Every undo goes through
 balance before and after. A test asserts this structurally, because a direct
 call would be faster, would look right, and would reintroduce the defect where
 "reversed" meant "a boolean said so".
+
+THE FULL HISTORY, AND WHAT ITS `actor` FIELD IS WORTH
+-----------------------------------------------------
+Owner decision Q8 = A, 2026-08-10. Every transition of a voucher state or a
+batch state is one durable event carrying seven fields:
+
+    previous state · new state · reason · actor · timestamp
+    company/document scope · evidence
+
+`previous state` and `new state` are the state NAMES from `VoucherState` and
+`BatchState`. That is what makes the history reconstructable: the events for one
+scope form a chain from a known starting state to the state the object is in
+now, and a transition that was never recorded shows up as a break in that chain
+rather than as nothing at all. `audit` below is the function that looks.
+
+The actor has exactly two values and a hard limit:
+
+    accountant_dad   the system did it
+    operator         somebody answered it through the UI
+
+    authenticated user identity = NOT_IMPLEMENTED
+    actor provenance            = coarse-grained system/operator
+
+**`operator` IS NOT AN AUTHENTICATED USER IDENTITY.** It records that a person
+was in the loop, not which person. There is no login and no session behind it,
+because the decision that asked for these labels also said to add no
+authentication dependency, and `dependencies = []` still stands. Building one
+is not an agent's call:
+
+    OWNER_DECISION_REQUIRED: approve an authenticated identity subsystem
+
+That is H-05.
+
+Rows written before this existed keep SQL NULL in the two new columns and read
+back as `NOT_RECORDED`. They are NEVER back-filled with `accountant_dad`. A gap
+that says it is a gap can be reasoned about; a gap filled with a plausible guess
+is a false record, and a false audit record is worse than no audit record.
 """
 
 from __future__ import annotations
@@ -70,12 +107,21 @@ from enum import StrEnum
 
 from accountant import pipeline
 from accountant.memory.identity import normalise_company
-from accountant.schema import ActionLog
+from accountant.schema import NOT_RECORDED, ActionLog, Actor
 from accountant.tallyio.client import TallyClient, operation_id_in
 
 #: The action name every durable row of a batch carries, so the log can be
 #: filtered to "what did the bulk reversal do" without parsing prose.
 BATCH_ACTION = "bulk_reverse"
+
+#: The same, for the transitions of the BATCH rather than of one voucher.
+#: A separate name rather than a flag on `BATCH_ACTION`, because every existing
+#: reader of this log filters on the action word and expects one row shape:
+#: `action == BATCH_ACTION` means "one voucher, identified by operation id".
+BATCH_STATE_ACTION = "bulk_reverse_batch"
+
+#: Both, for a reader that wants the whole history of a batch.
+REVERSAL_ACTIONS = (BATCH_ACTION, BATCH_STATE_ACTION)
 
 
 def operation_id_of(narration: str) -> str | None:
@@ -263,8 +309,200 @@ class Batch:
         return self.in_state(*UNRESOLVED)
 
 
+#: The state every candidate is in when `preview` builds it, and therefore the
+#: state a voucher's reconstructed chain must start from.
+INITIAL_VOUCHER_STATE = VoucherState.NOT_ATTEMPTED
+
+#: The state every batch is in when `preview` returns it, and therefore the
+#: state a batch's reconstructed chain must start from.
+INITIAL_BATCH_STATE = BatchState.PREVIEW
+
+#: The seven, named once. The order is the owner's.
+SEVEN_FIELDS: tuple[str, ...] = (
+    "previous state",
+    "new state",
+    "reason",
+    "actor",
+    "timestamp",
+    "scope",
+    "evidence",
+)
+
+
+@dataclass(frozen=True)
+class ReversalEvent:
+    """One transition, with everything needed to believe it later.
+
+    Seven fields, owner decision Q8 = A. Constructed on the way out (by
+    `_record` and `_record_batch`, which refuse an incomplete one) and again on
+    the way in (by `from_action_log`, which reports incompleteness rather than
+    refusing, because a row already written cannot be un-written by objecting to
+    it).
+
+    `document` is the operation id for a voucher transition and the batch id for
+    a batch transition. Together with `company_key` it is the "company/document
+    scope" of the seven, and it is also the key the chain is rebuilt on.
+    """
+
+    previous_state: str
+    new_state: str
+    reason: str
+    actor: str
+    ts: datetime.datetime | None
+    company_key: str
+    document: str
+    evidence: str
+    batch_id: str = ""
+    action: str = BATCH_ACTION
+    #: Carried through to the row but not part of the seven: `run_id` says which
+    #: process wrote it and `backend` which Tally it is evidence about.
+    run_id: str = ""
+    backend: str = ""
+
+    @property
+    def scope(self) -> tuple[str, str]:
+        """The chain key: which batch, and which thing inside it."""
+        return (self.batch_id, self.document)
+
+    @property
+    def identity(self) -> tuple[object, ...]:
+        """The seven fields as one comparable thing.
+
+        Two events agreeing on all seven are the same record; anything else is a
+        different record. This is what "0 overwritten" is measured with, and it
+        deliberately leaves out `run_id` and `backend` — an event whose seven
+        fields survived is the event that was written, whatever else moved.
+        """
+        return (
+            self.previous_state,
+            self.new_state,
+            self.reason,
+            self.actor,
+            self.ts,
+            self.company_key,
+            self.document,
+            self.evidence,
+        )
+
+    @property
+    def missing(self) -> tuple[str, ...]:
+        """Which of the seven this event does not carry. Empty is the goal.
+
+        `NOT_RECORDED` counts as MISSING here and that is the point of the
+        marker: it is an honest description of a row, not a value that satisfies
+        the requirement. A legacy row reports two missing fields; it does not
+        report an actor of `accountant_dad`.
+        """
+        absent: list[str] = []
+        if not _present(self.previous_state):
+            absent.append("previous state")
+        if not _present(self.new_state):
+            absent.append("new state")
+        if not _present(self.reason):
+            absent.append("reason")
+        if self.actor not in tuple(Actor):
+            absent.append("actor")
+        if self.ts is None:
+            absent.append("timestamp")
+        if not _present(self.company_key) or not _present(self.document):
+            absent.append("scope")
+        if not _present(self.evidence):
+            absent.append("evidence")
+        return tuple(absent)
+
+    @property
+    def complete(self) -> bool:
+        return not self.missing
+
+    def demand_complete(self) -> None:
+        """Refuse to write an event that is not all seven fields.
+
+        Called on the WRITE path only. An event missing a field is not a
+        slightly-worse record, it is a record that cannot answer the question
+        the log exists for, and writing it anyway puts a hole in the chain that
+        looks like data.
+        """
+        if self.missing:
+            raise ValueError(
+                f"refusing to record a reversal event for "
+                f"{self.company_key!r}/{self.document!r} "
+                f"({self.previous_state} -> {self.new_state}) without "
+                + ", ".join(self.missing)
+                + "; every reversal event carries all seven of "
+                + ", ".join(SEVEN_FIELDS)
+            )
+
+    def to_action_log(self) -> ActionLog:
+        """The durable row. `ts` is never None on this path — `demand_complete`
+        has already refused that — so the fallback below is unreachable by
+        construction and is written as an assertion rather than an `or`."""
+        if self.ts is None:  # pragma: no cover - demand_complete refuses it
+            raise ValueError("an event with no timestamp is not recordable")
+        return ActionLog(
+            ts=self.ts,
+            action=self.action,
+            company_key=self.company_key,
+            outcome=self.new_state,
+            reason=self.reason,
+            run_id=self.run_id,
+            backend=self.backend,
+            operation_id=self.document if self.action == BATCH_ACTION else "",
+            detail=self.evidence,
+            actor=self.actor,
+            previous_state=self.previous_state,
+            batch_id=self.batch_id,
+        )
+
+    @classmethod
+    def from_action_log(cls, row: ActionLog) -> ReversalEvent:
+        """Read one row back as an event, reporting exactly what it carries.
+
+        A row written before the two columns existed comes back with `actor` and
+        `previous_state` as `NOT_RECORDED`, so `missing` names them. No default
+        is substituted anywhere on this path.
+        """
+        return cls(
+            previous_state=row.previous_state,
+            new_state=row.outcome,
+            reason=row.reason,
+            actor=row.actor,
+            ts=row.ts,
+            company_key=row.company_key,
+            document=(row.operation_id if row.action == BATCH_ACTION else row.batch_id),
+            evidence=row.detail,
+            batch_id=row.batch_id,
+            action=row.action,
+            run_id=row.run_id,
+            backend=row.backend,
+        )
+
+
+def _present(value: str) -> bool:
+    """A field counts as carried only if something was actually written in it.
+    `NOT_RECORDED` is the marker for "nobody wrote this down" and never passes.
+    """
+    return bool(value.strip()) and value != NOT_RECORDED
+
+
 def _new_batch_id() -> str:
     return f"bulk_{uuid.uuid4().hex[:12]}"
+
+
+def _voucher_evidence(batch_id: str, outcome: VoucherOutcome) -> str:
+    return f"batch {batch_id}; moved {dict(outcome.moved)}"
+
+
+def _batch_evidence(batch: Batch) -> str:
+    """What the batch looked like at the moment of the transition.
+
+    Built from the outcomes rather than from `batch.detail`, so it is non-empty
+    for every batch including one whose detail nobody set, and so there is no
+    `or` fallback that no test can take.
+    """
+    counts: dict[str, int] = {}
+    for outcome in batch.outcomes:
+        counts[outcome.state.value] = counts.get(outcome.state.value, 0) + 1
+    return f"batch {batch.batch_id}; {len(batch.outcomes)} voucher(s); {counts}"
 
 
 def _record(
@@ -273,7 +511,9 @@ def _record(
     company_key: str,
     run_id: str,
     batch_id: str,
+    previous: VoucherState,
     outcome: VoucherOutcome,
+    actor: Actor,
     backend: str,
 ) -> None:
     """One durable row per voucher transition. Written before the next attempt.
@@ -284,25 +524,66 @@ def _record(
     """
     if log is None:
         return
-    log.record_action(
-        ActionLog(
-            ts=datetime.datetime.now(datetime.UTC),
-            action=BATCH_ACTION,
-            # Normalised HERE, not trusted from the caller. `MemoryStore.actions`
-            # normalises before reading, so a caller passing a display name
-            # would write rows nothing could ever read back — which is exactly
-            # what happened on the first Phase 5B run: ten rows written, zero
-            # found after the restart. Idempotent, so a caller that already
-            # normalised (the web app, via memory.identity.key) is unaffected.
-            company_key=normalise_company(company_key),
-            outcome=outcome.state.value,
-            reason=outcome.detail or f"batch {batch_id}: {outcome.state.value}",
-            run_id=run_id,
-            backend=backend,
-            operation_id=outcome.operation_id,
-            detail=f"batch {batch_id}; moved {dict(outcome.moved)}",
-        )
+    event = ReversalEvent(
+        previous_state=previous.value,
+        new_state=outcome.state.value,
+        reason=outcome.detail or f"batch {batch_id}: {outcome.state.value}",
+        actor=actor,
+        ts=datetime.datetime.now(datetime.UTC),
+        # Normalised HERE, not trusted from the caller. `MemoryStore.actions`
+        # normalises before reading, so a caller passing a display name
+        # would write rows nothing could ever read back — which is exactly
+        # what happened on the first Phase 5B run: ten rows written, zero
+        # found after the restart. Idempotent, so a caller that already
+        # normalised (the web app, via memory.identity.key) is unaffected.
+        company_key=normalise_company(company_key),
+        document=outcome.operation_id,
+        evidence=_voucher_evidence(batch_id, outcome),
+        batch_id=batch_id,
+        action=BATCH_ACTION,
+        run_id=run_id,
+        backend=backend,
     )
+    event.demand_complete()
+    log.record_action(event.to_action_log())
+
+
+def _record_batch(
+    log: pipeline.ActionLogSink | None,
+    *,
+    company_key: str,
+    run_id: str,
+    previous: BatchState,
+    batch: Batch,
+    actor: Actor,
+    backend: str,
+) -> None:
+    """One durable row per BATCH transition, on the same terms.
+
+    Nothing is written when the state did not change, because a non-transition
+    is not an event and a log full of them hides the ones that are.
+    """
+    if log is None or previous is batch.state:
+        return
+    event = ReversalEvent(
+        previous_state=previous.value,
+        new_state=batch.state.value,
+        reason=(
+            f"batch {batch.batch_id} for {batch.company!r} moved from "
+            f"{previous.value} to {batch.state.value}: {batch.detail}"
+        ),
+        actor=actor,
+        ts=datetime.datetime.now(datetime.UTC),
+        company_key=normalise_company(company_key),
+        document=batch.batch_id,
+        evidence=_batch_evidence(batch),
+        batch_id=batch.batch_id,
+        action=BATCH_STATE_ACTION,
+        run_id=run_id,
+        backend=backend,
+    )
+    event.demand_complete()
+    log.record_action(event.to_action_log())
 
 
 # ---- preview: say exactly what would be touched, and refuse early -----------
@@ -363,14 +644,42 @@ def preview(client: TallyClient, company: str, *, batch_id: str = "") -> Batch:
     )
 
 
-def confirm(batch: Batch) -> Batch:
-    """The explicit confirmation. A preview is a question, not an order."""
+def confirm(
+    batch: Batch,
+    *,
+    log: pipeline.ActionLogSink | None = None,
+    company_key: str = "",
+    run_id: str = "",
+    backend: str = "",
+) -> Batch:
+    """The explicit confirmation. A preview is a question, not an order.
+
+    The one transition in this module whose actor is `operator`: a preview
+    becomes an order because a person said so through the UI. It is recorded
+    here rather than at the start of `execute`, because a confirmation that is
+    never executed still happened and the log has to be able to say so.
+
+    `backend` defaults to empty and says so honestly — confirming touches no
+    Tally, so there is no backend this row is evidence about. Every logging
+    argument is keyword-only with a default, so the many callers that confirm
+    without a log are unchanged.
+    """
     if batch.state is not BatchState.PREVIEW:
         raise ValueError(
             f"batch {batch.batch_id} is {batch.state.value}, not a preview; "
             "only a preview can be confirmed"
         )
-    return replace(batch, state=BatchState.CONFIRMED)
+    confirmed = replace(batch, state=BatchState.CONFIRMED)
+    _record_batch(
+        log,
+        company_key=company_key,
+        run_id=run_id,
+        previous=batch.state,
+        batch=confirmed,
+        actor=Actor.OPERATOR,
+        backend=backend,
+    )
+    return confirmed
 
 
 # ---- execute ----------------------------------------------------------------
@@ -516,7 +825,14 @@ def execute(
             f"{batch.state.value}); nothing is reversed without an explicit "
             "confirmation of the exact candidate list"
         )
-    return _drive(batch, client, log=log, company_key=company_key, run_id=run_id)
+    return _drive(
+        batch,
+        client,
+        log=log,
+        company_key=company_key,
+        run_id=run_id,
+        actor=Actor.ACCOUNTANT_DAD,
+    )
 
 
 def _drive(
@@ -526,10 +842,34 @@ def _drive(
     log: pipeline.ActionLogSink | None,
     company_key: str,
     run_id: str,
+    actor: Actor,
 ) -> Batch:
-    """The loop. Shared by `execute` and `resume` so they cannot drift."""
+    """The loop. Shared by `execute` and `resume` so they cannot drift.
+
+    `REVERSING` is entered for real here rather than being a name in the enum
+    that nothing ever sets. The owner specified seven batch states; a state the
+    code never occupies cannot appear in the history, and a history that jumps
+    CONFIRMED -> COMPLETED is missing the interval in which the damage, if any,
+    was done.
+
+    `actor` belongs to the transition INTO `REVERSING` and to nothing else. On
+    `execute` it is the system starting the work it was confirmed to do; on
+    `resume` it is the operator, because `approved=True` is a person's answer
+    after reading the refusal. Every per-voucher transition below is the system,
+    unconditionally: no person chose them one at a time.
+    """
     backend = type(client).__name__
-    outcomes = list(batch.outcomes)
+    driving = replace(batch, state=BatchState.REVERSING)
+    _record_batch(
+        log,
+        company_key=company_key,
+        run_id=run_id,
+        previous=batch.state,
+        batch=driving,
+        actor=actor,
+        backend=backend,
+    )
+    outcomes = list(driving.outcomes)
     stopped = False
 
     for i, outcome in enumerate(outcomes):
@@ -545,7 +885,9 @@ def _drive(
             company_key=company_key,
             run_id=run_id,
             batch_id=batch.batch_id,
+            previous=outcome.state,
             outcome=in_flight,
+            actor=Actor.ACCOUNTANT_DAD,
             backend=backend,
         )
 
@@ -556,21 +898,40 @@ def _drive(
             company_key=company_key,
             run_id=run_id,
             batch_id=batch.batch_id,
+            previous=VoucherState.REQUEST_SENT,
             outcome=settled,
+            actor=Actor.ACCOUNTANT_DAD,
             backend=backend,
         )
 
         if settled.state is not VoucherState.REVERSED_VERIFIED:
             stopped = True
 
-    return _settle(batch, outcomes, client.trial_balance(batch.company))
+    rested = _settle(driving, outcomes, client.trial_balance(batch.company))
+    _record_batch(
+        log,
+        company_key=company_key,
+        run_id=run_id,
+        previous=driving.state,
+        batch=rested,
+        actor=Actor.ACCOUNTANT_DAD,
+        backend=backend,
+    )
+    return rested
 
 
 # ---- reconcile and resume ----------------------------------------------------
 
 
-def reconcile(batch: Batch, client: TallyClient) -> Batch:
-    """Read-only. Turn every unknown into a fact, and write nothing.
+def reconcile(
+    batch: Batch,
+    client: TallyClient,
+    *,
+    log: pipeline.ActionLogSink | None = None,
+    company_key: str = "",
+    run_id: str = "",
+) -> Batch:
+    """Read-only against TALLY. Turn every unknown into a fact.
 
     This is what makes a later retry not blind. An `UNKNOWN_OUTCOME` means the
     request may or may not have reached Tally; a single read settles which:
@@ -581,11 +942,24 @@ def reconcile(batch: Batch, client: TallyClient) -> Batch:
     `REQUEST_SENT` is treated identically, because a row left in that state is
     a process that died mid-voucher and is exactly as unknown.
 
-    Nothing is reversed here and nothing is written. If the read itself fails,
-    the voucher stays unknown — a reconciliation that cannot read has not
-    reconciled anything.
+    NOTHING IS REVERSED HERE AND NOTHING IS WRITTEN INTO THE CUSTOMER'S BOOKS.
+    What IS written, since Phase 8 PR-5, is our own audit trail: settling an
+    unknown into a fact CHANGES A VOUCHER'S STATE, and a state change with no
+    event is precisely the hole the full history exists to close. A voucher that
+    goes UNKNOWN_OUTCOME -> NOT_ATTEMPTED with nothing recorded reads afterwards
+    as though it were never attempted at all. The events are appended to
+    `action_log`; the books are untouched, and the tests that count deletes and
+    compare trial balances still measure exactly that.
+
+    If the read itself fails, the voucher stays unknown — a reconciliation that
+    cannot read has not reconciled anything, and it records no transition
+    because none occurred.
     """
+    backend = type(client).__name__
     settled: list[VoucherOutcome] = []
+    previous_states: dict[str, VoucherState] = {
+        o.operation_id: o.state for o in batch.outcomes
+    }
     for outcome in batch.outcomes:
         if outcome.state not in (
             VoucherState.UNKNOWN_OUTCOME,
@@ -648,7 +1022,31 @@ def reconcile(batch: Batch, client: TallyClient) -> Batch:
     # safety beats partial cleanup. So a pass that leaves anything unresolved
     # reports itself as what it is — a reconciliation that did not reconcile —
     # and `resume` refuses the whole batch on the strength of that.
+    for outcome in settled:
+        was = previous_states[outcome.operation_id]
+        if outcome.state is was:
+            continue  # read, and nothing changed; not a transition
+        _record(
+            log,
+            company_key=company_key,
+            run_id=run_id,
+            batch_id=batch.batch_id,
+            previous=was,
+            outcome=outcome,
+            actor=Actor.ACCOUNTANT_DAD,
+            backend=backend,
+        )
+
     reconciled_batch = _settle(batch, settled, client.trial_balance(batch.company))
+    _record_batch(
+        log,
+        company_key=company_key,
+        run_id=run_id,
+        previous=batch.state,
+        batch=reconciled_batch,
+        actor=Actor.ACCOUNTANT_DAD,
+        backend=backend,
+    )
     return replace(reconciled_batch, reconciled=not reconciled_batch.unresolved)
 
 
@@ -714,5 +1112,213 @@ def resume(
     # with a fresh unknown has to be as unresumable as the batch that produced
     # the first one, or the second interruption is the one that gets waved
     # through.
-    driven = _drive(batch, client, log=log, company_key=company_key, run_id=run_id)
+    driven = _drive(
+        batch,
+        client,
+        log=log,
+        company_key=company_key,
+        run_id=run_id,
+        # The one place `operator` is the right label for starting work: the
+        # batch leaves its resting state because a person looked at the refusal
+        # and said go on. Not an authenticated identity — see the module
+        # docstring and H-05.
+        actor=Actor.OPERATOR,
+    )
     return replace(driven, reconciled=not driven.unresolved)
+
+
+# ---- the full history: read it back, and check it is whole --------------------
+
+
+def history(
+    rows: Sequence[ActionLog], *, batch_id: str = ""
+) -> tuple[ReversalEvent, ...]:
+    """Every reversal event in these log rows, oldest first.
+
+    `rows` comes from `MemoryStore.actions(company)`, which is already ordered
+    by rowid — by what happened first, not by a clock two events can share.
+    Filtering happens on the action word, never by parsing prose out of
+    `detail`.
+    """
+    return tuple(
+        ReversalEvent.from_action_log(row)
+        for row in rows
+        if row.action in REVERSAL_ACTIONS and (not batch_id or row.batch_id == batch_id)
+    )
+
+
+@dataclass(frozen=True)
+class Gap:
+    """A place the chain does not join up. Each one is a transition nobody
+    recorded, or an event claiming a predecessor that never happened."""
+
+    #: (batch id, document) — the scope whose chain broke.
+    scope: tuple[str, str]
+    #: The state the chain had reached at that point.
+    reached: str
+    #: The state the next event claims to have started from, or — for the last
+    #: entry in a chain — the state the object is actually in now.
+    expected: str
+    why: str
+
+    def __str__(self) -> str:
+        batch, document = self.scope
+        return (
+            f"{batch}/{document}: {self.why} — the recorded chain reaches "
+            f"{self.reached} and {self.expected} is unaccounted for"
+        )
+
+
+@dataclass(frozen=True)
+class HistoryAudit:
+    """What the durable history does and does not prove. Counts, not adjectives.
+
+    Every number here is read back out of the log, not carried forward from the
+    run that wrote it. `overwritten` is `None` when nobody supplied the events
+    that were written, because "no overwrites detected" and "nobody looked" are
+    different answers and only one of them is evidence.
+    """
+
+    events: int
+    complete: int
+    missing: Mapping[str, int]
+    gaps: tuple[Gap, ...]
+    overwritten: int | None = None
+
+    @property
+    def whole(self) -> bool:
+        """Every event carries all seven, every chain joins up, nothing was
+        overwritten — and the overwrite question was actually asked."""
+        return self.events == self.complete and not self.gaps and self.overwritten == 0
+
+    def summary(self) -> str:
+        missing = ", ".join(f"{n} missing {f}" for f, n in self.missing.items())
+        return (
+            f"{self.complete}/{self.events} events carry all seven fields; "
+            f"{len(self.gaps)} unrecorded transition(s); "
+            f"{'NOT_MEASURED' if self.overwritten is None else self.overwritten} "
+            f"overwritten" + (f"; {missing}" if missing else "")
+        )
+
+
+def _expected_chains(
+    batches: Sequence[Batch],
+) -> dict[tuple[str, str], tuple[str, str]]:
+    """Scope -> (the state it started in, the state it is in now).
+
+    The starting states are facts about `preview`, not assumptions: it builds
+    every candidate `NOT_ATTEMPTED` and returns the batch `PREVIEW`.
+    """
+    expected: dict[tuple[str, str], tuple[str, str]] = {}
+    for batch in batches:
+        expected[(batch.batch_id, batch.batch_id)] = (
+            INITIAL_BATCH_STATE.value,
+            batch.state.value,
+        )
+        for outcome in batch.outcomes:
+            expected[(batch.batch_id, outcome.operation_id)] = (
+                INITIAL_VOUCHER_STATE.value,
+                outcome.state.value,
+            )
+    return expected
+
+
+def audit(
+    events: Sequence[ReversalEvent],
+    *,
+    batches: Sequence[Batch],
+    written: Sequence[ReversalEvent] | None = None,
+) -> HistoryAudit:
+    """Is this history whole, and does it match what actually happened?
+
+    THE HARD PART IS NOT THE FIELDS. Checking that every recorded event carries
+    seven fields only proves the events somebody remembered to write are
+    well-formed. The question that matters is whether an event is MISSING, and
+    no amount of inspecting the rows that exist can answer it.
+
+    So the chain is replayed instead. For each scope — one batch, or one voucher
+    inside one batch — the events must run from the state `preview` created it
+    in, through each recorded transition, to the state the object is in now,
+    with every link joining `new state` to the next `previous state`. A
+    transition that was never recorded leaves the replay short of where the
+    object actually is, and that is a `Gap`. So is an event whose `previous
+    state` does not match where the chain had got to, which is what a
+    reordered, duplicated or fabricated event looks like.
+
+    `written` is the events the run believes it wrote. Supplied, it measures
+    overwriting: every one of them must still be present, in order, with the
+    same seven fields. Omitted, `overwritten` is `None` — NOT_MEASURED — and
+    `whole` is False, because an audit that did not ask cannot report zero.
+    """
+    missing: dict[str, int] = {}
+    for event in events:
+        for field_name in event.missing:
+            missing[field_name] = missing.get(field_name, 0) + 1
+
+    recorded: dict[tuple[str, str], list[ReversalEvent]] = {}
+    for event in events:
+        recorded.setdefault(event.scope, []).append(event)
+
+    expected = _expected_chains(batches)
+    gaps: list[Gap] = []
+    for scope, (start, end) in expected.items():
+        reached = start
+        for event in recorded.get(scope, []):
+            if event.previous_state != reached:
+                gaps.append(
+                    Gap(
+                        scope=scope,
+                        reached=reached,
+                        expected=event.previous_state,
+                        why="an event starts from a state the chain never was in",
+                    )
+                )
+            reached = event.new_state
+        if reached != end:
+            gaps.append(
+                Gap(
+                    scope=scope,
+                    reached=reached,
+                    expected=end,
+                    why="a transition happened that no event records",
+                )
+            )
+    for scope in recorded:
+        if scope not in expected:
+            gaps.append(
+                Gap(
+                    scope=scope,
+                    reached="",
+                    expected="",
+                    why="events recorded against a scope no batch knows about",
+                )
+            )
+
+    overwritten: int | None = None
+    if written is not None:
+        overwritten = _overwritten(written, events)
+
+    return HistoryAudit(
+        events=len(events),
+        complete=sum(1 for e in events if e.complete),
+        missing=missing,
+        gaps=tuple(gaps),
+        overwritten=overwritten,
+    )
+
+
+def _overwritten(
+    written: Sequence[ReversalEvent], read_back: Sequence[ReversalEvent]
+) -> int:
+    """How many of the events we wrote are not in the log, unchanged, in order.
+
+    Positional, not set-based, and that is deliberate. A log that collapsed two
+    byte-identical events into one would pass a set comparison and has lost a
+    thing that happened — which is exactly the mistake `action_log` has no
+    primary key in order to avoid.
+    """
+    lost = max(len(written) - len(read_back), 0)
+    for mine, theirs in zip(written, read_back, strict=False):
+        if mine.identity != theirs.identity:
+            lost += 1
+    return lost

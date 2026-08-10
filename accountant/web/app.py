@@ -1960,7 +1960,18 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             result = reversal.execute(
-                reversal.confirm(shown),
+                # The log goes to `confirm` too, and it is the ONE transition in
+                # a batch whose actor is `operator`: a preview became an order
+                # because somebody pressed the button on this screen. Left out,
+                # the durable history starts at `reversing` and cannot say the
+                # confirmation happened at all. Owner decision Q8 = A.
+                reversal.confirm(
+                    shown,
+                    log=live.store,
+                    company_key=live.memory.identity.key,
+                    run_id=live.identity.run_id,
+                    backend=type(live.client).__name__,
+                ),
                 live.client,
                 log=live.store,
                 company_key=live.memory.identity.key,
