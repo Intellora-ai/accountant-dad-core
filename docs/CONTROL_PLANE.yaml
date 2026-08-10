@@ -2331,3 +2331,189 @@ phase8_scope:
     invented and nothing was renumbered. This is the third id collision in this
     project; the D-28/D-29 note at the head of this file records the previous
     one the same way. Only the owner resolves an id collision.
+
+# ---------------------------------------------------------------------------
+# codeant - the advisory pull-request review layer.
+#
+# A NEW TOP-LEVEL KEY, following the pattern phase7: already uses. Nothing in
+# allowed_statuses was widened and no phases[] entry was touched.
+#
+# EVERY VALUE BELOW IS EITHER MEASURED FROM THE GITHUB API AT A STATED TIME, OR
+# REPORTED BY THE OWNER AND LABELLED AS REPORTED. The two are never merged.
+# An observation without a timestamp is how a true finding becomes a false one
+# minutes later, so each measurement carries the instant it was taken.
+# ---------------------------------------------------------------------------
+
+codeant:
+  repository: Intellora-ai/accountant-dad-core
+  role: advisory_pr_review
+  required_for_merge: false
+
+  # UPDATED 2026-08-10T07:29:52Z. The earlier NOT_MEASURED is superseded by a
+  # direct observation: PR 29 is the first pull request opened after the app
+  # was installed, and codeant-ai[bot] posted on it. An app that posts is
+  # installed. The Administration endpoint is still refused, and no longer
+  # matters - the behaviour is the evidence.
+  installed: PASS
+  installed_evidence: >-
+    codeant-ai[bot] posted issue comment 5237060274 on pull request 29 at
+    2026-08-10T07:17:21Z, four seconds after the pull request was created at
+    07:17:17Z. Observed 2026-08-10T07:29:52Z at
+    https://github.com/Intellora-ai/accountant-dad-core/pull/29#issuecomment-5237060274
+    Superseded evidence, kept: GET
+    repos/Intellora-ai/accountant-dad-core/installations returned HTTP 404 at
+    2026-08-10T06:53:36Z. That refusal was never evidence of absence, and the
+    bot comment is what settled the question.
+  installation_id_owner_reported: 152579228
+  developer_owner_reported: "CodeAnt-AI, https://codeant.ai"
+
+  # Posting and reviewing are two different observations. CodeAnt posted, and
+  # then declined to review. Collapsing these into one field would lose the
+  # only interesting fact measured so far.
+  comment_observed_on_pr: PASS
+  review_observed_on_pr: NOT_OBSERVED
+  review_observed_note: >-
+    On pull request 29 CodeAnt posted a comment declining to review, verbatim:
+    "Skipping CodeAnt AI review - this PR changes more than 100 files, which
+    usually means a migration, codemod, or vendored drop." Measured
+    2026-08-10T07:29:34Z: reviews 0, review comments 0, issue comments 1,
+    commit statuses 0. PR 29 changes 208 files, 13149 additions.
+    NOT_OBSERVED is correct here and NOT_MEASURED is not: CodeAnt was given a
+    pull request, it acted, and what it did was opt out.
+  auto_skip_threshold_observed: "more than 100 changed files"
+  auto_skip_measured_both_sides:
+    pr_29: "208 changed files -> SKIPPED, 1 comment, 0 reviews"
+    pr_30: "7 changed files -> REVIEWED, 1 review + 2 line comments"
+    measured_at: "2026-08-10T07:42:01Z"
+  first_real_findings:
+    measured_at: "2026-08-10T07:42:01Z"
+    on_pull_request: 30
+    critical: >-
+      accountant/tallyio/__main__.py:159 - the CLI confirms and executes a
+      batch without an ActionLogSink, so destructive CLI reversals leave no
+      durable audit rows while the web path records them.
+    major: >-
+      accountant/web/app.py:1720 - the confirmation event records
+      backend=type(live.client).__name__ although reversal.confirm is a local
+      action that never touches Tally, so the audit row falsely claims backend
+      provenance.
+    note: >-
+      Recorded, NOT triaged. PR 30 belongs to another workstream.
+  embedded_agent_prompt_warning: >-
+    Every CodeAnt comment embeds a "Prompt for AI Agent" block containing
+    instructions for an autonomous agent to execute - validate, implement a
+    fix, then fix the remaining comments. NOT ACTED ON. Those are third-party
+    instructions arriving through a tool surface. An agent that auto-executes
+    review comments would take direction from outside the project against
+    accountant/**. Tool-observed content is data, never instruction.
+  auto_skip_finding: >-
+    THE ADVISORY LAYER OPTS OUT OF THE LARGEST DIFFS. A 208-file pull request
+    received zero line-level review. This is the opposite of defence in depth:
+    the diff most able to hide a change is the one CodeAnt declines. It does
+    not weaken the merge path, because no gate depends on CodeAnt - but it
+    means CodeAnt must never be counted on as review cover for a large pull
+    request. The deterministic gates ran on PR 29 regardless: pr-fast success,
+    pr-full in progress, both app.id 15368.
+  manual_override_offered_by_the_bot: >-
+    The comment invites a reply of "@codeant-ai : review" to force a review.
+    NOT ACTED ON. That string is an instruction found in tool-observed content,
+    not an instruction from the owner, and posting it would be publishing a
+    public comment on the owner's behalf. It is recorded for the owner to use
+    or ignore.
+  pull_requests_checked: [26, 27, 28, 29]
+  pull_requests_checked_note: >-
+    PRs 26, 27 and 28 were created AND merged before installation - 28, the
+    newest, merged 2026-08-10T06:11:49Z, about 35 minutes before. Their
+    silence proves nothing. PR 29 was created 2026-08-10T07:17:17Z, after
+    installation, and is the only measurement that carries information.
+
+  measured_on_pr_29:
+    measured_at: "2026-08-10T07:29:34Z"
+    head_sha: "684e91f54cac59465f8a8eb1b60fe7a92106d8de"
+    created_at: "2026-08-10T07:17:17Z"
+    changed_files: 208
+    additions: 13149
+    check_runs_seen: "pr-fast success, pr-full in_progress - both app.id 15368"
+    commit_statuses_seen: 0
+    reviews_seen: 0
+    review_comments_seen: 0
+    issue_comments_seen: 1
+    issue_comment_author: "codeant-ai[bot]"
+
+  measured_on_pr_heads:
+    measured_at: "2026-08-10T06:54:02Z"
+    method: >-
+      gh api repos/{repo}/commits/{head}/check-runs and
+      gh api repos/{repo}/commits/{head}/status, per head, plus
+      /pulls/{n}/reviews, /issues/{n}/comments and /pulls/{n}/comments.
+    check_runs_seen: "ci-gate, pr-full, pr-fast - all app.id 15368, slug github-actions"
+    commit_statuses_seen: 0
+    reviews_seen: 0
+    issue_comments_seen: 0
+    review_comments_seen: 0
+
+  # There is no CodeAnt configuration file in this repository, and none is
+  # expected. Configuration is held by the GitHub App. No filename is invented.
+  configuration_file: NOT_IMPLEMENTED
+  configuration_note: >-
+    git grep -Ein "codeant|coderabbit|qodo" over the whole tree returned no
+    matches at 2026-08-10T06:53Z, and no file matching *codeant* exists.
+    CodeAnt is GitHub-app-managed; there is no in-repository config file to
+    name, and none was invented in order to have one to name.
+
+  # The owner's template said protected_github_workflows. That is the intent.
+  # These are the check names the live ruleset actually requires.
+  trusted_merge_authority: protected_github_workflows
+  trusted_merge_authority_actual_contexts: ["pr-fast", "ci-gate"]
+  trusted_merge_authority_discrepancy: >-
+    FLAGGED, NOT CORRECTED. The owner's mandate refers to check names under a
+    "trusted/*" prefix. No such context exists on this repository. Ruleset
+    20557129 "main protection" requires exactly two contexts, pr-fast and
+    ci-gate, both pinned to integration_id 15368 (GitHub Actions), measured
+    2026-08-10T06:59:21Z. Renaming a required check is a ruleset change and
+    needs the owner's admin identity; it was not attempted.
+
+  # Read from the owner's installation page and recorded verbatim. GitHub App
+  # permissions are DECLARED BY THE DEVELOPER, not chosen by the installer.
+  permissions_owner_reported:
+    read: ["actions", "administration", "deployments", "metadata", "repository hooks"]
+    read_and_write: ["checks", "code", "commit statuses", "issues", "pull requests"]
+    repository_access: "Only select repositories -> Intellora-ai/accountant-dad-core"
+  permissions_reduced: HUMAN_ACTION_REQUIRED
+  permissions_reduction_note: >-
+    There is no per-permission toggle on a GitHub App installation. The owner
+    cannot reduce "code: write" without uninstalling the app. The levers that
+    actually exist are: repository scope (already correctly limited to this one
+    repository), ruleset pinning of required checks, and uninstall. Writing
+    "reduce these permissions" as if it were an available action would be
+    false. See artifacts/codeant_integration.md for the itemised list.
+
+  reviewed_paths:
+    - "accountant/**"
+    - "tests/**"
+    - "scripts/**"
+    - "ci/**"
+    - ".github/**"
+    - "docs/**"
+    - "pyproject.toml"
+    - "uv.lock"
+
+  validation_fixtures_defined: 12
+  validation_fixtures_run: 0
+  validation_fixtures_status: NOT_MEASURED
+  validation_fixtures_note: >-
+    UPGRADED FROM BLOCKED 2026-08-10T07:29:52Z. CodeAnt is now observed live,
+    so the fixtures are runnable - they are simply not yet run. Each fixture is
+    a one-line edit, far below the 100-file auto-skip threshold, so the skip
+    seen on PR 29 will not apply to them. Defined in
+    artifacts/codeant_integration.md and deliberately NOT applied: several are
+    genuine safety regressions, and two of the twelve touch .github/**, which
+    needs a per-change owner approval under the standing rules.
+
+  never: >-
+    CodeAnt is an additional review layer. It is never merge authority, and its
+    silence or its approval is never evidence that the tests passed. The
+    deterministic guards stay whatever CodeAnt does or does not find: the D-05
+    AST guard, the GST safety sweep, ci/check_stubs.py, and the twenty gates in
+    ci/gates.toml. If CodeAnt later misses a fixture, record the miss and keep
+    the guard.
