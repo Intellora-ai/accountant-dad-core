@@ -94,12 +94,12 @@ string. The owner named that case and said what to do with it, so
 
 WHAT THIS MODULE DOES NOT PROVE
 -------------------------------
-That the LIVE pipeline honours D-05 for the Ltd/&Co families. It does not.
-`accountant/memory/company.py:300` builds the index from `Observation.subject`
-- the already-stripped key - and the store keeps no raw name, so by the time a
-live lookup happens the legal form is gone and every comparison it could make
-is AMBIGUOUS rather than DIFFERENT. `compare_suppliers` bites wherever the raw
-name survives and is a no-op where it does not.
+Nothing here proves that the raw name ever REACHES this module. That is a
+property of the three writers in `accountant/memory/company.py` and of
+`bootstrap._derive`, and it is proved in `tests/test_legal_identity_live.py`
+rather than here. Until 2026-08-10 it was false on all three writers, and every
+test in this file passed anyway - which is exactly why a comparison rule is not
+a fix and this paragraph is not decoration.
 
 Nothing here is evidence about TallyPrime. It does not prove that Tally folds a
 ledger name this way, or that a legal form survives Tally's own round trip.

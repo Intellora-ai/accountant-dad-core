@@ -44,16 +44,16 @@ Nothing here is evidence about TallyPrime. It does not prove that Tally folds a
 ledger name the way we do, that a legal form survives Tally's own round trip,
 or that two names Tally treats as one supplier compare as one here.
 
-It does not prove the LIVE pipeline honours D-05 for the Ltd/&Co families.
-It does not, and `test_the_vendor_key_still_merges_the_ltd_family_today`
-asserts the gap rather than hiding it. `normalise_vendor` still strips those
-families, `accountant/memory/company.py:300` feeds `MemoryIndex` the stripped
-key rather than the name Tally gave, and the store keeps no raw name, so by the
-time the live lookup happens the legal form has already been thrown away. The
-three tests that pin the strip are owned elsewhere. See the report.
+It does not prove the LIVE pipeline honours D-05. Every test in this file
+passed on 2026-08-10 while the live product still merged the Ltd and "& Co"
+families, because the comparison was never handed the evidence: three writers
+in `accountant/memory/company.py` threw the raw name away before the store ever
+saw it. That is a storage and data-flow claim, not a comparison claim, and it
+is proved end to end in `tests/test_legal_identity_live.py`.
 
 EVIDENCE CLASS: direct calls to the functions under test. No Tally, real or
-fake, is involved in any claim made here.
+fake, is involved in any claim made here, apart from
+`test_bootstrap_carries_the_raw_supplier_name_into_the_store`, which says so.
 """
 
 from __future__ import annotations
@@ -553,12 +553,15 @@ def test_the_vendor_key_no_longer_merges_the_ltd_family() -> None:
 def test_a_key_and_the_name_it_came_from_are_the_same_supplier() -> None:
     """The key is identity-preserving, so it compares SAME with its own name.
 
-    This is what makes `CompanyMemory.index()` safe while `company.py` is still
-    gated: it feeds `MemoryIndex` the stored subject rather than the raw name,
-    and a canonical key still carries the stem and the form, so the comparison
-    is faithful rather than a guess. It would NOT be faithful against a key the
-    legal form had been stripped out of - which is the reason the key was not
-    widened. Underscores are separators to the fold, so a key round-trips.
+    This is why the key was never widened: `CompanyMemory.lookup` goes straight
+    to the store and applies no identity check, so the key has to carry the
+    stem AND the canonical form or two legal persons become one subject on that
+    path. Underscores are separators to the fold, so a key round-trips.
+
+    It is NOT a licence to feed a key to the decision layer as though it were a
+    name. `CompanyMemory.index` used to do exactly that, and it promoted every
+    evidence-less row to a confident match; it now passes the stored key and
+    the stored raw name as two fields. See `tests/test_legal_identity_live.py`.
     """
     for name in ("Acme LLP", "Sharma Traders", "Bharat Steel Pvt Ltd", "Acme & Co"):
         assert compare_suppliers(normalise_vendor(name), name) is SAME, name

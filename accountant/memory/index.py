@@ -69,23 +69,32 @@ unaccented supplier's. Stdlib, no new dependency.
 
 `normalise_phrase` folds too, for the same reason and at the same cost.
 
-THE GAP THAT IS STILL OPEN, AND EXACTLY WHERE IT IS
-----------------------------------------------------
+WHO FEEDS THIS, AND THE GAP THAT USED TO BE HERE
+-------------------------------------------------
 `MemoryIndex.record_observed` takes the store's two fields and keeps them
 apart, with `raw_subject=None` meaning INCOMPLETE — no evidence, therefore
-never a confident SAME. That is the correct shape and it is not yet fed
-correctly, in two places, NEITHER OF WHICH IS OWNED HERE:
+never a confident SAME. That is the correct shape, and until 2026-08-10 it was
+fed wrongly by four writers, none of them owned here:
 
-    accountant/memory/bootstrap.py:_derive   discards `Voucher.party` and
-        builds every `Observation` from the stripped key alone, so the raw
-        name never reaches the store in the first place
-    accountant/memory/company.py:300         calls `record(o.subject, ...)`,
-        which presents a stripped key as though it were a raw name
+    accountant/memory/bootstrap.py:_derive       discarded `Voucher.party`
+    accountant/memory/company.py:observe         dropped it for everything
+                                                 learned after bootstrap
+    accountant/memory/company.py:record_correction
+                                                 dropped a person's explicit
+                                                 answer, storing it INCOMPLETE
+    accountant/memory/company.py:index           called `record(o.subject, …)`,
+                                                 presenting a stripped key as
+                                                 though it were a raw name
 
-Until both are handed over, the live path records keys as raw names and the
-decision layer is reading evidence that was manufactured by the strip. The
-regression test for this is in `tests/test_legal_identity.py` and it asserts
-the gap rather than hiding it.
+All four are now handed the raw name and keep it. The end-to-end proof - Tally
+to store to file to reload to decision - is `tests/test_legal_identity_live.py`,
+which counts the records rather than sampling them, because the four failed in
+four different places and any one of them passing proved nothing about the rest.
+
+`record` remains the RAW-name door and `record_observed` the two-field one.
+Anything reading out of the store must use the second: a stored subject handed
+to the first is the defect above, and an `ast` guard in that file fails the
+suite if it comes back.
 """
 
 from __future__ import annotations
@@ -123,19 +132,21 @@ def normalise_vendor(name: str) -> str:
     WHY THE FORM IS STILL IN THE KEY, WHEN THE RULING SAYS THE KEY ONLY HAS TO
     FIND CANDIDATES
 
-    Because the decision layer is not yet on every path, and a widened key is
-    only safe once it is. `CompanyMemory.lookup` goes to the store, not through
+    Because `CompanyMemory.lookup` goes to the store, not through
     `_accounts_for`, and applies no identity check at all. Delete the form from
     the key today and "Acme LLP" and "Acme Ltd" become one subject on that
     path, with nothing downstream to tell them apart — which is D2, the defect
-    fixed on 2026-08-09, reopened.
+    fixed on 2026-08-09, reopened. Feeding the index correctly (D-05,
+    2026-08-10) fixed the INDEX path; it did not put a decision layer on the
+    store path, so the reason the key stays narrow is unchanged.
 
-    So the key is kept identity-preserving for now and the shortlist is narrow.
-    The cost is that a genuinely AMBIGUOUS pair — a bare name against a
-    Pvt Ltd — never shares a bucket, so the AMBIGUOUS verdict is not computed
-    on the store path. The OUTCOME is the one the owner required either way:
-    no match, no merge, no automatic post, a question. Widening the key is step
-    two, and it is gated on `bootstrap.py` and `company.py:300`.
+    So the key is kept identity-preserving and the shortlist is narrow. The
+    cost is that a genuinely AMBIGUOUS pair — a bare name against a Pvt Ltd —
+    never shares a bucket, so the AMBIGUOUS verdict is usually not computed:
+    the two keys simply miss each other. The OUTCOME is the one the owner
+    required either way — no match, no merge, no automatic post, a question —
+    and where the pair DOES share a bucket, which is every legacy INCOMPLETE
+    row, the verdict is computed and answers AMBIGUOUS.
 
     It shares `split_supplier_name` with the identity layer rather than
     reimplementing the split, so the shortlist and the decision cannot drift

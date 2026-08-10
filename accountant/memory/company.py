@@ -56,7 +56,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
 
-from accountant.memory.identity import CompanyIdentity
+from accountant.memory.identity import CompanyIdentity, normalise_text
 from accountant.memory.index import MemoryIndex, normalise_phrase, normalise_vendor
 from accountant.memory.store import (
     BootstrapReport,
@@ -70,6 +70,25 @@ from accountant.tallyio.client import operation_id_in
 FROM_TALLY_HISTORY = "tally_history"
 FROM_OUR_POSTING = "accountant_dad_posted"
 FROM_HUMAN_ANSWER = "human_answer"
+
+
+def _raw_identity(observed: str) -> str | None:
+    """The name the SOURCE gave, or None when it gave no name at all. D-05.
+
+    Every write in this module goes through here, so there is one answer to
+    "what counts as identity evidence" rather than three that can drift.
+
+    Kept EXACTLY as it arrived. Trimming it, tidying it or canonicalising it
+    here would be the same destruction this fix exists to undo, performed one
+    layer later; `compare_recorded_supplier` folds presentation at the moment
+    of comparison, which is the only place the fold is safe.
+
+    None is INCOMPLETE and it is the honest answer for a party that is blank or
+    is nothing but punctuation: there is no name in it, and storing "" as
+    though it were one would claim COMPLETE evidence over nothing. That is the
+    same false confidence as backfilling a legacy row from its key.
+    """
+    return observed if normalise_text(observed) else None
 
 
 class MemoryNotReady(RuntimeError):
@@ -266,6 +285,35 @@ class CompanyMemory:
         A correction is evidence, not an override. It does not delete history,
         so a vendor with genuinely conflicting history stays conflicted and
         keeps asking — which is the rule, not an oversight.
+
+        WHAT THE STORED CORRECTION HAS TO CARRY, AND WHY. D-05, 2026-08-10.
+        ------------------------------------------------------------------
+        Until this fix it carried the key and not the name, so a person's
+        EXPLICIT answer was stored with `raw_subject = NULL` and read back as
+        INCOMPLETE — the same state as a row written before the column
+        existed. A human decision was therefore worth less as evidence than
+        the voucher it was correcting, and the next entry for the same
+        supplier asked the same question again.
+
+        What is on the row afterwards:
+
+            company_key         the scope, first column of the primary key
+            raw_subject         the vendor text as the person's screen had it
+            subject             the normalised lookup key
+            account             the resolution they selected
+            provenance          `human_answer`, the decision's source
+            source_voucher_ids  the entry the answer was given about
+            identity_evidence   COMPLETE, derived from `raw_subject`
+
+        The candidates they did NOT select are preserved by NOT deleting them:
+        every other account this vendor has ever been posted to keeps its own
+        row and its own count, which is what the returned `CompanyMatch`
+        reports and what makes CONFLICTED survive a correction.
+
+        INCOMPLETE is still reachable and still correct — a party that is
+        blank or is nothing but punctuation carries no name, so there is
+        nothing to preserve and `_raw_identity` says so rather than inventing
+        one. What is gone is INCOMPLETE by default.
         """
         self._require_ready("record a correction")
         subject = normalise_vendor(vendor)
@@ -275,6 +323,7 @@ class CompanyMemory:
             account,
             source_voucher_id=source_voucher_id,
             provenance=FROM_HUMAN_ANSWER,
+            raw_subject=_raw_identity(vendor),
         )
         return self.lookup(vendor)
 
@@ -283,6 +332,15 @@ class CompanyMemory:
 
         Called with a voucher read BACK out of Tally, so what is learned is
         what the ledger actually holds rather than what we believe we sent.
+
+        `raw_subject` is `Voucher.party`, not the key. D-05, 2026-08-10.
+        `bootstrap` kept the raw name from the first day this column existed
+        and this did not, which made the loss invisible: a freshly bootstrapped
+        company answered correctly, and every supplier it met afterwards was
+        stored blind. That is the WORSE half of the two, because it is the
+        half that grows — bootstrap runs once and this runs for every voucher
+        posted, and for every voucher the accountant types into Tally between
+        runs.
         """
         self._require_ready("observe a voucher")
         key = self.identity.key
@@ -297,6 +355,7 @@ class CompanyMemory:
             voucher.debit_account,
             source_voucher_id=voucher.id,
             provenance=provenance,
+            raw_subject=_raw_identity(voucher.party),
         )
         phrase = normalise_phrase(voucher.narration)
         if phrase:
@@ -318,11 +377,37 @@ class CompanyMemory:
         The existing index type is unscoped by construction, so it is only ever
         handed rows that already carry one company's key. That is the seam: the
         scope is applied before the index exists, not trusted afterwards.
+
+        THE KEY AND THE NAME GO IN AS TWO FIELDS. D-05, 2026-08-10.
+        -----------------------------------------------------------
+        This used to call `idx.record(o.subject, o.account)`, and `record`
+        documents its first argument as a RAW OBSERVED VENDOR NAME and records
+        identity evidence as COMPLETE. `o.subject` is not one — it is the key
+        the strip produced, with the naming prefix gone and the legal form
+        canonicalised. So the live decision layer was handed a key, told it was
+        a name, and compared it against the arriving name as though that were
+        evidence. Every stored row looked COMPLETE, including the ones that had
+        no raw name at all, and a legacy INCOMPLETE row was silently promoted
+        to a confident SAME.
+
+        `record_observed` takes the store's two fields and keeps them two
+        fields. `o.raw_subject is None` reaches the comparison as INCOMPLETE
+        and contributes no account, which is the whole of "a legacy row must
+        never be a confident match where a legal form could matter".
+
+        NOTHING IS RECONSTRUCTED. There is deliberately no branch here that
+        falls back to `o.subject` when `o.raw_subject` is missing: the legal
+        form was thrown away before this row was written and guessing it back
+        is the one inference the ruling forbids.
         """
         idx = MemoryIndex()
         for o in self._store.vendors(self.identity.key):
             for _ in range(o.times):
-                idx.record(o.subject, o.account)
+                idx.record_observed(
+                    normalised_subject=o.subject,
+                    raw_subject=o.raw_subject,
+                    account=o.account,
+                )
         return idx
 
 
