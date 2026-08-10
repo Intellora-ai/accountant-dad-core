@@ -34,7 +34,7 @@ THE OTHER HALF OF THE PACK
 `scripts/validate_ground_truth.py`, `scripts/build_ground_truth.py`,
 `artifacts/ground_truth/cases/` and `artifacts/ground_truth/manifests/` belong to
 a second agent working in parallel. This runner calls them BY MODULE PATH and
-against the contract documented in `_pack_validator` and `_pack_loader` below. If
+against the contract documented in `pack_validator` and `pack_loader` below. If
 they are not there yet it reports
 
     BLOCKED — awaiting scripts/validate_ground_truth.py
@@ -188,7 +188,7 @@ def sha256_of(path: pathlib.Path) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _load_sibling(module: str, wanted: Sequence[str]) -> tuple[Any, str | None]:
+def load_sibling(module: str, wanted: Sequence[str]) -> tuple[Any, str | None]:
     """Import `scripts.<module>` and return the first attribute in `wanted`.
 
     Returns `(callable, None)` on success, `(None, reason)` when the module or
@@ -210,7 +210,7 @@ def _load_sibling(module: str, wanted: Sequence[str]) -> tuple[Any, str | None]:
     )
 
 
-def _pack_validator() -> tuple[Callable[..., Any] | None, str | None]:
+def pack_validator() -> tuple[Callable[..., Any] | None, str | None]:
     """THE CONTRACT THIS RUNNER EXPECTS OF `scripts/validate_ground_truth.py`.
 
         validate(root: pathlib.Path) -> object
@@ -225,12 +225,12 @@ def _pack_validator() -> tuple[Callable[..., Any] | None, str | None]:
     integration lands broken. `validate_manifest` and `main` are accepted as
     names as well as `validate`.
     """
-    return _load_sibling(
+    return load_sibling(
         "validate_ground_truth", ("validate", "validate_manifest", "main")
     )
 
 
-def _pack_loader() -> tuple[Callable[..., Any] | None, str | None]:
+def pack_loader() -> tuple[Callable[..., Any] | None, str | None]:
     """THE CONTRACT THIS RUNNER EXPECTS OF `scripts/build_ground_truth.py`.
 
         load_cases(root: pathlib.Path) -> Sequence[Mapping[str, Any]]
@@ -239,10 +239,10 @@ def _pack_loader() -> tuple[Callable[..., Any] | None, str | None]:
     them, a `mime`, and an `expected` mapping of field name to expected value,
     so S2 can be scored per field. `load_pack` and `cases` are accepted as names.
     """
-    return _load_sibling("build_ground_truth", ("load_cases", "load_pack", "cases"))
+    return load_sibling("build_ground_truth", ("load_cases", "load_pack", "cases"))
 
 
-def _interpret_validation(result: Any) -> tuple[bool, list[str]]:
+def interpret_validation(result: Any) -> tuple[bool, list[str]]:
     if isinstance(result, bool):
         return result, []
     ok = getattr(result, "ok", None)
@@ -254,7 +254,7 @@ def _interpret_validation(result: Any) -> tuple[bool, list[str]]:
         return bool(first), [str(f) for f in (second or ())]
     raise HarnessBroke(
         f"scripts/validate_ground_truth.py returned {type(result).__name__}, which "
-        "matches none of the three shapes documented in _pack_validator"
+        "matches none of the three shapes documented in pack_validator"
     )
 
 
@@ -264,12 +264,12 @@ def _interpret_validation(result: Any) -> tuple[bool, list[str]]:
 
 
 def run_manifest(section: Section) -> None:
-    validator, blocked = _pack_validator()
+    validator, blocked = pack_validator()
     if validator is None:
         section.blocked("ground_truth_manifest_validates", blocked or BLOCKED)
         section.blocked("ground_truth_hashes_verify", blocked or BLOCKED)
     else:
-        ok, failures = _interpret_validation(validator(GT))
+        ok, failures = interpret_validation(validator(GT))
         section.gate(
             "ground_truth_manifest_validates",
             ok,
@@ -304,7 +304,7 @@ def run_s2(section: Section) -> None:
     was not handed, and a stub returning `not_found` cannot satisfy the real
     extraction-quality exit. A zero here is the correct reading of the world.
     """
-    loader, blocked = _pack_loader()
+    loader, blocked = pack_loader()
     if loader is None:
         section.blocked("s2_extraction_scored", blocked or BLOCKED)
         section.facts["s2"] = NOT_MEASURED
