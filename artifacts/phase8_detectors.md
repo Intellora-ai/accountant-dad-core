@@ -150,10 +150,22 @@ honest evidence and badly on a slice that is biased by construction.
 
 ### The two rival explanations, tested and weaker
 
-**"The account pools entities that should not share one ceiling."** Refuted.
-Within a *single* trust the amounts on this one account span **151x**, and six
-of the eleven trusts have at most two entries. A per-trust ceiling would either
-abstain or fire just the same.
+**"The account pools entities that should not share one ceiling."** Refuted,
+and the decisive number is sharper than the one first written here: **not one
+of the six flagged entries has a trust with enough prior evidence for a
+per-trust ceiling to exist at all.** Four of the six trusts have no earlier row
+on this account in the history supplied and the other two have exactly one,
+against a minimum of two.
+
+So a per-trust ceiling would not have *corrected* those six. It would have
+abstained on every one of them, and on all sixteen scored rows. That reads like
+a fix and is not one: a detector that goes quiet everywhere on an account has
+not found the right ceiling, it has stopped answering.
+
+The eleven trusts hold 1, 2 or 3 entries each — one with 1, five with 2, five
+with 3 — and within a *single* trust the amounts on this one account span
+**151x**, so even where a per-trust ceiling could be computed it would be no
+better founded than the one it replaced.
 
 | entries | min paise | max paise | ratio | trust |
 |---:|---:|---:|---:|---|
@@ -213,6 +225,60 @@ shorter than `MIN_OBSERVATIONS_FOR_A_RANGE`.
 
 Of the 1,103 history rows previously counted into a ceiling across all seven
 departments, **222 were not prior to the entry they were counted against**.
+
+### 3.0 The flag may not claim more than the evidence it was handed
+
+Fixing the ceiling was not enough, and a reviewer caught the half that was
+left. The reason string still *said* `highest posted to it before this entry`,
+and on this exact data that is false. `history` is only the slice the caller
+handed over, and `as_score_book` hands over the first half of the published
+rows, so postings that really do precede the entry sit outside it.
+
+Measured on DHSC-00035:
+
+| | |
+|---|---:|
+| what the flag quotes | 21,300,000 across 10 earlier entries |
+| postings to the same account, dated **before** that entry, that the detector was never shown | **10** |
+| the largest of those | **740,000,000** |
+| ratio to the number in the flag | **35x** |
+
+`Flag.reason` is the one field the frozen plan requires to name real evidence,
+so a reason wider than its evidence is the same defect as a fabricated total
+carrying a source tag — and it is the frozen-history problem of section 6
+leaking out of the harness and into what the flag tells the operator.
+
+**Route taken: narrow the claim.** The flag now reads
+
+```
+830000000 paise to Additions NCB PDC; of the 10 earlier entries on it in
+the history this check was given, the largest is 21300000 paise, and this
+is over 300 percent of that
+```
+
+**Why not "state the evidence window explicitly" instead.** The detector cannot
+state the window honestly. It does not know what the caller withheld — it knows
+only the rows it holds, so any sentence describing the window ("the first half
+of the file", "the loaded history") would itself be a claim it cannot check.
+That is the same defect one level up. What it *can* say truthfully is how many
+earlier entries it could see and the largest among them, which is the narrowing
+and carries the honest part of the window for free: `n` is in the flag, so the
+bound on the evidence is visible to the operator.
+
+**Not widening the history to make the old claim true.** That is the harness
+change in section 6, measured and deliberately not shipped.
+
+Three tests pin the claim against the evidence available, and mutant M8 in
+section 7 restores the old wording and confirms they go red:
+
+| test | what it holds |
+|---|---|
+| `test_the_flag_does_not_claim_to_know_the_highest_posting_that_preceded_it` | the scoping clause is present, four unscoped phrasings are absent, and the 10 withheld prior postings are shown to exist |
+| `test_every_number_in_the_reason_comes_from_the_evidence_supplied` | the quoted maximum and count are exactly those of the supplied evidence, and 740,000,000 never appears in a flag |
+| `test_a_withheld_prior_posting_changes_nothing_the_flag_says` | the same guard on a synthetic book, so it is not a fact about one file |
+
+The second is the one that survives a rewording: widen the history and the
+quoted maximum changes, so the claim cannot silently grow again.
 
 ### Measured effect
 
@@ -389,8 +455,8 @@ leaves N1 at 30.77 — still three times the target.
 
 ### Why `first_use` fails, measured rather than argued
 
-Its false-alarm count **more than doubles when the only thing that changes is
-how much of the same book it is shown**:
+Its false-alarm count **rises by three quarters — a factor of 1.77 — when the
+only thing that changes is how much of the same book it is shown**:
 
 | evidence window | false alarms |
 |---|---:|
@@ -450,7 +516,7 @@ measured finding with the experiment beside it.
 
 ---
 
-## 7. The guards are load-bearing: seven mutants, seven caught
+## 7. The guards are load-bearing: eight mutants, eight caught
 
 Each defect was injected on its own, the whole suite was run, and the file was
 restored and byte-compared afterwards. `git status` was clean after every one.
@@ -464,8 +530,11 @@ restored and byte-compared afterwards. `git status` was clean after every one.
 | M5 the cap silently drops overflow | `accountant/detect/detectors.py` | **CAUGHT** | 5 |
 | M6 the DHSC regression is removed | `accountant/detect/detectors.py` | **CAUGHT** | 36 |
 | M7 N1 is computed from a different denominator | `accountant/score/harness.py` | **CAUGHT** | 2 |
+| M8 the flag claims to know the highest posting that preceded it | `accountant/detect/detectors.py` | **CAUGHT** | 3 |
 
-Seven injected, seven caught, none survived.
+Eight injected, eight caught, none survived. M8 was added on 2026-08-10 with the
+reason-string narrowing in section 3.0; it restores the unscoped wording and the
+suite notices.
 
 The named test for each:
 
@@ -494,6 +563,10 @@ M6  test_phase8_detectors.py::test_a_same_day_dhsc_pdc_entry_is_no_longer_a_fals
 
 M7  test_score.py::test_a_book_with_no_clean_entries_fails_n1_rather_than_passing
     test_score.py::test_the_measured_value_is_printed_with_its_unit
+
+M8  test_phase8_detectors.py::test_the_flag_does_not_claim_to_know_the_highest_posting_that_preceded_it
+    test_phase8_detectors.py::test_a_withheld_prior_posting_changes_nothing_the_flag_says
+    test_detector_gate.py::test_half_the_false_alarms_are_still_one_account
 ```
 
 M3 is worth a line on its own. Two tests caught it, and one of them is the new

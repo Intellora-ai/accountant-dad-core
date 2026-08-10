@@ -161,6 +161,124 @@ def test_the_fix_did_not_move_either_calibrated_number() -> None:
 
 
 # ---------------------------------------------------------------------------
+# 1b  THE FLAG MAY NOT CLAIM MORE THAN THE EVIDENCE IT WAS HANDED
+# ---------------------------------------------------------------------------
+
+# The clause that scopes the claim. Its presence is the guard.
+SCOPE_CLAUSE = "in the history this check was given"
+
+# Wordings that assert a fact about ALL prior postings. `magnitude` cannot
+# support any of them, because it only ever sees what the caller passed in.
+UNSCOPED_CLAIMS: tuple[str, ...] = (
+    "highest posted to it before this entry",
+    "highest ever",
+    "ever posted",
+    "has ever",
+)
+
+
+def _reason_for(book: Book, voucher_id: str) -> str:
+    entry = _entry(book, voucher_id)
+    index = MemoryIndex.from_vouchers(book.history)
+    (flag,) = detectors.magnitude(entry, book.history, index)
+    return flag.reason
+
+
+def test_the_flag_does_not_claim_to_know_the_highest_posting_that_preceded_it(
+    dhsc: Book,
+) -> None:
+    """The reason must describe the evidence it holds, not the world.
+
+    Fixing the ceiling was not enough. The reason string still SAID "highest
+    posted to it before this entry", and that is false on this exact data:
+    `history` is only the slice the caller handed over, and
+    `spend.as_score_book` hands over the first half of the published rows, so
+    postings that really do precede the entry sit outside it.
+
+    Measured on DHSC-00035. The flag quotes 21,300,000 over 10 earlier entries.
+    There are **10 further postings to the same account, dated before that
+    entry, that the detector was never shown**, and the largest of them is
+    740,000,000 - thirty-five times the number in the flag.
+
+    `Flag.reason` is the one field the frozen plan requires to name real
+    evidence, so a reason wider than its evidence is the same defect as a
+    fabricated total carrying a source tag. The fix is to narrow the claim, not
+    to widen the history - widening the history is the harness change that was
+    measured and deliberately not shipped.
+    """
+    entry = _entry(dhsc, "DHSC-00035")
+    shown = detectors.prior_amounts(entry, dhsc.history)
+    withheld = [
+        v.amount_paise
+        for v in dhsc.entries
+        if v.debit_account == DHSC_ACCOUNT and v.date < entry.date and v.id != entry.id
+    ]
+
+    # The detector's claim is demonstrably not a claim about all prior postings.
+    assert (len(shown), max(shown)) == (10, CEILING_PAISE)
+    assert (len(withheld), max(withheld)) == (10, 740_000_000)
+    assert max(withheld) > max(shown)
+
+    reason = _reason_for(dhsc, "DHSC-00035")
+    assert SCOPE_CLAUSE in reason
+    for claim in UNSCOPED_CLAIMS:
+        assert claim not in reason, (
+            f"the reason asserts {claim!r}, which the detector cannot know"
+        )
+
+
+@pytest.mark.parametrize("voucher_id", STILL_FLAGGED)
+def test_every_number_in_the_reason_comes_from_the_evidence_supplied(
+    dhsc: Book, voucher_id: str
+) -> None:
+    """The structural half of the guard, which survives a rewording.
+
+    The two numbers the reason quotes must be exactly the maximum and the count
+    of the entries the detector was given. Widen the history and the quoted
+    maximum changes, and this fails - which is the point: the claim cannot
+    silently grow to cover evidence the detector was not handed.
+    """
+    entry = _entry(dhsc, voucher_id)
+    shown = detectors.prior_amounts(entry, dhsc.history)
+    reason = _reason_for(dhsc, voucher_id)
+
+    assert str(max(shown)) in reason
+    assert str(len(shown)) in reason
+    # The largest posting that precedes this entry but was withheld from the
+    # detector must never appear in a flag the detector raised.
+    assert "740000000" not in reason
+
+
+def test_a_withheld_prior_posting_changes_nothing_the_flag_says() -> None:
+    """The same guard on a synthetic book, so it is not a fact about one file.
+
+    Two histories, identical except that the second one withholds a large
+    earlier posting. The detector is handed only what it is handed, and the
+    reason describes only that.
+    """
+    today = datetime.date(2026, 3, 1)
+    earlier = datetime.date(2026, 2, 1)
+    supplied = (
+        _dated("h1", 1_000_000, earlier),
+        _dated("h2", 2_000_000, earlier),
+    )
+    withheld_from_the_detector = _dated("h3", 900_000_000, earlier)
+
+    proposed = _dated("d", 50_000_000, today)
+    index = MemoryIndex.from_vouchers(supplied)
+    (flag,) = detectors.magnitude(proposed, supplied, index)
+
+    assert SCOPE_CLAUSE in flag.reason
+    assert "2000000" in flag.reason
+    assert str(withheld_from_the_detector.amount_paise) not in flag.reason
+
+    # And with that posting supplied, the detector says something different -
+    # so the wording is tracking the evidence, not decorating a fixed answer.
+    wider = (*supplied, withheld_from_the_detector)
+    assert detectors.magnitude(proposed, wider, MemoryIndex.from_vouchers(wider)) == []
+
+
+# ---------------------------------------------------------------------------
 # 2  THE EVIDENCE THAT DECIDED BETWEEN THREE RIVAL EXPLANATIONS
 # ---------------------------------------------------------------------------
 
@@ -245,10 +363,29 @@ def test_a_chronological_history_produces_no_false_alarms_at_all() -> None:
 def test_per_party_ceilings_would_not_have_helped() -> None:
     """The second rival explanation, refuted on the same data.
 
-    "The account pools entities that should not share one ceiling." Within a
-    single NHS trust the amounts on this one account span 151 times, and three
-    of the eleven trusts have at most one entry, so a per-trust ceiling would
-    either abstain or fire just the same.
+    "The account pools entities that should not share one ceiling."
+
+    CORRECTED 2026-08-10, and the correction changed the argument for the
+    better. This docstring used to say "three of the eleven trusts have at most
+    one entry" while the assertion beside it required exactly one. Neither was
+    the statistic that decides the question, and the prose number was simply
+    wrong: measured, the eleven trusts hold 1, 2 or 3 entries each - one trust
+    with 1, five with 2, five with 3. "At most one" is 1, not 3.
+
+    The statistic that decides it is this: **not one of the six flagged entries
+    has a trust with enough prior evidence for a per-trust ceiling to exist at
+    all.** Four of the six trusts have no earlier row on this account in the
+    history supplied and the other two have exactly one, against a minimum of
+    two. So a per-trust ceiling would not have corrected those six - it would
+    have abstained on every one of them, and on all sixteen scored rows.
+
+    That is worth stating plainly, because "it would have gone quiet" reads
+    like a fix and is not one. A detector that abstains everywhere on an
+    account has not found the right ceiling; it has stopped answering.
+
+    And where a per-trust ceiling COULD be computed it would be no better
+    founded than the one it replaced: within a single trust the amounts on this
+    one account span 151 times.
     """
     loaded = spend.load_source(sources.DHSC)
     by_party: dict[str, list[int]] = {}
@@ -256,11 +393,34 @@ def test_per_party_ceilings_would_not_have_helped() -> None:
         if row.account == DHSC_ACCOUNT:
             by_party.setdefault(row.party, []).append(row.amount_pence)
 
+    # The real distribution, pinned exactly, so prose and code cannot drift.
     assert len(by_party) == 11
-    widest = max(max(v) / min(v) for v in by_party.values())
-    assert widest > 100
+    sizes = sorted(len(v) for v in by_party.values())
+    assert sizes == [1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3]
     assert sum(1 for v in by_party.values() if len(v) <= 1) == 1
     assert sum(1 for v in by_party.values() if len(v) <= 2) == 6
+
+    widest = max(max(v) / min(v) for v in by_party.values())
+    assert widest > 100
+
+    # The decisive one: a per-trust ceiling could not have been computed for a
+    # single one of the six, so it could not have corrected a single one.
+    book = spend.as_score_book(spend.load_source(sources.DHSC))
+    with_enough_prior = 0
+    for voucher_id, _, _ in THE_SIX:
+        entry = _entry(book, voucher_id)
+        own_trust_prior = [
+            v
+            for v in book.history
+            if v.debit_account == DHSC_ACCOUNT
+            and v.party == entry.party
+            and v.date < entry.date
+        ]
+        assert len(own_trust_prior) < detectors.MIN_OBSERVATIONS_FOR_A_RANGE
+        with_enough_prior += (
+            len(own_trust_prior) >= detectors.MIN_OBSERVATIONS_FOR_A_RANGE
+        )
+    assert with_enough_prior == 0
 
 
 def test_history_size_on_its_own_does_not_predict_a_false_alarm() -> None:
@@ -442,12 +602,20 @@ def test_the_all_four_failure_is_almost_entirely_one_detector() -> None:
 def test_first_use_measures_its_evidence_window_and_not_the_entry() -> None:
     """WHY `first_use` fails, as a measurement rather than an opinion.
 
-    Its false-alarm count more than doubles when the only thing that changes is
-    how much of the same book it is shown - 44 with the history it is given, 78
-    when the history is narrowed to entries strictly before each one. Its logic
-    is untouched in both, and no threshold exists to turn. A detector whose
-    answer moves that far with the size of the evidence window is reporting the
-    window.
+    Its false-alarm count **rises by three quarters** when the only thing that
+    changes is how much of the same book it is shown - 44 with the history it
+    is given, 78 when the history is narrowed to entries strictly before each
+    one. That is a factor of 1.77. Its logic is untouched in both, and no
+    threshold exists to turn. A detector whose answer moves that far with the
+    size of the evidence window is reporting the window.
+
+    CORRECTED 2026-08-10. This said "more than doubles", which 78 is not: twice
+    44 is 88. The old assertion did not catch it, because `narrowed > 70` is
+    satisfied by 78 and by 88 and by 880 alike - it permitted the numbers the
+    prose claimed AND the numbers it did not. The assertions below now encode
+    the relationship the prose states, including the upper bound, so the two
+    cannot drift apart again. That drift is the whole reason this correction
+    exists.
 
     That is a MISSING INPUT, not a missing threshold: "never used in this
     company" needs to know whether the history it holds is the company's whole
@@ -465,6 +633,12 @@ def test_first_use_measures_its_evidence_window_and_not_the_entry() -> None:
             if detectors.first_use(entry, prior, index):
                 narrowed += 1
 
-    assert as_given == 44
-    assert narrowed == 78
-    assert narrowed > 2 * as_given * 8 // 10
+    assert (as_given, narrowed) == (44, 78)
+
+    # "rises by three quarters", "a factor of 1.77", in integers: at least
+    # 1.75x and under 1.80x. Both ends, because a claim with only a floor is
+    # what let "more than doubles" sit here unchallenged.
+    assert 175 * as_given <= 100 * narrowed < 180 * as_given
+    # And it is explicitly NOT a doubling. This is the assertion the old prose
+    # would have failed.
+    assert narrowed < 2 * as_given

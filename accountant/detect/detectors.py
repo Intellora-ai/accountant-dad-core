@@ -187,9 +187,16 @@ def prior_amounts(proposed: Voucher, history: Sequence[Voucher]) -> list[int]:
     that is biased by construction. Two rival explanations were tested and both
     are weaker than this one on the same data.
 
-    Per-party ceilings do not help: within a single trust the amounts on this
-    one account span 151x, and six of the eleven trusts have at most two
-    entries, so a per-trust ceiling would either abstain or fire just the same.
+    Per-party ceilings do not help, and the sharpest way to say it is that
+    **not one of the six flagged entries has a trust with enough prior evidence
+    for a per-trust ceiling to exist at all** - four of the six trusts have no
+    earlier row on this account in the history supplied and the other two have
+    exactly one, against a minimum of two. A per-trust ceiling would not have
+    corrected those six, it would have gone silent on all sixteen scored rows.
+    Silence is not a fix. The eleven trusts hold 1, 2 or 3 entries each - one
+    trust with 1, five with 2, five with 3 - and within a single trust the
+    amounts on this one account span 151x, so even where a per-trust ceiling
+    could be computed it has no more claim to being a top than this one had.
 
     History size alone does not explain it either. Counted across all seven
     departments with the rule below in force, the false-alarm rate is not
@@ -247,11 +254,17 @@ def magnitude(
             voucher_id=proposed.id,
             detector="magnitude",
             severity=2,
+            # SCOPED ON PURPOSE, 2026-08-10. This says "of the entries this
+            # check was given", not "the highest posted before this entry",
+            # because the second is a claim the detector cannot support.
+            # `history` is whatever the caller handed over, and the caller may
+            # be holding back postings that really do precede this entry - the
+            # scoring harness does exactly that. See `prior_amounts`.
             reason=(
-                f"{proposed.amount_paise} paise to {proposed.debit_account}; "
-                f"highest posted to it before this entry is {high} paise across "
-                f"{len(seen)} earlier entries, and this is over {over_percent} "
-                f"percent of that"
+                f"{proposed.amount_paise} paise to {proposed.debit_account}; of "
+                f"the {len(seen)} earlier entries on it in the history this "
+                f"check was given, the largest is {high} paise, and this is "
+                f"over {over_percent} percent of that"
             ),
         )
     ]

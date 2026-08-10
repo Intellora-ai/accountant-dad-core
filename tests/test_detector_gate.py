@@ -397,8 +397,18 @@ def test_half_the_false_alarms_are_still_one_account(
 
     assert "Additions NCB PDC" in rendered
     assert "3 of 6" in rendered
-    # The ceiling itself, and the ten prior entries it was taken from.
-    assert "21300000 paise across 10 earlier entries" in rendered
+    # The ceiling itself, the ten prior entries it was taken from, and the
+    # clause that scopes the claim to those ten. The reason may not say
+    # "highest posted before this entry": ten further postings that DO precede
+    # the entry sit outside the slice the detector was handed, the largest of
+    # them 740,000,000. See test_phase8_detectors.py, section 1b.
+    # The report wraps, so the claim is checked on the whitespace-collapsed
+    # text rather than on a line that happens to break in a helpful place.
+    flowing = " ".join(rendered.split())
+    assert "10 earlier entries on it in the history this check was given" in flowing
+    assert "the largest is 21300000 paise" in flowing
+    assert "highest posted to it before this entry" not in flowing
+    assert "740000000" not in rendered
 
 
 def test_the_three_are_three_different_parties_on_one_account(
