@@ -35,14 +35,16 @@ so the refusals are the connector's real refusals and not a restatement of
 them — but the integration itself is `tests/test_real_tally.py` and the live
 evidence in `docs/PROJECT_STATE.md`.
 
-That the GST defect at the bottom is fixed. It is measured and pinned, and it
-is STILL OPEN at 2026-08-10. The four tests naming the safe behaviour are
-`xfail(strict=True)` and stay that way. They were recorded as waiting on D-06;
-D-06 has since landed in main and did not touch tax, so the marker reason is
-corrected in place rather than removed — the section at the bottom shows the
-measurement. What this file does prove about GST is the safety half: such a
-bill writes nothing and moves the trial balance by zero paise. Those tests are
-unmarked and passing.
+That the GST work is DONE. What is fixed is one specific defect: the
+application called a GST bill VALID and the connector then refused the write
+VALID had promised. `checks.tax_lines_can_be_posted` closes that, the four
+tests at the bottom are ordinary passing tests with no marker, and
+`tests/test_gst_safety_sweep.py` holds the rule over thirty cases.
+
+What is NOT fixed, and was not attempted: this system still cannot POST a tax
+line. It refuses such bills and hands them to the person, which is safe and is
+not the same as supporting GST. No tax rate, tax ledger, CGST/SGST/IGST split
+or place-of-supply rule was invented here. That work is Phase 8.
 
 EVIDENCE CLASS
 --------------
@@ -994,10 +996,10 @@ def test_nothing_from_a_malformed_answer_reaches_the_draft() -> None:
 
 
 # =============================================================================
-# THE GST DEFECT — measured, pinned, NOT fixed here
+# THE GST DEFECT — measured, then FIXED 2026-08-10
 # =============================================================================
 #
-# The unsafe path, measured at 27333e9 with the probe below:
+# The unsafe path, as measured at 27333e9 and again on top of D-06:
 #
 #     a bill carrying GST reaches VALID
 #       -> pipeline.post writes a `write_attempted` row
@@ -1005,56 +1007,48 @@ def test_nothing_from_a_malformed_answer_reaches_the_draft() -> None:
 #       -> a `write_outcome_unknown` row is written and the error escapes
 #       -> over HTTP the person gets "Something in Accountant Dad broke"
 #
-# The connector is RIGHT to refuse. Writing the voucher would drop the tax
-# silently and produce a wrong statutory entry. What is wrong is that the
-# application said VALID first: it promised something it cannot deliver, and
-# the failure surfaces as a breakage instead of a question.
+# The connector was RIGHT to refuse. Writing the voucher would drop the tax
+# silently and produce a wrong statutory entry. What was wrong is that the
+# application said VALID first: it promised something the connector would not
+# take, and the failure surfaced as a breakage instead of a sentence.
 #
-# Fixing it properly is Phase 8 rules work and an accounting-policy question.
-# The dependency WAS recorded in artifacts/phase7_exits.md as:
+# TWO WRONG PREDICTIONS ARE RECORDED HERE RATHER THAN DELETED, because both
+# shaped what got built and both were this project's own.
 #
-#     dependency = D-06 pipeline change
-#     file       = accountant/pipeline.py
-#     reason     = GST-carrying bills must not reach VALID without required
-#                  tax lines
-#     status     = BLOCKED_BY_D06
+#   1. "BLOCKED_BY_D06". D-06 landed as 1ca65a9 and did change
+#      `accountant/pipeline.py`, but for stale vendor memory, not for tax:
+#      `git diff 27333e9 1ca65a9 -- accountant/pipeline.py` matches neither
+#      "gst" nor "tax", zero hits. All four tests failed on top of it exactly
+#      as they had before. The blocker was never D-06.
 #
-# THAT PREDICTION WAS WRONG, AND THE RECORD IS CORRECTED HERE RATHER THAN LEFT
-# TO AGE. D-06 landed in main as 1ca65a9 on 2026-08-10. It changed
-# `accountant/pipeline.py`, but for a different fault entirely: memory that has
-# gone stale against the live ledger for a VENDOR. It contains no mention of
-# GST or of tax — `git diff 27333e9 1ca65a9 -- accountant/pipeline.py` matches
-# neither word. Re-measured on this branch after rebasing onto it, all four
-# marked tests below fail exactly as they did at 27333e9.
+#   2. "the blocker is GST rules work, Phase 8". Also wrong, and it was the
+#      more expensive error, because it made a two-line rule look like a
+#      quarter of statutory engineering. Posting a tax line IS Phase 8 work.
+#      Refusing to call a bill VALID when its tax cannot be posted is not: it
+#      is one check that asks the question the connector was already asking.
+#      The accounting-policy question — "what must a tax line contain before a
+#      bill carrying one may be VALID" — never had to be answered to close
+#      this, because the answer to "can we build ANY tax line" is no.
 #
-# So the blocker was never D-06. It is the GST rules work itself, which does
-# not exist yet, plus the accounting-policy decision about what a tax line has
-# to contain before a bill carrying one may be called VALID. Both are Phase 8.
-# Naming D-06 made a real dependency look smaller and nearer than it is.
+# THE FIX, in full:
 #
-# Nothing here edits `accountant/pipeline.py`. The four tests naming the SAFE
-# behaviour stay xfail(strict=True) so they turn red the moment they start
-# passing for real and somebody has to come back and remove the marker
-# deliberately.
+#     schema.Voucher.needs_tax_lines      the condition, written once
+#     checks.tax_lines_can_be_posted      the application asks it before deciding
+#     problems.UNANSWERABLE_CHECKS        so it hands over rather than asks
+#     tallyio.real.check_writable         now reads the same expression
 #
-# The tests that are NOT marked are the ones that stay true either way. They
-# are the pin, and they are the whole safety claim this phase actually makes:
-# however this is eventually fixed, a GST bill must still write nothing and
-# move the trial balance by zero paise.
+# `accountant/pipeline.py` is untouched. The decision order did not need
+# changing; it needed a check to decide on.
+#
+# WHAT IS STILL NOT BUILT: a tax line. This system refuses GST bills and hands
+# them to the person. That is safe and it is not GST support. No rate, ledger,
+# CGST/SGST/IGST split or place-of-supply rule was invented.
+#
+# The rule is held over thirty cases in `tests/test_gst_safety_sweep.py`,
+# including the arm that fails if this ever becomes "refuse everything".
 
 GST_BILL = b"paid Sharma Traders 4200 for cement including 18% GST"
 GST_PAISE = 64068  # 18% of 420000 inclusive, exactly, from the typed-text backend
-
-BLOCKED_BY_GST_RULES = (
-    "BLOCKED_BY_GST_RULES, re-measured 2026-08-10 and STILL FAILING. This was "
-    "recorded as BLOCKED_BY_D06. That was wrong: D-06 landed as 1ca65a9 and "
-    "changed accountant/pipeline.py for stale vendor memory, not for tax, and "
-    "these four fail on top of it exactly as they did at 27333e9. A "
-    "GST-carrying bill still reaches VALID and the connector still refuses it. "
-    "The blocker is the GST rules work and the accounting-policy question of "
-    "what a tax line must contain, both Phase 8, both unbuilt. Do not remove "
-    "this marker to make the suite green."
-)
 
 
 def gst_company() -> FakeTally:
@@ -1082,39 +1076,74 @@ def test_the_extraction_of_a_gst_bill_is_exactly_what_the_defect_starts_from() -
 
 
 def test_the_connector_refuses_a_gst_voucher_and_says_why() -> None:
-    """True today and true after D-06. The connector is the last line and it holds."""
+    """The connector is the LAST line and it holds, independently of the first.
+
+    CORRECTED 2026-08-10, mechanism only; the claim is unchanged and now proved
+    more directly.
+
+    Old form: `pipeline.post(draft, t)` and expect `match="builds no tax lines"`.
+    Why that became wrong: `checks.tax_lines_can_be_posted` now stops the same
+    bill at the application gate, so `pipeline.post` raises "refusing to post:
+    outcome is not_valid" and the connector is never reached. The old form
+    would have started passing for the wrong reason if the match string were
+    loosened, and failing for the right one if it were not — either way it would
+    no longer be testing the connector.
+
+    New form: hand the voucher STRAIGHT to the client, which is the only way to
+    ask the connector a question the application gate cannot answer first. This
+    is defence in depth stated as a test: a caller who builds a voucher by hand
+    and skips `evaluate` entirely still cannot write tax into somebody's books.
+    """
     t = gst_company()
     draft = gst_draft(t)
 
+    assert draft.voucher.gst_paise == GST_PAISE, "the fixture stopped carrying tax"
+
     with pytest.raises(ValueError, match="builds no tax lines"):
-        pipeline.post(draft, t)
+        t.write_voucher(COMPANY, draft.voucher, draft.operation_id)
 
     assert draft.posted_tally_id is None
     assert t.list_our_vouchers(COMPANY) == ()
 
 
 def test_a_gst_bill_writes_nothing_and_moves_the_trial_balance_by_zero_paise() -> None:
-    """THE PIN. However this is fixed, this must stay true to the paise."""
+    """THE PIN. However this is fixed, this must stay true to the paise.
+
+    CORRECTED 2026-08-10, mechanism only; every number below is unchanged.
+
+    Old form wrapped the call in `pytest.raises(ValueError)`. Why that became
+    wrong: it pinned HOW the bill was stopped, not THAT it was stopped, and the
+    how was the defect. `pipeline.run` used to reach `post`, hit the connector's
+    refusal and let a `ValueError` escape all the way to the caller; it now
+    decides NOT_VALID and takes the `blocked` branch, so nothing raises. Keeping
+    `pytest.raises` would have made a fixed system look broken and, worse, would
+    have made the exception itself load-bearing.
+
+    New form asserts the outcome AND the three numbers. It is strictly stronger:
+    the old version was satisfied by any `ValueError` from anywhere, including
+    one raised after a partial write; this one says the entry was refused before
+    the write path, nothing raised, and the books did not move by one paise.
+    """
     t = gst_company()
     before = t.trial_balance(COMPANY)
 
-    with pytest.raises(ValueError):
-        pipeline.run(
-            COMPANY,
-            GST_BILL,
-            "text/plain",
-            TypedTextExtractor(),
-            t,
-            memory_for(t),
-            today=TODAY,
-        )
+    draft = pipeline.run(
+        COMPANY,
+        GST_BILL,
+        "text/plain",
+        TypedTextExtractor(),
+        t,
+        memory_for(t),
+        today=TODAY,
+    )
 
+    assert draft.outcome is not Outcome.VALID
+    assert draft.posted_tally_id is None
     assert t.trial_balance(COMPANY) == before
     assert t.list_our_vouchers(COMPANY) == ()
     assert len(t.read_vouchers(COMPANY)) == 40
 
 
-@pytest.mark.xfail(strict=True, reason=BLOCKED_BY_GST_RULES)
 def test_a_gst_bill_without_tax_lines_cannot_be_valid() -> None:
     """Measured at 27333e9: it IS valid, with the reason "nothing unclear and
     nothing surprising". The application promises a write the connector will
@@ -1128,7 +1157,6 @@ def test_a_gst_bill_without_tax_lines_cannot_be_valid() -> None:
     assert draft.outcome is not Outcome.VALID
 
 
-@pytest.mark.xfail(strict=True, reason=BLOCKED_BY_GST_RULES)
 def test_a_gst_bill_with_incomplete_tax_data_asks_a_question_or_hands_over() -> None:
     """Nothing in the system can post a tax line, so every GST amount is
     incomplete tax data. The person should be asked, or the entry handed to
@@ -1145,23 +1173,71 @@ def test_a_gst_bill_with_incomplete_tax_data_asks_a_question_or_hands_over() -> 
     assert "tax" in said or "gst" in said
 
 
-@pytest.mark.xfail(strict=True, reason=BLOCKED_BY_GST_RULES)
 def test_a_connector_refusal_cannot_happen_after_the_application_said_valid() -> None:
-    """The contract between the two halves. VALID means "the connector will
-    take this". Today it does not, and the person sees a breakage page for an
-    ordinary bill.
+    """The contract between the two halves: VALID means "the connector will take
+    this". Asserted in BOTH directions, because one direction proves nothing.
 
-    Re-measured 2026-08-10 on top of D-06 (1ca65a9): the application still says
-    VALID and `post` still raises the connector's tax-line refusal.
+    CORRECTED 2026-08-10. The five things a test change owes:
+
+    old assertion   `if draft.outcome is not Outcome.VALID: pytest.skip(...)`,
+                    then `pipeline.post(draft, t)` and
+                    `assert draft.posted_tally_id is not None`.
+    why it was wrong
+                    It was written as a defect probe while the bill still
+                    reached VALID. The moment the defect was fixed the premise
+                    went false and the test SKIPPED — deleting itself at exactly
+                    the point where the invariant in its own name became
+                    guardable. A skip is not a pass, and nothing else in the
+                    suite asserted "VALID implies the connector accepts".
+    new assertion   the GST bill is not VALID, `post` refuses it at the
+                    application gate, and NO `write_attempted` row is written;
+                    and a bill the application DOES call VALID posts and is
+                    accepted by the connector.
+    safety impact   strictly more is now forbidden. The old form could not fail
+                    at all once the fix landed. This one fails if a GST bill
+                    reaches VALID again, if a refused entry still opens a write,
+                    or if VALID ever stops meaning "postable".
+    new result      PASS, as an ordinary test, no marker.
+
+    The `write_attempted` row is the load-bearing half of the first direction.
+    A write that was never entitled to start must leave no write-ahead row: that
+    row is the durable signature of "a voucher may exist in the books and we
+    cannot say", and writing one for an entry we refused would send somebody
+    hunting through Tally for a voucher that was never sent.
     """
     t = gst_company()
-    draft = gst_draft(t)
-    if draft.outcome is not Outcome.VALID:
-        pytest.skip("the application no longer says VALID; the contract holds")
+    store = MemoryStore(":memory:")
+    memory = bootstrap(t, COMPANY, store)
 
-    pipeline.post(draft, t)
+    # Direction 1: refused before the write path, and the connector is never asked.
+    refused = pipeline.run(
+        COMPANY,
+        GST_BILL,
+        "text/plain",
+        TypedTextExtractor(),
+        t,
+        memory,
+        today=TODAY,
+        log=store,
+        run_id="phase7-gst",
+    )
 
-    assert draft.posted_tally_id is not None
+    assert refused.voucher.gst_paise == GST_PAISE, "the fixture stopped carrying tax"
+    assert refused.outcome is not Outcome.VALID
+    assert refused.posted_tally_id is None
+    assert [r.action for r in store.actions(COMPANY)] == ["blocked"]
+    with pytest.raises(ValueError, match="refusing to post"):
+        pipeline.post(refused, t)
+
+    # Direction 2: the same company, a bill with no tax on it. VALID has to be
+    # worth something, or direction 1 is satisfied by refusing everything.
+    posted = pipeline.run(
+        COMPANY, BILL, "text/plain", TypedTextExtractor(), t, memory, today=TODAY
+    )
+
+    assert posted.voucher.gst_paise is None
+    assert posted.outcome is Outcome.VALID
+    assert posted.posted_tally_id is not None
 
 
 # ---- the same defect, over real HTTP ----------------------------------------
@@ -1208,7 +1284,6 @@ def test_a_gst_bill_over_http_is_answered_rather_than_dropped(server: str) -> No
     assert "gst_paise" not in body, "an internal field name reached the screen"
 
 
-@pytest.mark.xfail(strict=True, reason=BLOCKED_BY_GST_RULES)
 def test_a_gst_bill_over_http_explains_the_tax_instead_of_reporting_a_breakage(
     server: str,
 ) -> None:

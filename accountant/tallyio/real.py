@@ -893,7 +893,14 @@ def check_writable(voucher: Voucher) -> None:
             f"refusing to write voucher {voucher.id!r}: debit and credit are "
             f"the same account ({voucher.debit_account!r})"
         )
-    if voucher.gst_paise is not None:
+    # `needs_tax_lines`, not a second copy of `gst_paise is not None`. The
+    # application asks the SAME expression before it decides
+    # (`checks.tax_lines_can_be_posted`), so VALID cannot promise a write this
+    # function will refuse. Two copies is what let the halves drift apart until
+    # 2026-08-10. This stays as the last line regardless: the application gate
+    # can be bypassed by any caller who builds a voucher by hand, and this one
+    # cannot.
+    if voucher.needs_tax_lines:
         raise ValueError(
             f"refusing to write voucher {voucher.id!r}: it carries GST of "
             f"{voucher.gst_paise} paise and this connector builds no tax lines. "

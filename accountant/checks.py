@@ -107,6 +107,45 @@ def gst_not_larger_than_amount(
     )
 
 
+def tax_lines_can_be_posted(voucher: Voucher, _accounts: Sequence[str]) -> CheckResult:
+    """A bill carrying tax may not be called Valid while no tax line can be built.
+
+    ADDED 2026-08-10. This is the application half of a rule that previously
+    existed only at the wire. `tallyio.real.check_writable` refuses any voucher
+    with `gst_paise` set, because writing it would drop the tax and leave a wrong
+    statutory entry in somebody's books. Nothing upstream asked the same question,
+    so the decision order reached VALID — "nothing unclear and nothing surprising"
+    — for a bill the connector was always going to refuse. Measured: a GST bill
+    reached VALID, `pipeline.post` wrote a `write_attempted` row, the connector
+    raised, a `write_outcome_unknown` row followed, and over HTTP the person got
+    "Something in Accountant Dad broke" for an ordinary bill.
+
+    VALID has to mean "the connector will take this". It now does.
+
+    The condition is `Voucher.needs_tax_lines`, not a second copy of
+    `gst_paise is not None`, so this check and the connector cannot drift apart
+    again.
+
+    UNANSWERABLE, on purpose — see `problems.UNANSWERABLE_CHECKS`. No answer a
+    person can give makes Accountant Dad able to build a CGST/SGST/IGST line, so
+    asking would spend one of their five questions on something their answer
+    cannot fix. The honest outcome is to hand the entry over with the tax named.
+    """
+    ok = not voucher.needs_tax_lines
+    return CheckResult(
+        name="tax_lines_can_be_posted",
+        passed=ok,
+        detail=""
+        if ok
+        else (
+            f"this bill carries GST of {voucher.gst_paise} paise, and Accountant "
+            "Dad cannot post a tax line yet — posting it would drop the tax and "
+            "leave a wrong statutory entry, so please enter this one in Tally "
+            "yourself"
+        ),
+    )
+
+
 def party_is_named(voucher: Voucher, _accounts: Sequence[str]) -> CheckResult:
     ok = bool(voucher.party.strip())
     return CheckResult(
@@ -123,6 +162,7 @@ ALL_CHECKS = (
     accounts_exist,
     funding_is_named,
     gst_not_larger_than_amount,
+    tax_lines_can_be_posted,
     party_is_named,
 )
 
