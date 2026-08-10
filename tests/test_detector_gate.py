@@ -5,8 +5,8 @@ Owner decision D-22, 2026-08-10:
     Use both aggregate and worst-department results. For launch, do not hide a
     department that fails.
 
-        aggregate 6.29        = PASS   (target <= 10)
-        worst department      = 33.33  = NOT_PASSED
+        aggregate 4.20        = PASS   (target <= 10)
+        worst department      = 19.05  = NOT_PASSED
         overall launch gate   = NOT_PASSED
 
 NOT_PASSED is the correct answer today. These tests exist so the report keeps
@@ -52,15 +52,15 @@ from accountant.score.report import render_gate
 
 # The four numbers the owner stated, in hundredths, pinned so a drift in any
 # one of them fails rather than quietly changing the verdict.
-AGGREGATE_HUNDREDTHS = 629  # 6.29 per 100, 9 of 143 clean
+AGGREGATE_HUNDREDTHS = 420  # 4.20 per 100, 6 of 143 clean
 HELD_OUT_HUNDREDTHS = 290  # 2.90 per 100, 2 of 69 clean
-WORST_DEPARTMENT_HUNDREDTHS = 3333  # 33.33 per 100, 7 of 21 clean, DHSC
+WORST_DEPARTMENT_HUNDREDTHS = 1905  # 19.05 per 100, 4 of 21 clean, DHSC
 WORST_DEPARTMENT = "DHSC"
 
 # Every department, and the false alarms and clean entries it carries.
 PER_DEPARTMENT: tuple[tuple[str, int, int], ...] = (
     ("MHCLG", 0, 29),
-    ("DHSC", 7, 21),
+    ("DHSC", 4, 21),
     ("DFT", 0, 24),
     ("DWP", 1, 27),
     ("DEFRA", 1, 19),
@@ -69,7 +69,7 @@ PER_DEPARTMENT: tuple[tuple[str, int, int], ...] = (
 )
 
 # With `first_use` switched back on, at the settings the other three ship at.
-WITH_FIRST_USE_AGGREGATE_HUNDREDTHS = 3636  # 36.36 per 100, 52 of 143
+WITH_FIRST_USE_AGGREGATE_HUNDREDTHS = 3427  # 34.27 per 100, 49 of 143
 WITH_FIRST_USE_HELD_OUT_HUNDREDTHS = 4203  # 42.03 per 100, 29 of 69
 
 
@@ -223,8 +223,8 @@ def test_both_the_aggregate_and_the_worst_department_are_in_the_reasons(
 ) -> None:
     """Whichever way each one went, both are stated. One number is not a gate."""
     reasons = "\n".join(gate.reasons)
-    assert "aggregate 6.29 per 100 (9 of 143 clean) - PASS" in reasons
-    assert "worst department DHSC 33.33 per 100 (7 of 21 clean) - NOT_PASSED" in reasons
+    assert "aggregate 4.20 per 100 (6 of 143 clean) - PASS" in reasons
+    assert "worst department DHSC 19.05 per 100 (4 of 21 clean) - NOT_PASSED" in reasons
     assert "held-out half 2.90 per 100 (2 of 69 clean) - PASS" in reasons
 
 
@@ -243,9 +243,9 @@ def test_the_worst_department_is_named_in_the_headline(rendered: str) -> None:
 
     assert "NOT_PASSED" in headline
     assert WORST_DEPARTMENT in headline
-    assert "33.33" in headline
-    assert "7 of 21 clean" in headline
-    assert "6.29" in headline
+    assert "19.05" in headline
+    assert "4 of 21 clean" in headline
+    assert "4.20" in headline
 
 
 def test_the_headline_carries_the_target_it_was_judged_against(
@@ -295,7 +295,7 @@ def test_the_departments_add_up_to_the_aggregate(gate: DetectorGate) -> None:
         sum(d.clean_entries for d in gate.departments) == gate.aggregate.clean_entries
     )
     assert gate.aggregate.clean_entries == 143
-    assert gate.aggregate.false_alarms == 9
+    assert gate.aggregate.false_alarms == 6
 
 
 # ---------------------------------------------------------------------------
@@ -325,8 +325,8 @@ def test_the_stated_formula_is_the_arithmetic_the_code_runs() -> None:
     Written out by hand for the worst department, so a formula that drifted
     away from `scaled_rate` fails here instead of being decorative.
     """
-    by_hand = (7 * PERCENT_SCALE * 2 + 21) // (21 * 2)
-    assert by_hand == scaled_rate(7, 21, PERCENT_SCALE)
+    by_hand = (4 * PERCENT_SCALE * 2 + 21) // (21 * 2)
+    assert by_hand == scaled_rate(4, 21, PERCENT_SCALE)
     assert by_hand == WORST_DEPARTMENT_HUNDREDTHS
 
 
@@ -334,9 +334,9 @@ def test_the_report_carries_every_false_alarm(
     rendered: str, gate: DetectorGate
 ) -> None:
     """All nine, with the evidence, not a sample of the comfortable ones."""
-    assert len(gate.examples) == 9
+    assert len(gate.examples) == 6
     assert len({e.voucher_id for e in gate.examples}) == gate.aggregate.false_alarms
-    assert "Every false alarm - all 9, none held back" in rendered
+    assert "Every false alarm - all 6, none held back" in rendered
     for e in gate.examples:
         assert e.voucher_id in rendered
         assert e.party in rendered
@@ -354,46 +354,64 @@ def test_the_false_alarm_examples_carry_the_evidence_that_raised_them(
 
 
 # ---------------------------------------------------------------------------
-# THE FINDING: SIX OF THE NINE ARE ONE ACCOUNT
+# THE FINDING: HALF THE REMAINING FALSE ALARMS ARE STILL ONE ACCOUNT
 # ---------------------------------------------------------------------------
 
 
-def test_six_of_the_nine_false_alarms_are_one_account(
+def test_half_the_false_alarms_are_still_one_account(
     gate: DetectorGate, rendered: str
 ) -> None:
     """Where the leverage is: one ceiling, not one threshold.
 
     DHSC `Additions NCB PDC` is Public Dividend Capital - lumpy capital
-    injection - and its ceiling is taken from a ten-entry history that six
-    different NHS trusts each post past. That single account is the whole of
-    the worst department's overshoot.
+    injection into NHS trusts - and its ceiling is 21,300,000 paise taken from
+    ten prior entries that are, because the department publishes rows sorted by
+    ascending amount inside each payment date, the ten cheapest payments on the
+    account.
+
+    RE-MEASURED 2026-08-10, PHASE 8 PR-2. It was 6 of 9. Three of those six
+    were dated `2025-11-03`, the same day as every row in the history they were
+    compared against, and `magnitude` no longer counts a row that is not prior
+    to an entry into that entry's ceiling. The concentration is now 3 of 6.
+
+    The three that remain are dated `2025-11-17` and their history genuinely
+    does precede them. They persist because `accountant/score/harness.py` hands
+    every entry the SAME frozen half-book, so the 740,000,000 payment made to
+    this account on `2025-11-03` - nine rows further down the same file, and
+    prior in fact - is on the entries side of the split and invisible to the
+    detector. That is an evidence-supply defect, not a detector defect, and it
+    is recorded rather than worked around. `artifacts/phase8_detectors.md`
+    carries the measurement that shows it: give the detector the entries that
+    actually preceded each one and `magnitude` drops from 4 false alarms to 2.
+
+    The share is still pinned exactly. Nothing was excluded to reach it.
     """
     concentration = gate.concentration
     assert concentration is not None
     assert concentration.scope == WORST_DEPARTMENT
     assert concentration.account == "Additions NCB PDC"
-    assert concentration.entries == 6
-    assert concentration.of_total == 9
+    assert concentration.entries == 3
+    assert concentration.of_total == 6
     assert concentration.detectors == ("magnitude",)
-    assert concentration.share_hundredths == 6667  # 66.67% of every false alarm
+    assert concentration.share_hundredths == 5000  # 50.00% of every false alarm
 
     assert "Additions NCB PDC" in rendered
-    assert "6 of 9" in rendered
-    # The ceiling itself, and the ten entries it was taken from.
-    assert "21300000 paise across 10 entries" in rendered
+    assert "3 of 6" in rendered
+    # The ceiling itself, and the ten prior entries it was taken from.
+    assert "21300000 paise across 10 earlier entries" in rendered
 
 
-def test_the_six_are_six_different_parties_on_one_account(
+def test_the_three_are_three_different_parties_on_one_account(
     gate: DetectorGate,
 ) -> None:
-    """Six trusts, one account. That is one wrong ceiling, not six problems."""
+    """Three trusts, one account. That is one wrong ceiling, not three problems."""
     same = [
         e
         for e in gate.examples
         if e.scope == WORST_DEPARTMENT and e.account == "Additions NCB PDC"
     ]
-    assert len(same) == 6
-    assert len({e.party for e in same}) == 6
+    assert len(same) == 3
+    assert len({e.party for e in same}) == 3
     assert {e.detector for e in same} == {"magnitude"}
 
 
@@ -420,7 +438,7 @@ def test_the_aggregate_pass_depends_on_first_use_being_withdrawn(
     assert cost.aggregate.clean_entries == gate.aggregate.clean_entries
 
     assert "first_use is withdrawn" in rendered
-    assert "36.36" in rendered
+    assert "34.27" in rendered
     assert "42.03" in rendered
 
 
@@ -554,7 +572,7 @@ def test_the_rate_is_rounded_half_up_and_never_truncated(gate: DetectorGate) -> 
     ("code", "hundredths"),
     [
         ("MHCLG", 0),
-        ("DHSC", 3333),
+        ("DHSC", 1905),
         ("DFT", 0),
         ("DWP", 370),
         ("DEFRA", 526),
@@ -570,9 +588,9 @@ def test_every_measured_department_carries_its_exact_rate(
 
 
 def test_the_failing_department_prints_at_full_precision(rendered: str) -> None:
-    """33.33, not 33.3 and not 33."""
-    assert "33.33" in rendered
-    assert "33.33 per 100 (7 of 21 clean)" in rendered
+    """19.05, not 19.1 and not 19."""
+    assert "19.05" in rendered
+    assert "19.05 per 100 (4 of 21 clean)" in rendered
 
 
 # ---------------------------------------------------------------------------
@@ -806,7 +824,7 @@ def test_an_injected_entry_is_not_counted_as_a_clean_one() -> None:
 def test_a_detector_that_is_running_has_no_withdrawal_to_report() -> None:
     """Switch `first_use` back on and there is no withdrawal left to cost.
 
-    The aggregate it produces is the same 36.36 the withdrawal note quotes,
+    The aggregate it produces is the same 34.27 the withdrawal note quotes,
     measured a second way.
     """
     loaded = books()

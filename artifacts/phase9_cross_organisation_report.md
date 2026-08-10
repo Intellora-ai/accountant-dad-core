@@ -8,10 +8,17 @@ under the Open Government Licence v3.0, retrieved 2026-08-08.
 performance on Indian customer books.** No number here may be quoted as if it did.
 
 Output hash of the whole experiment:
-`98d60c6099434db74c4301f9427568562abb0d4fe136f620a6c192e1479701c0`
+`e44982a67daea58105e1665d4b339ea1feadfeadbb399283f4b33878b791b016`
 
-> **This hash changed on 2026-08-10, and the finding did not.** The earlier
-> published hash was
+> **This hash has changed twice, both times on 2026-08-10, and the finding did
+> not change either time.** The most recent move is section 9.2: the Phase 8
+> PR-2 root-cause fix stopped `magnitude` counting rows that are not dated
+> before an entry into that entry's ceiling, so DHSC's within-department N1
+> fell from 33.33% to 19.05% and two lines of the experiment text changed. The
+> hash before that move was
+> `98d60c6099434db74c4301f9427568562abb0d4fe136f620a6c192e1479701c0`.
+>
+> **The earlier move, section 9.1.** The hash before it was
 > `83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4`.
 > Owner decision D-05 made a company's legal form part of its identity, so one
 > supplier key in the output text became `accenture_uk_ltd` where it used to be
@@ -277,7 +284,8 @@ Full detail in `artifacts/phase9_reproducibility_manifest.json`.
 | Runs | 10 — every seed twice |
 | PYTHONHASHSEED values | 0, 1, 12345, 99991, random |
 | Identical output hashes | 10 of 10 |
-| Output sha256 | `98d60c6099434db74c4301f9427568562abb0d4fe136f620a6c192e1479701c0` |
+| Output sha256 | `e44982a67daea58105e1665d4b339ea1feadfeadbb399283f4b33878b791b016` |
+| Output sha256 before the Phase 8 PR-2 fix | `98d60c6099434db74c4301f9427568562abb0d4fe136f620a6c192e1479701c0` — see 9.2 |
 | Output sha256 before D-05 | `83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4` — see 9.1 |
 | Corpus sha256 | `830b987153adc8c999a1bb247ccb33ae4d8e4d5db4429883553bc1f710a8bd01` |
 | Taxonomy sha256 | `e8a8a1d75545033d3114f3c7c0563a76b938b8443910defd6917112e38369df7` |
@@ -311,7 +319,7 @@ the whole of what happened, so nobody has to take the new number on trust.
 | | |
 |---|---|
 | Hash before | `83cc858f42443fa7aa0753d7ece774337be4cb54d5d8260c1d8dfdfac68f12f4` |
-| Hash now | `98d60c6099434db74c4301f9427568562abb0d4fe136f620a6c192e1479701c0` |
+| Hash after this move | `98d60c6099434db74c4301f9427568562abb0d4fe136f620a6c192e1479701c0` |
 | Reason, in one line | Owner decision D-05 made a company's legal form part of its identity, so `normalise_vendor` stopped stripping it. |
 
 D-05 (2026-08-10) rules that "Ltd", "PLC" and the rest are part of who was paid,
@@ -344,7 +352,7 @@ Side by side:
 | Shared suppliers, and agreements between them | 2, and 0 | 2, and 0 |
 
 **The new hash was re-earned, not edited in.** All ten runs — five seeds, twice
-each — were executed again on this branch, and each one independently reported
+each — were executed again on that branch, and each one independently reported
 `98d60c60…`. None of the eleven hashes in the manifest was copied from another.
 Each run also asserted, before producing any text, that `accountant` had been
 imported from this worktree and not from another checkout; a run that failed
@@ -398,3 +406,49 @@ One honest sentence:
 
 **Label: PUBLIC_DATA_EVIDENCE.** UK central-government data. Tests the mechanism
 and the transfer question. Does not prove performance on Indian customer books.
+
+### 9.2 The output hash changed again on 2026-08-10. The finding did not.
+
+The second move, and the reason it is a smaller thing than a new hash looks.
+
+| | |
+|---|---|
+| Hash before | `98d60c6099434db74c4301f9427568562abb0d4fe136f620a6c192e1479701c0` |
+| Hash now | `e44982a67daea58105e1665d4b339ea1feadfeadbb399283f4b33878b791b016` |
+| Reason, in one line | Phase 8 PR-2 stopped `magnitude` counting rows that are not dated before an entry into that entry's ceiling. |
+
+`accountant/detect/detectors.py:prior_amounts` is the whole of the change. Six
+of the nine false alarms in `artifacts/detector_gate.md` were one DHSC account,
+`Additions NCB PDC`, and three of those six were raised against a history dated
+`2025-11-03` — the same day as the entry being judged. A payment made on the
+third is not evidence about the range a payment made on the third falls outside
+of, so those three are gone.
+
+**Two lines, measured by unified diff of the 147-line experiment text:**
+
+```
+-  DHSC   entries  21   false alarms  7   N1    33.33%   FAIL   questions  14/21
++  DHSC   entries  21   false alarms  4   N1    19.05%   FAIL   questions  13/21
+-  all    questions 51/143 within department
++  all    questions 50/143 within department
+```
+
+Every other byte is identical.
+
+Side by side:
+
+| Measurement | Before the fix | After the fix |
+|---|---|---|
+| Ordered pairs | 30 | 30 |
+| Pairs at 0.00% cross-department | 30 of 30 | 30 of 30 |
+| Best cross-department accuracy | 0.00% | 0.00% |
+| Best within-department accuracy | 86.21% (MHCLG) | 86.21% (MHCLG) |
+| Largest gap | +86.21% | +86.21% |
+| Departments failing N1 inside their own department | 1 of 6 (DHSC) | 1 of 6 (DHSC) |
+
+The transfer finding is untouched. DHSC still fails N1 on its own book; it
+fails by less.
+
+**The new hash was re-earned, not edited in.** All ten runs — five seeds, twice
+each — were executed again on this branch, and each one independently reported
+`e44982a6…`.

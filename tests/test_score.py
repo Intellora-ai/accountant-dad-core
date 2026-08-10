@@ -38,6 +38,14 @@ COMPANY = "Score Co"
 ACCOUNTS = ("Purchases", "Materials", "Utilities", "Repairs", "Bank", "Cash")
 WHEN = datetime.date(2026, 1, 1)
 
+# History happens BEFORE the entries it is history for. Dated explicitly since
+# 2026-08-10, because `magnitude` stopped counting rows that are not prior to
+# the entry into that entry's ceiling, and a fixture that dated both the same
+# day was quietly asserting that a payment can be its own precedent. Nothing
+# about what these tests assert changed - only the fixture stopped saying
+# something it never meant.
+BEFORE = WHEN - datetime.timedelta(days=1)
+
 # R and D used by most tests. They are arbitrary stand-ins for a stopwatch, and
 # the harness refuses to supply any default of its own.
 R = 30
@@ -48,7 +56,7 @@ def _history(party: str, account: str, amount: int, n: int, tag: str) -> list[Vo
     return [
         Voucher(
             id=f"hist-{tag}-{i}",
-            date=WHEN,
+            date=BEFORE,
             party=party,
             narration=f"{party} {account}",
             debit_account=account,

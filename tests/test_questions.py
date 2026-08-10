@@ -40,6 +40,11 @@ ACCOUNTS = (
 )
 TODAY = datetime.date(2026, 8, 7)
 
+# `past` means before today. Dated explicitly since 2026-08-10, when
+# `magnitude` stopped counting rows that are not prior to an entry into that
+# entry's ceiling. The fixture's name always said "past"; now the date does too.
+EARLIER = TODAY - datetime.timedelta(days=1)
+
 
 _BASE = Voucher(
     id="d1",
@@ -62,7 +67,7 @@ def past(party: str, account: str, amount: int = 380000, n: int = 1) -> list[Vou
     return [
         Voucher(
             id=f"h{i}",
-            date=TODAY,
+            date=EARLIER,
             party=party,
             narration="x",
             debit_account=account,
