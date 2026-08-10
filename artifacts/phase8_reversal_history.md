@@ -397,22 +397,131 @@ in a recorded history is `NOT_MEASURED`**.
 
 ## 11. Suite
 
+Measured three times, because the branch was rebased onto PR-1 between the
+first two and reviewed between the last two. A count carried across a rebase is
+a count measured on a different tree.
+
 ```
-origin/main f22eace   2295 passed, 5 xfailed
-this branch           2334 passed, 5 xfailed
-                      +39, and 39 is the size of tests/test_reversal_history.py
+origin/main f22eace            2295 passed, 5 xfailed   the original baseline
+  + PR-5, before the rebase    2334 passed, 5 xfailed   +39 = the new test file
+
+branch base, PR-1 merged       2401 passed, 5 xfailed   the rebased baseline
+  + the PR review round        2408 passed, 5 xfailed   +7  = the new guards
 ```
+
+`tests/test_reversal_history.py` is 46 tests: 39 for the seven fields, the
+migration and the append-only proof, and 7 added by the review round.
 
 ```
 ruff check .            All checks passed
-ruff format --check .   162 files already formatted
+ruff format --check .   all files already formatted
 pyright                 0 errors, 0 warnings
 validate_project_truth  30 checks, 30 passed, 0 failed
+provenance assertion    PASS, from wt-p8-reversal
+D-29, the six tests     6 passed
 ```
 
 ---
 
-## 12. What is not done, and is not claimed
+## 12. PR review, 2026-08-10 — two defects in this branch's own diff
+
+Both were found by review, both were verified against the code before being
+acted on, and both were real.
+
+### Defect 1 — CRITICAL. The command line recorded nothing.
+
+`accountant/tallyio/__main__.py` passed no `log=` to either `reversal.confirm`
+or `reversal.execute`. Both signatures default `log` to `None`, and both
+recorders return immediately on `None`, so:
+
+```
+python -m accountant.tallyio --reverse-all --yes   audit rows written: 0
+the same operation through the web app             audit rows written: all 7 fields
+```
+
+**A destructive bulk reversal wrote no audit trail at all.**
+
+§1 of this document said `20/20` and `0 unrecorded transitions`. Both numbers
+were true and **both were measured on the web path only.** The CLI was never in
+the fixture, so the transitions it caused were outside every scope the replay
+walked. That is the exact failure §5 exists to catch, and it slipped through
+because `audit` can only replay scopes the caller hands it.
+
+**Fix.** A `--audit-log PATH` flag, opened as a `MemoryStore` and passed to both
+calls, closed in a `finally`. Required whenever `--yes` is passed and refused
+otherwise, before the connection is opened — the same fail-closed shape as
+`--backed-up`. **There is no default path**, deliberately: where a customer's
+audit trail lives is not a decision this command may make on its own, and a
+default would put the file somewhere nobody chose while looking considered.
+
+### Defect 2 — MAJOR. An audit row claimed a backend that did not act.
+
+`accountant/web/app.py` passed `backend=type(live.client).__name__` into
+`reversal.confirm`. Confirming is a local act — a person said yes to a list
+already on their screen — and `backend` on an `action_log` row answers "which
+Tally is this row evidence about". The row asserted that a connector produced
+evidence for an operation it never saw.
+
+Same defect class as a provenance tag naming a reader that did not extract the
+value. **A false attribution in an audit trail is worse than a missing one,
+because the missing one is visible.**
+
+**Fix.** The `backend` parameter is gone from `confirm` entirely. Emptying it
+would have left the mistake one keystroke away; removing it means a caller
+cannot pass what the signature does not accept. `_record_batch` now defaults
+`backend=""`, and that default is the honest answer for a transition no
+connector took part in.
+
+### The guards, which matter more than the fixes
+
+Neither defect was caught by anything the repository had. Coverage did not fail
+— the CLI code ran. Mutation did not fail — nothing had been deleted. The
+seven-field test passed — it only ever looked at one path. **The tests measured
+what was tested, and the untested path was invisible to all of them.**
+
+Both defects were *an unenumerated case*, so neither guard enumerates.
+
+| Guard | What it does |
+|---|---|
+| `test_every_entry_point_that_causes_a_transition_records_it` | Walks every `.py` in the shipped package, resolves the import (both styles), and requires `log=` on every call to `confirm`/`execute`/`resume`/`reconcile`. Lists no callers. |
+| `test_the_caller_scan_detects_a_missing_log_before_it_is_trusted` | Feeds the scanner a synthetic module containing the defect and requires it to be found. A structural guard that silently matches nothing passes forever. |
+| `test_the_command_line_writes_a_whole_history` | Runs `cli.main` as an operator would, then reopens the named file in a second store and replays the chains. Proves durability, not just that a `log=` was typed. |
+| `test_the_command_refuses_to_destroy_anything_it_cannot_record` | 0 vouchers reversed, trial balance unmoved, no file created anywhere. |
+| `test_no_locally_decided_transition_names_a_backend` | Structural over `reversal.py`: a function holding no `TallyClient` may not name a backend, with a control asserting the functions that DO hold one are found naming theirs. |
+| `test_confirm_cannot_be_handed_a_backend_at_all` | The parameter is absent from the signature and a runtime caller gets `TypeError`, with the same call minus the argument as the control. |
+| `test_the_confirmation_row_records_no_backend_and_the_driven_rows_do` | Both halves in one test so neither drifts into the other. |
+
+`preview` is deliberately outside `TRANSITION_FUNCTIONS`: it creates the batch,
+and creation has no previous state, so it is not a transition and there is
+nothing to record.
+
+### Mutants — 10 applied, 10 RED, 0 survived
+
+The original seven were re-run against the current tree rather than carried
+forward from the earlier measurement.
+
+| # | Mutant | Result | Caught by |
+|---|---|---|---|
+| M1-M7 | the original seven guards | RED ×7 | as recorded in §8 |
+| M8 | the CLI passes no log (defect 1, reverted) | RED | the structural scan **and** the CLI end-to-end test |
+| M9 | a confirmation names a backend (defect 2, reverted) | RED | the structural scan **and** the behavioural test |
+| M10 | **a third entry point nobody enumerated** | RED | the structural scan |
+
+M10 is the one that matters. A new module `accountant/sweeper.py` calling
+`reversal.execute(reversal.confirm(batch), client, company_key=company)` with no
+log was added — a caller no test, list or docstring mentions. The scan found it
+by walking the package.
+
+An existing test, `test_the_batch_entry_points_are_reached_from_exactly_two_operator_surfaces`,
+also went red on M10. That is worth stating precisely rather than claiming as
+extra credit: it counts operator surfaces, so it catches a *new* caller but
+would not have caught either defect here — the CLI was already one of the two
+surfaces it knows about, and it says nothing about logging. The dimension it
+does not cover is exactly the one the new guard adds.
+
+---
+
+## 13. What is not done, and is not claimed
 
 | Item | Status |
 |---|---|
@@ -422,6 +531,21 @@ validate_project_truth  30 checks, 30 passed, 0 failed
 | `CRITICAL_FAILURE` / `WRONG_MOVEMENT` / `READBACK_FAILED` in a recorded history | `NOT_MEASURED` |
 | actor and previous state on non-reversal `action_log` rows | `NOT_RECORDED` by design — see below |
 | `docs/CONTROL_PLANE.yaml` entry for this work | `INCOMPLETE` — not written; the file is held by another agent |
+| the web app's own store is on disk | **`NOT_IMPLEMENTED`** — see below |
+
+**The web app's audit trail is in memory.** Found while fixing defect 1 and
+recorded rather than worked around. `accountant/web/app.py:738` reads
+`store if store is not None else MemoryStore(":memory:")`, and `serve()` passes
+no store, so `python -m accountant.web.app` keeps its `action_log` in RAM and
+loses it on restart. `config_from_environment` resolves the Tally host, port,
+company and backup list, and no path for the store.
+
+So the seven-field history the web path records is durable **within one process
+run** and no further. That is a product decision — where the file lives, who
+owns it, what happens on upgrade — and not one an agent may take, so nothing
+here changes it. The CLI now takes its path as a required flag precisely because
+that question has no answer yet. Flagged as a candidate defect for whoever owns
+`web/app.py`; it is outside PR-5's scope and is not claimed as fixed.
 
 **Non-reversal rows.** A post, a dismissal or a company mismatch has no state
 machine behind it and therefore no previous state. Those rows keep

@@ -1965,12 +1965,15 @@ class Handler(BaseHTTPRequestHandler):
                 # because somebody pressed the button on this screen. Left out,
                 # the durable history starts at `reversing` and cannot say the
                 # confirmation happened at all. Owner decision Q8 = A.
+                #
+                # No backend is passed, and `confirm` no longer accepts one.
+                # Pressing this button touches no Tally, so naming the client
+                # here would put a false attribution in the audit trail.
                 reversal.confirm(
                     shown,
                     log=live.store,
                     company_key=live.memory.identity.key,
                     run_id=live.identity.run_id,
-                    backend=type(live.client).__name__,
                 ),
                 live.client,
                 log=live.store,

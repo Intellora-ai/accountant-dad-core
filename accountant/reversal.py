@@ -556,12 +556,20 @@ def _record_batch(
     previous: BatchState,
     batch: Batch,
     actor: Actor,
-    backend: str,
+    backend: str = "",
 ) -> None:
     """One durable row per BATCH transition, on the same terms.
 
     Nothing is written when the state did not change, because a non-transition
     is not an event and a log full of them hides the ones that are.
+
+    `backend` DEFAULTS TO EMPTY, and the default is the honest answer for a
+    transition no connector took part in. `backend` means "which Tally is this
+    row evidence about"; a locally-decided transition is evidence about none, so
+    naming one would attribute the row to a system that never saw it. The only
+    caller that leaves it empty is `confirm`, and `confirm` is the only function
+    here that holds no client — see the structural guard in
+    `tests/test_reversal_history.py`.
     """
     if log is None or previous is batch.state:
         return
@@ -650,7 +658,6 @@ def confirm(
     log: pipeline.ActionLogSink | None = None,
     company_key: str = "",
     run_id: str = "",
-    backend: str = "",
 ) -> Batch:
     """The explicit confirmation. A preview is a question, not an order.
 
@@ -659,10 +666,24 @@ def confirm(
     here rather than at the start of `execute`, because a confirmation that is
     never executed still happened and the log has to be able to say so.
 
-    `backend` defaults to empty and says so honestly — confirming touches no
-    Tally, so there is no backend this row is evidence about. Every logging
-    argument is keyword-only with a default, so the many callers that confirm
-    without a log are unchanged.
+    THERE IS NO `backend` PARAMETER, AND ITS ABSENCE IS THE POINT.
+
+    This function takes no client. Confirming is a local decision — a person
+    said yes to a list already on their screen — and Tally is not consulted, not
+    written to, and not even reachable from here. `backend` on an `action_log`
+    row answers "which Tally is this row evidence about", so a confirmation row
+    naming one would assert that a system produced evidence it never saw.
+
+    That is the same defect class as a provenance tag on a value the tagged
+    reader did not extract: a false attribution in an audit trail is worse than
+    a missing one, because the missing one is visible. The first version of this
+    function did take `backend`, and `web/app.py` passed
+    `type(live.client).__name__` into it. Removing the parameter is what makes
+    that unwritable rather than merely discouraged — a caller cannot pass what
+    the signature does not accept.
+
+    Every logging argument is keyword-only with a default, so the many callers
+    that confirm without a log are unchanged.
     """
     if batch.state is not BatchState.PREVIEW:
         raise ValueError(
@@ -677,7 +698,6 @@ def confirm(
         previous=batch.state,
         batch=confirmed,
         actor=Actor.OPERATOR,
-        backend=backend,
     )
     return confirmed
 

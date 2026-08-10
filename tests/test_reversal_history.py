@@ -78,10 +78,40 @@ from accountant.reversal import (
     VoucherState,
 )
 from accountant.schema import NOT_RECORDED, ActionLog, Actor, Voucher
+from accountant.tallyio import __main__ as cli
+from accountant.tallyio.factory import BackendIdentity
 from accountant.tallyio.fake import FakeTally
 from tests.test_reversal_recovery import ACCOUNTS, COMPANY, KEY, books, post_n
 
 ROOT = pathlib.Path(reversal.__file__).resolve().parent.parent
+
+
+def substitute_real_tally(monkeypatch: pytest.MonkeyPatch, tally: FakeTally) -> None:
+    """Stand a double in for the factory, leaving every other line of the
+    command — preview, confirm, execute, the doorway — as the real path."""
+
+    def substituted(
+        *_args: object, **_kwargs: object
+    ) -> tuple[FakeTally, BackendIdentity]:
+        return tally, a_substituted_identity()
+
+    monkeypatch.setattr(cli, "real_tally", substituted)
+
+
+def a_substituted_identity() -> BackendIdentity:
+    """What `real_tally` would have returned, stated here rather than imported
+    out of another test file. Two test modules sharing a private helper is the
+    coupling that makes either of them hard to change."""
+    return BackendIdentity(
+        backend="FakeTally",
+        endpoint="http://127.0.0.1:9000",
+        company=COMPANY,
+        company_exists=True,
+        companies_visible=1,
+        run_id="run-cli",
+        licence_mode="UNKNOWN",
+        licence_detail="substituted for the test",
+    )
 
 
 class DropsTheConnection(FakeTally):
@@ -1095,3 +1125,376 @@ def test_reconcile_still_writes_nothing_into_the_customers_books() -> None:
     assert {
         reversal.operation_id_of(v.narration) for v in tally.list_our_vouchers(COMPANY)
     } == survivors
+
+
+# ===========================================================================
+# PR REVIEW, 2026-08-10. Two defects found in this branch's own diff, and the
+# guards that make their CLASS impossible to reintroduce.
+#
+# Neither was caught by anything the repository had. Coverage did not fail —
+# the CLI code ran. Mutation did not fail — nothing had been deleted. The
+# seven-field test passed — it only ever looked at the web path. The tests
+# measured what was tested, and the untested path was invisible to all of them.
+#
+# So the fix for each is paired with a STRUCTURAL guard that enumerates rather
+# than lists. Both defects were an unenumerated case; a guard that names the
+# cases it knows about reproduces the defect it is meant to prevent.
+# ===========================================================================
+
+PACKAGE = pathlib.Path(reversal.__file__).resolve().parent
+
+#: The `reversal` functions that cause a state transition and must therefore be
+#: given somewhere to record it.
+#:
+#: `preview` is deliberately absent. It CREATES the batch — there is no previous
+#: state, so no transition, so no event, so nothing to record. Every other
+#: public entry point moves something from one named state to another.
+TRANSITION_FUNCTIONS = frozenset({"confirm", "execute", "resume", "reconcile"})
+
+
+def reversal_call_sites(source: str, label: str) -> list[tuple[str, int, set[str]]]:
+    """Every call to a transition-causing `reversal` function in one module.
+
+    Resolves the import, rather than matching on the attribute name alone.
+    `execute` is also the name of a SQLite cursor method used all over
+    `memory/store.py`, so a bare attribute match would report dozens of calls
+    that have nothing to do with reversal and the guard would be useless noise.
+
+    Both import styles are followed — `from accountant import reversal` then
+    `reversal.execute(...)`, and `from accountant.reversal import execute` then
+    `execute(...)` — because a future caller is free to use either and the whole
+    point of this scan is that it does not depend on knowing who the callers are.
+    """
+    tree = ast.parse(source, filename=label)
+    module_aliases: set[str] = set()
+    direct: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "accountant":
+            module_aliases.update(
+                alias.asname or alias.name
+                for alias in node.names
+                if alias.name == "reversal"
+            )
+        elif isinstance(node, ast.ImportFrom) and node.module == "accountant.reversal":
+            for alias in node.names:
+                if alias.name in TRANSITION_FUNCTIONS:
+                    direct[alias.asname or alias.name] = alias.name
+        elif isinstance(node, ast.Import):
+            module_aliases.update(
+                alias.asname
+                for alias in node.names
+                if alias.name == "accountant.reversal" and alias.asname
+            )
+
+    sites: list[tuple[str, int, set[str]]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        called = ""
+        if (
+            isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id in module_aliases
+            and node.func.attr in TRANSITION_FUNCTIONS
+        ):
+            called = node.func.attr
+        elif isinstance(node.func, ast.Name) and node.func.id in direct:
+            called = direct[node.func.id]
+        if called:
+            keywords = {kw.arg for kw in node.keywords if kw.arg}
+            sites.append((called, node.lineno, keywords))
+    return sites
+
+
+def package_call_sites() -> dict[str, list[tuple[str, int, set[str]]]]:
+    """Every such call in the whole shipped package, found rather than listed."""
+    found: dict[str, list[tuple[str, int, set[str]]]] = {}
+    for path in sorted(PACKAGE.rglob("*.py")):
+        sites = reversal_call_sites(path.read_text(encoding="utf-8"), path.name)
+        if sites:
+            found[str(path.relative_to(PACKAGE.parent))] = sites
+    return found
+
+
+def test_the_caller_scan_detects_a_missing_log_before_it_is_trusted() -> None:
+    """The control, and it comes first on purpose.
+
+    A structural guard that silently matches nothing passes forever. This feeds
+    the scanner a module it has never seen, containing exactly the defect, and
+    requires it to be found — so the assertions below are known to be running
+    against a working detector rather than an empty set.
+    """
+    both_styles = """
+from accountant import reversal
+from accountant.reversal import resume
+
+def one(client, batch):
+    return reversal.execute(reversal.confirm(batch), client, company_key="c")
+
+def two(client, batch):
+    return resume(batch, client, approved=True, log=None)
+"""
+    sites = reversal_call_sites(both_styles, "<synthetic>")
+
+    assert sorted(name for name, _line, _kw in sites) == [
+        "confirm",
+        "execute",
+        "resume",
+    ]
+    without_log = [name for name, _line, keywords in sites if "log" not in keywords]
+    assert sorted(without_log) == ["confirm", "execute"], (
+        "the scanner must see BOTH import styles and must notice the two calls "
+        "that pass no log"
+    )
+
+
+def test_every_entry_point_that_causes_a_transition_records_it() -> None:
+    """DEFECT 1, and the guard that generalises it.
+
+    `python -m accountant.tallyio --reverse-all --yes` is a destructive bulk
+    reversal. Until 2026-08-10 it passed no `log=` to `reversal.confirm` or
+    `reversal.execute`, so it wrote **zero** audit rows while the identical
+    operation through the web app recorded all seven fields for every
+    transition. The seven-field measurement on this branch was true and was
+    taken on the web path only; the CLI was never in the fixture.
+
+    The defect was AN UNLISTED CALLER, so this guard lists nothing. It walks
+    every `.py` file in the shipped package, resolves the import, and requires
+    a `log=` on every call that can move a batch or a voucher between states. A
+    third entry point added tomorrow is held to the same rule on the day it is
+    written.
+    """
+    found = package_call_sites()
+
+    assert len(found) >= 2, (
+        "the scan found call sites in fewer than two modules; the package has "
+        "at least the web app and the command, so the scan is not working"
+    )
+    silent = {
+        f"{module}:{line}": called
+        for module, sites in found.items()
+        for called, line, keywords in sites
+        if "log" not in keywords
+    }
+    assert silent == {}, (
+        f"these entry points cause a reversal state transition and pass no log, "
+        f"so the transition happens and nothing records it: {silent}"
+    )
+
+
+def test_the_command_line_writes_a_whole_history(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """DEFECT 1, driven through the real entry point rather than around it.
+
+    The structural guard above proves a `log=` is passed. This proves the rows
+    arrive, survive the process, and carry all seven fields — by running
+    `cli.main` exactly as an operator would and then opening the file it named.
+    """
+    tally = FakeTally()
+    tally.add_company(COMPANY, accounts=ACCOUNTS, backed_up=True)
+    substitute_real_tally(monkeypatch, tally)
+    path = tmp_path / "history.sqlite3"
+    ops = post_n(tally, 3)
+
+    code = cli.main(
+        [
+            "--reverse-all",
+            "--company",
+            COMPANY,
+            "--backed-up",
+            "--yes",
+            "--audit-log",
+            str(path),
+        ]
+    )
+
+    assert code == cli.EXIT_OK
+    assert str(path) in capsys.readouterr().out, "and it says where it wrote"
+    assert path.exists(), "the file the operator named actually exists afterwards"
+
+    # Opened in a SECOND store, after the command closed its own. An in-process
+    # assertion would prove the rows were built, not that they were durable.
+    reopened = MemoryStore(path)
+    events = reversal.history(reopened.actions(COMPANY))
+    reopened.close()
+
+    assert events, "the command reversed three vouchers and recorded nothing"
+    assert all(e.complete for e in events), [e.missing for e in events if e.missing]
+
+    batch_chain = [e for e in events if e.action == BATCH_STATE_ACTION]
+    assert [e.new_state for e in batch_chain] == [
+        "confirmed",
+        "reversing",
+        "completed",
+    ]
+    assert batch_chain[0].previous_state == BatchState.PREVIEW.value
+    for op in ops:
+        assert [
+            (e.previous_state, e.new_state) for e in events if e.document == op
+        ] == [
+            ("not_attempted", "request_sent"),
+            ("request_sent", "reversed_verified"),
+        ]
+
+
+def test_the_command_refuses_to_destroy_anything_it_cannot_record(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Fail closed, and fail before touching anything.
+
+    The same shape as the backup gate: a decision this serious is typed out, not
+    defaulted into. There is no default path on purpose — inventing one would
+    put a customer's audit trail somewhere nobody chose.
+    """
+    tally = FakeTally()
+    tally.add_company(COMPANY, accounts=ACCOUNTS, backed_up=True)
+    substitute_real_tally(monkeypatch, tally)
+    post_n(tally, 3)
+    before = tally.trial_balance(COMPANY)
+
+    code = cli.main(["--reverse-all", "--company", COMPANY, "--backed-up", "--yes"])
+
+    captured = capsys.readouterr()
+    assert code == cli.EXIT_REFUSED
+    assert "--audit-log" in captured.err
+    assert "audit log  (none)" in captured.out, "and the resolved value was printed"
+    assert len(tally.list_our_vouchers(COMPANY)) == 3, "nothing was reversed"
+    assert tally.trial_balance(COMPANY) == before
+    assert not list(tmp_path.iterdir()), "and no file was created anywhere"
+
+
+# ---- defect 2: a backend attribution on something Tally never saw ------------
+
+
+def functions_that_record(source: str) -> dict[str, tuple[bool, list[set[str]]]]:
+    """Per function in `reversal.py`: does it hold a client, and what backends
+    does it name?
+
+    Returns `name -> (holds_a_client, [keyword-sets of each recording call])`.
+    """
+    tree = ast.parse(source)
+    result: dict[str, tuple[bool, list[set[str]]]] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        holds_client = any(
+            isinstance(arg.annotation, ast.Name) and arg.annotation.id == "TallyClient"
+            for arg in [*node.args.args, *node.args.kwonlyargs]
+        )
+        calls: list[set[str]] = []
+        for inner in ast.walk(node):
+            if (
+                isinstance(inner, ast.Call)
+                and isinstance(inner.func, ast.Name)
+                and inner.func.id in ("_record", "_record_batch")
+            ):
+                calls.append(
+                    {
+                        kw.arg
+                        for kw in inner.keywords
+                        if kw.arg == "backend"
+                        and not (
+                            isinstance(kw.value, ast.Constant) and kw.value.value == ""
+                        )
+                    }
+                )
+        if calls:
+            result[node.name] = (holds_client, calls)
+    return result
+
+
+def test_no_locally_decided_transition_names_a_backend() -> None:
+    """DEFECT 2, and the guard that generalises it.
+
+    `web/app.py` passed `backend=type(live.client).__name__` into
+    `reversal.confirm`. Confirming is a purely local act — a person said yes to
+    a list already on their screen — and `backend` on an `action_log` row means
+    "which Tally is this row evidence about". So the row asserted that a
+    connector produced evidence for an operation it never saw.
+
+    Same defect class as a provenance tag naming a reader that did not extract
+    the value. **A false attribution in an audit trail is worse than a missing
+    one, because the missing one is visible.**
+
+    The general rule, checked structurally: a function that does not hold a
+    `TallyClient` cannot name a backend, because it has no way to know one. The
+    signature enforces it for `confirm` — the parameter is gone — and this
+    catches the next function written without one.
+    """
+    recording = functions_that_record(
+        (PACKAGE / "reversal.py").read_text(encoding="utf-8")
+    )
+
+    assert "confirm" in recording, "the scan lost sight of the function it exists for"
+    offenders = {
+        name: calls
+        for name, (holds_client, calls) in recording.items()
+        if not holds_client and any(calls)
+    }
+    assert offenders == {}, (
+        f"these functions hold no connector and still name a backend, which "
+        f"attributes an audit row to a Tally that took no part in it: {offenders}"
+    )
+    # The control: functions that DO hold a client are found and do name one, so
+    # this is not passing because the scan sees nothing.
+    named_by_driver = [
+        name for name, (holds, calls) in recording.items() if holds and any(calls)
+    ]
+    assert sorted(named_by_driver) == ["_drive", "reconcile"]
+
+
+def test_confirm_cannot_be_handed_a_backend_at_all() -> None:
+    """Stronger than a test that the value is empty: the argument does not
+    exist, so no caller can pass one by mistake or by copy-paste."""
+    import inspect
+
+    assert "backend" not in inspect.signature(reversal.confirm).parameters
+
+    preview = reversal.Batch(
+        batch_id="b1",
+        company=COMPANY,
+        state=BatchState.PREVIEW,
+        baseline={},
+        detail="hand-built for this test",
+    )
+    # Splatted rather than written out, because a literal `backend=` here is a
+    # static type error and this assertion is about what happens AT RUNTIME to a
+    # caller who tries it anyway.
+    forbidden: dict[str, object] = {"backend": "RealTally"}
+    with pytest.raises(TypeError, match="backend"):
+        reversal.confirm(preview, **forbidden)  # type: ignore[arg-type]
+
+    assert reversal.confirm(preview).state is BatchState.CONFIRMED, (
+        "the control: the same call without it is accepted"
+    )
+
+
+def test_the_confirmation_row_records_no_backend_and_the_driven_rows_do() -> None:
+    """Both halves, in one test, so neither can drift into the other.
+
+    A confirmation names no Tally because none was involved. Everything the
+    driver and the reconciliation write DOES name one, because those rows are
+    evidence about a specific connector and a row that cannot say which is
+    useless as evidence about any of them.
+    """
+    _tally, log, _batches, _ops = twenty_events()
+    events = reversal.history(log.store.actions(COMPANY))
+
+    confirmations = [e for e in events if e.new_state == BatchState.CONFIRMED.value]
+    assert len(confirmations) == 2, "both batches were confirmed"
+    for event in confirmations:
+        assert event.backend == "", (
+            "a confirmation touches no Tally, so naming one is a false "
+            "attribution in the audit trail"
+        )
+        assert event.actor == Actor.OPERATOR
+        assert event.complete, "and it still carries all seven required fields"
+
+    driven = [e for e in events if e.new_state != BatchState.CONFIRMED.value]
+    assert driven, "the control: there are rows that SHOULD name a backend"
+    assert {e.backend for e in driven} == {"DropsTheConnection"}
