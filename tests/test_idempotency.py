@@ -575,9 +575,19 @@ def test_the_refused_replay_is_recorded_and_reports_no_second_posting(server: st
 def test_the_same_answer_sent_twice_is_refused_and_recorded_once(server: str):
     """The second copy of an answer must not become a second answer.
 
-    It is refused because the value is not among the options offered for the
-    question now outstanding - the funding question, which does not offer an
-    expense ledger. 400 rather than 503: the request is wrong, not the service.
+    It is refused because the QUESTION it names is not the question this entry
+    is asking. The first answer retired the purpose question and the entry moved
+    on to the funding one, so the second copy is bound to nothing and
+    `Decision.refuse_answer` turns it away before a ledger leg is touched.
+
+    This said, until 2026-08-10, that the refusal came from the VALUE not being
+    among the options the funding question offers. That was true then and it was
+    never the property worth resting on: it held only because the two questions
+    in this app happen to offer disjoint sets. A replayed answer whose value the
+    NEXT question also offers went straight through and moved the wrong leg,
+    which is the defect `tests/test_answer_binding.py` was written for.
+
+    400 rather than 503: the request is wrong, not the service.
     """
     asked = submit(server, "/entry", text=UNKNOWN)[1]
     d = draft_id(asked)

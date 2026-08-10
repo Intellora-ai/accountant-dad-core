@@ -171,6 +171,39 @@ def draft_for(draft_id: str, live: Runtime) -> pipeline.Draft | None:
     return draft
 
 
+def answer_refusal(draft: pipeline.Draft, problem_id: str, value: str) -> str:
+    """Why this answer is not an answer to the question this entry is asking.
+
+    Empty string means it is, and the route may proceed. Anything else is a 400
+    and NOTHING is touched — no ledger leg, no memory correction, no log row,
+    not even a read of Tally.
+
+    WHY THE CHECK IS SCOPED TO UNCLEAR, and why that is a scope and not a hole.
+
+    Only an UNCLEAR entry is asking anything, so only an UNCLEAR entry has a
+    question for an answer to be bound to. The other two outcomes reach this
+    route as replays, and each already has a guard that owns it:
+
+        VALID      the entry is in the books. `pipeline.post` refuses the
+                   duplicate operation id, the person gets a 503 saying the
+                   service would not do it twice, and a durable row records the
+                   refusal. Answering 400 here instead would replace a refusal
+                   that names the real reason with one that does not.
+        NOT_VALID  the entry was handed over or ran out of questions. There is
+                   nothing outstanding, nothing is posted, and the books do not
+                   move however many times the form is resubmitted.
+
+    Both are pinned in `tests/test_idempotency.py`. Stepping aside for them is
+    the point: this guard exists to stop an answer reaching the WRONG LEDGER
+    LEG, and neither of those paths reaches a ledger leg at all.
+    """
+    if draft.decision is None or draft.decision.outcome is not Outcome.UNCLEAR:
+        return ""
+    return draft.decision.refuse_answer(
+        operation_id=draft.operation_id, problem_id=problem_id, value=value
+    )
+
+
 def batch_for(batch_id: str, live: Runtime) -> reversal.Batch | None:
     """The previewed batch, but only if it is for the company we are bound to.
 
@@ -1410,29 +1443,44 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(render_home("<div class=warn>draft expired</div>"))
                 return
             value = form.get("value", "")
-            problem = form.get("problem", "which_account")
+            # NO DEFAULT. This read `form.get("problem", "which_account")`, so a
+            # POST that named no question at all was treated as an answer to the
+            # purpose question — the one whose answer sets the EXPENSE leg.
+            # Guessing which question an answer belongs to IS the defect below,
+            # in its quietest form. An absent id is now an empty one, which
+            # matches no question and is refused.
+            problem = form.get("problem", "")
             learn = False
 
-            # The answer must be one WE OFFERED. `decide_problems` already
-            # computes the exact allowed set and puts it on the decision as
-            # `question_options`; until 2026-08-09 nothing outside tests read
-            # it, and this handler wrote whatever the form carried straight
-            # onto a ledger leg through `pipeline.answer`.
+            # THE ANSWER MUST BE BOUND TO THE QUESTION IT CLAIMS TO ANSWER.
             #
-            # A hand-made POST could therefore set the debit account to any
-            # string at all. It failed closed one step later — `accounts_exist`
-            # refuses a ledger the chart does not hold — but that is a
-            # coincidence of the decision order, not a check, and it would stop
-            # being true the moment somebody sent a string that IS in the
-            # chart but was never offered for this question.
+            # Since 2026-08-09 this checked the VALUE against the exact set the
+            # decision offered, and nothing else. The problem id — which is what
+            # `pipeline.answer` reads to choose WHICH LEDGER LEG the answer
+            # lands on — came straight off the form and was compared to nothing.
+            #
+            # So an answer the system really did offer, filed against a question
+            # it was not offered for, passed the guard and went to the other
+            # leg. Measured over HTTP, 2026-08-10, demo company, unseen vendor:
+            # the page asked `which_account` offering Purchases; the POST said
+            # `problem=funding_is_named&value=Purchases`; the reply was 200 and
+            # the draft's credit_account became "Purchases". The books would
+            # then say the money came out of an expense account.
+            #
+            # The value guard could not have caught it. "Purchases" WAS offered.
+            # What was never offered is the PAIRING.
+            #
+            # The whole check lives on `Decision` — the artefact that computed
+            # the question — and runs BEFORE the runtime is read, before the
+            # handover, yes and retype branches, and before `pipeline.answer`.
+            # A refusal that half-applies an answer is worse than accepting it.
             #
             # 400, not 503: the request is wrong, not the service.
-            offered = d.decision.question_options if d.decision else ()
-            if offered and value not in offered:
+            refusal = answer_refusal(d, problem, value)
+            if refusal:
                 self._send(
                     page(
-                        f"<div class=warn><b>{esc(value)}</b> was not one of the "
-                        "answers offered for this question, so nothing was "
+                        f"<div class=warn>{esc(refusal)}, so nothing was "
                         "changed.</div>"
                         + render_decision(d)
                         + '<p><a href="/">&larr; back</a></p>'

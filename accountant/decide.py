@@ -112,6 +112,26 @@ def decide_problems(
             reason=nxt.detail,
             question_options=tuple(a.value for a in question.answers),
             operation_id=operation_id,
+            # The id an answer must carry back. Stamped here, beside the
+            # options, because these two together ARE the question: a set of
+            # allowed answers means nothing without the question it was offered
+            # for, and reading them apart is exactly how an offered value ended
+            # up on a ledger leg nobody offered it for.
+            #
+            # `question.problem_id` and NOT `nxt.id`, though `problems.py`
+            # forces them equal and says at length why. Two reasons to take it
+            # from the question:
+            #
+            #   it is the string the page renders into the form, so the id the
+            #   decision checks is the id that comes back;
+            #   it is the string `pipeline.answer` reads to choose WHICH LEDGER
+            #   LEG the answer lands on, which is the thing being protected.
+            #
+            # Binding to the leg-choosing id is the fix. `nxt.id` is the id this
+            # function FILTERS on — a different job, and on the one path where
+            # the two could differ, binding to it would refuse every honest
+            # answer rather than the dishonest one.
+            question_problem_id=question.problem_id,
         )
 
     return Decision(
