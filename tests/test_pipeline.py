@@ -597,21 +597,75 @@ def test_a_brand_new_company_never_posts_silently():
 # ---- vendor spelling variants ----------------------------------------------
 
 
+def _draft_for(t: FakeTally, memory: CompanyMemory, spelling: str) -> pipeline.Draft:
+    return pipeline.run(
+        COMPANY,
+        typed(f"paid {spelling} 4200 cement"),
+        "text/plain",
+        TypedTextExtractor(),
+        t,
+        memory,
+        today=TODAY,
+    )
+
+
 def test_spelling_variants_of_one_vendor_are_the_same_vendor():
+    """A spelling is noise. Case, doubled spaces and the M/s prefix all collapse.
+
+    REWRITTEN 2026-08-10, owner ruling D-05. This used to include
+    "M/s Sharma Traders Pvt Ltd" in the list below and require it to post
+    VALID off a bare "Sharma Traders" history. It no longer does, and the case
+    has moved to its own test underneath, because it is not a spelling variant
+    - see there.
+
+    "M/s Sharma Traders" IS still here. The prefix is noise and always was; the
+    ruling only removed the LEGAL FORM from this list.
+    """
     hist = past("Sharma Traders", "Purchases", n=10)
     t = tally(hist)
     memory = memory_for(t)
-    for spelling in ("M/s Sharma Traders Pvt Ltd", "SHARMA TRADERS", "Sharma  Traders"):
-        d = pipeline.run(
-            COMPANY,
-            typed(f"paid {spelling} 4200 cement"),
-            "text/plain",
-            TypedTextExtractor(),
-            t,
-            memory,
-            today=TODAY,
-        )
-        assert d.outcome is Outcome.VALID, spelling
+    for spelling in (
+        "M/s Sharma Traders",
+        "M.S. Sharma Traders",
+        "SHARMA TRADERS",
+        "Sharma  Traders",
+    ):
+        assert _draft_for(t, memory, spelling).outcome is Outcome.VALID, spelling
+
+
+def test_a_legal_form_the_history_never_saw_asks_instead_of_posting():
+    """Required regression: AMBIGUOUS cannot reach an automatic posting.
+
+    OWNER RULING D-05, 2026-08-10. This assertion is the exact inverse of what
+    `test_spelling_variants_of_one_vendor_are_the_same_vendor` used to require
+    of this same input. That older test treated "M/s Sharma Traders Pvt Ltd" as
+    a third spelling of "Sharma Traders" and demanded it post VALID; the owner
+    ruled that a bare name and a Pvt Ltd of that name are AMBIGUOUS, not the
+    same supplier, and that ambiguity must ask or hand over rather than post.
+
+    So the older test was not merely superseded - it was asserting the defect.
+    Ten vouchers of history for the sole proprietor say nothing about the
+    private limited company, and posting against them would put one firm's
+    payment into another firm's account, silently.
+
+    The cost is one question. The old behaviour's cost was a wrong ledger.
+    """
+    hist = past("Sharma Traders", "Purchases", n=10)
+    t = tally(hist)
+    memory = memory_for(t)
+
+    # "Sharma Traders & Co" is deliberately NOT exercised here: the typed-text
+    # extractor stops the party at the "&", so the pipeline never sees the
+    # trading style and the case cannot be tested through this surface. It is
+    # asserted directly in tests/test_legal_identity.py instead.
+    draft = _draft_for(t, memory, "M/s Sharma Traders Pvt Ltd")
+
+    assert draft.outcome is Outcome.UNCLEAR
+    assert draft.outcome is not Outcome.VALID
+    assert draft.posted_tally_id is None
+    assert draft.voucher.debit_account == ""
+    assert draft.voucher.party == "M/s Sharma Traders Pvt Ltd"
+    assert draft.problems
 
 
 # ---- checks report a count -------------------------------------------------

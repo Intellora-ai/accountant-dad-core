@@ -313,17 +313,47 @@ def test_an_answer_is_stored_under_the_vendor_key_not_the_typed_spelling(server:
     Proved through the app's own surface: a DIFFERENT spelling of the same
     supplier posts straight through afterwards, which only happens if the answer
     was written against the normalised vendor key inside this company's scope.
+
+    REWRITTEN 2026-08-10, owner ruling D-05. The second entry used to read
+    "M/s Gupta Hardware Pvt Ltd" and was expected to post straight through off
+    an answer given for a bare "Gupta Hardware". Under the ruling that is not a
+    respelling, it is a different legal person, and the two are AMBIGUOUS. The
+    re-spelling used here is now "M/s GUPTA HARDWARE." - prefix, case and
+    punctuation, which is what this test was always actually about.
+
+    The Pvt Ltd case is asserted below, in its own test, where it belongs.
     """
     asked = post(server, "/entry", text="paid Gupta Hardware 1500 for tools")
     answer_purpose_and_funding(server, asked, "Purchases")
 
-    again = post(
-        server, "/entry", text="paid M/s Gupta Hardware Pvt Ltd 1600 for tools"
-    )
+    again = post(server, "/entry", text="paid M/s GUPTA HARDWARE. 1600 for tools")
     assert "posted" in again.lower()
     written = app.runtime().client.list_our_vouchers(app.COMPANY)[-1]
     assert written.debit_account == "Purchases"
     assert written.amount_paise == 160000
+
+
+def test_an_answer_for_the_bare_name_does_not_post_for_the_private_limited(
+    server: str,
+):
+    """Required regression, through the running app: ambiguity asks.
+
+    OWNER RULING D-05, 2026-08-10. An answer given for "Gupta Hardware" is
+    evidence about the sole proprietor. It is not evidence about "Gupta
+    Hardware Pvt Ltd", which is a separate registration with its own GSTIN and
+    its own books, so the second entry must ask rather than post.
+    """
+    asked = post(server, "/entry", text="paid Gupta Hardware 1500 for tools")
+    answer_purpose_and_funding(server, asked, "Purchases")
+    before = len(app.runtime().client.list_our_vouchers(app.COMPANY))
+
+    post(server, "/entry", text="paid M/s Gupta Hardware Pvt Ltd 1600 for tools")
+
+    # the WRITE COUNT is the assertion. A page can say "posted" for reasons
+    # that have nothing to do with this entry; a voucher in Tally cannot.
+    after = app.runtime().client.list_our_vouchers(app.COMPANY)
+    assert len(after) == before
+    assert all(v.amount_paise != 160000 for v in after)
 
 
 # ---- #14.1 / #14.5: a known vendor posts straight through -------------------

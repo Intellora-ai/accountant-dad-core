@@ -743,36 +743,53 @@ def test_an_llp_invoice_is_never_posted_to_the_limited_companys_account() -> Non
         is a question. That costs one question; the old behaviour cost a
         voucher in the wrong ledger.
 
-    THE RESIDUAL, PINNED AND REPORTED, NOT FIXED
-        The Ltd/Limited family and the "& Co" family are STILL stripped, so
-        "Acme Ltd", "Acme Private Limited", "Acme & Co" and a bare "Acme" all
-        remain one key. In law those are four different persons. This is not an
-        oversight and it is not mine to change here: `tests/test_memory.py:994`
-        requires `normalise_vendor("M/s Sharma Traders Pvt Ltd")`,
-        `"Messrs Sharma Traders Private Limited"` and `"Ms. Sharma Traders & Co"`
-        to equal `sharma_traders`, and that file is owned elsewhere. Splitting
-        them needs an owner decision on that test first. Asserted below so the
-        gap is a recorded fact rather than a surprise.
+    THE RESIDUAL, CLOSED 2026-08-10 BY OWNER RULING D-05
+        This block used to pin a gap. The Ltd/Limited and "& Co" families were
+        STILL stripped, so "Acme Ltd", "Acme Private Limited", "Acme & Co" and
+        a bare "Acme" were one key - four different persons in law sharing one
+        memory row. It was pinned rather than fixed because
+        `tests/test_memory.py` required that merge and was owned elsewhere.
+
+        The owner has now ruled: legal forms are identity-bearing and must
+        never be silently removed. `normalise_vendor` CANONICALISES the form
+        instead of deleting it, `test_memory.py` has been rewritten, and the
+        four names are now four keys. The assertions below flipped from pinning
+        the merge to forbidding it.
+
+        One key moved as part of the same ruling: "Acme Corporation" now keys
+        as `acme_corp` rather than `acme_corporation`. That is deliberate and
+        the owner confirmed it - "Corp" and "Corporation" are one legal form
+        written two ways, and splitting them cost a question for nothing. Note
+        that this is the SAFE direction of merge: it joins two spellings of one
+        registration, never two registrations.
     """
     # Four legal forms, four keys. Distinctness is asserted pairwise, not just
-    # against `acme`, because two of them sharing a key is the same defect.
+    # against `acme_ltd`, because two of them sharing a key is the same defect.
     keys = {
         ACME_LLP: "acme_llp",
         "Acme Inc": "acme_inc",
         "Acme Corp": "acme_corp",
-        "Acme Corporation": "acme_corporation",
+        "Acme Corporation": "acme_corp",
     }
     for name, expected in keys.items():
         assert normalise_vendor(name) == expected, name
         assert normalise_vendor(name) != normalise_vendor(ACME_LTD), name
-    assert len(set(keys.values())) == len(keys)
 
-    # PINNED and REPORTED: the Ltd/&Co families still collapse onto the bare
-    # name. See the docstring - blocked on tests/test_memory.py:994.
-    assert normalise_vendor(ACME_LTD) == "acme"
-    assert normalise_vendor("Acme Private Limited") == "acme"
-    assert normalise_vendor("Acme & Co") == "acme"
+    # FORBIDDEN, where it used to be pinned: the Ltd and "& Co" families no
+    # longer collapse onto the bare name, nor onto each other.
+    assert normalise_vendor(ACME_LTD) == "acme_ltd"
+    assert normalise_vendor("Acme Private Limited") == "acme_pvt_ltd"
+    assert normalise_vendor("Acme & Co") == "acme_and_co"
     assert normalise_vendor("Acme") == "acme"
+    assert (
+        len(
+            {
+                normalise_vendor(n)
+                for n in (ACME_LTD, "Acme Private Limited", "Acme & Co", "Acme")
+            }
+        )
+        == 4
+    )
 
     t = _tally(_history(ACME_LTD, "Purchases"))
     store = MemoryStore(":memory:")

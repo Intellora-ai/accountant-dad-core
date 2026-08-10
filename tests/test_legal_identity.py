@@ -58,19 +58,28 @@ fake, is involved in any claim made here.
 
 from __future__ import annotations
 
+import datetime
+import sqlite3
+import tempfile
 import unicodedata
+from pathlib import Path
 
 import pytest
 
+from accountant.memory.bootstrap import bootstrap
 from accountant.memory.identity import (
+    IdentityEvidence,
     SupplierVerdict,
+    compare_recorded_supplier,
     compare_suppliers,
     legal_form,
     normalise_text,
     same_supplier,
 )
 from accountant.memory.index import MemoryIndex, normalise_vendor
-from accountant.schema import MatchStatus
+from accountant.memory.store import MemoryStore
+from accountant.schema import MatchStatus, Voucher
+from accountant.tallyio.fake import FakeTally
 
 SAME = SupplierVerdict.SAME
 DIFFERENT = SupplierVerdict.DIFFERENT
@@ -90,18 +99,27 @@ COLLIDING_PAIRS: tuple[tuple[str, str], ...] = (
     ("Ganesh  Textiles", "Ganesh Textiles"),
 )
 
-#: One stem, six legal forms, six legal persons. Every one of these was named
-#: by the owner in D-05. Pairwise distinctness is asserted, not just
+#: STRONG forms: registered legal persons, and mutually exclusive. A firm
+#: cannot be a Ltd and an LLP at once, so two different ones prove two
+#: different suppliers. Pairwise distinctness is asserted, not just
 #: distinctness from `Acme Ltd`, because any two of them colliding is the same
 #: defect wearing a different pair of names.
-NAMED_FORMS: dict[str, str] = {
+STRONG_FORMS: dict[str, str] = {
     "Acme Ltd": "ltd",
     "Acme Pvt Ltd": "pvt_ltd",
     "Acme LLP": "llp",
     "Acme Inc": "inc",
     "Acme Corp": "corp",
-    "Acme & Co": "and_co",
 }
+
+#: The WEAK form. "& Co" is a trading style, not a registration: "Acme & Co"
+#: can be how "Acme Pvt Ltd" writes itself on an invoice. It therefore never
+#: proves difference, only ambiguity. Forced by the owner's own table on
+#: 2026-08-10 - row 4 requires `Pvt Ltd` vs `& Co` to be AMBIGUOUS, which is
+#: impossible if "& Co" is mutually exclusive with anything.
+WEAK_FORM = "Acme & Co"
+
+NAMED_FORMS: dict[str, str] = {**STRONG_FORMS, WEAK_FORM: "and_co"}
 
 #: Two spellings of ONE legal form. A company writes its own form both ways on
 #: its own invoices; that is a keyboard difference, not a different taxpayer.
@@ -174,19 +192,33 @@ def test_every_collider_this_repository_has_measured_is_one_supplier(
     assert same_supplier(written, again) is True
 
 
-def test_the_ms_prefix_written_two_ways_reaches_one_supplier() -> None:
-    """Called out because `normalise_vendor` gets this pair WRONG today.
+def test_the_ms_prefix_written_four_ways_reaches_one_supplier() -> None:
+    """FIXED 2026-08-10, owner ruling D-05. Prefixes are matched after the fold.
 
-    `M/s` is stripped by a literal prefix match, so `M.S.` - the same
-    salutation with stops instead of a slash - misses the match and keys
-    separately. The technical fold has no prefix list: it turns both into the
-    same characters before anything looks at them, so the pair lands together
-    without a special case.
+    WHAT IT USED TO DO
+        `normalise_vendor` matched the LITERAL strings "m/s", "ms." and
+        "messrs" against the head of the raw name. "M.S. Sharma Traders" - the
+        same salutation with stops instead of a slash - matched none of them,
+        so it keyed as `m_s_sharma_traders` while "M/s Sharma Traders" keyed as
+        `sharma_traders`. One supplier, two keys, and the second one never
+        found its own history.
+
+    WHAT IT DOES NOW
+        The prefix list is matched against the FOLDED WORDS, and both "M/s" and
+        "M.S." fold to the words ("m", "s") before anything looks at them. All
+        four spellings reach one key and one identity, with no special case for
+        the punctuation.
     """
-    assert compare_suppliers("M/s Sharma Traders", "M.S. Sharma Traders") is SAME
-    assert normalise_vendor("M/s Sharma Traders") != normalise_vendor(
-        "M.S. Sharma Traders"
+    spellings = (
+        "M/s Sharma Traders",
+        "M.S. Sharma Traders",
+        "Ms. Sharma Traders",
+        "Messrs Sharma Traders",
     )
+    for written in spellings:
+        assert normalise_vendor(written) == "sharma_traders", written
+        assert compare_suppliers(written, "Sharma Traders") is SAME, written
+        assert same_supplier(written, "Sharma Traders") is True, written
 
 
 # ---------------------------------------------------------------------------
@@ -212,18 +244,35 @@ def test_an_inc_and_a_corp_are_never_the_same_supplier() -> None:
     assert same_supplier("Acme Inc", "Acme Corp") is False
 
 
-def test_every_named_legal_form_is_distinct_from_every_other() -> None:
+def test_every_strong_legal_form_is_distinct_from_every_other() -> None:
     """Pairwise, not just against `Acme Ltd`. Any two colliding is the defect."""
     forms = {name: legal_form(name) for name in NAMED_FORMS}
 
     assert forms == NAMED_FORMS
     assert len(set(forms.values())) == len(NAMED_FORMS)
 
-    names = tuple(NAMED_FORMS)
+    names = tuple(STRONG_FORMS)
     for i, one in enumerate(names):
         for other in names[i + 1 :]:
             assert compare_suppliers(one, other) is DIFFERENT, f"{one} / {other}"
             assert same_supplier(one, other) is False, f"{one} / {other}"
+
+
+def test_a_trading_style_never_proves_difference_only_ambiguity() -> None:
+    """ "& Co" against every STRONG form. AMBIGUOUS every time, never DIFFERENT.
+
+    Owner ruling D-05, 2026-08-10, row 4 of the required table:
+    `Sharma Traders Pvt Ltd` vs `Sharma Traders & Co` is AMBIGUOUS. That is
+    only possible if "& Co" is a trading style rather than a registration - a
+    Pvt Ltd may perfectly well trade as "& Co". Treating it as a sixth
+    mutually-exclusive form would make every one of these DIFFERENT and would
+    automatically SEPARATE two names that may be one firm, which claims
+    certainty exactly as automatic merging does.
+    """
+    for name in STRONG_FORMS:
+        assert compare_suppliers(WEAK_FORM, name) is AMBIGUOUS, name
+        assert compare_suppliers(name, WEAK_FORM) is AMBIGUOUS, name
+        assert same_supplier(WEAK_FORM, name) is False, name
 
 
 @pytest.mark.parametrize(("written", "again"), FORM_SPELLINGS)
@@ -371,15 +420,20 @@ def test_the_technical_fold_is_deterministic_and_idempotent() -> None:
 
 
 def test_the_index_refuses_accounts_recorded_against_a_different_legal_form() -> None:
-    """The bucket is shared and the answer is not. This is the whole point.
+    """Two legal persons, two keys AND two answers. Belt and braces, on purpose.
 
-    `normalise_vendor` strips the Ltd family, so `Bharat Steel Pvt Ltd` and
-    `Bharat Steel Ltd` land on ONE key - asserted below so the shared bucket is
-    a stated fact rather than an assumption. The index still refuses to answer
-    the Ltd with the Pvt Ltd's account, because it kept the name it was given
-    and compares it.
+    The key CANONICALISES the legal form rather than deleting it, so these two
+    never share a bucket in the first place - asserted below, because "they
+    cannot collide" is a stronger guarantee than "they collide and we sort it
+    out afterwards", and it is the guarantee the store path relies on since it
+    applies no identity check of its own.
+
+    The decision layer refuses as well. Both are asserted so that widening the
+    key later cannot silently remove the protection.
     """
-    assert normalise_vendor("Bharat Steel Pvt Ltd") == normalise_vendor(
+    assert normalise_vendor("Bharat Steel Pvt Ltd") == "bharat_steel_pvt_ltd"
+    assert normalise_vendor("Bharat Steel Ltd") == "bharat_steel_ltd"
+    assert normalise_vendor("Bharat Steel Pvt Ltd") != normalise_vendor(
         "Bharat Steel Ltd"
     )
 
@@ -392,6 +446,8 @@ def test_the_index_refuses_accounts_recorded_against_a_different_legal_form() ->
     assert refused.status is not MatchStatus.MATCH
     assert refused.accounts == ()
     assert index.times_posted("Bharat Steel Ltd", "Purchases") == 0
+    # and the decision layer says so independently of the key
+    assert compare_suppliers("Bharat Steel Pvt Ltd", "Bharat Steel Ltd") is DIFFERENT
 
 
 def test_the_index_answers_for_the_same_legal_form_spelled_two_ways() -> None:
@@ -447,69 +503,276 @@ def test_the_index_still_answers_a_bare_name_from_a_bare_history() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_vendor_key_still_merges_the_ltd_family_today() -> None:
-    """PINNED, NOT ENDORSED. D-05 is not honoured on the live lookup path.
+def test_the_vendor_key_no_longer_merges_the_ltd_family() -> None:
+    """REWRITTEN 2026-08-10, owner ruling D-05. It used to pin the merge.
 
-    WHAT THE OWNER DECIDED
-        Do not silently merge Ltd, Pvt Ltd, LLP, Inc, Corp or & Co.
+    WHAT THIS TEST USED TO REQUIRE
+        That "Acme Ltd", "Acme Private Limited", "Acme & Co" and a bare "Acme"
+        all key as `acme`. It pinned the merge deliberately, as a recorded gap,
+        because three assertions in files owned elsewhere required it and
+        splitting them needed an owner decision.
 
-    WHAT `normalise_vendor` STILL DOES
-        Strips the Ltd/Limited and "& Co"/Company families off the end of the
-        name, so all four names below reach one key.
+    WHY THAT CHANGED
+        The owner made the decision. Legal forms are identity-bearing and must
+        never be silently removed. So the key CANONICALISES the form instead of
+        deleting it, and the four names are now four keys.
 
-    WHY IT WAS NOT CHANGED HERE
-        Three assertions in two files owned elsewhere require exactly this
-        merge, and one of them requires it at the LOOKUP level, not just on the
-        key:
-
-            tests/test_memory.py:1001-1006  the key of "M/s Sharma Traders Pvt
-                Ltd", "Messrs Sharma Traders Private Limited" and "Ms. Sharma
-                Traders & Co" must equal `sharma_traders`
-            tests/test_memory.py:646-653    company B's "Sharma Traders" and
-                "M/s Sharma Traders Pvt Ltd" must be ONE vendor, posted twice
-            tests/test_adversarial_identity.py:772-775  the same merge, pinned
-                and already reported there as blocked on an owner decision
-
-        Even with those three changed, the legal form would still not reach the
-        live lookup: `accountant/memory/company.py:300` builds the index from
-        `Observation.subject`, which is the already-stripped key, and the store
-        keeps no raw name. Both files are owned elsewhere. See the report.
-
-    WHY THE INDEX TESTS ABOVE STILL PASS
-        They hand `MemoryIndex` the raw name, which is what
-        `MemoryIndex.from_vouchers` does. The filter is real wherever the raw
-        name survives; it is a no-op wherever the key arrives already stripped,
-        because a stripped key states no legal form and states-no-form is
-        AMBIGUOUS, not DIFFERENT.
+    WHY CANONICALISE RATHER THAN JUST KEEP THE WORDS
+        Because "Acme Ltd" and "Acme Limited" are one supplier writing its own
+        form two ways. Keeping the raw words would split them and cost a
+        question for nothing; canonicalising merges the spellings and keeps the
+        forms apart, which is the whole point.
     """
-    merged = ("Acme Ltd", "Acme Private Limited", "Acme & Co", "Acme")
+    keys = {
+        "Acme Ltd": "acme_ltd",
+        "Acme Limited": "acme_ltd",
+        "Acme Private Limited": "acme_pvt_ltd",
+        "Acme Pvt. Ltd.": "acme_pvt_ltd",
+        "Acme & Co": "acme_and_co",
+        "Acme and Co": "acme_and_co",
+        "Acme Company": "acme_and_co",
+        "Acme Corp": "acme_corp",
+        "Acme Corporation": "acme_corp",
+        "Acme": "acme",
+    }
+    for name, expected in keys.items():
+        assert normalise_vendor(name) == expected, name
 
-    assert {normalise_vendor(n) for n in merged} == {"acme"}
+    # five legal persons, five keys - "Acme Ltd", "Acme Pvt Ltd", "Acme & Co",
+    # "Acme Corp" and the bare "Acme". The merge this test used to pin folded
+    # the first three and the bare name onto one.
+    assert len({normalise_vendor(n) for n in keys}) == 5
 
-    # and the identity rule disagrees with every one of those merges
+    # and the identity layer agrees with the key on every one of them
     assert compare_suppliers("Acme Ltd", "Acme Private Limited") is DIFFERENT
-    assert compare_suppliers("Acme Ltd", "Acme & Co") is DIFFERENT
+    assert compare_suppliers("Acme Ltd", "Acme & Co") is AMBIGUOUS
     assert compare_suppliers("Acme Ltd", "Acme") is AMBIGUOUS
-    assert same_supplier("Acme Ltd", "Acme Private Limited") is False
+    assert compare_suppliers("Acme Ltd", "Acme Limited") is SAME
 
 
-def test_a_stripped_key_states_no_legal_form_so_it_refuses_nothing() -> None:
-    """The exact shape of the no-op above, asserted rather than asserted about.
+def test_a_key_and_the_name_it_came_from_are_the_same_supplier() -> None:
+    """The key is identity-preserving, so it compares SAME with its own name.
 
-    `CompanyMemory.index()` records `Observation.subject`. By then "Acme LLP"
-    is `acme_llp` and "Acme Ltd" is `acme`. The first still compares SAME with
-    the name it came from - underscores are separators to the fold - and the
-    second states no form at all, so it can only ever reach AMBIGUOUS. Nothing
-    the live path does is made stricter by the filter, and nothing is broken by
-    it either.
+    This is what makes `CompanyMemory.index()` safe while `company.py` is still
+    gated: it feeds `MemoryIndex` the stored subject rather than the raw name,
+    and a canonical key still carries the stem and the form, so the comparison
+    is faithful rather than a guess. It would NOT be faithful against a key the
+    legal form had been stripped out of - which is the reason the key was not
+    widened. Underscores are separators to the fold, so a key round-trips.
     """
-    assert compare_suppliers("acme_llp", "Acme LLP") is SAME
-    assert compare_suppliers("sharma_traders", "Sharma Traders") is SAME
-    assert compare_suppliers(normalise_vendor("Acme Ltd"), "Acme Ltd") is AMBIGUOUS
-    assert compare_suppliers(normalise_vendor("Acme Ltd"), "Acme LLP") is AMBIGUOUS
+    for name in ("Acme LLP", "Sharma Traders", "Bharat Steel Pvt Ltd", "Acme & Co"):
+        assert compare_suppliers(normalise_vendor(name), name) is SAME, name
+
+
+def test_an_incomplete_row_is_never_a_confident_match() -> None:
+    """No raw name means no evidence, and no evidence means no merge.
+
+    A row written before `raw_subject` existed carries only a key the strip has
+    already been through. The tempting shortcut is "the query states no form
+    either, so nothing is in play" - and that is exactly the inference the
+    owner forbade, because the vanished name may well have been a Pvt Ltd and a
+    bare name against a Pvt Ltd is itself AMBIGUOUS.
+    """
+    assert compare_recorded_supplier(None, "Sharma Traders") is AMBIGUOUS
+    assert compare_recorded_supplier(None, "Sharma Traders Pvt Ltd") is AMBIGUOUS
+    assert compare_recorded_supplier(None, "") is AMBIGUOUS
+    assert compare_recorded_supplier("Sharma Traders", "Sharma Traders") is SAME
 
     index = MemoryIndex()
-    index.record(normalise_vendor("Acme Ltd"), "Purchases")
+    index.record_observed(
+        normalised_subject="sharma_traders", raw_subject=None, account="Purchases"
+    )
 
-    assert index.lookup("Acme LLP").status is MatchStatus.NO_MATCH  # different key
-    assert index.lookup("Acme Ltd").accounts == ("Purchases",)
+    blind = index.lookup("Sharma Traders")
+
+    assert blind.status is MatchStatus.NO_MATCH
+    assert blind.accounts == ()
+    assert index.times_posted("Sharma Traders", "Purchases") == 0
+
+
+def test_the_store_keeps_the_raw_name_and_reports_its_own_evidence() -> None:
+    """`raw_subject` survives the round trip and `identity_evidence` follows it."""
+    store = MemoryStore()
+    store.record_vendor(
+        "co",
+        normalise_vendor("M/s Sharma Traders Pvt Ltd"),
+        "Purchases",
+        provenance="test",
+        raw_subject="M/s Sharma Traders Pvt Ltd",
+    )
+
+    (back,) = store.vendor("co", "sharma_traders_pvt_ltd")
+
+    assert back.raw_subject == "M/s Sharma Traders Pvt Ltd"
+    assert back.identity_evidence is IdentityEvidence.COMPLETE
+    assert compare_recorded_supplier(back.raw_subject, "Sharma Traders Pvt Ltd") is SAME
+
+
+def test_a_row_written_before_the_column_existed_reads_back_incomplete() -> None:
+    """The migration adds the column and leaves old rows NULL, which is the truth.
+
+    Backfilling `raw_subject` from `subject` would manufacture the evidence:
+    the key was produced by a strip and the legal form is not in it. So the row
+    says INCOMPLETE and is never a confident match.
+    """
+    store = MemoryStore()
+    store.record_vendor("co", "sharma_traders", "Purchases", provenance="test")
+
+    (back,) = store.vendor("co", "sharma_traders")
+
+    assert back.raw_subject is None
+    assert back.identity_evidence is IdentityEvidence.INCOMPLETE
+    assert compare_recorded_supplier(back.raw_subject, "Sharma Traders") is AMBIGUOUS
+
+
+def test_the_migration_adds_the_column_to_a_database_that_predates_it() -> None:
+    """An old file opens, gains the column, keeps its rows, and reports honestly."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "old.sqlite"
+        old = sqlite3.connect(str(path))
+        old.execute(
+            "CREATE TABLE vendor_account ("
+            "company_key TEXT NOT NULL, subject TEXT NOT NULL, "
+            "account TEXT NOT NULL, times INTEGER NOT NULL, "
+            "source_voucher_ids TEXT NOT NULL, provenance TEXT NOT NULL, "
+            "PRIMARY KEY (company_key, subject, account))"
+        )
+        old.execute(
+            "INSERT INTO vendor_account VALUES ('co', 'sharma_traders', "
+            "'Purchases', 4, '[]', 'tally_history')"
+        )
+        old.commit()
+        old.close()
+
+        store = MemoryStore(path)
+        (back,) = store.vendor("co", "sharma_traders")
+
+        # the row survived, untouched
+        assert back.times == 4
+        assert back.account == "Purchases"
+        # and it tells the truth about what it cannot prove
+        assert back.raw_subject is None
+        assert back.identity_evidence is IdentityEvidence.INCOMPLETE
+        store.close()
+
+
+def test_evidence_is_only_ever_gained_never_lost() -> None:
+    """A later write that knows no raw name must not erase one already stored."""
+    store = MemoryStore()
+    store.record_vendor(
+        "co",
+        "sharma_traders",
+        "Purchases",
+        provenance="test",
+        raw_subject="Sharma Traders",
+    )
+    store.record_vendor("co", "sharma_traders", "Purchases", provenance="test")
+
+    (back,) = store.vendor("co", "sharma_traders")
+
+    assert back.times == 2
+    assert back.raw_subject == "Sharma Traders"
+    assert back.identity_evidence is IdentityEvidence.COMPLETE
+
+
+def test_bootstrap_carries_the_raw_supplier_name_into_the_store() -> None:
+    """The producer end, through the public surface. Tally -> store, raw name intact.
+
+    Without this every stored row would be INCOMPLETE and the decision layer
+    would be permanently blind: `bootstrap` is the only thing that ever sees
+    `Voucher.party` before the key is built.
+    """
+    tally = FakeTally()
+    tally.add_company(
+        "Demo Co",
+        accounts=("Purchases", "Cash"),
+        vouchers=(
+            Voucher(
+                id="v1",
+                date=datetime.date(2026, 3, 1),
+                party="M/s Sharma Traders Pvt Ltd",
+                narration="cement",
+                debit_account="Purchases",
+                credit_account="Cash",
+                amount_paise=100000,
+            ),
+        ),
+    )
+    store = MemoryStore()
+    memory = bootstrap(tally, "Demo Co", store)
+
+    (row,) = store.vendors(memory.identity.key)
+
+    assert row.subject == "sharma_traders_pvt_ltd"
+    assert row.raw_subject == "M/s Sharma Traders Pvt Ltd"
+    assert row.identity_evidence is IdentityEvidence.COMPLETE
+    assert compare_recorded_supplier(row.raw_subject, "Sharma Traders Pvt Ltd") is SAME
+    assert compare_recorded_supplier(row.raw_subject, "Sharma Traders") is AMBIGUOUS
+
+
+# ---------------------------------------------------------------------------
+# the owner's required table, D-05, 2026-08-10
+# ---------------------------------------------------------------------------
+
+#: Exactly the six rows the owner wrote, in the owner's order.
+SHARMA_TABLE: tuple[tuple[str, str, SupplierVerdict], ...] = (
+    ("Sharma Traders", "M/s Sharma Traders", SAME),
+    ("Sharma Traders Pvt Ltd", "M/s Sharma Traders Pvt Ltd", SAME),
+    ("Sharma Traders & Co", "Ms. Sharma Traders & Co", SAME),
+    ("Sharma Traders Pvt Ltd", "Sharma Traders & Co", AMBIGUOUS),
+    ("Sharma Traders", "Sharma Traders Pvt Ltd", AMBIGUOUS),
+    ("Sharma Traders", "Sharma Traders & Co", AMBIGUOUS),
+)
+
+
+@pytest.mark.parametrize(("left", "right", "expected"), SHARMA_TABLE)
+def test_the_owners_required_table_row_by_row(
+    left: str, right: str, expected: SupplierVerdict
+) -> None:
+    """The ruling, asserted as the owner wrote it. Symmetric in both directions."""
+    assert compare_suppliers(left, right) is expected, f"{left} / {right}"
+    assert compare_suppliers(right, left) is expected, f"{right} / {left}"
+    assert same_supplier(left, right) is (expected is SAME)
+
+
+def test_no_row_of_the_owners_table_is_ever_different() -> None:
+    """The disconfirming check. A prefix is noise; "& Co" never proves apartness.
+
+    If "& Co" were treated as a registration, rows 4 and 6 would come back
+    DIFFERENT and the table above would still look reasonable read quickly.
+    This asserts the thing that would actually change.
+    """
+    for left, right, _ in SHARMA_TABLE:
+        assert compare_suppliers(left, right) is not DIFFERENT, f"{left} / {right}"
+
+
+def test_an_ambiguous_supplier_cannot_reach_an_automatic_posting() -> None:
+    """Required regression 12. Ambiguity asks; it never posts.
+
+    Asserted at the index, which is the layer that answers "what account did
+    this vendor use". No confident match means no accounts, and no accounts is
+    what `propose_account` turns into a question rather than a posting.
+    """
+    index = MemoryIndex()
+    for _ in range(40):
+        index.record("Sharma Traders", "Purchases")
+
+    for query in ("Sharma Traders Pvt Ltd", "Sharma Traders & Co"):
+        answer = index.lookup(query)
+        assert compare_suppliers("Sharma Traders", query) is AMBIGUOUS, query
+        assert answer.status is MatchStatus.NO_MATCH, query
+        assert answer.accounts == (), query
+
+
+def test_an_ambiguous_supplier_cannot_silently_merge_a_history() -> None:
+    """Required regression 13. Forty vouchers of history answer for nobody else."""
+    index = MemoryIndex()
+    for _ in range(40):
+        index.record("Sharma Traders Pvt Ltd", "Purchases")
+    index.record("Sharma Traders & Co", "Repairs")
+
+    assert index.lookup("Sharma Traders Pvt Ltd").accounts == ("Purchases",)
+    assert index.lookup("Sharma Traders & Co").accounts == ("Repairs",)
+    assert index.times_posted("Sharma Traders & Co", "Purchases") == 0
+    assert index.times_posted("Sharma Traders Pvt Ltd", "Repairs") == 0
+    assert index.lookup("Sharma Traders").status is MatchStatus.NO_MATCH

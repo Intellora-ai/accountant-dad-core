@@ -46,7 +46,11 @@ from enum import StrEnum
 from pathlib import Path
 from typing import cast
 
-from accountant.memory.identity import CompanyIdentity, normalise_company
+from accountant.memory.identity import (
+    CompanyIdentity,
+    IdentityEvidence,
+    normalise_company,
+)
 from accountant.schema import ActionLog
 
 IN_MEMORY = ":memory:"
@@ -77,6 +81,11 @@ SCHEMA: tuple[str, ...] = (
         times              INTEGER NOT NULL,
         source_voucher_ids TEXT    NOT NULL,
         provenance         TEXT    NOT NULL,
+        -- D-05, 2026-08-10. The name the SOURCE actually gave, kept beside the
+        -- key the strip produced. NULL means INCOMPLETE: a row written before
+        -- this column existed, whose legal form is gone and must never be
+        -- guessed back. `subject` finds candidates; this decides identity.
+        raw_subject        TEXT,
         PRIMARY KEY (company_key, subject, account)
     )
     """,
@@ -88,6 +97,11 @@ SCHEMA: tuple[str, ...] = (
         times              INTEGER NOT NULL,
         source_voucher_ids TEXT    NOT NULL,
         provenance         TEXT    NOT NULL,
+        -- D-05, 2026-08-10. The name the SOURCE actually gave, kept beside the
+        -- key the strip produced. NULL means INCOMPLETE: a row written before
+        -- this column existed, whose legal form is gone and must never be
+        -- guessed back. `subject` finds candidates; this decides identity.
+        raw_subject        TEXT,
         PRIMARY KEY (company_key, subject, account)
     )
     """,
@@ -246,6 +260,22 @@ class Observation:
     times: int
     source_voucher_ids: tuple[str, ...] = ()
     provenance: str = ""
+    raw_subject: str | None = None
+
+    @property
+    def identity_evidence(self) -> IdentityEvidence:
+        """Is there enough here to decide WHO this is, or only WHERE to look?
+
+        Derived from `raw_subject` rather than stored beside it. A second
+        column could disagree with the first, and a stored flag claiming
+        COMPLETE over a NULL name is exactly the false confidence D-05 exists
+        to stop.
+        """
+        return (
+            IdentityEvidence.INCOMPLETE
+            if self.raw_subject is None
+            else IdentityEvidence.COMPLETE
+        )
 
     def __post_init__(self) -> None:
         if self.times < 1:
@@ -266,36 +296,36 @@ class _Table:
 
 _VENDOR = _Table(
     select_one=(
-        "SELECT subject, account, times, source_voucher_ids, provenance "
+        "SELECT subject, account, times, source_voucher_ids, provenance, raw_subject "
         "FROM vendor_account WHERE company_key = ? AND subject = ? "
         "ORDER BY account"
     ),
     select_all=(
-        "SELECT subject, account, times, source_voucher_ids, provenance "
+        "SELECT subject, account, times, source_voucher_ids, provenance, raw_subject "
         "FROM vendor_account WHERE company_key = ? ORDER BY subject, account"
     ),
     upsert=(
         "INSERT OR REPLACE INTO vendor_account "
-        "(company_key, subject, account, times, source_voucher_ids, provenance) "
-        "VALUES (?, ?, ?, ?, ?, ?)"
+        "(company_key, subject, account, times, source_voucher_ids, provenance, "
+        "raw_subject) VALUES (?, ?, ?, ?, ?, ?, ?)"
     ),
     delete="DELETE FROM vendor_account WHERE company_key = ?",
 )
 
 _PHRASE = _Table(
     select_one=(
-        "SELECT subject, account, times, source_voucher_ids, provenance "
+        "SELECT subject, account, times, source_voucher_ids, provenance, raw_subject "
         "FROM phrase_account WHERE company_key = ? AND subject = ? "
         "ORDER BY account"
     ),
     select_all=(
-        "SELECT subject, account, times, source_voucher_ids, provenance "
+        "SELECT subject, account, times, source_voucher_ids, provenance, raw_subject "
         "FROM phrase_account WHERE company_key = ? ORDER BY subject, account"
     ),
     upsert=(
         "INSERT OR REPLACE INTO phrase_account "
-        "(company_key, subject, account, times, source_voucher_ids, provenance) "
-        "VALUES (?, ?, ?, ?, ?, ?)"
+        "(company_key, subject, account, times, source_voucher_ids, provenance, "
+        "raw_subject) VALUES (?, ?, ?, ?, ?, ?, ?)"
     ),
     delete="DELETE FROM phrase_account WHERE company_key = ?",
 )
@@ -359,6 +389,7 @@ def _row_to_observation(company_key: str, row: Sequence[object]) -> Observation:
         times=int(str(row[2])),
         source_voucher_ids=_ids_from(str(row[3])),
         provenance=str(row[4]),
+        raw_subject=None if row[5] is None else str(row[5]),
     )
 
 
@@ -374,7 +405,9 @@ def _ids_to(ids: Sequence[str]) -> str:
     return json.dumps(list(ids), sort_keys=True)
 
 
-def _observation_params(o: Observation) -> tuple[str, str, str, int, str, str]:
+def _observation_params(
+    o: Observation,
+) -> tuple[str, str, str, int, str, str, str | None]:
     return (
         o.company_key,
         o.subject,
@@ -382,6 +415,7 @@ def _observation_params(o: Observation) -> tuple[str, str, str, int, str, str]:
         o.times,
         _ids_to(o.source_voucher_ids),
         o.provenance,
+        o.raw_subject,
     )
 
 
@@ -393,7 +427,28 @@ class MemoryStore:
         self._db = sqlite3.connect(str(path))
         for statement in SCHEMA:
             self._db.execute(statement)
+        self._migrate()
         self._db.commit()
+
+    def _migrate(self) -> None:
+        """Add columns a file written by an older build does not have.
+
+        `raw_subject` arrived with D-05 on 2026-08-10. A database created
+        before it has the column added and every existing row left NULL, which
+        is the truth: those rows were keyed by a strip that threw the legal
+        form away, and nothing can recover it. They read back as INCOMPLETE and
+        are never a confident match. Backfilling them from `subject` would
+        manufacture the evidence.
+
+        Additive only. No row is rewritten, so the migration cannot lose data
+        and does not need to be undone.
+        """
+        for table in ("vendor_account", "phrase_account"):
+            columns = {
+                str(row[0]) for row in self._db.execute(_COLUMNS, (table,)).fetchall()
+            }
+            if "raw_subject" not in columns:
+                self._db.execute(f"ALTER TABLE {table} ADD COLUMN raw_subject TEXT")
 
     def close(self) -> None:
         self._db.close()
@@ -566,9 +621,16 @@ class MemoryStore:
         *,
         source_voucher_id: str = "",
         provenance: str,
+        raw_subject: str | None = None,
     ) -> Observation:
         return self._record(
-            _VENDOR, company_key, subject, account, source_voucher_id, provenance
+            _VENDOR,
+            company_key,
+            subject,
+            account,
+            source_voucher_id,
+            provenance,
+            raw_subject,
         )
 
     def record_phrase(
@@ -592,6 +654,7 @@ class MemoryStore:
         account: str,
         source_voucher_id: str,
         provenance: str,
+        raw_subject: str | None = None,
     ) -> Observation:
         existing = self._one(table, company_key, subject)
         seen = [o for o in existing if o.account == account]
@@ -599,6 +662,11 @@ class MemoryStore:
         ids = list(seen[0].source_voucher_ids) if seen else []
         if source_voucher_id and source_voucher_id not in ids:
             ids.append(source_voucher_id)
+        # Evidence is only ever GAINED. A row that already knows the name it
+        # was written under does not lose it to a later call that does not.
+        kept_raw = raw_subject if raw_subject is not None else None
+        if kept_raw is None and seen:
+            kept_raw = seen[0].raw_subject
         updated = Observation(
             company_key=company_key,
             subject=subject,
@@ -606,6 +674,7 @@ class MemoryStore:
             times=times,
             source_voucher_ids=tuple(ids),
             provenance=provenance,
+            raw_subject=kept_raw,
         )
         with self._db:
             self._db.execute(table.upsert, _observation_params(updated))

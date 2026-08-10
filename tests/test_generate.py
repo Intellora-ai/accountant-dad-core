@@ -59,6 +59,7 @@ from accountant.generate.serialise import (
     voucher_record,
     write_book,
 )
+from accountant.memory.identity import legal_form
 from accountant.memory.index import MemoryIndex, normalise_vendor
 from accountant.schema import Voucher
 from accountant.tallyio.client import operation_id_in
@@ -479,10 +480,25 @@ def test_at_least_one_vendor_appears_under_three_or_more_spellings() -> None:
 
 def test_every_spelling_of_a_vendor_collapses_to_one_key() -> None:
     """Name noise that did NOT collapse would silently split one vendor into
-    two, and `vendor_switch` could never fire on either half."""
+    two, and `vendor_switch` could never fire on either half.
+
+    REWRITTEN 2026-08-10, owner ruling D-05. This used to require EVERY
+    generated spelling of a vendor to reach one key, including spellings that
+    differ by a legal form - the fixture pairs a bare "Maharashtra State
+    Electricity Distribution" with a "... Ltd". The owner ruled that a legal
+    form is identity-bearing and not name noise, so those two are no longer one
+    key and must not be.
+
+    The property that mattered is kept and narrowed: spellings that differ only
+    in NOISE must still collapse. A spelling that adds or changes a legal form
+    is excluded, because splitting it is now the correct answer.
+    """
     for vendor in vendors():
-        keys = {normalise_vendor(s) for s in vendor.spellings}
-        assert len(keys) == 1, vendor.spellings
+        by_form: dict[str, set[str]] = defaultdict(set)
+        for spelling in vendor.spellings:
+            by_form[legal_form(spelling)].add(normalise_vendor(spelling))
+        for form, keys in by_form.items():
+            assert len(keys) == 1, (vendor.spellings, form)
 
 
 def test_no_two_vendors_collapse_to_the_same_key() -> None:
