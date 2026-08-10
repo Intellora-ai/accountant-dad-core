@@ -39,6 +39,19 @@ WHAT IT WILL NOT DO
 It will not reverse anything without `--yes`. It prints the exact count and the
 exact operation ids first, and a run without `--yes` is a preview that exits 0
 having touched nothing.
+
+It will not reverse anything without `--audit-log` either, and that gate is as
+load-bearing as `--backed-up`. This command deletes vouchers out of somebody's
+books; owner decision Q8 = A requires every state transition it causes to be
+recorded durably with seven fields. Until 2026-08-10 it passed no log to
+`reversal.confirm` or `reversal.execute` at all, so **the identical operation
+that records a full audit trail through the web app recorded nothing here**. The
+web path was the only one the seven-field measurement ever covered.
+
+There is deliberately NO DEFAULT PATH. Where a customer's audit trail lives is
+not a decision this command may make on its own, and a default would put the
+file somewhere nobody chose while looking like it had been thought about.
+Refusing costs one flag.
 """
 
 from __future__ import annotations
@@ -48,6 +61,7 @@ import sys
 from collections.abc import Sequence
 
 from accountant import reversal
+from accountant.memory.store import MemoryStore
 from accountant.reversal import BatchState, VoucherState
 from accountant.tallyio.factory import RealTallyRequired, real_tally
 from accountant.tallyio.real import RecordedBackups, TallyConfig
@@ -57,6 +71,14 @@ from accountant.tallyio.real import RecordedBackups, TallyConfig
 EXIT_OK = 0
 EXIT_REFUSED = 2
 EXIT_NOT_COMPLETED = 3
+
+AUDIT_LOG_REQUIRED = (
+    "refused: no operation performed. --yes removes vouchers from a company's "
+    "books, and every state transition that causes must be recorded durably "
+    "(owner decision Q8 = A). Pass --audit-log PATH naming the SQLite file to "
+    "append the history to. There is no default, because where a customer's "
+    "audit trail lives is not a decision this command may make on its own."
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -90,6 +112,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="confirm the exact list printed by the preview and reverse it",
     )
+    parser.add_argument(
+        "--audit-log",
+        default="",
+        metavar="PATH",
+        help=(
+            "the SQLite file to append the reversal history to. REQUIRED with "
+            "--yes; there is no default"
+        ),
+    )
     return parser
 
 
@@ -99,6 +130,10 @@ def _print_resolved(args: argparse.Namespace) -> None:
     print(f"  endpoint   http://{args.host}:{args.port}")
     print(f"  backed up  {bool(args.backed_up)}")
     print(f"  confirmed  {bool(args.yes)}")
+    # Principle 9 — every resolved value is printed before anything is touched,
+    # and "nothing is being recorded" is exactly the value a person about to
+    # delete vouchers should see rather than infer.
+    print(f"  audit log  {args.audit_log or '(none)'}")
 
 
 def _print_preview(batch: reversal.Batch) -> None:
@@ -125,6 +160,13 @@ def _print_result(batch: reversal.Batch) -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     _print_resolved(args)
+
+    # Checked BEFORE the connection is opened, so a run that could not have been
+    # recorded is refused before it can touch anything at all. Same shape as the
+    # backup gate below it: the cheap refusal comes first.
+    if args.yes and not args.audit_log:
+        print(f"\n{AUDIT_LOG_REQUIRED}", file=sys.stderr)
+        return EXIT_REFUSED
 
     backups = RecordedBackups(
         frozenset({args.company}) if args.backed_up else frozenset()
@@ -156,13 +198,31 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("\npreview only. nothing was reversed. pass --yes to confirm this list.")
         return EXIT_OK
 
-    result = reversal.execute(
-        reversal.confirm(batch),
-        client,
-        company_key=args.company,
-        run_id=identity.run_id,
-    )
+    # `--yes` got us here, and `--yes` without `--audit-log` was refused above,
+    # so this path always has somewhere durable to write. Closed in `finally`,
+    # because a batch whose rows are still in a buffer when the process exits
+    # has recorded nothing — which is the whole defect this replaced.
+    log = MemoryStore(args.audit_log)
+    try:
+        result = reversal.execute(
+            # `--yes` is the operator confirming the exact list just printed,
+            # and that is a state transition the history has to carry. No
+            # backend is named: confirming touches no Tally.
+            reversal.confirm(
+                batch,
+                log=log,
+                company_key=args.company,
+                run_id=identity.run_id,
+            ),
+            client,
+            log=log,
+            company_key=args.company,
+            run_id=identity.run_id,
+        )
+    finally:
+        log.close()
     _print_result(result)
+    print(f"  history appended to {args.audit_log}")
     return EXIT_OK if result.state is BatchState.COMPLETED else EXIT_NOT_COMPLETED
 
 

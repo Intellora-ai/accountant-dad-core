@@ -96,6 +96,19 @@ def post_n(t: FakeTally, n: int) -> list[str]:
 ARGS = ["--reverse-all", "--company", COMPANY, "--backed-up"]
 
 
+def reversing_args(tmp_path: pathlib.Path) -> list[str]:
+    """`ARGS` plus the two flags a destructive run requires.
+
+    `--audit-log` became mandatory with `--yes` on 2026-08-10 (owner decision
+    Q8 = A): this command deletes vouchers, and until then it passed no log to
+    `reversal.confirm` or `reversal.execute`, so it recorded nothing at all
+    while the web app recorded a full seven-field history for the same
+    operation. Every assertion these tests already made still holds — the flag
+    only gives the run somewhere to write.
+    """
+    return [*ARGS, "--yes", "--audit-log", str(tmp_path / "history.sqlite3")]
+
+
 # ---- the preview is the default, and it touches nothing ---------------------
 
 
@@ -135,12 +148,12 @@ def test_the_resolved_configuration_is_printed_before_anything_is_touched(
 
 
 def test_with_yes_a_clean_batch_completes_and_exits_zero(
-    tally: FakeTally, capsys: pytest.CaptureFixture[str]
+    tally: FakeTally, capsys: pytest.CaptureFixture[str], tmp_path: pathlib.Path
 ):
     before_posting = tally.trial_balance(COMPANY)
     post_n(tally, 3)
 
-    assert cli.main([*ARGS, "--yes"]) == cli.EXIT_OK
+    assert cli.main(reversing_args(tmp_path)) == cli.EXIT_OK
 
     out = capsys.readouterr().out
     assert BatchState.COMPLETED.value.upper() in out
@@ -153,6 +166,7 @@ def test_a_batch_that_did_not_complete_does_not_exit_zero(
     tally: FakeTally,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    tmp_path: pathlib.Path,
 ):
     """The property a shell, a CI step and a person all rely on."""
     ops = post_n(tally, 4)
@@ -166,7 +180,7 @@ def test_a_batch_that_did_not_complete_does_not_exit_zero(
 
     monkeypatch.setattr(FakeTally, "reverse_by_operation_id", refuse_the_third)
 
-    assert cli.main([*ARGS, "--yes"]) == cli.EXIT_NOT_COMPLETED
+    assert cli.main(reversing_args(tmp_path)) == cli.EXIT_NOT_COMPLETED
 
     out = capsys.readouterr().out
     assert BatchState.PARTIAL_FAILURE.value.upper() in out
@@ -178,28 +192,39 @@ def test_a_batch_that_did_not_complete_does_not_exit_zero(
 
 
 def test_without_backed_up_the_command_refuses_and_exits_nonzero(
-    tally: FakeTally, capsys: pytest.CaptureFixture[str]
+    tally: FakeTally, capsys: pytest.CaptureFixture[str], tmp_path: pathlib.Path
 ):
     """The safe default. No asserted backup, no reversal."""
     tally.add_company(COMPANY, accounts=ACCOUNTS, backed_up=False)
     post_n_ops = None  # nothing is written; the refusal comes first
     assert post_n_ops is None
 
-    code = cli.main(["--reverse-all", "--company", COMPANY, "--yes"])
+    code = cli.main(
+        [
+            "--reverse-all",
+            "--company",
+            COMPANY,
+            "--yes",
+            "--audit-log",
+            str(tmp_path / "history.sqlite3"),
+        ]
+    )
 
     assert code == cli.EXIT_REFUSED
     assert "refused" in capsys.readouterr().err
 
 
 def test_an_unreachable_tally_refuses_with_a_sentence_not_a_traceback(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: pathlib.Path,
 ):
     def unreachable(*_a: object, **_k: object) -> object:
         raise RealTallyRequired("REAL TALLY REQUIRED: no operation performed. nope")
 
     monkeypatch.setattr(cli, "real_tally", unreachable)
 
-    assert cli.main([*ARGS, "--yes"]) == cli.EXIT_REFUSED
+    assert cli.main(reversing_args(tmp_path)) == cli.EXIT_REFUSED
     assert "REAL TALLY REQUIRED" in capsys.readouterr().err
 
 
@@ -262,5 +287,13 @@ def test_the_command_really_does_import_upward_so_the_guard_has_a_subject():
     """The control. If `__main__.py` stopped importing the product layer, the
     test above would pass while guarding nothing."""
     assert _imports_above_the_boundary(TALLYIO / "__main__.py") == {
-        "accountant.reversal"
-    }
+        "accountant.memory.store",
+        "accountant.reversal",
+    }, (
+        "`accountant.memory.store` joined `accountant.reversal` on 2026-08-10: "
+        "the command must append its reversal history somewhere durable, and "
+        "MemoryStore is the sink. Both are product-layer imports and both are "
+        "legitimate HERE for the reason in this file's docstring — nothing in "
+        "the package imports __main__.py, so the connector's own graph is "
+        "unchanged. The guard above still holds every other module to the rule."
+    )

@@ -51,7 +51,7 @@ from accountant.memory.identity import (
     IdentityEvidence,
     normalise_company,
 )
-from accountant.schema import ActionLog
+from accountant.schema import NOT_RECORDED, ActionLog
 
 IN_MEMORY = ":memory:"
 
@@ -131,7 +131,20 @@ SCHEMA: tuple[str, ...] = (
         operation_id TEXT NOT NULL,
         voucher_id   TEXT NOT NULL,
         vendor_id    TEXT NOT NULL,
-        detail       TEXT NOT NULL
+        detail       TEXT NOT NULL,
+        -- Phase 8 PR-5, owner decision Q8 = A, 2026-08-10. The two fields of
+        -- the seven that this table did not have, plus the batch a reversal
+        -- event belongs to.
+        --
+        -- NULLABLE ON PURPOSE, and the NULL carries meaning. A database
+        -- written before these columns existed has them added by `_migrate`
+        -- with every existing row left NULL, and NULL reads back as
+        -- NOT_RECORDED. Back-filling `accountant_dad` onto those rows would
+        -- invent provenance for actions nobody recorded the actor of. Same
+        -- rule, and the same reason, as `raw_subject` above.
+        actor          TEXT,
+        previous_state TEXT,
+        batch_id       TEXT
     )
     """,
     # The other four tables key on `company_key` FIRST in a composite primary
@@ -354,13 +367,15 @@ _COMPANY_UPSERT = (
 _ACTION_INSERT = """
     INSERT INTO action_log (
         company_key, ts, action, outcome, reason, run_id,
-        backend, operation_id, voucher_id, vendor_id, detail
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        backend, operation_id, voucher_id, vendor_id, detail,
+        actor, previous_state, batch_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _ACTION_SELECT = """
     SELECT company_key, ts, action, outcome, reason, run_id,
-           backend, operation_id, voucher_id, vendor_id, detail
+           backend, operation_id, voucher_id, vendor_id, detail,
+           actor, previous_state, batch_id
       FROM action_log
      WHERE company_key = ?
      ORDER BY rowid
@@ -379,6 +394,24 @@ _DELETES: tuple[str, ...] = (
 _TABLE_NAMES = "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name"
 _COLUMNS = "SELECT name FROM pragma_table_info(?) ORDER BY cid"
 _PRIMARY_KEY = "SELECT name FROM pragma_table_info(?) WHERE pk > 0 ORDER BY pk"
+
+
+def _unrecorded_as_null(value: str) -> str | None:
+    """`NOT_RECORDED` goes into the file as SQL NULL, and so does an empty
+    string. One representation of "nobody wrote this down", shared with every
+    row that predates the column."""
+    return None if value == NOT_RECORDED or not value.strip() else value
+
+
+def _null_as_unrecorded(value: object) -> str:
+    """NULL comes back as the explicit marker, NEVER as a default actor.
+
+    This function is the whole of the migration's honesty. Returning
+    `Actor.ACCOUNTANT_DAD` here instead would make every row a company ever
+    wrote look like a system action, including the ones a person took, and
+    nothing downstream could tell the difference.
+    """
+    return NOT_RECORDED if value is None or not str(value).strip() else str(value)
 
 
 def _row_to_observation(company_key: str, row: Sequence[object]) -> Observation:
@@ -440,15 +473,30 @@ class MemoryStore:
         are never a confident match. Backfilling them from `subject` would
         manufacture the evidence.
 
+        `actor`, `previous_state` and `batch_id` on `action_log` arrived with
+        Phase 8 PR-5 on 2026-08-10 and follow the identical rule. Every
+        pre-existing row keeps NULL in all three and reads back as
+        `NOT_RECORDED`. THEY ARE NEVER BACK-FILLED WITH `accountant_dad`:
+        that would say the system did something nobody recorded the actor of,
+        and a plausible guess in an audit trail is worse than a gap, because
+        the gap is visible.
+
         Additive only. No row is rewritten, so the migration cannot lose data
-        and does not need to be undone.
+        and does not need to be undone. There is no UPDATE and no DELETE here
+        for the same reason there is none anywhere else in this module.
         """
-        for table in ("vendor_account", "phrase_account"):
+        added: tuple[tuple[str, tuple[str, ...]], ...] = (
+            ("vendor_account", ("raw_subject",)),
+            ("phrase_account", ("raw_subject",)),
+            ("action_log", ("actor", "previous_state", "batch_id")),
+        )
+        for table, wanted in added:
             columns = {
                 str(row[0]) for row in self._db.execute(_COLUMNS, (table,)).fetchall()
             }
-            if "raw_subject" not in columns:
-                self._db.execute(f"ALTER TABLE {table} ADD COLUMN raw_subject TEXT")
+            for column in wanted:
+                if column not in columns:
+                    self._db.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT")
 
     def close(self) -> None:
         self._db.close()
@@ -504,6 +552,17 @@ class MemoryStore:
         every rebuild — cannot erase it. Re-reading a company's index is a
         statement about our memory; what we already did to their books is a
         different fact and stays true regardless.
+
+        `INSERT`, never `INSERT OR REPLACE`. The four lookup tables upsert —
+        `vendor_account` and `phrase_account` deliberately collapse a repeated
+        observation into a higher count — and this one must not, because two
+        identical decisions are two things that happened. The table has no
+        primary key precisely so SQLite cannot collapse them either.
+
+        `actor` and `previous_state` are stored as NULL when they say
+        `NOT_RECORDED`, so "we did not record this" has exactly one
+        representation in the file, the same one a row written before those
+        columns existed already has.
         """
         with self._db:
             self._db.execute(
@@ -520,6 +579,9 @@ class MemoryStore:
                     entry.voucher_id,
                     entry.vendor_id,
                     entry.detail,
+                    _unrecorded_as_null(entry.actor),
+                    _unrecorded_as_null(entry.previous_state),
+                    entry.batch_id,
                 ),
             )
 
@@ -545,6 +607,9 @@ class MemoryStore:
                 voucher_id=str(row[8]),
                 vendor_id=str(row[9]),
                 detail=str(row[10]),
+                actor=_null_as_unrecorded(row[11]),
+                previous_state=_null_as_unrecorded(row[12]),
+                batch_id="" if row[13] is None else str(row[13]),
             )
             for row in rows
         )
