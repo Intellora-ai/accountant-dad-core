@@ -36,7 +36,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from accountant import pipeline, reversal
 from accountant import questions as Q
-from accountant.extract.registry import default_extractor
+from accountant.extract.adapter import Extractor
+from accountant.extract.registry import default_extractor, guarded
 from accountant.memory.bootstrap import bootstrap
 from accountant.memory.company import CompanyMemory
 from accountant.memory.identity import normalise_company, same_company_name
@@ -265,6 +266,20 @@ class Runtime:
     identity: BackendIdentity
     memory: CompanyMemory
     store: MemoryStore
+    #: The extraction backend every request in this runtime uses.
+    #:
+    #: RESOLVED ONCE, HERE, AND NEVER INSIDE A REQUEST HANDLER. `_run` used to
+    #: call `default_extractor()` on every entry, which is where a hidden
+    #: backend gets instantiated: the route decided what read the bill, so no
+    #: caller could put the running app on a different one and a reader OUTAGE
+    #: was unreachable over HTTP. It is a field for the same reason `client`
+    #: is — the thing a request depends on is injected at `configure()` and
+    #: held, not conjured per request.
+    #:
+    #: No default. There is exactly one construction site (`configure`), and a
+    #: default here would let a future second site build a runtime whose
+    #: extractor was silently something else.
+    extractor: Extractor
 
     @property
     def company(self) -> str:
@@ -652,12 +667,35 @@ def configure(
     identity: BackendIdentity,
     *,
     store: MemoryStore | None = None,
+    extractor: Extractor | None = None,
 ) -> Runtime:
     """Install an already-built client and bootstrap this company's memory.
 
     The injection seam. Tests hand a double in here, which is why this module
     never needs to import one — principle 6 is about what the SHIPPED code can
     reach, not about forbidding doubles in tests.
+
+    `extractor` JOINED THE SEAM 2026-08-10, and it is the whole of the HTTP
+    reader outage.
+
+    The reading backend was resolved inside the request handler, so a test
+    could reach an outage through `pipeline.run` and could not reach one
+    through the surface a person actually touches. The two honest ways to get
+    there were to monkey-patch a `Final` constant, which proves something about
+    the patch, or to add this parameter. This is the parameter.
+
+    IT NAMES NO BACKEND, and that is what keeps exit 7.1 at zero. The
+    annotation is the `Extractor` Protocol, the default is
+    `registry.default_extractor()`, and the guard is reached through
+    `registry.guarded()` — a function. Nothing here spells a concrete backend,
+    so `tests/test_adapter_contract.py`'s AST count of selection sites outside
+    the package stays `{}`. A parameter typed `TypedTextExtractor`, or a
+    default of `TypedTextExtractor()`, would break the exit; this does not, and
+    the test says so rather than this docstring.
+
+    EVERY backend is guarded, including the default. Not only injected ones:
+    "the one we ship cannot fail" is an assumption, and the cost of being wrong
+    about it is a 503 that blames the application for a supplier's outage.
 
     Memory is bootstrapped ONCE, from this company's own Tally, and reused. It
     used to be `MemoryIndex.from_vouchers(history)` rebuilt inside every request
@@ -705,6 +743,7 @@ def configure(
         identity=identity,
         memory=bootstrap(client, identity.company, owned),
         store=owned,
+        extractor=guarded(default_extractor() if extractor is None else extractor),
     )
 
     # No second company check here on purpose. Memory is built from
@@ -1276,6 +1315,16 @@ def render_home(banner: str = "") -> bytes:
 
 
 def _run(text: str) -> pipeline.Draft:
+    """One typed entry, from text to a decision.
+
+    `live.extractor`, NOT `default_extractor()`. This line used to build a
+    backend of its own on every request, which had two costs. The visible one:
+    no caller could put the running app on a different backend, so a reader
+    outage was unreachable over HTTP and was recorded as environment-limited
+    for two days. The quieter one: the route decided what read the bill, so
+    "which backend is this deployment on" had two answers — the one
+    `configure()` was given and the one the handler made.
+    """
     live = runtime()
     company = live.company
     accounts = live.client.read_accounts(company)
@@ -1284,7 +1333,7 @@ def _run(text: str) -> pipeline.Draft:
         company,
         text.encode(),
         "text/plain",
-        default_extractor(),
+        live.extractor,
         live.memory,
     )
     d = pipeline.evaluate(d, accounts, history, live.memory, flag_cap=FLAG_CAP)

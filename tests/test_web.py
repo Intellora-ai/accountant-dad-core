@@ -36,19 +36,22 @@ unchanged.
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import html
 import json
 import re
 import threading
+import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from http.server import HTTPServer
 
 import pytest
 
 from accountant import questions as Q
+from accountant.extract.adapter import Extractor
 from accountant.memory.identity import normalise_company
 from accountant.memory.store import MemoryStore
 from accountant.schema import Outcome, Voucher
@@ -129,17 +132,27 @@ def fake_backend() -> BackendIdentity:
     )
 
 
-@pytest.fixture
-def server() -> Iterator[str]:
-    """A real server on a real ephemeral port, torn down after each test.
+@contextlib.contextmanager
+def serving(
+    tally: FakeTally,
+    identity: BackendIdentity,
+    *,
+    extractor: Extractor | None = None,
+) -> Generator[str]:
+    """A real server on a real ephemeral port, torn down on the way out.
 
     Port 0 lets the OS choose, so tests never collide with a dev instance or
     with each other.
 
     The backend is INJECTED through `app.configure()`. That is the seam the
     module exposes precisely so it never has to import an implementation
-    itself — the shipped app can no longer name a fake, and this fixture is
-    where the fake enters instead.
+    itself — the shipped app can no longer name a fake, and this is where the
+    fake enters instead.
+
+    `extractor` goes through the same seam, and defaults to None so the app
+    resolves its own through `registry.default_extractor()`. THIS FUNCTION
+    NAMES NO BACKEND: a default of `TypedTextExtractor()` here would be a
+    fixture quietly deciding what the shipped path uses.
 
     The memory store is opened INSIDE the serving thread. SQLite gives a
     connection to the thread that opened it and to no other; in production
@@ -149,9 +162,13 @@ def server() -> Iterator[str]:
     fixture detail, not a change of behaviour: `configure()` still bootstraps
     memory exactly once, from this company's own Tally, before a single request
     is served.
+
+    A CONTEXT MANAGER RATHER THAN A SECOND FIXTURE, 2026-08-10. The HTTP reader
+    outage in `tests/test_extract_outage.py` needs a server carrying a failing
+    backend, and copying a threaded spin-up is how two spin-up paths drift
+    apart — the same argument `tests/conftest.py` makes for re-exporting the
+    fixture instead of duplicating it. There is one spin-up path and this is it.
     """
-    tally = demo_company()
-    identity = fake_backend()
     app.DRAFTS.clear()
     # `EVENTS` used to be cleared here: a module-level list that leaked rows
     # from one test into the next. The log now lives in this test's own
@@ -161,7 +178,9 @@ def server() -> Iterator[str]:
     ready = threading.Event()
 
     def serve() -> None:
-        app.configure(tally, identity, store=MemoryStore(":memory:"))
+        app.configure(
+            tally, identity, store=MemoryStore(":memory:"), extractor=extractor
+        )
         ready.set()
         httpd.serve_forever()
 
@@ -177,6 +196,13 @@ def server() -> Iterator[str]:
         app.disconnect()
 
 
+@pytest.fixture
+def server() -> Iterator[str]:
+    """The demo company, served, with whatever backend the app chooses itself."""
+    with serving(demo_company(), fake_backend()) as base:
+        yield base
+
+
 def get(base: str, path: str = "/") -> str:
     with urllib.request.urlopen(base + path, timeout=5) as r:  # noqa: S310
         return r.read().decode()
@@ -186,6 +212,26 @@ def post(base: str, path: str, **fields: str) -> str:
     data = urllib.parse.urlencode(fields).encode()
     with urllib.request.urlopen(base + path, data=data, timeout=5) as r:  # noqa: S310
         return r.read().decode()
+
+
+def post_for_status(base: str, path: str, **fields: str) -> tuple[int, str]:
+    """POST and return the status even when it is a failure.
+
+    `post` above lets `urlopen` raise on a 5xx, which is right for the paths it
+    drives: a 503 there is a test failure and should read as one. For the
+    outage and GST paths the STATUS IS THE MEASUREMENT — "the person got a page
+    rather than a dropped socket" cannot be asserted by a helper that turns the
+    page into an exception.
+
+    Lives here rather than in either caller because two copies of an HTTP
+    helper is how two test files end up disagreeing about what a 503 means.
+    """
+    body = urllib.parse.urlencode(fields).encode()
+    try:
+        with urllib.request.urlopen(base + path, data=body, timeout=5) as answer:  # noqa: S310
+            return answer.status, answer.read().decode()
+    except urllib.error.HTTPError as failed:
+        return failed.code, failed.read().decode()
 
 
 def draft_id(html: str) -> str:

@@ -57,9 +57,6 @@ from __future__ import annotations
 import ast
 import datetime
 import pathlib
-import urllib.error
-import urllib.parse
-import urllib.request
 from collections.abc import Callable
 from dataclasses import replace
 
@@ -89,6 +86,7 @@ from accountant.memory.store import MemoryStore
 from accountant.schema import Outcome, Voucher
 from accountant.tallyio.fake import FakeTally
 from accountant.web import app
+from tests.test_web import post_for_status
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 PACKAGE = REPO / "accountant"
@@ -734,8 +732,30 @@ def names_imported_from_extract() -> dict[str, list[str]]:
 #: choosing a different one. What it returns is decided by `DEFAULT_BACKEND`,
 #: one line inside the package. Adding it here widens the contract, not the
 #: blast radius.
+#:
+#: `guarded` joined on the same argument, 2026-08-10, and the argument was
+#: CHECKED rather than assumed: this test failed the moment
+#: `accountant/web/app.py` imported the name, which is the guard working. It is
+#: `(Extractor) -> Extractor`. It takes no name, returns no named thing, and
+#: choosing a different backend does not change one character of a module that
+#: calls it — so a swap still costs nothing outside the package.
+#:
+#: WHAT WAS NOT WIDENED, and this is the distinction that matters:
+#: `KNOWN_SELECTION_SITES` below is still the empty set, and
+#: `test_backend_selection_happens_nowhere_outside_the_package` passed
+#: unchanged through this commit. CONTRACT says which ABSTRACT names the core
+#: may take. The ratchet says how many CONCRETE backends it may name, and that
+#: bound is zero and did not move. Widening the first to keep the second at
+#: zero is the whole point; widening the second would be the weakening.
 CONTRACT = frozenset(
-    {"Extractor", "ExtractedRecord", "LineItem", "NOT_FOUND", "default_extractor"}
+    {
+        "Extractor",
+        "ExtractedRecord",
+        "LineItem",
+        "NOT_FOUND",
+        "default_extractor",
+        "guarded",
+    }
 )
 
 #: Selection sites outside the package. EMPTY — that is the whole of exit 7.1.
@@ -833,8 +853,31 @@ def test_the_backend_scan_derives_its_list_from_the_package() -> None:
         "StubExtractor",
         "UnavailableExtractor",
         "ServiceExtractor",
+        # Added by the derivation itself on 2026-08-10, not by anybody
+        # remembering: `GuardedExtractor` defines `extract`, so the scan
+        # counted it as a backend the moment it was written. It is named here
+        # to record that the scan noticed, which is the property this test is
+        # for. It is also why `accountant/web/app.py` reaches the guard through
+        # the `guarded()` FUNCTION — spelling the class there would be a
+        # selection site.
+        "GuardedExtractor",
     } <= found
-    assert len(found) >= 4
+    assert len(found) >= 5
+
+
+def test_no_name_in_the_contract_is_a_backend() -> None:
+    """The ratchet on the ratchet.
+
+    `CONTRACT` is the allowlist `test_the_core_takes_only_the_contract_from_the
+    _extraction_package` measures against, so the cheapest way to silence that
+    test is to add the offending name here. If the offending name is a concrete
+    backend, that turns exit 7.1 into a list of exceptions. This makes the
+    cheap fix fail.
+    """
+    assert CONTRACT & backend_class_names() == frozenset(), (
+        "a concrete backend was added to CONTRACT, which turns the allowlist "
+        "into a way of permitting exactly what exit 7.1 forbids"
+    )
 
 
 def test_the_backend_scan_does_not_mistake_the_contract_for_an_implementation() -> None:
@@ -1241,20 +1284,11 @@ def test_a_connector_refusal_cannot_happen_after_the_application_said_valid() ->
 
 
 # ---- the same defect, over real HTTP ----------------------------------------
-
-
-def http_post(base: str, path: str, **fields: str) -> tuple[int, str]:
-    """POST and return the status even when it is a failure.
-
-    `tests/test_web.py::post` lets `urlopen` raise on a 5xx, which is right for
-    the paths it drives. Here the 503 IS the measurement.
-    """
-    body = urllib.parse.urlencode(fields).encode()
-    try:
-        with urllib.request.urlopen(base + path, data=body, timeout=5) as answer:  # noqa: S310
-            return answer.status, answer.read().decode()
-    except urllib.error.HTTPError as failed:
-        return failed.code, failed.read().decode()
+#
+# `post_for_status` was defined here until 2026-08-10 and now lives beside the
+# other HTTP helpers in `tests/test_web.py`. `tests/test_extract_outage.py`
+# needed the same thing for the HTTP reader outage, and two copies of a helper
+# that decides what a 503 means is how two files end up measuring differently.
 
 
 def test_a_gst_bill_over_http_writes_nothing_and_moves_no_paise(server: str) -> None:
@@ -1266,7 +1300,7 @@ def test_a_gst_bill_over_http_writes_nothing_and_moves_no_paise(server: str) -> 
     before = live.client.trial_balance(live.company)
     written_before = len(live.client.list_our_vouchers(live.company))
 
-    status, _ = http_post(server, "/entry", text=GST_BILL.decode())
+    status, _ = post_for_status(server, "/entry", text=GST_BILL.decode())
 
     assert status in {200, 503}
     assert live.client.trial_balance(live.company) == before
@@ -1276,7 +1310,7 @@ def test_a_gst_bill_over_http_writes_nothing_and_moves_no_paise(server: str) -> 
 def test_a_gst_bill_over_http_is_answered_rather_than_dropped(server: str) -> None:
     """Failing safely and failing legibly are two properties. This is the first
     one: the socket is not dropped and the person gets a page."""
-    status, body = http_post(server, "/entry", text=GST_BILL.decode())
+    status, body = post_for_status(server, "/entry", text=GST_BILL.decode())
 
     assert status in {200, 503}
     assert "<html" in body.lower() or "<div" in body.lower()
@@ -1293,7 +1327,7 @@ def test_a_gst_bill_over_http_explains_the_tax_instead_of_reporting_a_breakage(
 
     Re-measured 2026-08-10 on top of D-06 (1ca65a9): still HTTP 503.
     """
-    status, body = http_post(server, "/entry", text=GST_BILL.decode())
+    status, body = post_for_status(server, "/entry", text=GST_BILL.decode())
 
     assert status == 200
     assert "broke" not in body.lower()

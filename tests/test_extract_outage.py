@@ -32,6 +32,36 @@ opposite things to the person reading the screen. So the whole answer is
 refused rather than half of it trusted. `accountant/extract/service.py` states
 the rule and the reasoning at the top.
 
+THREE MORE, OVER REAL HTTP — the outage that used to be unreachable
+-------------------------------------------------------------------
+unavailable · timeout · malformed response, driven through a socket against the
+running web app, with the failing backend injected at
+`app.configure(extractor=...)`. Five properties each: explicit safe fallback,
+the reason recorded, no silent blank, no unsafe VALID, no automatic post.
+
+WHY THIS WAS BLOCKED UNTIL 2026-08-10, AND WHAT UNBLOCKED IT
+-------------------------------------------------------------
+    was      `accountant/web/app.py` named `TypedTextExtractor` directly, so
+             the app could never reach a service at all.
+    then     it called `registry.default_extractor()` INSIDE the request
+             handler. The backend was chosen inside `accountant/extract/`, but
+             it was chosen per request, so nothing could hand the RUNNING app a
+             failing one. Recorded as BLOCKED rather than guessed at.
+    now      `configure(extractor=...)` stores it on `Runtime`, `_run` uses
+             `live.extractor`, and `registry.guarded()` turns a backend that
+             RAISES into the same explicit outage record as one that reports a
+             failure politely.
+
+The two rejected routes are worth keeping written down. Monkey-patching
+`DEFAULT_BACKEND` is patching a `Final` constant and proves something about the
+patch. Instantiating a failing extractor inside the route would test a branch
+that the shipped path does not have. Neither is used below.
+
+The parameter names no backend — it is annotated with the `Extractor` Protocol
+and defaults to `default_extractor()` — so exit 7.1's measured count of
+selection sites outside the package is still `{}`.
+`tests/test_adapter_contract.py` measures that, not this docstring.
+
 WHAT THIS FILE DOES NOT PROVE
 -----------------------------
 That a real reader service fails in these ten ways and no eleventh. The
@@ -40,44 +70,36 @@ adapter's failure surface is closed: an unplanned exception type still becomes
 a record rather than a traceback, which is the property that makes the count
 not matter.
 
-That the WEB app survives a reader outage. STILL ENVIRONMENT-LIMITED at
-2026-08-10, and the reason CHANGED, so it is worth stating exactly rather than
-carrying the old sentence forward.
-
-    was    `accountant/web/app.py` named `TypedTextExtractor` directly, so the
-           app could never reach a service at all.
-    now    it calls `registry.default_extractor()`, so the backend it uses is
-           chosen inside `accountant/extract/` — but `app.configure()` takes a
-           client, an identity and a store, and no extractor. There is no seam
-           through which a test can hand the RUNNING app a failing backend.
-
-So the two honest ways to reach it are to edit `DEFAULT_BACKEND`, which is
-monkey-patching a `Final` constant and proves nothing about the shipped path,
-or to add an extractor argument to `configure()`, which is a change to the web
-app that exit 7.1 deliberately keeps out of this phase. Neither is done here.
-The scenario is recorded as BLOCKED_ENVIRONMENT in
-`artifacts/phase7_evidence.md` with that one-line change named as what lifts
-it.
-
-What IS proved over HTTP is narrower and real: the app names no backend, so the
-swap reaches the runtime through the registry. `tests/test_adapter_contract.py`
-asserts that structurally, at zero sites outside the package.
+That a real reader service was ever connected to the running app. It was not.
+The HTTP scenarios inject a backend written in this file. What they prove is
+that the ROUTE is safe whatever it is given, which is a claim about our code
+and is the only claim the seam can support.
 
 EVIDENCE CLASS
 --------------
 Behavioural, against `FakeTally` and against a transport written in this file.
+The three HTTP scenarios are behavioural over a real socket against the shipped
+`accountant/web/app.py`.
 """
 
 from __future__ import annotations
 
 import datetime
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
 import pytest
 
 from accountant import pipeline
-from accountant.extract.adapter import NOT_FOUND, ExtractedRecord, TypedTextExtractor
+from accountant.extract import registry
+from accountant.extract.adapter import (
+    NOT_FOUND,
+    ExtractedRecord,
+    Extractor,
+    TypedTextExtractor,
+)
+from accountant.extract.registry import GuardedExtractor, guarded
 from accountant.extract.service import (
     ALL_REASONS,
     DOCUMENT_KEY,
@@ -101,6 +123,8 @@ from accountant.memory.company import CompanyMemory
 from accountant.memory.store import MemoryStore
 from accountant.schema import Outcome, Voucher
 from accountant.tallyio.fake import FakeTally
+from accountant.web import app
+from tests.test_web import demo_company, fake_backend, get, post_for_status, serving
 
 COMPANY = "Demo Co"
 ACCOUNTS = ("Purchases", "Sundry Expenses", "Repairs & Maintenance", "Cash")
@@ -569,3 +593,480 @@ def test_the_outage_record_says_which_backend_was_down() -> None:
 
     assert record.backend == "acme_reader"
     assert TIMED_OUT in record.per_field_source["date"]
+
+
+# =============================================================================
+# THE SAME OUTAGE, OVER REAL HTTP — three scenarios, five properties each
+# =============================================================================
+#
+# BLOCKED until 2026-08-10 and now measured. The seam is
+# `app.configure(extractor=...)`; the route reads `Runtime.extractor` instead of
+# building one per request; `registry.guarded()` closes the failure surface of
+# whatever it is given.
+#
+# TWO KINDS OF FAILING BACKEND ARE USED HERE, DELIBERATELY:
+#
+#   a backend that RAISES        `BackendThatRaises` below. It breaks the
+#                                never-raise convention on purpose, because a
+#                                third-party object injected through the seam
+#                                promises nothing. This is the case that used
+#                                to reach `handle_one_request`'s catch-all and
+#                                render "Something in Accountant Dad broke".
+#   a backend that REPORTS       `ServiceExtractor` with a broken transport.
+#                                It keeps its promise and returns an outage
+#                                record. This is the shape a real deployment
+#                                has, and it must survive HTTP too.
+#
+# Using only the first would prove the guard and say nothing about the shipped
+# adapter. Using only the second would leave the guard unexercised on the HTTP
+# path, which is the same as not having measured it.
+
+
+class BackendThatRaises:
+    """A backend that does NOT follow the never-raise rule. On purpose.
+
+    `ServiceExtractor` promises `extract` never raises. Nothing enforces that
+    promise on an object a deployment injects — the `Extractor` Protocol says
+    only that `extract` exists — so this is what the seam has to survive.
+
+    `name` is set, because an outage row that cannot say which backend was down
+    is not evidence about any of them.
+    """
+
+    name = "acme_reader"
+
+    def __init__(self, failure: BaseException) -> None:
+        self._failure = failure
+
+    def extract(self, _data: bytes, _mime: str) -> ExtractedRecord:
+        raise self._failure
+
+
+@dataclass(frozen=True)
+class HttpOutage:
+    """One way the backend behind the running web app can fail."""
+
+    label: str
+    make: Callable[[], Extractor]
+    says: str
+
+
+#: The three the brief names. Two arrive by raising, one by reporting.
+HTTP_OUTAGES: tuple[HttpOutage, ...] = (
+    HttpOutage(
+        "unavailable",
+        lambda: BackendThatRaises(ConnectionError("the reader host is down")),
+        UNAVAILABLE,
+    ),
+    HttpOutage(
+        "timeout",
+        lambda: BackendThatRaises(TimeoutError("no answer in 30s")),
+        TIMED_OUT,
+    ),
+    HttpOutage(
+        "malformed response",
+        lambda: service_saying("<html>502 Bad Gateway</html>"),
+        MALFORMED,
+    ),
+)
+
+HTTP_CASES = pytest.mark.parametrize("outage", HTTP_OUTAGES, ids=lambda o: o.label)
+
+#: One row of the "Where each field came from" table. The `<code>` is what
+#: separates a provenance row from a voucher row, which has no code element.
+PROVENANCE_ROW = re.compile(r"<tr><td>([a-z_]+)</td><td><code>([^<]*)</code></td></tr>")
+
+
+@dataclass(frozen=True)
+class OverHttp:
+    """Everything one HTTP outage produced, captured before the server closed."""
+
+    status: int
+    body: str
+    home: str
+    draft: pipeline.Draft
+    before: dict[str, int]
+    after: dict[str, int]
+    ours: tuple[Voucher, ...]
+    vouchers_before: int
+    vouchers_after: int
+
+    @property
+    def shown_provenance(self) -> dict[str, str]:
+        return dict(PROVENANCE_ROW.findall(self.body))
+
+
+def drive(outage: HttpOutage) -> OverHttp:
+    """Stand the app up on this failing backend, type one bill, watch.
+
+    The trial balance is read on both sides of the request, from the same
+    `FakeTally` the app is holding, so "nothing moved" is a comparison of two
+    measurements rather than an assumption about a code path.
+
+    The durable action log is NOT read here. `MemoryStore` opens its SQLite
+    connection on the serving thread and SQLite hands a connection to the
+    thread that opened it, so reading it from the test thread would fail for a
+    reason that has nothing to do with outages. The home page is fetched
+    instead: it renders the log ON that thread, which is stronger evidence
+    anyway — it is what the person sees.
+    """
+    with serving(demo_company(), fake_backend(), extractor=outage.make()) as base:
+        live = app.runtime()
+        company = live.company
+        before = live.client.trial_balance(company)
+        vouchers_before = len(live.client.read_vouchers(company))
+
+        status, body = post_for_status(base, "/entry", text=BILL.decode())
+
+        drafts = list(app.DRAFTS.values())
+        assert len(drafts) == 1, f"expected one draft, saw {len(drafts)}"
+        return OverHttp(
+            status=status,
+            body=body,
+            home=get(base),
+            draft=drafts[0],
+            before=before,
+            after=live.client.trial_balance(company),
+            ours=live.client.list_our_vouchers(company),
+            vouchers_before=vouchers_before,
+            vouchers_after=len(live.client.read_vouchers(company)),
+        )
+
+
+def test_the_three_http_outage_scenarios_the_brief_names_are_all_covered() -> None:
+    """A table with two rows would pass every parametrized test below."""
+    assert len(HTTP_OUTAGES) == 3
+    assert {o.label for o in HTTP_OUTAGES} == {
+        "unavailable",
+        "timeout",
+        "malformed response",
+    }
+    assert len({o.says for o in HTTP_OUTAGES}) == 3
+    assert {o.says for o in HTTP_OUTAGES} <= set(ALL_REASONS)
+
+
+# ---- 1. explicit safe fallback ----------------------------------------------
+
+
+@HTTP_CASES
+def test_every_http_outage_falls_back_to_an_explicit_all_not_found_record(
+    outage: HttpOutage,
+) -> None:
+    """The fallback is EXPLICIT: four fields, four stated not_founds, no guess.
+
+    A backend that raised produced no record at all before this seam existed;
+    the request died in `handle_one_request`'s catch-all.
+    """
+    seen = drive(outage)
+    record = seen.draft.record
+
+    assert not_found_fields(record) == set(ExtractedRecord.FIELDS)
+    assert (record.date, record.party, record.total_paise, record.tax_paise) == (
+        None,
+        None,
+        None,
+        None,
+    )
+    assert record.complete is True
+
+
+# ---- 2. the reason is recorded, and it is this outage's own ------------------
+
+
+@HTTP_CASES
+def test_every_http_outage_records_its_own_reason_where_a_person_can_see_it(
+    outage: HttpOutage,
+) -> None:
+    """Stored, on the draft, AND on the page. Three places, because a reason
+    that stops at the record reaches nobody, and this is the surface the person
+    is actually looking at."""
+    seen = drive(outage)
+    shown = seen.shown_provenance
+
+    for name in ExtractedRecord.FIELDS:
+        source = seen.draft.record.per_field_source[name]
+        assert source.startswith(f"{NOT_FOUND}: "), name
+        assert outage.says in source, f"{name} does not say why: {source!r}"
+        assert outage.says in seen.draft.provenance[name], name
+        assert outage.says in shown.get(name, ""), (
+            f"the page does not tell the person why {name} is missing: "
+            f"{shown.get(name)!r}"
+        )
+
+
+@HTTP_CASES
+def test_every_http_outage_names_the_backend_that_failed(outage: HttpOutage) -> None:
+    """`unknown` on an outage row is a row nobody can act on."""
+    seen = drive(outage)
+
+    assert seen.draft.record.backend in {"acme_reader", "reader_service"}
+    assert seen.draft.record.backend != "unknown"
+
+
+@HTTP_CASES
+def test_every_http_outage_leaves_one_durable_row_the_activity_log_shows(
+    outage: HttpOutage,
+) -> None:
+    """The log is rendered by the serving thread off `MemoryStore`, so a row on
+    the home page is a row that was persisted."""
+    seen = drive(outage)
+
+    assert 'data-outcome="unclear"' in seen.home, (
+        "the entry left no visible row in the activity log"
+    )
+
+
+# ---- 3. no silent blank ------------------------------------------------------
+
+
+@HTTP_CASES
+def test_no_http_outage_leaves_a_single_silent_blank(outage: HttpOutage) -> None:
+    """A blank source is worse than a wrong one: nothing is there to question.
+
+    Checked on the record AND on the rendered page, because "the source was
+    stored" and "the person can see it" are two properties and the screen is
+    the one that matters to them.
+    """
+    seen = drive(outage)
+    record = seen.draft.record
+
+    assert all(source.strip() for source in record.per_field_source.values())
+    assert all(source != NOT_FOUND for source in record.per_field_source.values()), (
+        "an unexplained not_found is a blank with a label on it"
+    )
+    shown = seen.shown_provenance
+    assert set(shown) >= set(ExtractedRecord.FIELDS), (
+        f"the page dropped a field from the provenance table: {sorted(shown)}"
+    )
+    assert all(value.strip() for value in shown.values()), (
+        f"the page rendered an empty provenance cell: {shown}"
+    )
+    assert "<code></code>" not in seen.body
+
+
+# ---- 4. no unsafe VALID ------------------------------------------------------
+
+
+@HTTP_CASES
+def test_no_http_outage_reaches_valid(outage: HttpOutage) -> None:
+    """VALID means "post this". Nothing was read, so nothing may be posted."""
+    seen = drive(outage)
+
+    assert seen.draft.outcome is not Outcome.VALID
+    assert seen.draft.outcome is Outcome.UNCLEAR
+    assert 'class="badge b-valid"' not in seen.body
+
+
+@HTTP_CASES
+def test_every_http_outage_is_answered_rather_than_reported_as_a_breakage(
+    outage: HttpOutage,
+) -> None:
+    """The failure this seam was built for. A backend that RAISES used to reach
+    the handler's catch-all, and the person was told the application broke -
+    for an ordinary bill whose only problem was somebody else's outage.
+
+    Failing safely and failing legibly are two properties. This is the second.
+    """
+    seen = drive(outage)
+
+    assert seen.status == 200
+    assert "broke" not in seen.body.lower()
+    assert "Traceback" not in seen.body
+
+
+@HTTP_CASES
+def test_after_an_http_outage_the_person_is_asked_something_answerable(
+    outage: HttpOutage,
+) -> None:
+    """The whole point of failing this way: the work still gets done by hand."""
+    seen = drive(outage)
+    question = pipeline.next_question(seen.draft)
+
+    assert question is not None
+    assert question.answers, "a question with no answers is a dead end"
+    assert "<div class=opts>" in seen.body
+
+
+# ---- 5. no automatic post ----------------------------------------------------
+
+
+@HTTP_CASES
+def test_no_http_outage_posts_anything_or_moves_one_paise(outage: HttpOutage) -> None:
+    seen = drive(outage)
+
+    assert seen.draft.posted_tally_id is None
+    assert seen.ours == ()
+    assert seen.vouchers_after == seen.vouchers_before
+    assert seen.after == seen.before
+
+
+# =============================================================================
+# THE COMPLETE OUTAGE MATRIX — the numbers, counted rather than described
+# =============================================================================
+
+
+def test_the_complete_outage_matrix_is_thirteen_scenarios_and_every_one_is_safe() -> (
+    None
+):
+    """Ten through the pipeline, three through the running web app.
+
+    One test that COUNTS, next to the parametrized ones that assert. The
+    parametrized tests fail one case at a time and say which; this one reports
+    the figure the exit is written in, so "13/13" is a number somebody
+    measured rather than a number somebody added up by hand from a test list.
+    """
+    explicit_fallback = 0
+    reasons_recorded = 0
+    silent_blanks = 0
+    unsafe_valid = 0
+    automatic_posts = 0
+
+    for outage in OUTAGES:
+        t = tally()
+        before = t.trial_balance(COMPANY)
+        d = pipeline.run(
+            COMPANY, BILL, "text/plain", outage.make(), t, memory_for(t), today=TODAY
+        )
+        sources = d.record.per_field_source
+        if not_found_fields(d.record) == set(ExtractedRecord.FIELDS):
+            explicit_fallback += 1
+        if all(outage.says in sources[f] for f in ExtractedRecord.FIELDS):
+            reasons_recorded += 1
+        silent_blanks += sum(
+            1 for s in sources.values() if not s.strip() or s == NOT_FOUND
+        )
+        unsafe_valid += d.outcome is Outcome.VALID
+        automatic_posts += (
+            d.posted_tally_id is not None or t.trial_balance(COMPANY) != before
+        )
+
+    for outage in HTTP_OUTAGES:
+        seen = drive(outage)
+        sources = seen.draft.record.per_field_source
+        if not_found_fields(seen.draft.record) == set(ExtractedRecord.FIELDS):
+            explicit_fallback += 1
+        if all(outage.says in sources[f] for f in ExtractedRecord.FIELDS):
+            reasons_recorded += 1
+        silent_blanks += sum(
+            1 for s in sources.values() if not s.strip() or s == NOT_FOUND
+        )
+        unsafe_valid += seen.draft.outcome is Outcome.VALID
+        automatic_posts += (
+            seen.draft.posted_tally_id is not None
+            or bool(seen.ours)
+            or seen.after != seen.before
+        )
+
+    measured = {
+        "scenarios": len(OUTAGES) + len(HTTP_OUTAGES),
+        "explicit_fallback": explicit_fallback,
+        "reasons_recorded": reasons_recorded,
+        "silent_blanks": silent_blanks,
+        "unsafe_valid": unsafe_valid,
+        "automatic_posts": automatic_posts,
+    }
+
+    assert measured == {
+        "scenarios": 13,
+        "explicit_fallback": 13,
+        "reasons_recorded": 13,
+        "silent_blanks": 0,
+        "unsafe_valid": 0,
+        "automatic_posts": 0,
+    }
+
+
+# =============================================================================
+# THE GUARD ITSELF — the two ways a backend can fail the application
+# =============================================================================
+
+
+def test_a_backend_that_raises_becomes_an_outage_record_instead_of_an_exception() -> (
+    None
+):
+    """`pipeline.build_draft` has no try around `extract`. Without the guard,
+    this exception is an HTTP 503 blaming the application."""
+    record = guarded(BackendThatRaises(ConnectionError("host is down"))).extract(
+        BILL, "text/plain"
+    )
+
+    assert not_found_fields(record) == set(ExtractedRecord.FIELDS)
+    assert UNAVAILABLE in record.per_field_source["party"]
+    assert record.backend == "acme_reader"
+
+
+def test_a_backend_that_answers_with_something_that_is_not_a_record_is_refused() -> (
+    None
+):
+    """The other half, and the commoner one: a third-party client that returns
+    `None` on failure. Unguarded, that reaches `record.per_field_source` as an
+    AttributeError two frames later, which is a 503 with no reason on it."""
+
+    class BackendThatAnswersWithNothing:
+        name = "acme_reader"
+
+        def extract(self, _data: bytes, _mime: str) -> ExtractedRecord:
+            return None  # type: ignore[return-value]
+
+    record = guarded(BackendThatAnswersWithNothing()).extract(BILL, "text/plain")
+
+    assert not_found_fields(record) == set(ExtractedRecord.FIELDS)
+    assert MALFORMED in record.per_field_source["date"]
+    assert "NoneType" in record.per_field_source["date"]
+
+
+def test_the_guard_does_not_touch_a_backend_that_works() -> None:
+    """A guard that changed a good answer would be a bug wearing safety
+    clothing. Same record, field for field, source for source."""
+    plain = TypedTextExtractor().extract(BILL, "text/plain")
+    through = guarded(TypedTextExtractor()).extract(BILL, "text/plain")
+
+    assert through == plain
+
+
+def test_stopping_the_process_is_not_swallowed_by_the_guard_either() -> None:
+    """Same rule as `ServiceExtractor`: a KeyboardInterrupt is somebody
+    stopping the run, and a tidy record would fight them."""
+    with pytest.raises(KeyboardInterrupt):
+        guarded(BackendThatRaises(KeyboardInterrupt())).extract(BILL, "text/plain")
+
+
+def test_the_running_app_uses_the_extractor_it_was_configured_with() -> None:
+    """The seam, asserted directly rather than only through its consequences.
+
+    Without this, every HTTP test above could pass because the DEFAULT backend
+    happens to fail on this input, and nobody would know the injected one was
+    ignored.
+    """
+    injected = BackendThatRaises(TimeoutError("no answer in 30s"))
+
+    with serving(demo_company(), fake_backend(), extractor=injected) as base:
+        live = app.runtime()
+
+        assert live.extractor is not injected, "the raw backend was stored unguarded"
+        assert isinstance(live.extractor, GuardedExtractor)
+        assert live.extractor.name == "acme_reader"
+
+        post_for_status(base, "/entry", text=BILL.decode())
+        record = next(iter(app.DRAFTS.values())).record
+
+    assert record.backend == "acme_reader"
+    assert TIMED_OUT in record.per_field_source["party"]
+
+
+def test_the_app_still_chooses_its_own_backend_when_none_is_injected() -> None:
+    """The default path, unchanged. `configure()` with no extractor must go on
+    resolving `registry.default_extractor()`, or exit 7.1's one-line swap stops
+    being the thing that decides what production reads with."""
+    with serving(demo_company(), fake_backend()) as base:
+        chosen = app.runtime().extractor
+
+        assert isinstance(chosen, GuardedExtractor)
+        assert chosen.name == registry.DEFAULT_BACKEND
+
+        status, body = post_for_status(base, "/entry", text=BILL.decode())
+
+    assert status == 200
+    assert 'class="badge b-valid"' in body, (
+        "a known vendor typed in plainly should still post straight through"
+    )

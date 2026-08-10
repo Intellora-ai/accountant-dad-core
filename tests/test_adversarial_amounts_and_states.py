@@ -850,12 +850,31 @@ def test_the_states_that_do_exist_are_exactly_these_two_enums() -> None:
     assert "decision" in draft_fields
     assert "posted_tally_id" in draft_fields
 
+    # UPDATED 2026-08-10, and the change is recorded rather than made quietly.
+    #
+    #   old        ["client", "identity", "memory", "store"]
+    #   new        the same four, plus "extractor"
+    #   why        `accountant/web/app.py::_run` called `default_extractor()`
+    #              per request, so the reading backend was NOT part of the
+    #              connected state - it was conjured inside the route. A reader
+    #              outage was therefore unreachable over HTTP.
+    #              `configure(extractor=...)` now resolves it once and holds it.
+    #   weakened?  No. The assertion is still exact equality over every field,
+    #              and `extractor` carries NO DEFAULT, so the claim this test
+    #              makes - a Runtime cannot exist half built - now covers one
+    #              more thing than it did. A default here is exactly what would
+    #              weaken it, and there is none.
     assert [f.name for f in dataclasses.fields(app.Runtime)] == [
         "client",
         "identity",
         "memory",
         "store",
+        "extractor",
     ], "CONNECTED is this object existing, and it cannot exist half built"
+    assert all(
+        f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING
+        for f in dataclasses.fields(app.Runtime)
+    ), "a Runtime field with a default is a Runtime that can be built half empty"
 
 
 # ---- the six dangerous transitions ------------------------------------------
