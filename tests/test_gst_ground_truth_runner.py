@@ -318,3 +318,33 @@ def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
     # EXIT 2 is about safety, not accuracy, and it holds.
     assert names["exit2_unrenderable_input_is_explicit"].status == runner.PASS
     assert section.facts["exit2_unsafe"] == []
+
+
+def test_a_refusal_that_states_a_reason_is_still_a_refusal():
+    """CodeAnt, PR 37. A `!=` here counted every reason-bearing refusal as a hit.
+
+    `s2_extraction_scored` compared the per-field source with the bare
+    `not_found` sentinel. The moment a refusal started carrying a reason - which
+    EXIT 2 requires - that comparison stopped matching, so a stub that read
+    nothing reported 100 of 100 fields sourced and the gate flipped from FAIL to
+    PASS. Measured on this branch before the fix, not argued.
+    """
+    section = runner.Section(name="s2_extraction")
+    runner.run_s2(section)
+
+    assert section.facts["s2_per_field"] == dict.fromkeys(
+        ("date", "party", "total_paise", "tax_paise"), 0
+    )
+    scored = {g.name: g for g in section.gates}["s2_extraction_scored"]
+    assert scored.status == runner.FAIL
+
+
+def test_a_field_the_backend_really_read_is_still_counted():
+    """The control. Refusing to count refusals must not stop counting values."""
+    import datetime
+
+    from accountant.extract.adapter import NOT_FOUND, StubExtractor
+
+    record = StubExtractor(date=datetime.date(2026, 8, 10)).extract(b"x", "text/plain")
+    assert not record.per_field_source["date"].startswith(NOT_FOUND)
+    assert record.per_field_source["party"].startswith(NOT_FOUND)

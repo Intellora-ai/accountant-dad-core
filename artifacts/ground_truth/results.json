@@ -1,13 +1,13 @@
 {
   "verdict": "FAIL",
   "exit_code": 1,
-  "generated_at": "2026-08-10T13:40:38.580049+00:00",
+  "generated_at": "2026-08-10T14:12:48.268340+00:00",
   "harness_error": "",
   "provenance": {
     "cwd": "/private/tmp/claude-501/-Users-tanveersidhu-ACCOUNTANT/173e27c0-9c4e-4793-a6c4-594143728ef9/scratchpad/wt-gt",
     "accountant__file__": "/private/tmp/claude-501/-Users-tanveersidhu-ACCOUNTANT/173e27c0-9c4e-4793-a6c4-594143728ef9/scratchpad/wt-gt/accountant/__init__.py",
     "python": "3.14.6",
-    "commit": "6a5508c81c7418a50cda1eff375919eabef206d8",
+    "commit": "b2b2958472a3adc3e01fc4f335d0286f2d57f388",
     "branch": "phase8/ground-truth-harness",
     "worktree": "/private/tmp/claude-501/-Users-tanveersidhu-ACCOUNTANT/173e27c0-9c4e-4793-a6c4-594143728ef9/scratchpad/wt-gt",
     "dirty": "yes"
@@ -58,18 +58,18 @@
         },
         {
           "name": "s2_extraction_scored",
-          "status": "PASS",
-          "measured": "{\"date\": 100, \"party\": 100, \"tax_paise\": 100, \"total_paise\": 100}",
-          "detail": "stub backend, 100 cases, per-field hits {'date': 100, 'party': 100, 'total_paise': 100, 'tax_paise': 100}. Owner decision Q4 = B: no production backend is selected, so a stub cannot satisfy the real extraction-quality exit."
+          "status": "FAIL",
+          "measured": "{\"date\": 0, \"party\": 0, \"tax_paise\": 0, \"total_paise\": 0}",
+          "detail": "stub backend, 100 cases, per-field hits {'date': 0, 'party': 0, 'total_paise': 0, 'tax_paise': 0}. Owner decision Q4 = B: no production backend is selected, so a stub cannot satisfy the real extraction-quality exit."
         }
       ],
       "facts": {
         "s2_cases_scored": 100,
         "s2_per_field": {
-          "date": 100,
-          "party": 100,
-          "total_paise": 100,
-          "tax_paise": 100
+          "date": 0,
+          "party": 0,
+          "total_paise": 0,
+          "tax_paise": 0
         },
         "s2_backend": "stub",
         "exit1_renderable_cases": 80,

@@ -395,7 +395,13 @@ def run_s2(section: Section) -> None:
         record = extractor.extract(payload, str(case.get("mime", "text/plain")))
         scored += 1
         for name in ExtractedRecord.FIELDS:
-            if record.per_field_source.get(name, NOT_FOUND) != NOT_FOUND:
+            # `startswith`, never `!=`. A refusal is `not_found` plus a reason,
+            # so an equality test against the bare sentinel counts every
+            # reason-bearing refusal as a sourced field. Measured, not argued:
+            # with `!=` here this gate read 100 of 100 fields sourced from a
+            # stub that read nothing, and flipped from FAIL to PASS. The same
+            # rule is already used in tests/test_extract_outage.py.
+            if not record.per_field_source.get(name, NOT_FOUND).startswith(NOT_FOUND):
                 per_field[name] += 1
 
         if case.get("renderable", True):

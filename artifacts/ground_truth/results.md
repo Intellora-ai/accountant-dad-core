@@ -14,7 +14,7 @@ quoted with the commit beside them.
 | cwd | `/private/tmp/claude-501/-Users-tanveersidhu-ACCOUNTANT/173e27c0-9c4e-4793-a6c4-594143728ef9/scratchpad/wt-gt` |
 | accountant__file__ | `/private/tmp/claude-501/-Users-tanveersidhu-ACCOUNTANT/173e27c0-9c4e-4793-a6c4-594143728ef9/scratchpad/wt-gt/accountant/__init__.py` |
 | python | `3.14.6` |
-| commit | `6a5508c81c7418a50cda1eff375919eabef206d8` |
+| commit | `b2b2958472a3adc3e01fc4f335d0286f2d57f388` |
 | branch | `phase8/ground-truth-harness` |
 | worktree | `/private/tmp/claude-501/-Users-tanveersidhu-ACCOUNTANT/173e27c0-9c4e-4793-a6c4-594143728ef9/scratchpad/wt-gt` |
 | dirty | `yes` |
@@ -28,7 +28,7 @@ quoted with the commit beside them.
 | manifest | `gst_rule_cases_readable` | **PASS** | 5b2e44fe065b6bb58f81dda423f671783215ad3cef0f6dbfae4628afe6fbdb2c | sha256 5b2e44fe065b6bb5… |
 | s2_extraction | `exit1_generated_truth_extraction` | **FAIL** | {"date": 0, "party": 0, "tax_paise": 0, "total_paise": 0} | stub backend, 80 renderable cases, exact matches per field {'date': 0, 'party': 0, 'total_paise': 0, 'tax_paise': 0}, required 76. GENERATED_TRUTH from canonical JSON, SYNTHETIC_EVIDENCE, and never evidence about real-world reader accuracy. Owner decision Q4 = B: no production backend is selected, so a stub cannot pass this. |
 | s2_extraction | `exit2_unrenderable_input_is_explicit` | **PASS** | 0 | 20 unrenderable cases; every named field explicit not_found with a reason. ADAPTER_CONTRACT, never reader accuracy. no silent blank, no fabricated value |
-| s2_extraction | `s2_extraction_scored` | **PASS** | {"date": 100, "party": 100, "tax_paise": 100, "total_paise": 100} | stub backend, 100 cases, per-field hits {'date': 100, 'party': 100, 'total_paise': 100, 'tax_paise': 100}. Owner decision Q4 = B: no production backend is selected, so a stub cannot satisfy the real extraction-quality exit. |
+| s2_extraction | `s2_extraction_scored` | **FAIL** | {"date": 0, "party": 0, "tax_paise": 0, "total_paise": 0} | stub backend, 100 cases, per-field hits {'date': 0, 'party': 0, 'total_paise': 0, 'tax_paise': 0}. Owner decision Q4 = B: no production backend is selected, so a stub cannot satisfy the real extraction-quality exit. |
 | gst_rules | `uncited_production_rules_is_zero` | **PASS** | — | 0 |
 | gst_rules | `every_rule_has_a_notification_number` | **PASS** | — | 0 |
 | gst_rules | `every_rule_has_a_retrieval_date` | **PASS** | — | 0 |
@@ -77,10 +77,10 @@ quoted with the commit beside them.
   "s2_backend": "stub",
   "s2_cases_scored": 100,
   "s2_per_field": {
-    "date": 100,
-    "party": 100,
-    "tax_paise": 100,
-    "total_paise": 100
+    "date": 0,
+    "party": 0,
+    "tax_paise": 0,
+    "total_paise": 0
   },
   "truth_label": "GENERATED_TRUTH"
 }
