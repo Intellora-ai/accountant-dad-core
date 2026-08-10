@@ -13,8 +13,14 @@ import datetime
 
 import pytest
 
-from accountant.rules.gst_rates import RateOutcome, TaxType, official_corpus
-from accountant.rules.hsn_sac import normalise
+from accountant.rules.gst_rates import (
+    RateLookup,
+    RateOutcome,
+    RuleCorpus,
+    TaxType,
+    official_corpus,
+)
+from accountant.rules.hsn_sac import Code, normalise
 from accountant.rules.place_of_supply import (
     Jurisdiction,
     JurisdictionKind,
@@ -62,6 +68,42 @@ def decide(**overrides: object) -> TaxDecision:
     }
     kwargs.update(overrides)
     return decide_tax(**kwargs)  # pyright: ignore[reportArgumentType]
+
+
+class _CorpusThatFindsARateWithNoRule(RuleCorpus):
+    """Answers FOUND and attaches no rule. The real corpus never does this.
+
+    It exists so the engine's own refusal has something to refuse. Nothing here
+    is evidence about any rate; it is evidence about the check.
+    """
+
+    def lookup(
+        self, code: Code | None, tax_type: TaxType, on: datetime.date
+    ) -> RateLookup:
+        return RateLookup(
+            outcome=RateOutcome.FOUND,
+            code=code,
+            tax_type=tax_type,
+            on_date=on,
+            reason="built by a test; the loaded corpus cannot produce this",
+        )
+
+
+def test_a_found_lookup_with_no_rule_attached_is_refused_at_runtime():
+    """`python -O` strips `assert`, so the check could not be an assert.
+
+    The engine used `assert look.rule is not None` here. Under `-O` that line
+    disappears, the None travels into `compute`, and the failure surfaces as an
+    arithmetic error naming a rate that was never there. This asserts the
+    refusal happens at runtime instead, and that it names the corpus.
+    """
+    decision = decide(corpus=_CorpusThatFindsARateWithNoRule([], []))
+
+    assert decision.outcome is TaxOutcome.UNCLEAR
+    assert "FOUND with no rule attached" in decision.reason
+    assert decision.lines == ()
+    assert decision.total_tax_paise is None
+    assert decision.computation is None
 
 
 # ---- place of supply -------------------------------------------------------

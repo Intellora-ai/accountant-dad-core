@@ -183,9 +183,23 @@ def decide_tax(
 
     rules: list[RateRule] = []
     for look in lookups:
-        # Every lookup here is FOUND, and FOUND always carries a rule; the
-        # narrowing is for the type checker, not for a case that can happen.
-        assert look.rule is not None  # noqa: S101
+        # FOUND is supposed to always carry a rule, and every lookup that
+        # reaches here is FOUND. This is not an `assert`, because `python -O`
+        # strips those: the None would then travel into `compute`, and the
+        # failure would surface somewhere that cannot name its own cause. The
+        # check stays at runtime and fails closed, so a corpus that ever
+        # produces FOUND-with-no-rule is reported rather than computed around.
+        if look.rule is None:
+            return TaxDecision(
+                outcome=TaxOutcome.UNCLEAR,
+                reason=(
+                    f"the {look.tax_type.value} lookup came back FOUND with no "
+                    f"rule attached, so there is no rate to apply"
+                ),
+                supply_kind=place.supply_kind,
+                place_of_supply=place,
+                rate_lookups=lookups,
+            )
         rules.append(look.rule)
 
     computation = compute(taxable_paise, rules)
