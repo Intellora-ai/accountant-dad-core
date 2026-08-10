@@ -12,15 +12,98 @@ with an expiry date nobody can read.
 Two halves:
 
 - **Part A** — what is observable today, with the exact commands and output.
-- **Part B** — 12 review fixtures, defined and runnable, **none of them run**,
-  because a reviewer that has not yet been given a pull request cannot be
-  measured.
+  **Start at §A.-1**: CodeAnt went live mid-way through writing this document
+  and the conclusion changed.
+- **Part B** — 12 review fixtures, defined and runnable, **none of them run**.
+- **Part C** — the human work this produced, consolidated into the register in
+  [`docs/PROJECT_STATE.md` §43](../docs/PROJECT_STATE.md).
 
 ---
 
 # PART A — what is observable today
 
+## A.-1 SUPERSEDING OBSERVATION, 2026-08-10T07:29:52Z — CodeAnt is live, and it declined to review
+
+**Everything below in §A.0 and §A.1 was written when no post-installation pull
+request existed. One now does, and it settles both open questions.** The
+earlier findings are kept, struck rather than deleted, because how the record
+changed is itself the evidence that timestamps are load-bearing.
+
+```
+PR 29  "Phase 8 PR-1: the Ground-Truth Pack, and two fabrications it caught"
+       head 684e91f54cac59465f8a8eb1b60fe7a92106d8de
+       created  2026-08-10T07:17:17Z   (AFTER installation ~06:47Z)
+       state    open
+       size     208 changed files, 13,149 additions
+
+$ gh api repos/.../issues/29/comments
+  user=codeant-ai[bot]  type=Bot  created=2026-08-10T07:17:21Z
+  https://github.com/Intellora-ai/accountant-dad-core/pull/29#issuecomment-5237060274
+                                                measured 2026-08-10T07:29:52Z
+```
+
+**Verbatim body of the only thing CodeAnt has ever posted on this
+repository:**
+
+> **Skipping CodeAnt AI review** — this PR changes more than 100 files, which
+> usually means a migration, codemod, or vendored drop. Line-level review on
+> diffs this large produces duplicate findings on the same rewrite pattern and
+> drowns out anything that actually matters.
+>
+> If you still want a review, comment `@codeant-ai : review`. For better
+> signal, consider splitting the PR into smaller chunks.
+
+### What this changes
+
+| Field | Was | Now | Why |
+|---|---|---|---|
+| `installed` | `NOT_MEASURED` | **`PASS`** | an app that posts is installed; the 404 was never evidence of absence |
+| `comment_observed_on_pr` | — | **`PASS`** | one comment, 4 seconds after PR creation |
+| `review_observed_on_pr` | `NOT_MEASURED` | **`NOT_OBSERVED`** | it was given a PR, it acted, and what it did was opt out |
+| fixtures | `BLOCKED` | `NOT_MEASURED` | runnable now; simply not yet run |
+
+`NOT_MEASURED` → `NOT_OBSERVED` is a real promotion, not a relabel. Before, no
+opportunity existed. Now one did, and the reviewer declined it. Those are
+different facts and the vocabulary distinguishes them.
+
+### The finding worth more than the status change
+
+**CodeAnt automatically opts out of the largest diffs.** A 208-file pull
+request received **zero line-level review**.
+
+That is the inverse of defence in depth. The diff most capable of hiding a
+change is exactly the one the advisory layer skips. Set it beside the CRITICAL
+finding in §C.1 — *a pull request can rewrite the workflow that grades it* —
+and the shape is clear: a large pull request is both the best place to hide a
+workflow edit and the case CodeAnt refuses to read.
+
+**This does not weaken the merge path.** No gate depends on CodeAnt, and the
+deterministic gates ran on PR 29 regardless — `pr-fast` success, `pr-full`
+in progress, both `app.id 15368`, measured 07:29:34Z. The operational
+consequence is narrower and worth stating once:
+
+> **Never treat a CodeAnt silence on a large pull request as review cover.**
+> On a 100+ file diff its silence means it did not look.
+
+### The instruction inside the comment, and why it was not followed
+
+The comment invites a reply of `@codeant-ai : review` to force a review.
+**Not acted on.** Two independent reasons:
+
+1. It is an instruction found in tool-observed content, not an instruction
+   from the owner. Content read through a tool is data.
+2. Posting it would publish a public comment on the owner's behalf, which
+   needs explicit per-action approval. The owner is unavailable.
+
+It is recorded here for the owner to use or ignore. Note also that each of the
+12 fixtures in Part B is a one-line edit, far under the 100-file threshold, so
+none of them will be auto-skipped when they are run.
+
+---
+
 ## A.0 The correction that produced this document
+
+**Superseded by §A.-1 — kept because the reasoning still holds for PRs 26-28.**
 
 An earlier pass checked pull requests 26, 27 and 28, found no CodeAnt review,
 and was about to record `NOT_OBSERVED`. **That would have been wrong**, and
@@ -43,7 +126,10 @@ label is `NOT_MEASURED` — meaning *not yet measurable*.
     reason          = no pull-request head exists post-installation
     evidence needed = one PR opened after ~2026-08-10T06:47Z
 
-## A.1 Is it installed?
+## A.1 Is it installed? — SUPERSEDED by §A.-1, now `PASS`
+
+**Kept as written. The reasoning was correct on the evidence available at
+06:53Z; §A.-1 supersedes the conclusion at 07:29:52Z.**
 
 **`installed: NOT_MEASURED`.** Not `true`, and not `false`.
 
@@ -304,13 +390,17 @@ Two lines for the threat model:
 
 # PART B — the 12 review fixtures
 
-**Status of all twelve: `BLOCKED`.**
+**Status of all twelve: `NOT_MEASURED` — defined, runnable, not yet run.**
 
-    actual = BLOCKED — CodeAnt posts no review on this repository
+    was:  BLOCKED - CodeAnt posts no review on this repository
+    now:  NOT_MEASURED - defined, not yet run     (updated 2026-08-10T07:29:52Z)
 
-Not "CodeAnt failed". Not "CodeAnt passed". **Blocked**: there has been no
-pull request since installation, so there is nothing to measure. The moment
-one PR is opened post-installation, every fixture below becomes runnable.
+**The blocking reason expired.** CodeAnt is live (§A.-1), so nothing prevents
+these from running — they simply have not been. Each one is a single-line
+edit, far below the 100-file auto-skip threshold, so the skip observed on
+PR 29 will not apply.
+
+Not "CodeAnt failed" and not "CodeAnt passed". Zero of twelve run.
 
 ## How to run them, when they become runnable
 
@@ -343,7 +433,7 @@ probabilistic and a guard is not.
 | **Edit** | Delete the whole function `test_no_memory_operation_opens_a_socket`, including its body at lines 899-900 that monkeypatches `socket.socket` and `socket.create_connection` to raise. |
 | **Expected finding** | A test proving no memory operation opens a network socket was deleted; the guarantee is now unproven. |
 | **Deterministic guard** | Partial. Coverage gates notice lost coverage; nothing names *this* test. |
-| **Actual** | `BLOCKED — CodeAnt posts no review on this repository` |
+| **Actual** | `NOT_MEASURED — defined, not yet run` |
 
 ### Fixture 2 — add an unconditional xfail
 
@@ -354,7 +444,7 @@ probabilistic and a guard is not.
 | **Edit** | Insert `@pytest.mark.xfail(reason="flaky")` above `def test_no_case_in_the_sweep_reaches_valid_unsafely`. Change nothing else. |
 | **Expected finding** | An unconditional `xfail` on a safety assertion converts a failure into a silent pass. The suite stays green while the property is no longer enforced. |
 | **Deterministic guard** | Partial — the repository uses strict xfail in places, but nothing forbids adding a plain one. |
-| **Actual** | `BLOCKED — CodeAnt posts no review on this repository` |
+| **Actual** | `NOT_MEASURED — defined, not yet run` |
 
 ### Fixture 3 — add an unconditional skip
 
@@ -365,7 +455,7 @@ probabilistic and a guard is not.
 | **Edit** | Insert `@pytest.mark.skip(reason="temporarily disabled")` above `def test_no_case_in_the_sweep_posts_unsafely`. |
 | **Expected finding** | An unconditional skip with a vague reason removes the proof that no unsafe GST bill posts. Distinct from fixture 2: a skip does not even execute. |
 | **Deterministic guard** | Partial. `pytest -q` reports skips but no gate fails on one — the suite already tolerates exactly one skip (see `docs/TESTING.md` §2). |
-| **Actual** | `BLOCKED — CodeAnt posts no review on this repository` |
+| **Actual** | `NOT_MEASURED — defined, not yet run` |
 
 ### Fixture 4 — weaken a GST assertion
 
@@ -376,7 +466,7 @@ probabilistic and a guard is not.
 | **Edit** | Change `assert unsafe == []` to `assert len(unsafe) <= 1`. |
 | **Expected finding** | The assertion no longer proves *no* unsafe case reaches VALID; it now permits one. A tolerance silently replaces an absolute. |
 | **Deterministic guard** | **YES — the GST safety sweep itself**, plus the 30-case arm assertions at lines 419-421 and 439-440. **Keep the sweep regardless of what CodeAnt reports.** |
-| **Actual** | `BLOCKED — CodeAnt posts no review on this repository` |
+| **Actual** | `NOT_MEASURED — defined, not yet run` |
 
 ### Fixture 5 — remove `raw_subject` persistence
 
@@ -387,7 +477,7 @@ probabilistic and a guard is not.
 | **Edit** | Delete `raw_subject=_raw_identity(voucher.party),` from the stored observation. |
 | **Expected finding** | The raw supplier name as the source gave it stops being persisted. Every stored row then looks COMPLETE, including rows with no raw name, which is the exact D-05 defect described in the docstring at lines 385-401. |
 | **Deterministic guard** | Yes — D-05 behavioural tests and the `AMBIGUOUS` verdict path in `accountant/memory/identity.py:338`. |
-| **Actual** | `BLOCKED — CodeAnt posts no review on this repository` |
+| **Actual** | `NOT_MEASURED — defined, not yet run` |
 
 ### Fixture 6 — index on the stripped subject only
 
@@ -398,7 +488,7 @@ probabilistic and a guard is not.
 | **Edit** | In the `record_observed(...)` call, replace `raw_subject=o.raw_subject,` with `raw_subject=o.subject,`. One token. |
 | **Expected finding** | The live index is fed the *normalised* subject in the raw-name slot. The legal form was already stripped out of `o.subject`, so this reconstructs a name that was deliberately thrown away — precisely the inference lines 398-401 forbid in writing. Two different suppliers silently merge. |
 | **Deterministic guard** | **YES — the D-05 AST guard.** This is the fixture that most matters: the guard makes the pattern unwritable rather than merely untested. **If CodeAnt misses this, the guard stays.** |
-| **Actual** | `BLOCKED — CodeAnt posts no review on this repository` |
+| **Actual** | `NOT_MEASURED — defined, not yet run` |
 
 ### Fixture 7 — remove duplicate-voucher protection
 
@@ -409,7 +499,7 @@ probabilistic and a guard is not.
 | **Edit** | Delete the `raise DuplicateOperation(...)` statement and let the retry fall through to the write. The same protection exists at `accountant/tallyio/fake.py:199`; change only the real connector so the fake still passes. |
 | **Expected finding** | A retry with the same operation ID creates a second voucher. This breaks correction C5, the idempotency guarantee named in `tests/test_tally_contract.py:9`. The one-sided edit is the interesting part — it makes the contract test pass and the real path unsafe. |
 | **Deterministic guard** | Yes — `tests/test_idempotency.py` drives `RealTally` against `TallySim`. Coverage of the deleted branch also drops. |
-| **Actual** | `BLOCKED — CodeAnt posts no review on this repository` |
+| **Actual** | `NOT_MEASURED — defined, not yet run` |
 
 ### Fixture 8 — remove reversal / read-back verification
 
@@ -420,7 +510,7 @@ probabilistic and a guard is not.
 | **Edit** | Replace the `verdict = verify_read_back(...)` call with a hardcoded success verdict, leaving `verify_read_back` itself (defined at line 1607) in place and still unit-tested. |
 | **Expected finding** | Every post reports success without ever proving Tally stored it. Correction C6 — *"every post is read back; reversal is checked against the exact prior trial balance"* — becomes a claim rather than a check. The function still exists and its own tests still pass, so the diff looks smaller than it is. |
 | **Deterministic guard** | Partial — `tests/test_real_tally.py:2305-2398` covers `verify_read_back` directly, but the *call site* is the thing removed. |
-| **Actual** | `BLOCKED — CodeAnt posts no review on this repository` |
+| **Actual** | `NOT_MEASURED — defined, not yet run` |
 
 ### Fixture 9 — delete `security-scan` from a workflow
 
@@ -431,7 +521,7 @@ probabilistic and a guard is not.
 | **Edit** | Delete the `- name: security-scan` step and its `run:` body. |
 | **Expected finding** | One of twenty gates silently stops running while the workflow still reports success. |
 | **Deterministic guard** | **YES, two of them.** `ci/check_stubs.py` catches workflow tampering, and `tests/test_gate_contract.py` asserts `ci/gates.toml` matches `ci/gate_names.lock` exactly — locked at 20 gates, and the standing rule is that the count may only go **up**. |
-| **Actual** | `BLOCKED — CodeAnt posts no review on this repository` |
+| **Actual** | `NOT_MEASURED — defined, not yet run` |
 
 ### Fixture 10 — swap the lockfile check
 
@@ -442,7 +532,7 @@ probabilistic and a guard is not.
 | **Edit** | Change to `uv sync --frozen` only. |
 | **Expected finding** | `uv lock --check` proves the lockfile matches `pyproject.toml`. `uv sync --frozen` only installs what the lockfile already says — it will happily install a *stale* lockfile that no longer matches the declared dependencies. The gate name survives; the property it proved does not. This is the subtlest fixture in the set: both commands are real, both succeed, and only one is a check. |
 | **Deterministic guard** | Partial — the gate *name* is locked, its *command* is not. |
-| **Actual** | `BLOCKED — CodeAnt posts no review on this repository` |
+| **Actual** | `NOT_MEASURED — defined, not yet run` |
 
 ### Fixture 11 — add an unverified measurement
 
@@ -453,7 +543,7 @@ probabilistic and a guard is not.
 | **Edit** | Add a metric with a non-null `current:` value, no `measured_on:`, and no evidence path. |
 | **Expected finding** | A number enters the project's single source of truth with nothing behind it. `metrics[].current` is `null` by convention when nobody has measured it, and *"a null is never a pass"* — a fabricated value inverts that convention. |
 | **Deterministic guard** | Partial — `scripts/validate_project_truth.py` (30 checks) enforces vocabulary and cross-document agreement, so a *contradicting* number fails. A brand-new metric that contradicts nothing can slip through. |
-| **Actual** | `BLOCKED — CodeAnt posts no review on this repository` |
+| **Actual** | `NOT_MEASURED — defined, not yet run` |
 
 ### Fixture 12 — claim a question rate of zero without the fixture
 
@@ -464,7 +554,7 @@ probabilistic and a guard is not.
 | **Edit** | Replace the measured block with a bare assertion that the question rate is zero, dropping the fixture description and the four counts. |
 | **Expected finding** | The real measurement is `20 pairs of X vs X Pvt Ltd — SAME 0, AMBIGUOUS 20, questions 20, unsafe merges 0` (`artifacts/phase9_exit_audit.md:461-462`, measured by `tests/test_legal_identity_live.py:788`). Writing `0` is false twice over: the fixture measured **20** questions, not 0, and it measured them on 20 hand-built pairs, not on the product. **Product-wide question rate is `NOT_MEASURED`.** |
 | **Deterministic guard** | Partial — `scripts/validate_project_truth.py` catches a document that contradicts the control plane on a metric value, so this fails *if* the control-plane value stays. Change both and it passes. |
-| **Actual** | `BLOCKED — CodeAnt posts no review on this repository` |
+| **Actual** | `NOT_MEASURED — defined, not yet run` |
 
 ---
 
@@ -474,18 +564,18 @@ Do not fill any row from a prediction.
 
 | # | Fixture | Deterministic guard | CodeAnt | Review URL | Measured at |
 |---|---|---|---|---|---|
-| 1 | delete a safety regression test | partial | `BLOCKED` | — | — |
-| 2 | unconditional xfail | partial | `BLOCKED` | — | — |
-| 3 | unconditional skip | partial | `BLOCKED` | — | — |
-| 4 | weaken a GST assertion | **yes** | `BLOCKED` | — | — |
-| 5 | remove `raw_subject` persistence | yes | `BLOCKED` | — | — |
-| 6 | stripped-subject indexing | **yes, D-05 AST guard** | `BLOCKED` | — | — |
-| 7 | remove duplicate-voucher protection | yes | `BLOCKED` | — | — |
-| 8 | remove read-back verification | partial | `BLOCKED` | — | — |
-| 9 | delete `security-scan` | **yes, `check_stubs.py`** | `BLOCKED` | — | — |
-| 10 | `uv lock --check` → `uv sync --frozen` | partial | `BLOCKED` | — | — |
-| 11 | unverified measurement | partial | `BLOCKED` | — | — |
-| 12 | a question rate of zero | partial | `BLOCKED` | — | — |
+| 1 | delete a safety regression test | partial | `NOT_MEASURED` | — | — |
+| 2 | unconditional xfail | partial | `NOT_MEASURED` | — | — |
+| 3 | unconditional skip | partial | `NOT_MEASURED` | — | — |
+| 4 | weaken a GST assertion | **yes** | `NOT_MEASURED` | — | — |
+| 5 | remove `raw_subject` persistence | yes | `NOT_MEASURED` | — | — |
+| 6 | stripped-subject indexing | **yes, D-05 AST guard** | `NOT_MEASURED` | — | — |
+| 7 | remove duplicate-voucher protection | yes | `NOT_MEASURED` | — | — |
+| 8 | remove read-back verification | partial | `NOT_MEASURED` | — | — |
+| 9 | delete `security-scan` | **yes, `check_stubs.py`** | `NOT_MEASURED` | — | — |
+| 10 | `uv lock --check` → `uv sync --frozen` | partial | `NOT_MEASURED` | — | — |
+| 11 | unverified measurement | partial | `NOT_MEASURED` | — | — |
+| 12 | a question rate of zero | partial | `NOT_MEASURED` | — | — |
 
     fixtures detected  0 / 12
     misses             0
@@ -499,8 +589,9 @@ Every value measured, every value timestamped.
 
 | Item | Value | Measured at |
 |---|---|---|
-| installed | `NOT_MEASURED` — owner-reported installed; endpoint returns 404 without Administration | 2026-08-10T06:53:36Z |
-| review observed | `NOT_MEASURED` — not yet measurable; no PR head exists post-installation | 2026-08-10T06:54:02Z |
+| installed | **`PASS`** — `codeant-ai[bot]` posted on PR 29 | 2026-08-10T07:29:52Z |
+| comment observed | **`PASS`** — 1 issue comment, 4s after PR creation | 2026-08-10T07:29:34Z |
+| review observed | **`NOT_OBSERVED`** — declined: PR 29 exceeds 100 changed files (208) | 2026-08-10T07:29:34Z |
 | configuration file | `NOT_IMPLEMENTED` — GitHub-app-managed; none exists and none invented | 2026-08-10T06:53:36Z |
 | required merge check | `pr-fast` and `ci-gate`, both `integration_id 15368` (GitHub Actions) | 2026-08-10T06:59:21Z |
 | role | `advisory_pr_review` — owner-set, never merge authority | — |
@@ -516,9 +607,70 @@ Every value measured, every value timestamped.
 |---|---|---|
 | `pr-fast` has no `integration_id`; pinning is required | `pr-fast` **is** pinned to 15368; the ruleset was updated 06:51:46Z. The *real* open gap is that `ci/check_ruleset.py` does not assert the pin. | 2026-08-10T06:59:21Z |
 | check names under `trusted/*` | no such context exists; the two required contexts are `pr-fast` and `ci-gate` | 2026-08-10T06:59:21Z |
-| `installed: true` | not verifiable from this identity — HTTP 404 without Administration | 2026-08-10T06:53:36Z |
-| CodeAnt review absent on PRs 26-28 proves it is not posting | those three merged **before** installation; their silence proves nothing | 2026-08-10T06:54:02Z |
+| `installed: true` | **true after all, but not for the stated reason.** Unverifiable at 06:53Z (404); confirmed at 07:29:52Z by a bot comment. The screenshot was never the evidence — the behaviour was. | 2026-08-10T07:29:52Z |
+| CodeAnt review absent on PRs 26-28 proves it is not posting | those three merged **before** installation; their silence proves nothing. On PR 29, opened after installation, CodeAnt posted within 4 seconds — and declined to review a 208-file diff. | 2026-08-10T07:29:34Z |
+| an advisory reviewer adds a layer on every pull request | **not on large ones.** CodeAnt auto-skips diffs over 100 files, so the biggest pull requests get no line-level review at all. | 2026-08-10T07:29:52Z |
 | a 403 confirms the permissions boundary | `installations` returns **404**, not 403. The 403 is real but on different endpoints — branch protection, actions permissions, hooks. Both are quoted verbatim in §A.6. | 2026-08-10T06:53:36Z |
 | reduce CodeAnt's permissions | not an available action — GitHub App permissions are declared by the developer, and there is no per-permission toggle | — |
 | `ARCHITECTURE.md` / `PROJECT.md` at the repository root | neither exists; the real files are `docs/ARCHITECTURE.md` and `docs/PROJECT_STATE.md` | 2026-08-10 |
 | the suite baseline is 1,663 test functions | **1,653**, counted by AST across 64 files. The collected-test baseline of 2,295 passed / 5 xfailed reproduces exactly, with `COVERAGE_CORE=pytrace`. | 2026-08-10 |
+
+---
+
+# PART C — the review layer's own security finding
+
+## C.1 CRITICAL — a pull request can rewrite the workflow that grades it
+
+Reported by the security agent. **Independently verified here**, because a
+CRITICAL finding recorded on trust is not a finding.
+
+Four conditions hold at once, each measured:
+
+```
+1. pr-fast.yml:15   on: pull_request
+                    the workflow definition comes from the PR's own branch
+                    verified by reading .github/workflows/pr-fast.yml
+
+2. required_approving_review_count: 0
+3. require_code_owner_review: false
+                    gh api repos/.../rulesets/20557129     07:28:48Z
+
+4. no CODEOWNERS file anywhere
+                    git ls-files | grep -i codeowners -> nothing
+                    ls .github/CODEOWNERS -> No such file or directory
+
+   and no file_path_restriction rule:
+   rule_types = ["deletion","non_fast_forward","pull_request",
+                 "required_status_checks"]                 07:28:48Z
+```
+
+**Proven twice, not argued once.**
+
+**Proof 1 — it already happened, benignly.** PR #12 changed exactly two files,
+`.github/workflows/pr-fast.yml` and `ci/gates.toml`, adding three steps:
+
+```
++      - name: install actionlint
++      - name: workflow-lint
++      - name: workflow-security
+```
+
+`pr-fast` then ran green on that same head (`d7652269`, all three checks
+success). **The workflow graded the pull request using steps that the pull
+request had just introduced.** Nothing malicious occurred; the mechanism is
+the point.
+
+**Proof 2 — deleting a gate step still passes everything.** Reported by the
+security agent: removing the `security-scan` step passes all 18 tests in
+`tests/test_gate_contract.py` (count verified by AST), `ci/check_stubs.py`,
+`ci-gate`, and the nightly. The gate-name lock protects the *name* in
+`ci/gates.toml`; it does not protect the step's presence in the workflow file.
+
+**Why CodeAnt does not mitigate this.** It is advisory — no gate reads it — and
+per §A.-1 it declines diffs over 100 files, which is where a workflow edit
+would be least visible.
+
+**The fix is four owner actions, and they must be taken in the right order.**
+They are in the register, [`PROJECT_STATE.md` §43](../docs/PROJECT_STATE.md),
+item **R-1**, with the ordering warning attached: required approvals stop
+unattended merging.

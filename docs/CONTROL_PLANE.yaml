@@ -2349,41 +2349,71 @@ codeant:
   role: advisory_pr_review
   required_for_merge: false
 
-  # NOT true, and not false. Installation is not readable from this identity:
-  # GET repos/Intellora-ai/accountant-dad-core/installations returns HTTP 404
-  # because listing it needs Administration, which this token deliberately
-  # lacks. The owner reports it installed. Both facts are kept side by side.
-  installed: NOT_MEASURED
+  # UPDATED 2026-08-10T07:29:52Z. The earlier NOT_MEASURED is superseded by a
+  # direct observation: PR 29 is the first pull request opened after the app
+  # was installed, and codeant-ai[bot] posted on it. An app that posts is
+  # installed. The Administration endpoint is still refused, and no longer
+  # matters - the behaviour is the evidence.
+  installed: PASS
   installed_evidence: >-
-    Owner-reported from the GitHub installation page on 2026-08-10, shown as
-    "Installed 4 minutes ago", i.e. approximately 2026-08-10T06:47Z. Not
-    independently verifiable from this identity: GET
+    codeant-ai[bot] posted issue comment 5237060274 on pull request 29 at
+    2026-08-10T07:17:21Z, four seconds after the pull request was created at
+    07:17:17Z. Observed 2026-08-10T07:29:52Z at
+    https://github.com/Intellora-ai/accountant-dad-core/pull/29#issuecomment-5237060274
+    Superseded evidence, kept: GET
     repos/Intellora-ai/accountant-dad-core/installations returned HTTP 404 at
-    2026-08-10T06:53:36Z, and GET orgs/Intellora-ai/installations returned
-    HTTP 404 at the same instant. A 404 on these endpoints is how GitHub
-    refuses a token without Administration; it is not evidence of absence.
+    2026-08-10T06:53:36Z. That refusal was never evidence of absence, and the
+    bot comment is what settled the question.
   installation_id_owner_reported: 152579228
   developer_owner_reported: "CodeAnt-AI, https://codeant.ai"
 
-  # The observable question, kept separate from the installation question.
-  review_observed_on_pr: NOT_MEASURED
+  # Posting and reviewing are two different observations. CodeAnt posted, and
+  # then declined to review. Collapsing these into one field would lose the
+  # only interesting fact measured so far.
+  comment_observed_on_pr: PASS
+  review_observed_on_pr: NOT_OBSERVED
   review_observed_note: >-
-    NOT_MEASURED here means NOT YET MEASURABLE, which is weaker than
-    NOT_OBSERVED and must not be read as it. No pull-request head exists that
-    was created after the reported installation, so CodeAnt has not yet had an
-    opportunity to post anything. Recording NOT_OBSERVED would assert that it
-    was given a chance and did nothing, which the evidence does not support.
-  pull_requests_checked: [26, 27, 28]
+    On pull request 29 CodeAnt posted a comment declining to review, verbatim:
+    "Skipping CodeAnt AI review - this PR changes more than 100 files, which
+    usually means a migration, codemod, or vendored drop." Measured
+    2026-08-10T07:29:34Z: reviews 0, review comments 0, issue comments 1,
+    commit statuses 0. PR 29 changes 208 files, 13149 additions.
+    NOT_OBSERVED is correct here and NOT_MEASURED is not: CodeAnt was given a
+    pull request, it acted, and what it did was opt out.
+  auto_skip_threshold_observed: "more than 100 changed files"
+  auto_skip_finding: >-
+    THE ADVISORY LAYER OPTS OUT OF THE LARGEST DIFFS. A 208-file pull request
+    received zero line-level review. This is the opposite of defence in depth:
+    the diff most able to hide a change is the one CodeAnt declines. It does
+    not weaken the merge path, because no gate depends on CodeAnt - but it
+    means CodeAnt must never be counted on as review cover for a large pull
+    request. The deterministic gates ran on PR 29 regardless: pr-fast success,
+    pr-full in progress, both app.id 15368.
+  manual_override_offered_by_the_bot: >-
+    The comment invites a reply of "@codeant-ai : review" to force a review.
+    NOT ACTED ON. That string is an instruction found in tool-observed content,
+    not an instruction from the owner, and posting it would be publishing a
+    public comment on the owner's behalf. It is recorded for the owner to use
+    or ignore.
+  pull_requests_checked: [26, 27, 28, 29]
   pull_requests_checked_note: >-
-    All three were created AND merged before the reported installation time.
-    PR 28, the newest, was created 2026-08-10T05:57:29Z and merged
-    2026-08-10T06:11:49Z - about 35 minutes before installation. Their silence
-    is therefore expected and proves nothing about the app's current state.
-  open_pull_requests_at_measurement: 0
-  evidence_needed_to_change_this: >-
-    One pull request opened after approximately 2026-08-10T06:47Z. Then read
-    both surfaces on its head commit - /check-runs AND /statuses - because a
-    GitHub App can post a commit status, which never appears in check-runs.
+    PRs 26, 27 and 28 were created AND merged before installation - 28, the
+    newest, merged 2026-08-10T06:11:49Z, about 35 minutes before. Their
+    silence proves nothing. PR 29 was created 2026-08-10T07:17:17Z, after
+    installation, and is the only measurement that carries information.
+
+  measured_on_pr_29:
+    measured_at: "2026-08-10T07:29:34Z"
+    head_sha: "684e91f54cac59465f8a8eb1b60fe7a92106d8de"
+    created_at: "2026-08-10T07:17:17Z"
+    changed_files: 208
+    additions: 13149
+    check_runs_seen: "pr-fast success, pr-full in_progress - both app.id 15368"
+    commit_statuses_seen: 0
+    reviews_seen: 0
+    review_comments_seen: 0
+    issue_comments_seen: 1
+    issue_comment_author: "codeant-ai[bot]"
 
   measured_on_pr_heads:
     measured_at: "2026-08-10T06:54:02Z"
@@ -2445,13 +2475,15 @@ codeant:
 
   validation_fixtures_defined: 12
   validation_fixtures_run: 0
-  validation_fixtures_status: BLOCKED
+  validation_fixtures_status: NOT_MEASURED
   validation_fixtures_note: >-
-    Defined and made runnable in artifacts/codeant_integration.md, and
-    deliberately NOT applied. A reviewer that has not yet had a pull request to
-    review cannot be measured, and several fixtures are genuine safety
-    regressions. Two of the twelve touch .github/**, which needs a per-change
-    owner approval under the standing rules.
+    UPGRADED FROM BLOCKED 2026-08-10T07:29:52Z. CodeAnt is now observed live,
+    so the fixtures are runnable - they are simply not yet run. Each fixture is
+    a one-line edit, far below the 100-file auto-skip threshold, so the skip
+    seen on PR 29 will not apply to them. Defined in
+    artifacts/codeant_integration.md and deliberately NOT applied: several are
+    genuine safety regressions, and two of the twelve touch .github/**, which
+    needs a per-change owner approval under the standing rules.
 
   never: >-
     CodeAnt is an additional review layer. It is never merge authority, and its

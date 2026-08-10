@@ -1463,6 +1463,12 @@ an agent's working notes.
 and none of them can be worked around by building more. The statuses live in
 [`PROJECT_STATE.md` §41](./PROJECT_STATE.md); this section owns the table.
 
+> **Doing these in one sitting? Go to the Human Work Register instead.**
+> §20 of this document explains why each cannot be automated, and
+> [`PROJECT_STATE.md` §43](./PROJECT_STATE.md) is the ordered worklist with
+> status, what unblocks, and the evidence that closes each item. The register
+> is the single place to look; the tables below remain the per-item reference.
+
 ### 16.1 The three items
 
 | ID | Action | Why automation cannot complete it | Status | Evidence required |
@@ -1867,3 +1873,150 @@ recorded in the integration artifact, not a design change here.
 third-party app installed on this repository is advisory until a pinned
 required check says otherwise, and the pin — not the app's own claims about
 itself — is the thing this architecture trusts.
+
+## 20. The Human Work Register — why these cannot be automated
+
+**One list, two documents.** This section says *what each dependency is and why
+no agent can discharge it*. Current status, what unblocks, and the evidence
+that closes each item live in
+[`PROJECT_STATE.md` §43](./PROJECT_STATE.md). Nothing is restated across the
+two; read them side by side.
+
+**Ordered by how much each unblocks, not by id.** The register is a worklist
+for a single sitting, so the ordering is the design.
+
+**Two id notes, following this project's no-renumbering rule.** `H-01`…`H-05`,
+`B-01` and `B-02` are existing ids and are used unchanged. Three ids are
+allocated here for items that had none: `R-0`, `R-1`, `R-2` for the ruleset
+group, and `N-1` for the input-format ceiling decision. A distinct prefix was
+chosen precisely so that no existing id could be shadowed.
+
+### 20.1 The four kinds of human dependency
+
+Every item below is human-required for exactly one of four reasons. Naming the
+reason matters, because three of the four are permanent and one is not.
+
+```
+GUI-ONLY        the machine interface refuses the operation outright
+                -> B-01
+LEGAL/COMMERCIAL money changes hands, or a licence is granted
+                -> B-02, H-01
+JUDGEMENT       a trade-off with no measurable right answer
+                -> H-01, H-05, N-1
+PRIVILEGE       the action needs an identity this environment
+                deliberately does not hold
+                -> R-1
+```
+
+`PRIVILEGE` is the only one that is a *choice*, and it is Stage 0 working as
+designed: an agent that could widen its own permissions has no permission
+boundary. The other three are properties of the world.
+
+### 20.2 `B-01` — create the company and its ledgers
+
+**Dependency.** A company named `Demo Co` with four ledgers — `Purchases`,
+`Sundry Expenses`, `Cash`, `Sharma Traders` — must exist inside TallyPrime.
+
+**Why automation cannot.** The XML gateway refuses company creation. It is not
+a permission problem or a missing envelope; the request is not implemented:
+
+```
+COMPANY ACTION=Create
+  -> <RESPONSE>Unknown Request, cannot be processed</RESPONSE>
+```
+
+Recorded at `accountant/tallyio/real.py:1181` and `ci/educational_slice.py:35`.
+**This is a GUI-only operation and no amount of connector work changes that.**
+
+**What it unblocks.** The live-evidence track — every guarantee currently
+proven only against a simulator (see [`TESTING.md`](./TESTING.md) §3).
+
+### 20.3 `B-02` — a non-Educational licence
+
+**Dependency.** TallyPrime must not be running in Educational mode.
+
+**Why automation cannot.** Educational mode accepts vouchers only on the 1st,
+2nd and 31st of a month. The frozen acceptance fixture is dated `2026-08-07`
+and therefore cannot pass there. **The fixture is never edited to make it
+pass** — moving a date to suit the environment would destroy the only thing
+the fixture measures. Buying a licence is a commercial act.
+
+**What it unblocks.** With `B-01`, the `LICENSED_REALTALLY` evidence class,
+which is empty today. **Neither blocks code, tests, or merges.**
+
+### 20.4 `H-01` and `N-1` — one decision in two halves
+
+These are listed together because **deciding either alone is deciding on
+incomplete information.**
+
+**`H-01` — approve a production extraction backend.** The dependency is a
+commercial and privacy commitment: cost, data residency, retention, security,
+privacy, supported formats, GST field capability, outage behaviour, rate
+limits, and accuracy evidence. **No customer bill goes to a third party before
+this is approved.** An agent can gather every input and cannot make the
+commitment, because accepting a vendor's data-processing terms is an act of
+the business, not of the code.
+
+**`N-1` — the input-format ceiling.** The reachable score is **80/100 per
+field, not 100**, and that is independent of which backend `H-01` selects. JPG
+cases are `format_fidelity: "container_only"`: a baseline JPEG encoder needs
+DCT and Huffman coding, `dependencies = []` in `pyproject.toml` permits no
+image library, and so nothing can verify that the bytes decode. **The
+95-per-field gate is unreachable today no matter what `H-01` chooses.**
+
+Three options, with their costs. **No fourth option is invented and none is
+recommended** — this is `OWNER_DECISION_REQUIRED`:
+
+```
+A  permit an image library      breaks dependencies = [], the zero-runtime-
+                                dependency property the project has held so far
+B  accept the 80 ceiling        the 95-per-field gate is retired or restated;
+                                the JPG slice stays unverifiable
+C  drop JPG from the five types the frozen five input types change, which is
+                                itself a scope change requiring approval
+```
+
+### 20.5 `R-1` — the ruleset hardening, and why it goes last
+
+**Dependency.** Four changes to ruleset `20557129`, taken together.
+
+**Why automation cannot.** They require repository Administration. This
+identity does not hold it and must not: an auditor that can repair what it
+audits is a second, quiet way for protection to change. The refusal is
+verified, not assumed — HTTP 403, quoted in
+[`PROJECT_STATE.md` §42.3](./PROJECT_STATE.md).
+
+**What it closes.** The CRITICAL finding: *a pull request can rewrite the
+workflow that grades it.* Four conditions hold simultaneously — `pr-fast.yml`
+triggers `on: pull_request` so the workflow definition comes from the pull
+request's own branch; zero approvals are required; code-owner review is off;
+and there is neither a `CODEOWNERS` file nor a path-restriction rule. Proven
+twice, in
+[`artifacts/codeant_integration.md` §C.1](../artifacts/codeant_integration.md).
+
+**The ordering constraint is part of the item, not a footnote.** Requiring an
+approving review **stops unattended merging**. The owner has said they want
+work to merge while they are away. Therefore:
+
+> **Do `R-1` after PR #29 merges — never before.**
+
+Applying it early converts an away-from-keyboard period into a stalled queue,
+which is a self-inflicted outage in exchange for closing a finding that has
+been open for days.
+
+### 20.6 What is deliberately *not* on the owner's list
+
+**`R-0` is closed.** `pr-fast` is pinned to GitHub Actions. Recording finished
+work as outstanding trains a reader to skim the register, which is how a real
+item gets missed.
+
+**`R-2` is an agent's job, not the owner's.** `ci/check_ruleset.py` asserts the
+required context *name* but never inspects `integration_id`, so the pin is
+applied and undefended. The security agent is fixing the checker. The owner's
+action is to let that land — not to do anything in a GUI.
+
+**`H-02` and `H-05` are optional.** `H-02` (real or anonymised bills) blocks
+real-bill accuracy only. `H-05` (an authenticated actor identity subsystem)
+blocks authenticated actor provenance only; today `accountant_dad` and
+`operator` are coarse labels and are **not** authenticated identities, as §18.8
+already states.

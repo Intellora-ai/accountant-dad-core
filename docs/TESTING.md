@@ -251,10 +251,23 @@ Three rules, and none of them are negotiable by configuration:
    something a deterministic guard also catches, the guard stays. If it misses
    something, the miss is recorded and the guard still stays.
 
-Its current observed state is not "working" and not "broken" — it is **not
-yet measurable**, because no pull request has been opened since it was
-installed. The full record, the commands, and the 12 review fixtures waiting
-to be run are in
+**Its first observed act was to decline.** On PR #29 — the first pull request
+opened after installation — `codeant-ai[bot]` posted within 4 seconds and
+skipped the review, because the diff changes more than 100 files (208).
+Measured 2026-08-10T07:29:52Z.
+
+    installed         PASS           an app that posts is installed
+    comment observed  PASS           1 issue comment
+    review observed   NOT_OBSERVED   given a PR, it opted out
+    fixtures          NOT_MEASURED   12 defined, 0 run
+
+So a fourth rule joins the three above:
+
+4. **A CodeAnt silence on a large pull request is not review cover.** Above
+   100 changed files it does not look, which is the inverse of defence in
+   depth — the biggest diff is the easiest place to hide a change.
+
+The full record, the commands, and the 12 review fixtures are in
 [`artifacts/codeant_integration.md`](../artifacts/codeant_integration.md).
 
 ---

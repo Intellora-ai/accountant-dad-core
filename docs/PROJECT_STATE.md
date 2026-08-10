@@ -12,6 +12,12 @@
 | **Companion documents** | [`ARCHITECTURE.md`](./ARCHITECTURE.md) — the design. [`BOTTLENECKS.md`](./BOTTLENECKS.md) — what currently costs more than it should, with the smallest guard per class of defect. |
 | **Who may update** | The owner, or Claude on the owner's instruction. |
 
+> **Looking for what only you can do? → §43, the Human Work Register.**
+> One ordered list, grouped so it can be worked in a single sitting. Why each
+> item cannot be automated is in
+> [`ARCHITECTURE.md` §20](./ARCHITECTURE.md). **Group D is deliberately last —
+> those four ruleset changes stop unattended merging.**
+
 **Every label in this file means something exact:**
 
 ```
@@ -3276,23 +3282,45 @@ The owner installed the CodeAnt AI GitHub App on
 installation page as *"Installed 4 minutes ago"*, approximately
 **06:47Z**. Installation `152579228`, developer CodeAnt-AI.
 
-Nothing has been observed from it, and **that is not a finding about CodeAnt**.
+**At 07:17:21Z it posted for the first time, and it declined to review.**
 
 ```
-installed         NOT_MEASURED   the endpoint that would confirm it returns
-                                 HTTP 404 without Administration; the owner
-                                 reports it installed and that is recorded
-                                 as a report, not as a measurement
-review observed   NOT_MEASURED   meaning NOT YET MEASURABLE
+installed         PASS           codeant-ai[bot] posted on PR 29 at
+                                 07:17:21Z, 4s after the PR was created.
+                                 An app that posts is installed.
+comment observed  PASS           1 issue comment
+review observed   NOT_OBSERVED   it was given a PR and opted out
 configuration     NOT_IMPLEMENTED  GitHub-app-managed; no file exists in the
                                  tree and no filename was invented
-fixtures          BLOCKED        12 defined, 0 run
+fixtures          NOT_MEASURED   12 defined, 0 run; runnable now
+                                              all measured 2026-08-10T07:29:52Z
 ```
+
+Verbatim, the whole of what it said:
+
+> **Skipping CodeAnt AI review** — this PR changes more than 100 files, which
+> usually means a migration, codemod, or vendored drop. […] If you still want
+> a review, comment `@codeant-ai : review`.
+
+PR 29 changes **208 files, 13,149 additions**. The invitation to reply
+`@codeant-ai : review` was **not acted on**: it is an instruction found in
+tool-observed content rather than from the owner, and posting it would publish
+a public comment on the owner's behalf.
+
+**The finding worth more than the status.** CodeAnt automatically opts out of
+diffs over 100 files, so **the largest pull requests receive no line-level
+review at all**. That is the inverse of defence in depth, and it sits directly
+beside the CRITICAL finding in §43 item `R-1`: a large pull request is both
+the easiest place to hide a workflow edit and the case the advisory layer
+refuses to read. It does not weaken the merge path — no gate reads CodeAnt,
+and `pr-fast` ran green on PR 29 regardless — but **a CodeAnt silence on a
+large pull request is never review cover.**
 
 ### §42.2 The correction that matters more than the result
 
-An earlier pass checked pull requests 26, 27 and 28, found no CodeAnt review,
-and was about to record `NOT_OBSERVED`.
+**Still true for PRs 26-28, and it is why §42.1 could be promoted honestly
+rather than guessed.** An earlier pass checked pull requests 26, 27 and 28,
+found no CodeAnt review, and was about to record `NOT_OBSERVED`.
 
 ```
 PR 28  created 2026-08-10T05:57:29Z  merged 2026-08-10T06:11:49Z
@@ -3372,3 +3400,234 @@ per-change owner approval under the standing rules.
 Most of the twelve are already caught by a deterministic guard — the D-05 AST
 guard, the GST safety sweep, `ci/check_stubs.py`, the locked twenty-gate set.
 **If CodeAnt later misses one, the miss is recorded and the guard stays.**
+
+They were labelled `BLOCKED` when no reviewer existed. That reason expired at
+07:17:21Z, so they are now `NOT_MEASURED` — runnable, not yet run. Each is a
+one-line edit, far under the 100-file auto-skip threshold, so the skip seen on
+PR 29 will not apply to them.
+
+## §43 THE HUMAN WORK REGISTER — one list, do it in one sitting
+
+**This is the single place to look.** Why each item cannot be automated is in
+[`ARCHITECTURE.md` §20](./ARCHITECTURE.md); this section is status, what
+unblocks, and the evidence that closes each one. The two do not repeat each
+other.
+
+**Ordered by what unblocks the most, not by id.** Do the groups in order.
+Group D is deliberately last and the reason is not cosmetic.
+
+### §43.0 The one-screen view
+
+```
+GROUP A - unblocks the most, no side effects, do first
+  B-01 / H-03   create Demo Co + 4 ledgers in the TallyPrime GUI
+  B-02 / H-04   obtain a non-Educational licence
+
+GROUP B - one decision in two halves, decide together
+  H-01          approve a production extraction backend
+  N-1           the JPG ceiling: image library, accept 80, or drop JPG
+
+GROUP C - optional, nothing waits on them
+  H-02          supply real or anonymised bills
+  H-05          approve an authenticated actor identity subsystem
+
+GROUP D - DO LAST, ONLY AFTER PR #29 MERGES
+  R-1           four ruleset changes; closes the CRITICAL self-merge finding
+                *** these stop unattended merging ***
+
+NOT THE OWNER'S WORK
+  R-2           an agent is fixing ci/check_ruleset.py
+CLOSED
+  R-0           pr-fast pinned to GitHub Actions - done 2026-08-10T06:51:46Z
+```
+
+### §43.1 `R-0` — CLOSED, recorded so nobody redoes it
+
+| | |
+|---|---|
+| **Status** | **CLOSED 2026-08-10T06:51:46Z.** The owner did it themselves. |
+| **Evidence** | `{"context":"pr-fast","integration_id":15368}`, read live at 2026-08-10T06:59:21Z; ruleset `updated_at` 2026-08-10T12:21:46.474+05:30 |
+| **Detail** | §9 of this document, with the old unpinned snapshot kept struck |
+
+A register that lists completed work as outstanding teaches its reader to skim,
+and a skimmed register is how a real item gets missed. Hence this row.
+
+### §43.2 GROUP A — `B-01` / `H-03` and `B-02` / `H-04`
+
+These two are the entire live-evidence track. **Nothing else on this list
+unblocks as much.**
+
+**`B-01` / `H-03` — create the company and ledgers**
+
+| | |
+|---|---|
+| **Do** | Create company `Demo Co` with ledgers `Purchases`, `Sundry Expenses`, `Cash`, `Sharma Traders` |
+| **Where** | The TallyPrime GUI on the Windows machine. Not over XML — the gateway refuses |
+| **Status** | `HUMAN_ACTION_REQUIRED` |
+| **Unblocks** | The `LICENSED_REALTALLY` evidence class, with `B-02`. Every Tally safety guarantee is currently proven against a simulator only |
+| **Does NOT block** | Any code, any test, any merge, any current work |
+| **Evidence that closes it** | Company name · creation time · TallyPrime version · the four ledger names · the company identifier if the GUI shows one · a screenshot or export |
+
+**`B-02` / `H-04` — a non-Educational licence**
+
+| | |
+|---|---|
+| **Do** | Obtain and activate a non-Educational TallyPrime licence |
+| **Where** | Tally's licensing flow; a purchase |
+| **Status** | `HUMAN_ACTION_REQUIRED` |
+| **Unblocks** | With `B-01`, `LICENSED_REALTALLY` |
+| **Does NOT block** | Any code, any test, any merge |
+| **Evidence that closes it** | A verified live run against the frozen `2026-08-07` fixture. **That fixture is never edited to make it pass** — Educational mode accepts vouchers only on the 1st, 2nd and 31st, which is exactly what makes it a real test of the environment |
+
+### §43.3 GROUP B — `H-01` and `N-1`, decided together
+
+**`H-01` — approve a production extraction backend**
+
+| | |
+|---|---|
+| **Status** | `OWNER_DECISION_REQUIRED` |
+| **Needs** | Cost · data residency · retention · security · privacy · supported formats · GST field capability · outage behaviour · rate limits · accuracy evidence |
+| **Unblocks** | Real-reader S2 |
+| **Does NOT block** | Anything currently in flight |
+| **Hard rule** | **No customer bill goes to a third party before this is approved** |
+| **Evidence that closes it** | The named backend, the accepted terms, and the residency and retention answers written into the control plane |
+
+**`N-1` — the input-format ceiling. NEW, not previously in any register.**
+
+| | |
+|---|---|
+| **Status** | `OWNER_DECISION_REQUIRED` |
+| **The measurement** | Reachable score is **80/100 per field**, not 100. `artifacts/phase8_input_types.md:253` on branch `phase8/input-types` (`684e91f`): `reachable ceiling 80/100 per field`. JPG cases carry `format_fidelity: "container_only"` |
+| **Why** | A baseline JPEG encoder needs DCT and Huffman coding; `dependencies = []` in `pyproject.toml` permits no image library, so nothing can verify the bytes decode |
+| **Consequence** | **The 95-per-field gate is unreachable today regardless of which backend `H-01` selects.** Choosing a backend without settling this is choosing on half the information |
+| **Options** | **A** permit an image library — breaks `dependencies = []` · **B** accept the 80 ceiling — the 95-per-field gate is retired or restated · **C** drop JPG from the five input types — a scope change |
+| **Not recommended** | No option is recommended here and no fourth option is invented. This is the owner's call |
+| **Evidence that closes it** | The chosen option recorded as an owner decision, with the consequence for the per-field gate stated in the same entry |
+
+### §43.4 GROUP C — optional
+
+| ID | Do | Status | Blocks | Evidence that closes it |
+|---|---|---|---|---|
+| `H-02` | Supply real or anonymised bills | `OPTIONAL_HUMAN_INPUT` | Real-bill accuracy **only** | A labelled corpus |
+| `H-05` | Approve an authenticated actor identity subsystem | `OWNER_DECISION_REQUIRED` | Authenticated actor provenance **only** | The approval, plus the schema change that adds an `actor` column |
+
+On `H-05`: today `accountant_dad` and `operator` are coarse labels and are
+**not** authenticated identities. The `action_log` table has eleven columns and
+carries neither `actor` nor a previous-state column (§18.8 of
+[`ARCHITECTURE.md`](./ARCHITECTURE.md)).
+
+### §43.5 GROUP D — `R-1`, the ruleset. DO THIS LAST.
+
+> ### Do these four **after PR #29 merges**, never before.
+> Requiring an approving review **stops unattended merging**. The owner has
+> said they want work to merge while they are away. Applying this early turns
+> an away-from-keyboard period into a stalled queue.
+
+**Where:** https://github.com/Intellora-ai/accountant-dad-core/settings/rules
+— ruleset `20557129`, "main protection".
+
+| | Do | Current, measured 2026-08-10T07:28:48Z |
+|---|---|---|
+| **a** | `required_approving_review_count` 0 → **1** | `0` |
+| **b** | `require_code_owner_review` false → **true** | `false` |
+| **c** | Add a `file_path_restriction` rule covering `.github/**` and `ci/**` | no such rule; `rule_types` are `deletion`, `non_fast_forward`, `pull_request`, `required_status_checks` |
+| **d** | Apply the `.github/CODEOWNERS` diff the security agent is producing | no `CODEOWNERS` file exists anywhere in the tree |
+
+**Status:** `HUMAN_ACTION_REQUIRED` — all four need repository Administration,
+which this identity deliberately does not hold (§42.3, HTTP 403 quoted).
+
+**What the four together close — the CRITICAL finding:**
+
+> **A pull request can rewrite the workflow that grades it, and merge itself.**
+
+`.github/workflows/pr-fast.yml:15` triggers `on: pull_request`, so the
+workflow definition is read from the pull request's own branch. With zero
+required approvals, no code-owner rule, and no path restriction, nothing
+stands between an edited gate and `main`.
+
+**Proven twice, not argued once:**
+
+- **PR #12** changed exactly two files, `.github/workflows/pr-fast.yml` and
+  `ci/gates.toml`, adding three steps — `install actionlint`, `workflow-lint`,
+  `workflow-security` — and `pr-fast` then ran green on that same head
+  (`d7652269`). The workflow graded the pull request using steps the pull
+  request had just introduced. Nothing malicious happened; the mechanism is
+  the point.
+- **Deleting the `security-scan` step** passes all 18 tests in
+  `tests/test_gate_contract.py`, `ci/check_stubs.py`, `ci-gate` and the
+  nightly. The gate-name lock protects the *name* in `ci/gates.toml`; it does
+  not protect the step's presence in the workflow file.
+
+**CodeAnt does not mitigate this** — it is advisory, no gate reads it, and it
+declines diffs over 100 files, which is exactly where a workflow edit hides
+best (§42.1).
+
+**Evidence that closes it:** a re-read of the ruleset showing
+`required_approving_review_count: 1`, `require_code_owner_review: true`, a
+`file_path_restriction` rule present, and `CODEOWNERS` tracked in git — plus a
+re-run of `ci/check_ruleset.py`.
+
+### §43.6 `R-2` — not the owner's work
+
+| | |
+|---|---|
+| **What** | `ci/check_ruleset.py:111-122` asserts the required context **name** and the strict policy, and **never inspects `integration_id`** |
+| **So** | Unpin `pr-fast` tomorrow and the drift audit still reports clean 9/9. The `R-0` pin is applied and undefended |
+| **Owner action** | **None.** The security agent is fixing the checker. The owner's only involvement is letting that change land |
+| **Evidence that closes it** | A drift-audit run that fails when `integration_id` is absent |
+
+Recorded here so the register is complete, and marked clearly so no owner time
+is spent on work an agent is already doing.
+
+## §44 The Ground-Truth Pack caught two real fabrications on its first run
+
+Recorded here rather than left in a working log, because this is the strongest
+evidence that the benchmark is worth having: **it found production defects on
+its first execution, not on a contrived example.**
+
+Both are fixed on branch `phase8/input-types`, commit `684e91f`, open as
+**PR #29** (created 2026-08-10T07:17:17Z, 208 files, 13,149 additions;
+`pr-fast` success, measured 2026-08-10T07:29:34Z).
+
+### §44.1 Defect one — a fabricated total wearing a provenance tag
+
+```
+TypedTextExtractor discarded the _mime parameter and fabricated 20 of 100
+totals WITH a stated source. On GT-0001 it reported Rs 1.00 for a Rs 147.50
+invoice, read out of the string "INVOICE NO: GT/0001".
+```
+
+**This is the `Hallucinate` definition failing in production.** The project's
+definition is that *a field with no source is a hallucination*
+(`docs/ARCHITECTURE.md:151`), and `Voucher.provenance` is what makes it
+measurable. Here the value was not derivable from the input **and it carried a
+real backend's name as its source** — the provenance field said the value came
+from somewhere, and it had not.
+
+That is the worst shape this class of bug can take. An unsourced value is
+detectable by definition. A fabricated value with a plausible source is only
+detectable by an external ground truth, which is precisely what the pack
+supplies. Recorded at `artifacts/phase8_input_types.md:231` on `684e91f`.
+
+### §44.2 Defect two — an encoding truncation in a party name
+
+```
+cp1252 "paid Café Ltd 4200" returned party "Caf" under errors="replace"
+```
+
+A silent truncation at the first non-ASCII byte. The supplier name is the key
+the memory index and the D-05 identity comparison both depend on, so a
+truncated party is not a cosmetic defect — it is a wrong identity fed into a
+live decision.
+
+### §44.3 Why this belongs in the operational memory
+
+Both defects sat in code that a 2,295-test suite ran over and did not catch.
+Neither is exotic. What found them was an **external oracle** — 100 cases with
+known-correct answers that nobody in the codebase authored — which is the same
+property that makes the UK public-spend data load-bearing
+([`TESTING.md` §5.3](./TESTING.md)).
+
+**A test suite written from the same assumptions as the code cannot find a
+shared wrong assumption.** These two defects are the measured proof of that,
+and they are the argument for keeping the pack.
