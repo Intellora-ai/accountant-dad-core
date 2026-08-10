@@ -108,6 +108,31 @@ class Voucher:
     tally_id: str | None = None
     provenance: dict[str, str] | None = None
 
+    @property
+    def needs_tax_lines(self) -> bool:
+        """This entry carries tax, so posting it faithfully needs tax lines.
+
+        ONE EXPRESSION, TWO READERS, ADDED 2026-08-10. `checks.tax_lines_can_be_posted`
+        asks it before the decision; `tallyio.real.check_writable` asks it at the
+        wire. Until now only the second one existed, the two halves were free to
+        disagree, and they did: the application called a GST bill VALID and the
+        connector then refused the very write that VALID had promised. The person
+        saw a breakage page for an ordinary bill with tax on it.
+
+        It lives on `Voucher`, in `accountant/schema.py`, because that is the one
+        module both sides already import — `accountant/tallyio/` may not import
+        the product layer (correction C3, `tests/test_reverse_all_cli.py`
+        `test_only_the_command_imports_above_the_connector_boundary`) and
+        `accountant/checks.py` must not import the connector. Mirroring the
+        condition in two files is exactly what produced the drift, so it is
+        written once.
+
+        The day tax lines can actually be built, this one line changes and both
+        sides move together. There is no arrangement in which the check passes
+        and the connector still refuses.
+        """
+        return self.gst_paise is not None
+
 
 @dataclass(frozen=True)
 class Decision:

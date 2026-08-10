@@ -512,6 +512,31 @@ def test_a_fired_detector_asks_and_never_refuses():
     problem, and an answerable problem is UNCLEAR: ask, record, re-evaluate.
     Not-valid is reserved for problems no answer could fix, and a detector
     never produces one.
+
+    CORRECTED 2026-08-10. The five things a test change owes:
+
+    old assertion   `all(p.answerable for p in found)` over EVERY problem, then
+                    `decide_problems(found).outcome is Outcome.UNCLEAR`.
+    why it was wrong
+                    Scope. The claim is about problems a DETECTOR produced; the
+                    assertion ranged over check-derived problems too. It held
+                    only by accident — `amount_is_integer_paise` was the single
+                    unanswerable check and this fixture passes it. The moment a
+                    second unanswerable check existed
+                    (`tax_lines_can_be_posted`, added the same day), a check
+                    refusing this entry read as a DETECTOR refusing it, which is
+                    the opposite of what the test is for.
+    new assertion   the flag-derived problems specifically are all answerable,
+                    and deciding on those alone gives UNCLEAR. The fixture is
+                    UNCHANGED — `gst=64068` stays, because it is what makes
+                    `gst_anomaly` fire and removing it would quietly drop a
+                    detector from the test's reach.
+    safety impact   none loosened. The whole-entry outcome is still asserted,
+                    and now asserted more precisely: NOT_VALID here, from a
+                    check, with the detector problems shown to be answerable
+                    underneath it. A detector that started refusing entries
+                    still fails this test.
+    new result      PASS.
     """
     hist = history("Purchases", gst=None, n=3)
     proposed = v(account="Rent", amount=200_000_000, gst=64068)
@@ -529,10 +554,25 @@ def test_a_fired_detector_asks_and_never_refuses():
         hist,
         index_of(hist),
     )
-    assert all(p.answerable for p in found), "a detector must never refuse an entry"
+    fired = {f.detector for f in flags}
+    from_detectors = [p for p in found if p.id in fired]
+
+    assert from_detectors, "the flags produced no problems, so nothing is under test"
+    assert all(p.answerable for p in from_detectors), (
+        "a detector must never refuse an entry: "
+        f"{[p.id for p in from_detectors if not p.answerable]}"
+    )
+    assert decide_problems(from_detectors).outcome is Outcome.UNCLEAR
+
+    # The whole entry IS refused, and the refusal belongs to a check rather than
+    # to any detector. Naming which one is the point: it is the distinction this
+    # test exists to hold open.
     decision = decide_problems(found)
-    assert decision.outcome is Outcome.UNCLEAR
-    assert decision.outcome is not Outcome.NOT_VALID
+    refusing = [p.id for p in found if not p.answerable]
+
+    assert decision.outcome is Outcome.NOT_VALID
+    assert refusing == ["tax_lines_can_be_posted"]
+    assert not fired & set(refusing)
     assert decision.post is False
 
 

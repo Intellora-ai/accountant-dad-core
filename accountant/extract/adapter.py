@@ -204,12 +204,22 @@ class StubExtractor:
 
 class UnavailableExtractor:
     """The backend is down. #15.7: every field comes back not_found with a
-    stated reason, and the system carries on so the person can type instead."""
+    stated reason, and the system carries on so the person can type instead.
+
+    `name` is settable, 2026-08-10. This class is now the ONE place that builds
+    an outage record — `ServiceExtractor` hands its own failures here rather
+    than restating the shape — and a row that cannot say WHICH backend was down
+    is not usable as evidence about any of them. The default is unchanged, so
+    every existing caller reads exactly as before.
+    """
 
     name = "unavailable"
 
-    def __init__(self, reason: str = "backend unreachable") -> None:
+    def __init__(
+        self, reason: str = "backend unreachable", *, name: str = "unavailable"
+    ) -> None:
         self.reason = reason
+        self.name = name
 
     def extract(self, _data: bytes, _mime: str) -> ExtractedRecord:
         return ExtractedRecord(

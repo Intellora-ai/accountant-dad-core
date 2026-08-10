@@ -21,7 +21,15 @@ from accountant.memory.index import MemoryIndex
 from accountant.schema import CheckResult, Flag, MatchResult, MatchStatus, Voucher
 
 # Checks whose failure NO answer can fix. Everything else is a question.
-UNANSWERABLE_CHECKS = frozenset({"amount_is_integer_paise"})
+#
+# `tax_lines_can_be_posted` joined this set on 2026-08-10. It is listed here
+# EXPLICITLY rather than left to the "no question registered" fallback in
+# `_from_check`, because that fallback exists for a check nobody has written
+# words for yet — an oversight — and this one is unanswerable by design. Nothing
+# a person can type makes Accountant Dad able to build a CGST/SGST/IGST line, so
+# any question here would spend one of their five on an answer that cannot help.
+# The entry is handed over instead, with the tax named in the reason.
+UNANSWERABLE_CHECKS = frozenset({"amount_is_integer_paise", "tax_lines_can_be_posted"})
 
 
 @dataclass(frozen=True)

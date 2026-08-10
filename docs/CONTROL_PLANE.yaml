@@ -386,22 +386,65 @@ phases:
 
   - id: "7"
     name: "Phase 7 - the extraction adapter"
-    status: NOT_STARTED
+    status: PARTIALLY_VERIFIED
     evidence: >-
-      accountant/extract/adapter.py exists and holds TypedTextExtractor, which
-      is the typed-text path Phase 3 needs, not the Phase 7 adapter work. No
-      third-party backend is connected. None of the three exit observables has
-      been attempted.
+      CORRECTED 2026-08-10. This entry said NOT_STARTED with all three criteria
+      met: false and the evidence "None of the three exit observables has been
+      attempted". Every clause of that was false by then. The work is on branch
+      phase7/adapter-contract at fa7ba97; the three observables were measured
+      on that tree and each is recorded against its own criterion below.
+      PARTIALLY_VERIFIED and not PASSED, deliberately. The three exit
+      observables were SEEN, locally. What has NOT run against this branch is
+      every gate that blocks a merge - mutation score, changed-line coverage,
+      full-suite coverage, security, dependency scan, workflow validation,
+      pr-fast, pr-full and ci-gate - and no pull request exists. A green local
+      suite is none of those and is never reported as one. The richer record,
+      including the parts of GST that are NOT built, is under the top-level
+      phase7 key below, because its vocabulary is wider than allowed_statuses
+      and allowed_statuses is not being widened to fit it.
     exit_criteria:
       - text: "Swapping the backend changes no code outside accountant/extract/."
-        met: false
-        evidence: "No second backend exists, so the swap has never been performed."
+        met: true
+        evidence: >-
+          Measured by AST, not asserted. The list of backends is DERIVED from
+          the package - a class defining extract, the Extractor Protocol
+          excluded - and it derived five: GuardedExtractor, ServiceExtractor,
+          StubExtractor, TypedTextExtractor, UnavailableExtractor. 45 modules
+          outside accountant/extract/ were scanned and the concrete-backend
+          references in them numbered {} - no file, no name. What the core does
+          take from the package is the abstract contract only: pipeline.py
+          takes ExtractedRecord, Extractor, NOT_FOUND; ingest/spend.py takes
+          NOT_FOUND; web/app.py takes Extractor, default_extractor, guarded.
+          The swap lever is DEFAULT_BACKEND at accountant/extract/registry.py.
+          tests/test_adapter_contract.py, 95 tests. Killed mutant MU3b - a
+          WORKING web/app.py naming TypedTextExtractor turns 3 structural tests
+          red while 91 behavioural tests in the same file stay green, which is
+          the measured reason the structural guard exists.
       - text: "A backend outage returns every field not_found with a stated reason."
-        met: false
-        evidence: "No backend exists to fail."
+        met: true
+        evidence: >-
+          13 scenarios measured, 10 through pipeline.run and 3 over real HTTP
+          against the running web app: 13/13 explicit safe fallback, 13/13
+          reasons recorded, 0 silent blanks, 0 unsafe VALID results, 0
+          automatic posts. tests/test_extract_outage.py, 147 tests. The HTTP
+          three - unavailable, timeout, malformed response - were BLOCKED until
+          2026-08-10 because app.configure() took no extractor; the seam
+          landed in fa7ba97 and they are now measured rather than deferred.
+          Five HTTP-seam mutants applied and all five killed, including "the
+          route ignores the configured extractor" (26 failed) and "a failure
+          returns a silent blank instead of a stated reason" (22 failed).
       - text: "A test asserts the package contains no OCR, image-processing or layout-analysis code."
-        met: false
-        evidence: "No such test exists in tests/."
+        met: true
+        evidence: >-
+          Six guards over the four modules in accountant/extract/, 28 tests at
+          tests/test_no_reader.py, each with a companion test proving it CAN
+          fail and one proving it does not fire on prose about readers.
+          Measured: 0 third-party imports of any kind against an ALLOWLIST of
+          sys.stdlib_module_names, 0 identifiers naming image or layout work,
+          0 imports that reach another program or a socket, 0 forbidden AST
+          calls, project.dependencies == [], and 4 shipped files of which 0 are
+          anything but Python source. An allowlist rather than a banned list,
+          because a banned list is defeated by any library nobody thought of.
     blocker: null
 
   - id: "8"
@@ -483,6 +526,103 @@ phases:
         met: false
         evidence: "Claude auto-fix is not built."
     blocker: "B-06"
+
+# ---------------------------------------------------------------------------
+# PHASE 7 - the full record, at a granularity the phase table cannot carry.
+#
+# WHY THIS IS A SEPARATE KEY AND NOT MORE FIELDS ON phases[id: "7"].
+#   `allowed_statuses` above has six values and every phase status is checked
+#   against it. The labels this record needs - NOT_MEASURED, NOT_IMPLEMENTED,
+#   READY_FOR_PR, and a pointer to the next phase - are not among them. The
+#   cheap move is to widen `allowed_statuses`; that check exists to guard the
+#   phase table, and widening it to fit one record is exactly the weakening
+#   this project forbids. So the vocabulary stays at six and the richer record
+#   lives here, outside the table, where it binds nothing else.
+#
+# WHY IT EXISTS AT ALL. Phase 7 is a SAFETY result about GST and it is one
+# sentence away from reading as a FEATURE result. This system refuses a bill
+# carrying GST and hands it to the person. That is safe. It is not GST support,
+# and the two must never be collapsed into one PASS.
+#
+#   status here          READY_FOR_PR - local evidence complete, no PR open
+#   status in the table  PARTIALLY_VERIFIED - the merge gates have not run
+#
+# The coordinator advances this through GITHUB_GATES_PENDING, READY_TO_MERGE
+# and COMPLETE as the pull request moves. Nothing here may be advanced by an
+# agent on the strength of a local run.
+# ---------------------------------------------------------------------------
+
+phase7:
+  status: READY_FOR_PR
+  branch: "phase7/adapter-contract"
+  measured_at_commit: "fa7ba97"
+  measured_on: "2026-08-10"
+
+  adapter_contract: PASS
+  backend_swap: PASS
+  outage_fallback: PASS
+  http_extractor_seam: PASS
+  no_reader_enforcement: PASS
+  gst_safety_bridge: PASS
+  gst_feature_posting: NOT_MEASURED
+  gst_rules_corpus: PHASE8
+  cgst_sgst_igst_split: NOT_IMPLEMENTED
+  place_of_supply: NOT_IMPLEMENTED
+  ledger_mapping: NOT_IMPLEMENTED
+
+  # Every PASS above was measured in the run that wrote this block. Nothing was
+  # carried forward from a document.
+  measured:
+    adapter_contract_tests: 47
+    backend_swap_tests_behavioural: 10
+    backend_swap_tests_structural: 14
+    malformed_answer_tests: 15
+    gst_tests_in_the_adapter_contract_file: 9
+    interchangeable_backends_actually_swapped: 2
+    non_extract_changes_required_for_a_backend_swap: 0
+    selection_sites_outside_the_package: 0
+    modules_scanned_outside_the_package: 45
+    general_outage_scenarios: 10
+    http_outage_scenarios: 3
+    explicit_fallback_results: 13
+    reasons_recorded: 13
+    silent_blanks: 0
+    unsafe_valid_results: 0
+    automatic_posts: 0
+    ocr_imports: 0
+    image_reading_imports: 0
+    layout_analysis_imports: 0
+    reader_dependencies: 0
+    forbidden_ast_findings: 0
+    gst_safety_tests: 4
+    gst_safety_sweep_cases: 30
+    remaining_gst_xfails: 0
+    unsafe_gst_valid_results: 0
+    unsafe_gst_posts: 0
+    http_seam_mutants_applied: 5
+    http_seam_mutants_killed: 5
+    http_seam_mutants_survived: 0
+    full_suite_passed: 2091
+    full_suite_xfailed: 6
+
+  # The one thing a reader must not conclude from the PASS rows above.
+  gst_truth: >-
+    GST unsafe-VALID prevention = PASS. GST safe refusal = PASS. A GST bill
+    with tax lines successfully posted = NOT_MEASURED. GST posting rate =
+    NOT_MEASURED. CGST/SGST/IGST split = NOT_IMPLEMENTED. Place-of-supply rules
+    = NOT_IMPLEMENTED. GST ledger mapping = NOT_IMPLEMENTED. The GST rules
+    corpus belongs to the next phase. Arm C of the 30-case sweep is "tax
+    correctly absent, or an unsupported tax state" - it is NOT "a GST bill with
+    tax lines successfully posted", and no such case exists in this system.
+    Nothing here builds a tax line and no rate, ledger, split or
+    place-of-supply rule was invented.
+
+  not_measured_here: >-
+    Mutation score, changed-line coverage, full-suite coverage, security scan,
+    dependency scan, workflow validation, pr-fast, pr-full and ci-gate. None
+    has been run against this branch. Question rate: NOT_MEASURED - not zero.
+    Third-party backend accuracy: NOT_MEASURED - no backend is connected, and
+    choosing one is an owner decision rather than a test result.
 
 metrics:
 
