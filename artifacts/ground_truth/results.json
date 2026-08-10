@@ -1,0 +1,297 @@
+{
+  "verdict": "FAIL",
+  "exit_code": 1,
+  "generated_at": "2026-08-10T07:18:38.719420+00:00",
+  "harness_error": "",
+  "provenance": {
+    "cwd": "/private/tmp/claude-501/-Users-tanveersidhu-ACCOUNTANT/173e27c0-9c4e-4793-a6c4-594143728ef9/scratchpad/wt-p8-gst",
+    "accountant__file__": "/private/tmp/claude-501/-Users-tanveersidhu-ACCOUNTANT/173e27c0-9c4e-4793-a6c4-594143728ef9/scratchpad/wt-p8-gst/accountant/__init__.py",
+    "python": "3.14.6",
+    "commit": "f22eaceb9b304d48b409837a18e251bb16035832",
+    "branch": "phase8/gst-rules",
+    "worktree": "/private/tmp/claude-501/-Users-tanveersidhu-ACCOUNTANT/173e27c0-9c4e-4793-a6c4-594143728ef9/scratchpad/wt-p8-gst",
+    "dirty": "yes"
+  },
+  "sections": [
+    {
+      "name": "manifest",
+      "gates": [
+        {
+          "name": "ground_truth_manifest_validates",
+          "status": "BLOCKED",
+          "measured": "",
+          "detail": "BLOCKED \u2014 awaiting scripts/validate_ground_truth.py"
+        },
+        {
+          "name": "ground_truth_hashes_verify",
+          "status": "BLOCKED",
+          "measured": "",
+          "detail": "BLOCKED \u2014 awaiting scripts/validate_ground_truth.py"
+        },
+        {
+          "name": "gst_rule_cases_readable",
+          "status": "PASS",
+          "measured": "5b2e44fe065b6bb58f81dda423f671783215ad3cef0f6dbfae4628afe6fbdb2c",
+          "detail": "sha256 5b2e44fe065b6bb5\u2026"
+        }
+      ],
+      "facts": {
+        "gst_cases_sha256": "5b2e44fe065b6bb58f81dda423f671783215ad3cef0f6dbfae4628afe6fbdb2c",
+        "gst_cases_path": "artifacts/ground_truth/rules/gst_cases.json"
+      },
+      "failed_cases": []
+    },
+    {
+      "name": "s2_extraction",
+      "gates": [
+        {
+          "name": "s2_extraction_scored",
+          "status": "BLOCKED",
+          "measured": "",
+          "detail": "BLOCKED \u2014 awaiting scripts/build_ground_truth.py"
+        }
+      ],
+      "facts": {
+        "s2": "NOT_MEASURED",
+        "s2_reason": "BLOCKED \u2014 awaiting scripts/build_ground_truth.py"
+      },
+      "failed_cases": []
+    },
+    {
+      "name": "gst_rules",
+      "gates": [
+        {
+          "name": "uncited_production_rules_is_zero",
+          "status": "PASS",
+          "measured": "",
+          "detail": "0"
+        },
+        {
+          "name": "every_rule_has_a_notification_number",
+          "status": "PASS",
+          "measured": "",
+          "detail": "0"
+        },
+        {
+          "name": "every_rule_has_a_retrieval_date",
+          "status": "PASS",
+          "measured": "",
+          "detail": "0"
+        },
+        {
+          "name": "every_rule_has_an_effective_date",
+          "status": "PASS",
+          "measured": "",
+          "detail": "0"
+        },
+        {
+          "name": "every_rule_is_versioned",
+          "status": "PASS",
+          "measured": "",
+          "detail": "0"
+        },
+        {
+          "name": "no_rule_rests_on_a_source_that_may_not_stand_alone",
+          "status": "PASS",
+          "measured": "",
+          "detail": "0"
+        },
+        {
+          "name": "no_runtime_tax_api_calls",
+          "status": "PASS",
+          "measured": "",
+          "detail": "accountant/rules and accountant/tax import no HTTP client; tests/test_gst_rules_corpus.py asserts it over the AST"
+        }
+      ],
+      "facts": {
+        "rules_loaded": 15,
+        "rules_rejected": 0,
+        "rejections": [],
+        "codes": [
+          "2523",
+          "4820",
+          "9972",
+          "9987"
+        ],
+        "hsn_codes": [
+          "2523",
+          "4820"
+        ],
+        "sac_codes": [
+          "9972",
+          "9987"
+        ],
+        "tds_sections": 0,
+        "schedule_iii_heads": 0,
+        "source_unverified": 8,
+        "unverified_sources": [
+          {
+            "url": "https://taxinformation.cbic.gov.in/view-pdf/1010211/ENG/Notifications",
+            "attempted_on": "2026-08-10",
+            "error": "unable to verify the first certificate",
+            "would_have_supported": "the current GST rate schedule. Rate notifications issued after 2022 are published only on this host, so the corpus cannot see any rate change after 2022 and refuses every supply dated later than 2017-08-17 rather than returning a rate that may have moved."
+          },
+          {
+            "url": "https://taxinformation.cbic.gov.in/view-pdf/1010100/ENG/Notifications",
+            "attempted_on": "2026-08-10",
+            "error": "unable to verify the first certificate",
+            "would_have_supported": "notification 9/2025-Central Tax (Rate), which the CBIC listing pages record as superseding notification 1/2017-Central Tax (Rate)"
+          },
+          {
+            "url": "https://www.cbic.gov.in/resources/htdocs-cbec/gst/notfctn-9-2025-cgst-rate-english.pdf",
+            "attempted_on": "2026-08-10",
+            "error": "HTTP 500 Internal Server Error",
+            "would_have_supported": "notification 9/2025-Central Tax (Rate) from the main CBIC host"
+          },
+          {
+            "url": "https://www.cbic.gov.in/resources/htdocs-cbec/gst/notfctn-1-2017-cgst-rate-english.pdf",
+            "attempted_on": "2026-08-10",
+            "error": "HTTP 500 Internal Server Error",
+            "would_have_supported": "a second independent copy of notification 1/2017-Central Tax (Rate). The cbic-gst.gov.in copy was retrieved instead and is what the rules above cite."
+          },
+          {
+            "url": "https://cbic-gst.gov.in/pdf/IGST-Act-Updated-30092020.pdf",
+            "attempted_on": "2026-08-10",
+            "error": "HTTP 404 Not Found",
+            "would_have_supported": "sections 7, 8, 10 and 12 of the IGST Act, 2017 \u2014 the statutory definition of inter-State and intra-State supply, and the derivation of the place of supply from the nature of the transaction. Without it the engine requires the place of supply to be STATED and never derives it; see accountant/rules/place_of_supply.py."
+          },
+          {
+            "url": "https://cbic-gst.gov.in/hindi/igst-act.html",
+            "attempted_on": "2026-08-10",
+            "error": "HTTP 404 Not Found",
+            "would_have_supported": "the same IGST Act sections, from the CBIC Acts index"
+          },
+          {
+            "url": "STATE GOVERNMENT SGST RATE NOTIFICATIONS \u2014 no CBIC source exists",
+            "attempted_on": "2026-08-10",
+            "error": "not attempted: an SGST rate is notified by a State Government, not by CBIC or the Income Tax Department, so it falls outside the authority hierarchy fixed by owner decision Q1 = A",
+            "would_have_supported": "the SGST half of an intra-State supply made in a State. The corpus therefore carries no SGST rate at all, and an intra-State supply in a State comes back UNCLEAR. Intra-State supplies in a Union Territory are computable, because UTGST is notified by the Central Government and 1/2017-Union Territory Tax (Rate) is a CBIC document."
+          },
+          {
+            "url": "https://courier.cbic.gov.in/ECCS/advisory/2025/NOTIFICATION%20NO.%209_2025-INTEGRATED%20TAX%20(RATE)%20-1759486719.pdf",
+            "attempted_on": "2026-08-10",
+            "error": "retrieved, then REJECTED: the file is served from a cbic.gov.in host but its pages are headed 'The Institute of Chartered Accountants of India \u2014 GST & Indirect Taxes Committee' and the document is marked '[UPDATED] [As corrected by corrigendum, dated 18-9-2025]'. It is a third-party consolidation of the notification, not the notification as issued, so it is not rank-1 authority and no rate was taken from it.",
+            "would_have_supported": "the post-2025 IGST rate schedule"
+          }
+        ]
+      },
+      "failed_cases": []
+    },
+    {
+      "name": "gst_cases",
+      "gates": [
+        {
+          "name": "intra_state_cases_split_into_cgst_and_sgst_utgst",
+          "status": "PASS",
+          "measured": "20/20",
+          "detail": "20/20 correct (20 cases present)"
+        },
+        {
+          "name": "inter_state_cases_carry_igst",
+          "status": "PASS",
+          "measured": "20/20",
+          "detail": "20/20 correct (20 cases present)"
+        },
+        {
+          "name": "missing_evidence_cases_refuse",
+          "status": "PASS",
+          "measured": "10/10",
+          "detail": "10/10 correct (10 cases present)"
+        },
+        {
+          "name": "unknown_conflicting_or_stale_rules_refuse",
+          "status": "PASS",
+          "measured": "10/10",
+          "detail": "10/10 correct (10 cases present)"
+        },
+        {
+          "name": "false_valid_is_zero",
+          "status": "PASS",
+          "measured": "",
+          "detail": "0"
+        },
+        {
+          "name": "guessed_rates_is_zero",
+          "status": "PASS",
+          "measured": "",
+          "detail": "0"
+        },
+        {
+          "name": "every_valid_case_carries_a_citation",
+          "status": "PASS",
+          "measured": "",
+          "detail": "60 citations across the pack"
+        }
+      ],
+      "facts": {
+        "case_count": 60,
+        "evidence_classes": [
+          "SYNTHETIC_EVIDENCE"
+        ],
+        "blocks": {
+          "intra_state": {
+            "total": 20,
+            "correct": 20
+          },
+          "inter_state": {
+            "total": 20,
+            "correct": 20
+          },
+          "missing_place_of_supply": {
+            "total": 10,
+            "correct": 10
+          },
+          "bad_rule": {
+            "total": 10,
+            "correct": 10
+          }
+        },
+        "citations_emitted": 60
+      },
+      "failed_cases": []
+    },
+    {
+      "name": "safety",
+      "gates": [
+        {
+          "name": "gst_posting_stays_disabled",
+          "status": "PASS",
+          "measured": "",
+          "detail": "POSTING_ENABLED is False"
+        },
+        {
+          "name": "voucher_needs_tax_lines_is_true_for_a_gst_bill",
+          "status": "PASS",
+          "measured": "",
+          "detail": "Voucher.needs_tax_lines"
+        },
+        {
+          "name": "application_refuses_a_gst_bill_before_deciding",
+          "status": "PASS",
+          "measured": "",
+          "detail": "this bill carries GST of 18000 paise, and Accountant Dad cannot post a tax line yet \u2014 posting it would drop the tax and leave a wrong statutory entry, so please enter this one in Tally yourself"
+        },
+        {
+          "name": "the_refusal_is_unanswerable",
+          "status": "PASS",
+          "measured": "",
+          "detail": "problems.UNANSWERABLE_CHECKS"
+        },
+        {
+          "name": "the_connector_refuses_a_gst_bill_at_the_wire",
+          "status": "PASS",
+          "measured": "",
+          "detail": "tallyio.real.check_writable raised"
+        },
+        {
+          "name": "a_tax_decision_cannot_be_built_with_posting_enabled",
+          "status": "PASS",
+          "measured": "",
+          "detail": "TaxDecision.__post_init__ raised"
+        }
+      ],
+      "facts": {},
+      "failed_cases": []
+    }
+  ]
+}

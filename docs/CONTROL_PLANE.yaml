@@ -2517,3 +2517,84 @@ codeant:
     AST guard, the GST safety sweep, ci/check_stubs.py, and the twenty gates in
     ci/gates.toml. If CodeAnt later misses a fixture, record the miss and keep
     the guard.
+
+# The GST rules corpus and the calculation engine.
+#
+# A SEPARATE TOP-LEVEL KEY, exactly as `phase7:` is, so that `allowed_statuses`
+# above is not widened. The words below are not phase statuses and must never be
+# read as any.
+# ---------------------------------------------------------------------------
+gst_rules_engine:
+  recorded_on: "2026-08-10"
+  branch: "phase8/gst-rules"
+  runner: "scripts/run_ground_truth.py"
+
+  # WHAT THIS BLOCK DOES NOT CHANGE.
+  #
+  # `phase8_scope.gst:` above stays exactly as the owner set it. Owner decision
+  # Q3 = D: GST POSTING IS NOT IMPLEMENTED, and neither is a POSTED CGST/SGST/IGST
+  # split, a POSTED place-of-supply selection or a POSTED ledger selection.
+  # Nothing recorded here reaches a write path. What is recorded here is a
+  # CALCULATION that a person reads and enters in Tally themselves.
+  boundary_note: >-
+    Computed is not posted. accountant/checks.py::tax_lines_can_be_posted still
+    turns any voucher carrying gst_paise into an unanswerable refusal, and
+    accountant/tallyio/real.py::check_writable still refuses it at the wire.
+    accountant/tax/decision.py sets POSTING_ENABLED to false and a TaxDecision
+    cannot be constructed with posting enabled.
+
+  calculation_engine: MEASURED
+  rules_engine: MEASURED
+  simulated_ledger_mapping: MEASURED
+  real_tally_posting: HUMAN_EVIDENCE_REQUIRED
+  production_posting: DISABLED
+
+  measured:
+    codes_used_by_the_case_pack: 4
+    gst_hsn_codes: 2
+    gst_sac_codes: 2
+    tds_sections: 0
+    schedule_iii_heads: 0
+    rules_loaded: 15
+    rules_rejected: 0
+    source_unverified_records: 8
+    intra_state_cases_correct: "20/20"
+    inter_state_cases_correct: "20/20"
+    missing_evidence_cases_refused: "10/10"
+    unknown_conflicting_or_stale_cases_refused: "10/10"
+    guessed_rates: 0
+    guessed_states: 0
+    unsafe_posts: 0
+    false_valid_results: 0
+    uncited_production_rules: 0
+    runtime_tax_api_calls: 0
+    commercial_api_dependencies: 0
+
+  sources_retrieved:
+    - "1/2017-Central Tax (Rate)"
+    - "1/2017-Integrated Tax (Rate)"
+    - "1/2017-Union Territory Tax (Rate)"
+    - "11/2017-Central Tax (Rate)"
+    - "8/2017-Integrated Tax (Rate)"
+    - "11/2017-Union Territory Tax (Rate)"
+
+  not_retrieved:
+    current_rate_notifications: SOURCE_UNVERIFIED
+    igst_act_place_of_supply_sections: SOURCE_UNVERIFIED
+    state_sgst_rate_notifications: SOURCE_UNVERIFIED
+    reason: >-
+      taxinformation.cbic.gov.in fails TLS verification ("unable to verify the
+      first certificate"), www.cbic.gov.in returns HTTP 500 for notification
+      PDFs, and an SGST rate is notified by a State Government, which owner
+      decision Q1 = A does not admit as a source. Every failure is recorded with
+      its URL and exact error in artifacts/ground_truth/rules/unverified_sources.json.
+      No rate was substituted from a secondary source and none was reconstructed
+      from memory.
+
+  consequence_of_the_gaps: >-
+    The corpus holds 2017 rates and states how far the amendment chain was
+    checked (2017-08-17). A supply dated later gets no rate at all - the lookup
+    returns beyond_amendment_check and the decision is UNCLEAR. An intra-State
+    supply inside a State gets no rate either, because the SGST half has no
+    citable source. Both are refusals, both are visible, and neither is a stale
+    rate quietly applied.
