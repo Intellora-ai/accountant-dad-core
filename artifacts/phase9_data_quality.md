@@ -34,15 +34,41 @@ Writing one would turn a measurement into fiction.
 
 **Summary verdict in the current label set (from 2026-08-10):**
 
-    DBT = NOT_MEASURED
+    DBT slice = FAIL — source unusable: narration empty in all 28 committed
+                rows, and the loader refuses the department outright
 
-`NOT_MEASURED` is one of the six permitted values — `PASS · FAIL · BLOCKED ·
-NOT_MEASURED · INVALIDATED · GITHUB_REQUIRED`. `NOT_MEASURABLE` and
-`NOT_PASSED (unmeasured)` appear throughout this file as historical text and are
-not rewritten; both read **NOT_MEASURED** now. The distinction this file's
-recommendation 4 asks for — "the detector was too loud" versus "there was no
-data" — is exactly the distinction the current set draws between **FAIL** and
-**NOT_MEASURED**. DBT is the second one.
+The permitted values are `PASS · FAIL · BLOCKED · NOT_MEASURED · INVALIDATED ·
+GITHUB_REQUIRED`. `NOT_MEASURABLE` and `NOT_PASSED (unmeasured)` appear
+throughout this file as historical text and are not rewritten; both read
+**FAIL** here.
+
+**Why `FAIL` and not `NOT_MEASURED`.** `NOT_MEASURED` says *nobody looked*.
+Somebody looked. The loader ran, resolved `Description` at index 8, read all 28
+committed rows, found every one empty, and refused the department:
+
+    ValueError: DBT has 0 history and 0 entries; a department needs both sides
+    to take part in a comparison
+
+verbatim from `accountant/ingest/crossorg.py:73-79`, pinned by
+`tests/test_ingest.py::test_a_department_with_no_usable_rows_cannot_take_part`.
+A measurement that ran and missed a data-quality bar is a **FAIL**.
+`NOT_MEASURED` exists to stop an *unrun* thing being scored as a zero — the
+question rate is the case it protects. Spending it on something that ran and
+failed weakens it for that case.
+
+**Two figures in that reason, kept apart.** *Empty in all 28 committed rows* is
+counted and reproduces. *Empty in all 199 rows of the published file* is
+`UNVERIFIED` — 171 of those rows have never been seen here, and no network call
+was made. The verdict rests on the 28, which is enough: 0 usable rows is 0
+usable rows.
+
+**This file's own recommendation 4 disagrees, and is left standing.** It asks to
+*"separate `NOT_MEASURABLE` from `NOT_PASSED` in the reporting vocabulary"*,
+because *"the detector was too loud" and "there was no data" are different
+failures. Today they print the same word.* Under this ruling they still print
+the same word — **FAIL** — and the distinction moves into the reason string
+attached to the label. Recommendation 4 is not withdrawn and it is not silently
+followed; the reader can see both and judge.
 
 ---
 
@@ -64,7 +90,9 @@ six permitted values `NOT_PASSED` reads **FAIL** — the MHCLG-only 27.59 is a
 **FAIL** measured before calibration and still must never be quoted as a current
 number, and DHSC 33.33 is a **FAIL** measured now. The aggregate and held-out
 rows stay **PASS**. The DBT slice, which appears in none of these four rows, is
-**NOT_MEASURED** — not a fifth failure.
+a fifth verdict and it is **FAIL** — source unusable, narration empty in all 28
+committed rows, loader refuses the department. See "Why `FAIL` and not
+`NOT_MEASURED`" above.
 
 **DBT is inside none of them.** Its 28 rows are in no numerator and no
 denominator above. The 143 and the 69 are what is left after DBT is removed — see
@@ -391,7 +419,12 @@ The disconfirming evidence was looked for specifically.
 | 6 | if a narration for DBT is genuinely wanted, **get it from the source** | the published file is the only legitimate origin. Nothing in this repository may supply it | owner |
 
 **Do not close this as fixed.** For DBT, the honest final status is
-**`NOT_MEASURED` — the published source carries no narration**, and no
-engineering task in this repository can change that. (Written as
-`NOT_MEASURABLE` throughout the body above; `NOT_MEASURED` is the permitted
-label from 2026-08-10 and means the same thing here.)
+
+    FAIL — source unusable: narration empty in all 28 committed rows, and the
+           loader refuses the department with "DBT has 0 history and 0 entries"
+
+and no engineering task in this repository can change that. The body above
+writes this as `NOT_MEASURABLE`; the permitted label from 2026-08-10 is **FAIL**
+and the reason travels with it, because the label alone no longer says which
+kind of failure it was. `NOT_MEASURED` would be the wrong word: the file was
+read, and it lost on the merits.

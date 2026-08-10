@@ -202,13 +202,30 @@ history. **This table is the verdict to quote.**
 | E2 N1·N2·N3 each printed PASS or FAIL | **PASS** as a reporting requirement | and the two values behind it are **NOT_MEASURED**: N2 has no measured read-second or dismiss-second, N3 has no real-data answer key |
 | E3 coverage table | **PASS** | 12 types, `uncovered_count() == 10`, counted |
 | E4 cross-department pairs | **PASS** as a reporting requirement | 30 ≥ 3. The recorded evidence line is still wrong — A-2 is open |
-| E5 N1 inside its target on every reported slice | **FAIL** | measured: DHSC 33.33 against a target of ≤ 10. Separately, the DBT slice is **NOT_MEASURED**, which is not a pass either |
+| E5 N1 inside its target on every reported slice | **FAIL** | measured: DHSC 33.33 against a target of ≤ 10. The DBT slice is a second, separate **FAIL** — source unusable: narration empty in all 28 committed rows, and the loader refuses the department with `DBT has 0 history and 0 entries`. Two slices fail, for two different reasons |
 | **Phase 9 overall** | **FAIL** | one exit was measured and missed. Closing it honestly is **BLOCKED** on two owner items: `D-22` (which slice is the gate) and one real book with an accountant's markup |
 
 Where the older words appear above, they read: `PARTIALLY_VERIFIED` → **FAIL**;
-`NOT_PASSED` → **FAIL**; `NOT_PASSED (unmeasured)` → **NOT_MEASURED**;
-`OWNER_DECISION_REQUIRED` → **BLOCKED**. `NOT_MEASURABLE`, used throughout for
-"the input needed to measure it does not exist here", reads **NOT_MEASURED**.
+`NOT_PASSED` → **FAIL**; `NOT_PASSED (unmeasured)`, used only of DBT, →
+**FAIL**; `OWNER_DECISION_REQUIRED` → **BLOCKED**.
+
+**`NOT_MEASURABLE` splits in two, and the test is whether anything ran.**
+
+| where it is used | current label | why |
+|---|---|---|
+| **DBT** — `NOT_PASSED (unmeasured)`, zero entries | **FAIL** | the input exists and was read. The loader resolved `Description`, found all 28 committed rows empty, and refused the department: `ValueError: DBT has 0 history and 0 entries` (`accountant/ingest/crossorg.py:73-79`). Something ran and missed a bar. That is a failure, not an absence |
+| **N2 real-data value** | **NOT_MEASURED** | no read-second or dismiss-second was ever recorded. There is no input to fail on |
+| **N3 real-data value** | **NOT_MEASURED** | no labelled real ledger exists anywhere in this repository. Nobody has looked because there is nothing to look at |
+
+`NOT_MEASURED` is the label that stops an **unrun** thing being scored as a
+zero — `question rate` is the case it exists to protect. Spending it on
+something that ran and failed weakens it for that case. Every `FAIL` above
+therefore carries its reason, because the label alone no longer distinguishes a
+detector that was too loud from a source that was unusable.
+
+The companion `artifacts/phase9_data_quality.md` recommendation 4 argues for
+separate *words* rather than a shared word with a reason attached. It is left
+standing and unwithdrawn; the disagreement is recorded there in full.
 
 ---
 
