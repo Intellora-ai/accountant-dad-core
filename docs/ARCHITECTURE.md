@@ -1978,7 +1978,7 @@ C  drop JPG from the five types the frozen five input types change, which is
 
 ### 20.5 `R-1` — the ruleset hardening, and why it goes last
 
-**Dependency.** Four changes to ruleset `20557129`, taken together.
+**Dependency.** Changes to ruleset `20557129`.
 
 **Why automation cannot.** They require repository Administration. This
 identity does not hold it and must not: an auditor that can repair what it
@@ -1986,7 +1986,7 @@ audits is a second, quiet way for protection to change. The refusal is
 verified, not assumed — HTTP 403, quoted in
 [`PROJECT_STATE.md` §42.3](./PROJECT_STATE.md).
 
-**What it closes.** The CRITICAL finding: *a pull request can rewrite the
+**What it would close.** The CRITICAL finding: *a pull request can rewrite the
 workflow that grades it.* Four conditions hold simultaneously — `pr-fast.yml`
 triggers `on: pull_request` so the workflow definition comes from the pull
 request's own branch; zero approvals are required; code-owner review is off;
@@ -1994,15 +1994,47 @@ and there is neither a `CODEOWNERS` file nor a path-restriction rule. Proven
 twice, in
 [`artifacts/codeant_integration.md` §C.1](../artifacts/codeant_integration.md).
 
+**Say the uncomfortable thing first.** Three of the four planned fixes are
+either unavailable on this repository or self-defeating, and the fourth is
+unverified. **The CRITICAL finding cannot currently be closed by any setting
+the owner has available**, except possibly one unverified rule type. The
+per-item measurements are in
+[`PROJECT_STATE.md` §43.5](./PROJECT_STATE.md); the architectural reasons are
+here.
+
+```
+file_path_restriction on .github/** and ci/**   NOT AVAILABLE
+  it is a PUSH ruleset rule, and GitHub restricts push rulesets to
+  private or internal repositories. This repository is public.
+
+organisation-level required workflow            NOT AVAILABLE
+  the owner is a User account, not an organisation.
+
+CODEOWNERS + 1 required approval                BLOCKED BY ARITHMETIC
+  see below - this is not a configuration problem.
+
+workflows ruleset rule pinning pr-fast.yml      UNVERIFIED
+  the one remaining path. Status is UNVERIFIED, not AVAILABLE.
+```
+
+**Why CODEOWNERS is arithmetic, not configuration.** There is exactly one
+collaborator on this repository, and that account authors every pull request.
+GitHub forbids self-approval. So `require_code_owner_review: true` together
+with `required_approving_review_count: 1` does not block *risky* merges — **it
+blocks every merge, permanently.** The dependency is therefore not a setting at
+all; it is **a second human reviewer**, which is a hiring or delegation
+decision rather than an administrative one. Recording it as "turn on a
+setting" would have understated it by a wide margin.
+
 **The ordering constraint is part of the item, not a footnote.** Requiring an
-approving review **stops unattended merging**. The owner has said they want
-work to merge while they are away. Therefore:
+approving review **stops unattended merging**, and the owner has explicitly
+asked that this phase's work keep merging while they are away. Applying it
+early does not merely reorder work — **it halts it**. The trigger is therefore
+a condition, never a pull-request number, because a number goes stale and a
+condition does not:
 
-> **Do `R-1` after PR #29 merges — never before.**
-
-Applying it early converts an away-from-keyboard period into a stalled queue,
-which is a self-inflicted outage in exchange for closing a finding that has
-been open for days.
+> **Do `R-1` only after the LAST pull request of the current phase has merged
+> and is confirmed present in `origin/main`.**
 
 ### 20.6 What is deliberately *not* on the owner's list
 

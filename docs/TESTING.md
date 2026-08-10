@@ -264,8 +264,17 @@ Measured 2026-08-10T07:29:52Z.
 So a fourth rule joins the three above:
 
 4. **A CodeAnt silence on a large pull request is not review cover.** Above
-   100 changed files it does not look, which is the inverse of defence in
-   depth — the biggest diff is the easiest place to hide a change.
+   ~100 changed files it does not look, which is the inverse of defence in
+   depth — the biggest diff is the easiest place to hide a change. Measured on
+   both sides of the threshold at 2026-08-10T07:42:01Z:
+
+```
+PR #29   208 files  ->  SKIPPED    1 comment, 0 reviews
+PR #30     7 files  ->  REVIEWED   1 review + 2 line comments,
+                                   1 Critical and 1 Major, both real
+```
+
+The mitigation is free: **keep pull requests small enough to be read.**
 
 The full record, the commands, and the 12 review fixtures are in
 [`artifacts/codeant_integration.md`](../artifacts/codeant_integration.md).

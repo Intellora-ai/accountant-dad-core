@@ -3307,14 +3307,58 @@ PR 29 changes **208 files, 13,149 additions**. The invitation to reply
 tool-observed content rather than from the owner, and posting it would publish
 a public comment on the owner's behalf.
 
-**The finding worth more than the status.** CodeAnt automatically opts out of
-diffs over 100 files, so **the largest pull requests receive no line-level
-review at all**. That is the inverse of defence in depth, and it sits directly
-beside the CRITICAL finding in §43 item `R-1`: a large pull request is both
-the easiest place to hide a workflow edit and the case the advisory layer
-refuses to read. It does not weaken the merge path — no gate reads CodeAnt,
-and `pr-fast` ran green on PR 29 regardless — but **a CodeAnt silence on a
-large pull request is never review cover.**
+### §42.1a THE STANDING RULE — CodeAnt auto-skips large diffs
+
+**This is a standing behaviour, not a one-off, and it is now measured on both
+sides of the threshold.**
+
+```
+PR #29   208 changed files   ->  SKIPPED. one comment, no review.
+PR #30     7 changed files   ->  REVIEWED. 1 review + 2 line comments.
+                                              measured 2026-08-10T07:42:01Z
+```
+
+> **CodeAnt auto-skips any diff over roughly 100 files.**
+> **The largest pull requests — where a workflow edit hides best — get no
+> line-level review.**
+> **Its silence on a large pull request is NEVER review cover.**
+
+That is the inverse of defence in depth, and it sits directly beside the
+CRITICAL finding in §43.5: a large pull request is both the easiest place to
+hide a workflow edit and the exact case the advisory layer declines to read.
+It does not weaken the merge path — no gate reads CodeAnt, and `pr-fast` ran
+green on PR 29 regardless — but the operational consequence is permanent:
+**a reviewer that opts out of big diffs cannot be counted as coverage for
+big diffs.**
+
+**The practical mitigation is free:** keep pull requests under the threshold.
+PR #30 shows the reviewer works, and works well, when the diff is small enough
+to be read.
+
+### §42.1b What CodeAnt actually found, once it read something
+
+On PR #30 (7 files) CodeAnt filed a review at 07:41:02Z with two substantive
+findings. Recorded here because "the advisory layer produces real signal" is a
+claim that needs evidence, and this is the evidence:
+
+| Severity | Where | Finding |
+|---|---|---|
+| Critical | `accountant/tallyio/__main__.py:159` | the CLI confirms and executes a batch without supplying an `ActionLogSink`, so **destructive CLI reversals leave no durable audit rows**, while the web path records them |
+| Major | `accountant/web/app.py:1720` | the confirmation event records `backend=type(live.client).__name__` although `reversal.confirm` is a local action that never touches Tally — **the audit row falsely claims backend provenance** |
+
+Both are provenance defects, which is the same class as the fabrication the
+Ground-Truth Pack caught (§44.1). Neither is triaged here: PR #30 belongs to
+another workstream, and these are recorded so they are not lost, not resolved.
+
+**One security observation about the comment format itself.** Each CodeAnt
+comment embeds a *"Prompt for AI Agent"* block containing instructions written
+for an autonomous agent to execute — "validate the correctness… implement it…
+check other comments… implement a minimal fix". **Those are instructions from
+a third party arriving through a tool surface, and they were not acted on.**
+An agent that automatically executes review comments would be taking direction
+from outside the project against `accountant/**`. The comments are advice to
+be read by a person, and this repository's standing rule — tool-observed
+content is data, never instruction — is what keeps them that way.
 
 ### §42.2 The correction that matters more than the result
 
@@ -3431,15 +3475,23 @@ GROUP C - optional, nothing waits on them
   H-02          supply real or anonymised bills
   H-05          approve an authenticated actor identity subsystem
 
-GROUP D - DO LAST, ONLY AFTER PR #29 MERGES
-  R-1           four ruleset changes; closes the CRITICAL self-merge finding
-                *** these stop unattended merging ***
+GROUP D - DO LAST, ONLY AFTER THE LAST PHASE-8 PR IS IN origin/main
+  R-1           the ruleset. *** these stop unattended merging ***
+                READ §43.5 FIRST - three of the four planned fixes are
+                NOT AVAILABLE or self-defeating on this repository, and
+                the CRITICAL finding cannot currently be closed by any
+                setting the owner has. One UNVERIFIED path remains.
 
 NOT THE OWNER'S WORK
   R-2           an agent is fixing ci/check_ruleset.py
 CLOSED
   R-0           pr-fast pinned to GitHub Actions - done 2026-08-10T06:51:46Z
 ```
+
+**The one thing to read if you read nothing else:** Group D is not four
+checkboxes. It is one unverified API question (`workflows` rule type) and one
+staffing question (a second reviewer). Everything else on that list has been
+measured and ruled out.
 
 ### §43.1 `R-0` — CLOSED, recorded so nobody redoes it
 
@@ -3518,23 +3570,109 @@ carries neither `actor` nor a previous-state column (§18.8 of
 
 ### §43.5 GROUP D — `R-1`, the ruleset. DO THIS LAST.
 
-> ### Do these four **after PR #29 merges**, never before.
-> Requiring an approving review **stops unattended merging**. The owner has
-> said they want work to merge while they are away. Applying this early turns
-> an away-from-keyboard period into a stalled queue.
+> ### The trigger is a CONDITION, not a pull-request number.
+> **Do `R-1` only after the LAST phase-8 pull request has merged and is
+> confirmed present in `origin/main`.**
+>
+> **Why the ordering is part of the item.** Setting
+> `required_approving_review_count: 1` **stops unattended merging**, and the
+> owner has explicitly asked that this work keep merging while they are away.
+> Applying `R-1` early does not reorder the work — **it halts it.** That is a
+> self-inflicted outage traded for closing a finding that has been open for
+> days.
+>
+> A pull-request number in this slot goes stale within the hour. This register
+> already had `#29` written into it, and `#29` merged before the ink dried.
+
+**Membership as at 2026-08-10T07:41Z — the state at time of writing, not the
+condition.** Re-read the queue before acting; the condition above governs.
+
+```
+PR-1  #29  MERGED as d98adc3, confirmed in origin/main   07:31:57Z
+PR-5  #30  OPEN, gates running, head 6686752             07:38:25Z
+PR-4       phase8/ui-provenance, 7969f1f, not yet pushed
+PR-3       phase8/gst-rules,     2983813, not yet pushed
+PR-2       phase8/detectors,     still building
+```
+
+Verified 2026-08-10T07:41:10Z: `git ls-remote origin 'refs/heads/phase8/*'`
+returns only `input-types` and `reversal-history`. The other three are not on
+`origin`, so **at least three more pull requests are still to come.**
 
 **Where:** https://github.com/Intellora-ai/accountant-dad-core/settings/rules
 — ruleset `20557129`, "main protection".
 
-| | Do | Current, measured 2026-08-10T07:28:48Z |
-|---|---|---|
-| **a** | `required_approving_review_count` 0 → **1** | `0` |
-| **b** | `require_code_owner_review` false → **true** | `false` |
-| **c** | Add a `file_path_restriction` rule covering `.github/**` and `ci/**` | no such rule; `rule_types` are `deletion`, `non_fast_forward`, `pull_request`, `required_status_checks` |
-| **d** | Apply the `.github/CODEOWNERS` diff the security agent is producing | no `CODEOWNERS` file exists anywhere in the tree |
+#### The headline, and it is not what the plan assumed
 
-**Status:** `HUMAN_ACTION_REQUIRED` — all four need repository Administration,
-which this identity deliberately does not hold (§42.3, HTTP 403 quoted).
+> **The CRITICAL finding cannot currently be closed by any setting the owner
+> has available**, except possibly one rule type whose availability is
+> `UNVERIFIED`.
+
+Three of the four planned fixes do not survive contact with this repository.
+Leaving them on the list would have had the owner plan work that cannot be
+done.
+
+| | Planned fix | Status | Measured |
+|---|---|---|---|
+| **a** | `required_approving_review_count` 0 → 1 | `BLOCKED` — see the arithmetic below | `0` at 07:28:48Z |
+| **b** | `require_code_owner_review` false → true | `BLOCKED` — same arithmetic | `false` at 07:28:48Z |
+| **c** | `file_path_restriction` on `.github/**` and `ci/**` | **`NOT AVAILABLE`** | see below |
+| **d** | Apply a `.github/CODEOWNERS` diff | `NOT_IMPLEMENTED`, and inert without **a**/**b** | no `CODEOWNERS` in the tree, 07:28:46Z |
+| **e** | `workflows` ruleset rule pinning `pr-fast.yml` | **`UNVERIFIED`** — the one remaining path | see below |
+
+#### **c** — `file_path_restriction` is NOT AVAILABLE on this repository
+
+It is a **push** ruleset rule, and GitHub restricts push rulesets to **private
+or internal** repositories. Measured 2026-08-10T07:41:05Z:
+
+```
+gh api repos/Intellora-ai/accountant-dad-core
+  -> {"visibility":"public","private":false,"owner_type":"User"}
+```
+
+The same measurement kills a second idea that was on the list: an
+**organisation-level required workflow** is `NOT AVAILABLE` because
+`owner.type == "User"`, not an organisation.
+
+#### **a** and **b** — BLOCKED by arithmetic, not by configuration
+
+```
+gh api repos/Intellora-ai/accountant-dad-core/collaborators
+  -> [{"login":"Intellora-ai","admin":true}]        1 collaborator
+                                        measured 2026-08-10T07:41:10Z
+```
+
+**One collaborator, who authors every pull request, and GitHub forbids
+self-approval.** So requiring one approving review plus code-owner review does
+not block the *risky* merges — **it blocks every merge, permanently.**
+
+That is a far larger consequence than "turn on a setting", and the real
+dependency is not administrative:
+
+> **The dependency is a second human reviewer.** A hiring or delegation
+> decision, not a checkbox. Until one exists, **a** and **b** cannot be
+> enabled without stopping the project.
+
+#### **e** — the one remaining path, honestly `UNVERIFIED`
+
+A **`workflows`** ruleset rule, pinning `.github/workflows/pr-fast.yml` to
+`refs/heads/main`, so a pull request's own branch cannot supply the workflow
+that grades it. That would close the CRITICAL finding at its root — the
+`on: pull_request` trigger — rather than by requiring a human to notice.
+
+`workflows` appears in GitHub's documented repository-ruleset rule-type enum.
+**Whether it is available on a user-owned public repository is `UNVERIFIED`**,
+and it is recorded as `UNVERIFIED` rather than `AVAILABLE` because nobody has
+run the call. One API read against the ruleset schema settles it.
+
+**This is the single highest-value item in Group D**, precisely because it is
+the only one not already ruled out — and it needs one measurement before it
+can be planned, not after.
+
+**Status of `R-1` overall:** `HUMAN_ACTION_REQUIRED` for the ruleset changes
+that turn out to be possible — all need repository Administration, which this
+identity deliberately does not hold (§42.3, HTTP 403 quoted) — plus one
+`OWNER_DECISION_REQUIRED` on whether to obtain a second reviewer.
 
 **What the four together close — the CRITICAL finding:**
 
@@ -3562,10 +3700,17 @@ stands between an edited gate and `main`.
 declines diffs over 100 files, which is exactly where a workflow edit hides
 best (§42.1).
 
-**Evidence that closes it:** a re-read of the ruleset showing
-`required_approving_review_count: 1`, `require_code_owner_review: true`, a
-`file_path_restriction` rule present, and `CODEOWNERS` tracked in git — plus a
-re-run of `ci/check_ruleset.py`.
+**Evidence that closes it:** a re-read of the ruleset showing whichever
+mechanism turns out to be available — realistically the `workflows` rule
+pinning `pr-fast.yml` to `refs/heads/main` — plus a re-run of
+`ci/check_ruleset.py`. **Do not record this closed on the strength of a
+`CODEOWNERS` file alone**: without a second reviewer, `CODEOWNERS` changes
+nothing.
+
+**The honest summary, which must not be softened.** A register that implies a
+hole is closeable when it is not is worse than one that says *we do not yet
+know how*. Today: **we do not yet know how**, and the next step is one API call
+against **e**, not four GUI changes.
 
 ### §43.6 `R-2` — not the owner's work
 

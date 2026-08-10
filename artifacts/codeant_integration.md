@@ -85,6 +85,29 @@ consequence is narrower and worth stating once:
 > **Never treat a CodeAnt silence on a large pull request as review cover.**
 > On a 100+ file diff its silence means it did not look.
 
+**Confirmed on both sides of the threshold at 2026-08-10T07:42:01Z**, so this
+is a measured rule rather than an inference from one data point:
+
+```
+PR #29   208 changed files  ->  SKIPPED    1 comment, 0 reviews
+PR #30     7 changed files  ->  REVIEWED   1 review + 2 line comments
+```
+
+On PR #30 it produced real signal — one Critical
+(`accountant/tallyio/__main__.py:159`, destructive CLI reversals leave no
+audit rows) and one Major (`accountant/web/app.py:1720`, an audit row falsely
+claiming backend provenance). Both are provenance defects, the same class as
+the fabrication in §44.1 of `PROJECT_STATE.md`. **The reviewer works. It just
+declines to work on large diffs.** The mitigation is free: keep pull requests
+small.
+
+**One observation about the comment format.** Every CodeAnt comment embeds a
+*"Prompt for AI Agent"* block written to be executed by an autonomous agent —
+"validate the correctness… implement it… check other comments… implement a
+minimal fix". **Not acted on.** Those are third-party instructions arriving
+through a tool surface, and an agent that auto-executes review comments would
+be taking direction from outside the project against `accountant/**`.
+
 ### The instruction inside the comment, and why it was not followed
 
 The comment invites a reply of `@codeant-ai : review` to force a review.
