@@ -3075,3 +3075,156 @@ Phase 5B passing does not make Phase 6 complete
 Phase 6 passing does not make Phase 5B pass
 neither makes the live acceptance test any less REQUIRED
 ```
+
+---
+
+## §41 External and human dependencies — status, evidence, and two corrections
+
+Added 2026-08-10. Everything in this section is a *status*. The dependency
+tables themselves live in [`ARCHITECTURE.md` §16 and §17](./ARCHITECTURE.md),
+per the division of labour in §2 — that document says how it should work, this
+one says what happened. Nothing is restated across the two; each links to the
+other.
+
+### §41.1 The three items and their statuses
+
+```
+B-01                 HUMAN_ACTION_REQUIRED
+B-02                 HUMAN_ACTION_REQUIRED
+LICENSED_REALTALLY   BLOCKED_ON_HUMAN_EVIDENCE
+```
+
+`B-01` is the GUI creation of `Demo Co` with the four ledgers `Purchases`,
+`Sundry Expenses`, `Cash` and `Sharma Traders`. `B-02` is the licensed external
+environment. Both are declared in [`BLOCKERS.md`](./BLOCKERS.md) and in
+`docs/CONTROL_PLANE.yaml`; the exact objects and the exact evidence required are
+in `ARCHITECTURE.md` §16.2.
+
+**What does not satisfy `B-02`, stated because each of these has been offered as
+evidence at least once in this project:**
+
+- repository tests
+- mocks and fakes of any kind
+- XML connectivity to a reachable gateway
+- generated fixtures
+
+Gateway reachability is a fact about a socket. A simulated company is a fixture.
+Neither is a licensed real TallyPrime. The evidence class is named by what was
+observed, never by what was reachable.
+
+**Neither item may be marked complete by anyone but the owner**, and neither is
+marked complete here.
+
+### §41.2 The Phase-8 human-required items
+
+| ID | Item | Status | Blocks | Required action |
+|---|---|---|---|---|
+| H-01 | Approve production extraction backend | OWNER_DECISION_REQUIRED | Real-reader S2 | Select backend after cost/privacy/residency review |
+| H-02 | Supply real or anonymised bills | OPTIONAL_HUMAN_INPUT | Real-bill accuracy only | Provide labelled corpus if real-bill accuracy is required |
+| H-03 | Create Demo Co in TallyPrime | HUMAN_ACTION_REQUIRED | LICENSED_REALTALLY only | Create company and four ledgers in GUI |
+| H-04 | Provide licensed Tally evidence | HUMAN_ACTION_REQUIRED | LICENSED_REALTALLY only | Supply verified live-run evidence |
+| H-05 | Approve authenticated actor identity | OWNER_DECISION_REQUIRED | Authenticated actor identity only | Approve identity subsystem if required |
+
+**These block only the exits in their own `Blocks` column.** Schema work, rules
+corpus preparation, detector tests, UI provenance implementation and
+reversal-history implementation are all unblocked and can be built, tested and
+merged while every one of these stays open.
+
+`H-03` and `H-04` are the same two real-world actions as `B-01` and `B-02`.
+Both id sets are kept, cross-referenced, and deliberately not merged into a
+third. The id `H-03` additionally names a *different* item in `ARCHITECTURE.md`
+§16.1. See `ARCHITECTURE.md` §16.5 — the collision is recorded for the owner to
+settle, not tidied away by an agent.
+
+### §41.3 GST feature posting — NOT_MEASURED
+
+    GST posting rate                             NOT_MEASURED
+    tax ledger selection                         NOT_MEASURED
+    CGST/SGST/IGST split                         NOT_MEASURED
+    place-of-supply rules                        NOT_MEASURED
+    successful GST posting with tax lines        NOT_MEASURED
+
+**What the current GST tests actually prove: safe refusal.** An unsupported or
+incomplete GST bill is refused rather than posted stripped of its tax lines —
+`tests/test_real_tally.py::test_a_gst_voucher_is_refused_rather_than_silently_stripped`,
+which asserts a `ValueError` when a voucher carries `gst_paise`.
+
+**What they do not prove: that a GST bill with tax lines posts successfully.**
+Refusing correctly and posting correctly are two different measurements, and
+only the first has been taken. A refusal test can never become evidence of a
+successful post, however many times it passes.
+
+This work belongs to the frozen-plan rules work — see `ARCHITECTURE.md` §18.3,
+where the owner's decision to keep automatic GST posting switched off is
+recorded as a deliberate safety boundary rather than a failed test.
+
+### §41.4 The question rate — MEASURED on one fixture, and nowhere else
+
+**This supersedes the earlier record that the fixture did not exist.** It did
+not, when that was written. It does now: it was built and run as part of `D-05`,
+merged as `03cc076`.
+
+    fixture   20 pairs of X vs X Pvt Ltd
+    SAME              0
+    AMBIGUOUS        20
+    questions        20
+    unsafe merges     0
+
+Measured by
+`tests/test_legal_identity_live.py::test_twenty_same_stem_pairs_produce_questions_and_never_a_silent_merge`,
+with `tests/test_legal_identity_live.py::test_the_accountant_package_under_test_is_the_one_in_this_worktree`
+passing in the same run — the import-provenance assertion that makes the numbers
+admissible at all. Re-run 2026-08-10 in this worktree, 2 passed.
+
+**Exactly what was measured:** 20 of 20 same-supplier pairs produce a question,
+and none merges silently, *on that fixture*, *under the D-05 legal-form ruling*.
+That is the measured cost of the ruling — the ruling makes the product ask
+twenty times where it previously would not have asked, and that is the price of
+never merging two legal persons by accident.
+
+**It is not a product-wide question rate.**
+
+    product-wide question rate over real entries   NOT_MEASURED
+
+Twenty hand-built pairs of the one shape the ruling is about are not a sample of
+what real entries look like. The fixture was constructed so that every pair
+*should* be ambiguous; a corpus in which every case is the hard case cannot
+report how often the hard case occurs.
+
+**The question rate is never written as zero, in any form.** Zero is not
+inferred from an absence: "no questions appeared" is not a measurement of how
+often questions appear.
+
+### §41.5 Two evidence corrections, both permanent
+
+Recorded here so the corrections survive in the project's operational memory
+rather than only in a working handoff, and so nobody re-derives the bad number
+and believes it is new.
+
+**1 · The wrong-leg posting severity claim.**
+
+    NOT REPRODUCED — a 399-sequence sweep could not reproduce it
+
+The claim that the unvalidated `problem` field posts a wrong-leg voucher is
+**not established evidence** and must not be written down as one. It is not
+disproved either. It is unreproduced, which is a different and weaker thing, and
+the distinction is kept because collapsing it in either direction would be a
+fabrication.
+
+**2 · The earlier cross-organisation zero-cost measurement.**
+
+    INVALIDATED — both sides imported the unchanged main checkout from /tmp
+
+Both sides of that comparison ran from `/tmp`, so `sys.path[0]` was `/tmp` and
+the editable install resolved `accountant` to the main checkout. Both sides
+therefore measured the same unchanged code, and the difference could only ever
+come out at zero by construction. **It does not prove zero cost.**
+
+The figure is not restated, is **not** replaced by `0`, and is **not** replaced
+by an estimate. An invalidated measurement is struck with its reason attached,
+and a struck number is evidence in a way a vanished one is not.
+
+The guard that came out of it is now a test rather than a habit: any future
+measurement must show the resolved `accountant.__file__` inside the intended
+worktree before its result is recorded — which is precisely the assertion that
+makes §41.4 admissible.

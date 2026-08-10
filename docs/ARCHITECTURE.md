@@ -1450,3 +1450,325 @@ information through it was refused by a live Tally, and the TDL workaround is
 what caused the wedge. A licence read is therefore **`UNKNOWN` by design**, and
 an unknown licence mode must fail closed in the UI rather than render as
 "connected, all good".
+
+---
+
+## 16. Human-required actions
+
+A dependency that only a person can discharge is part of the architecture, not a
+footnote to it. Recorded here so it is visible in the design rather than only in
+an agent's working notes.
+
+**These are actions, not defects.** None of them is a bug to be fixed in code,
+and none of them can be worked around by building more. The statuses live in
+[`PROJECT_STATE.md` §41](./PROJECT_STATE.md); this section owns the table.
+
+### 16.1 The three items
+
+| ID | Action | Why automation cannot complete it | Status | Evidence required |
+|---|---|---|---|---|
+| B-01 | Create `Demo Co` in the TallyPrime GUI | The XML gateway refuses company creation; GUI access is required | HUMAN_ACTION_REQUIRED | TallyPrime verification showing company and ledgers |
+| B-02 | Provide/enable the required licensed external environment | Live licensed evidence cannot be generated from the repository alone | HUMAN_ACTION_REQUIRED | Verified licensed run evidence |
+| H-03 | Confirm `LICENSED_REALTALLY` status after B-01/B-02 | Requires external-system evidence | BLOCKED_ON_HUMAN_EVIDENCE | Company ID/version/run evidence |
+
+`B-01` and `B-02` are the same two blockers already declared in
+[`BLOCKERS.md`](./BLOCKERS.md) and in `docs/CONTROL_PLANE.yaml` under
+`blockers:`. They are cross-referenced here, not renumbered, and the wording in
+those two files remains authoritative for everything except the table above.
+
+> **Id collision, recorded and deliberately not tidied away.** The id `H-03` is
+> used for two different things in this repository: here, for confirming the
+> live evidence class; and in §16.4, for the GUI action that is also `B-01`.
+> Both were handed down in the same week by separate instructions. Nothing has
+> been renumbered and no third id has been invented — see §16.5.
+
+### 16.2 `B-01` — the exact objects
+
+    Company: Demo Co
+    Ledgers: Purchases · Sundry Expenses · Cash · Sharma Traders
+
+The four ledger names are the ones `tests/test_tally_contract.py:46-47` requires.
+
+**The exact evidence required**, all six:
+
+- company exists in TallyPrime
+- all four ledgers exist
+- TallyPrime version recorded
+- company identifier recorded if available
+- verification screenshot or exported evidence
+- date/time recorded
+
+### 16.3 Why the gateway cannot do it
+
+Creating the company over XML was attempted and refused. The refusal, verbatim:
+
+    <RESPONSE>Unknown Request, cannot be processed</RESPONSE>
+
+That string is the whole reason `B-01` is a human action. Retrying it over XML
+teaches nothing, and a company that a fixture invents is not the company the
+evidence class is about.
+
+### 16.4 The Phase-8 human-required items
+
+Handed down with the eight frozen scope answers. Recorded verbatim.
+
+| ID | Item | Status | Blocks | Required action |
+|---|---|---|---|---|
+| H-01 | Approve production extraction backend | OWNER_DECISION_REQUIRED | Real-reader S2 | Select backend after cost/privacy/residency review |
+| H-02 | Supply real or anonymised bills | OPTIONAL_HUMAN_INPUT | Real-bill accuracy only | Provide labelled corpus if real-bill accuracy is required |
+| H-03 | Create Demo Co in TallyPrime | HUMAN_ACTION_REQUIRED | LICENSED_REALTALLY only | Create company and four ledgers in GUI |
+| H-04 | Provide licensed Tally evidence | HUMAN_ACTION_REQUIRED | LICENSED_REALTALLY only | Supply verified live-run evidence |
+| H-05 | Approve authenticated actor identity | OWNER_DECISION_REQUIRED | Authenticated actor identity only | Approve identity subsystem if required |
+
+**These five block only the exits named in their own `Blocks` column.** They do
+not block schema work, rules-corpus preparation, detector tests, UI provenance
+implementation, or reversal-history implementation. Every one of those can be
+built, tested and merged while all five stay open.
+
+### 16.5 The id overlap, stated rather than reconciled
+
+    H-03 (§16.4)  ==  B-01 (§16.1)   create Demo Co and four ledgers in the GUI
+    H-04 (§16.4)  ==  B-02 (§16.1)   provide the licensed environment / evidence
+    H-03 (§16.1)  !=  H-03 (§16.4)   two different items, one id
+
+Both labels are shown for each real-world action, and both tables are kept.
+**No third id has been invented and nothing has been renumbered.** This project
+has already had id collisions recorded rather than silently fixed — see the
+`D-28`/`D-29` note at the head of `docs/CONTROL_PLANE.yaml` — and this follows
+the same rule: a collision that is written down can be resolved by the owner,
+and one that is tidied away cannot.
+
+---
+
+## 17. Completion dependencies
+
+What each capability actually needs. The middle two columns separate work the
+repository can do from work only a person outside the repository can do — the
+distinction that decides whether a thing is schedulable.
+
+| Capability | Repository code/tests | External human action | Current status |
+|---|---:|---:|---|
+| Phase 7 adapter contract | Required | No | In progress until merged |
+| GST unsafe-VALID prevention | Required | No | Pass only after required gates |
+| GST bill successfully posting with tax lines | Phase 8 | Yes for licensed proof | Not measured |
+| Tally company creation | No | Yes | B-01 required |
+| Licensed real-Tally evidence | No | Yes | Blocked |
+| Question-rate measurement | Fixture required | No, once fixture exists | See note below |
+| Five Phase 8 input types | Required | Possibly for live proof | Not started |
+| Four Phase 8 detectors | Required | Possibly for live proof | Not started |
+| Rules corpus with source URLs | Required | No | Not started |
+| UI provenance | Required | No | Not started |
+| Full reversal history | Required | No | Not started |
+
+**Note on the question-rate row.** The fixture now exists and has been run. The
+measurement, its exact scope, and the reason it is not a product-wide number are
+in [`PROJECT_STATE.md` §41.4](./PROJECT_STATE.md) — the evidence lives with the
+other evidence, not here.
+
+**Note on the adapter row.** `docs/CONTROL_PLANE.yaml` declares phase 7 as
+`NOT_STARTED` with the evidence for that status attached. The row above was
+supplied as "In progress until merged". The two disagree; the disagreement is
+recorded rather than resolved here, because the control plane is canonical and
+changing it is not this document's job.
+
+### 17.1 What B-01 and B-02 do and do not block
+
+    B-01/B-02 block LICENSED_REALTALLY only.
+    They do not block Phase 7 adapter safety.
+    They do not block Phase 8 implementation after Phase 7 is merged.
+
+This is the distinction that keeps an environment limitation from being reported
+as a product failure, and it runs the other way too: no amount of adapter or
+detector work turns into live evidence without the two human actions.
+
+---
+
+## 18. Phase 8 scope — frozen, and what it means for the design
+
+The owner answered eight scope questions and marked the scope frozen against the
+frozen plan. They are final and are not to be asked again. The answers
+themselves, and the owner's scope marker verbatim, live in
+[`OWNER_DECISIONS.md`](./OWNER_DECISIONS.md); the full operational detail,
+including every count and gate, lives in
+[`artifacts/phase8_scope.md`](../artifacts/phase8_scope.md). What follows is
+only the part that constrains the *design*.
+
+*The marker is not reproduced on this line. `scripts/validate_project_truth.py`
+reads any phase number beside an upper-case token as a phase-status claim, and
+the scope marker is not one of the six statuses the control plane allows. It is
+recorded verbatim in the three documents that check names it does not scan.*
+
+### 18.1 Rule sources — an authority hierarchy, enforced at load time
+
+```
+1. official CBIC notification / circular
+2. official Income Tax Department notification / circular
+3. official GST Council material   — supplementary context ONLY
+4. no commercial API               — not a source, not a dependency
+```
+
+GST Council press releases and rate-finder pages may be recorded as
+supplementary references. **They can never be the sole authority for a
+production rule.**
+
+Every rule carries eight fields, and a rule missing any of them is not a rule
+this system will load:
+
+```
+source URL · source title · issuing authority · notification/circular number
+if available · retrieval date · effective date · rule version · jurisdiction
+```
+
+**When an official source cannot be retrieved or verified**, the rule takes
+status `SOURCE_UNVERIFIED`, cannot load into production, and the result the user
+sees is `NOT_FOUND` or `UNCLEAR` with no automatic posting. **A stale rate is
+never silently used.** This is the same shape as the licence read in §15: an
+unknown fact fails closed rather than rendering as a confident answer.
+
+### 18.2 Corpus scope — observed codes only
+
+Not the full HSN/SAC set. Not a top-N. Not a frequency cutoff. The corpus is
+exactly:
+
+```
+codes observed in verified company history
++ explicitly approved test fixtures
+```
+
+Every unseen code returns `NOT_FOUND`. **A rate is never guessed from a similar
+code**, and a code is never added merely to increase coverage. Coverage that was
+bought by guessing is worse than a gap, because a gap is visible.
+
+### 18.3 The GST posting boundary
+
+**GST posting stays off. This is a deliberate safety boundary, not a failed
+test.** The rules corpus and the evidence model may be built. Automatic GST
+posting is not enabled until a later, explicit owner decision.
+
+```
+GST posting                              = NOT_IMPLEMENTED
+CGST/SGST/IGST split                     = NOT_IMPLEMENTED
+place of supply                          = NOT_IMPLEMENTED
+GST ledger selection                     = NOT_IMPLEMENTED
+successful GST posting with tax lines    = NOT_MEASURED
+```
+
+Never post on supplier GSTIN alone, on company history alone, on a guessed
+state, or on a guessed rate. No partial split. No silent place-of-supply
+inference.
+
+The connector already enforces the boundary at the wire:
+`tests/test_real_tally.py::test_a_gst_voucher_is_refused_rather_than_silently_stripped`
+asserts that a voucher carrying `gst_paise` is refused rather than written
+without its tax lines — because a wrong statutory entry that looks fine is worse
+than a refusal.
+
+### 18.4 Extraction — stub only
+
+`StubExtractor` serves the contract and safety tests. `UnavailableExtractor`
+stays supported. No production backend is selected.
+
+```
+real extraction accuracy   = NOT_MEASURED
+S2                         = NOT_MEASURED
+production backend         = NOT_SELECTED
+adapter contract           = measurable
+five-input-type real extraction = INCOMPLETE
+```
+
+**A stub returning `not_found` cannot satisfy the real extraction-quality
+exit.** Extraction is therefore not to be described as complete. No customer
+bill goes to a third party without explicit approval — the backend choice is
+`H-01` in §16.4.
+
+### 18.5 Evaluation corpus — every case labelled
+
+Four labels, one per case, no case unlabelled:
+
+```
+SYNTHETIC_EVIDENCE · THIRD_PARTY_PUBLIC_EVIDENCE
+REAL_ANONYMISED_EVIDENCE · HELD_OUT_CUSTOMER_LIKE_EVIDENCE
+```
+
+Synthetic cases may test mechanics, schema, provenance and adversarial
+behaviour. **They are never described as real-bill accuracy evidence.** Without
+real bills, real-bill accuracy and `S2` stay unmeasured, and the gap is never
+filled by calling generated documents real.
+
+### 18.6 Delivery shape — five sequential PRs
+
+```
+PR-1  five input-type contracts and fixtures
+PR-2  four detector expansion and measurements
+PR-3  rules corpus and source provenance
+PR-4  UI provenance
+PR-5  full reversal history
+```
+
+Each merges and is confirmed in `origin/main` before the next begins
+integration. Never one 5,000-line change.
+
+### 18.7 Detectors — root cause before the feature
+
+The four detectors are `vendor_switch`, `first_use`, `magnitude` and
+`gst_anomaly` — `ALL_DETECTORS` in `accountant/detect/detectors.py:205`.
+
+Order of work, and the order is the point: reproduce the baseline first, then
+isolate the account driving the false alarms, then fix **the root cause, not the
+threshold**, then add a regression test for that account, then re-run the
+corpus, then enable all four and measure N1.
+
+Tuning a threshold until a metric passes is already forbidden by §5 of this
+document. A feature flag may be used during development only — **it can never
+be used to claim the all-four exit while production runs one detector.**
+
+### 18.8 Actor labels — coarse by design, and said so
+
+Exactly two labels: `accountant_dad` for system-generated actions, `operator`
+for actions answered through the UI. They ride on the existing `action_log`
+(`accountant/memory/store.py:123`) and add no authentication dependency.
+
+```
+authenticated user identity = NOT_IMPLEMENTED
+actor provenance            = coarse-grained system/operator
+```
+
+**`operator` is not a real authenticated identity and is not to be presented as
+one.** Approving an identity subsystem is `H-05` in §16.4.
+
+Every reversal event carries seven fields:
+
+```
+previous state · new state · reason · actor · timestamp
+company/document scope · evidence
+```
+
+**Design gap, measured not assumed.** The `action_log` table as it stands has
+eleven columns — `company_key`, `ts`, `action`, `outcome`, `reason`, `run_id`,
+`backend`, `operation_id`, `voucher_id`, `vendor_id`, `detail`. It carries no
+`actor` column and no previous-state column. Four of the seven fields map onto
+existing columns; `actor` and `previous state` do not exist yet. Extending the
+table is a schema change, not an authentication dependency, so it is compatible
+with the decision above — but "use the existing `action_log`" cannot be read as
+"unchanged".
+
+### 18.9 Approved assumptions
+
+```
+provenance in UI      the existing draft screen displays detector/rule,
+                      source URL, evidence and explanation per decision
+four detectors        vendor_switch, first_use, magnitude, gst_anomaly
+full reversal history extends the existing action_log
+five input types      text, PDF, PNG, JPG, DOCX
+web implementation    existing stdlib http.server unless separately approved
+```
+
+All five were checked against the code and all five hold today:
+`ALL_DETECTORS` names those four detectors; `action_log` exists;
+`accountant/web/app.py:35` imports `HTTPServer` from the standard library; and
+the five input types are the same five already frozen as `S1` in
+[`PROJECT_STATE.md` §6](./PROJECT_STATE.md) and §4 of this document.
+
+**If implementation inspection later contradicts an assumption, scope is not
+silently changed.** The contradiction is recorded, the affected exit is marked
+`BLOCKED`, and independent work continues.

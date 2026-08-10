@@ -1896,3 +1896,298 @@ launch_gates:
       has three. ARCHITECTURE Phase 8 is where ALL_DETECTORS replaces
       SLICE_4_DETECTORS, and Phase 8 is NOT_STARTED.
     status: NOT_PASSED
+
+# ===========================================================================
+# HUMAN-REQUIRED ACTIONS AND FROZEN PHASE 8 SCOPE
+#
+# Added 2026-08-10. Appended at the end of the file deliberately: another
+# agent holds the phase block earlier in this file, and appending cannot
+# collide with it.
+#
+# VOCABULARY NOTE, and it matters. The two blocks below do NOT use
+# `allowed_statuses`. That list - PASSED, NOT_PASSED, PARTIALLY_VERIFIED,
+# BLOCKED_ENVIRONMENT, OWNER_DECISION_REQUIRED, NOT_STARTED - governs
+# `phases:`, `metrics:` and `launch_gates:`, and scripts/validate_project_truth.py
+# checks those three against it. These blocks carry evidence labels from a
+# different and wider vocabulary:
+#
+#   PASS · FAIL · BLOCKED · NOT_MEASURED · INVALIDATED · GITHUB_REQUIRED
+#   HUMAN_ACTION_REQUIRED · OWNER_DECISION_REQUIRED · OPTIONAL_HUMAN_INPUT
+#   BLOCKED_ON_HUMAN_EVIDENCE · NOT_IMPLEMENTED · SOURCE_UNVERIFIED
+#   NOT_SELECTED · INCOMPLETE
+#
+# The two overlap only at OWNER_DECISION_REQUIRED. They are kept separate
+# rather than merged, because widening `allowed_statuses` would weaken the
+# check that guards the phase table.
+#
+# NOTHING BELOW MAY BE SET TO PASS OR COMPLETE WITHOUT EVIDENCE.
+# No human-required item may be marked complete by an agent, ever.
+# ===========================================================================
+
+human_actions:
+  B-01_tally_company_creation:
+    status: HUMAN_ACTION_REQUIRED
+    blocks: [LICENSED_REALTALLY]
+    does_not_block: [PHASE7_ADAPTER, PHASE8_IMPLEMENTATION]
+    required_evidence:
+      - Demo Co exists in TallyPrime
+      - Purchases ledger exists
+      - Sundry Expenses ledger exists
+      - Cash ledger exists
+      - Sharma Traders ledger exists
+    also_declared_as: "blockers: B-01; and as H-03 in the phase 8 human table below"
+    gateway_refusal: "<RESPONSE>Unknown Request, cannot be processed</RESPONSE>"
+  B-02_licensed_live_evidence:
+    status: HUMAN_ACTION_REQUIRED
+    blocks: [LICENSED_REALTALLY]
+    does_not_block: [PHASE7_ADAPTER, PHASE8_IMPLEMENTATION]
+    also_declared_as: "blockers: B-02; and as H-04 in the phase 8 human table below"
+    not_satisfied_by:
+      - repository tests
+      - mocks
+      - XML connectivity
+      - generated fixtures
+  licensed_realtally:
+    status: BLOCKED_ON_HUMAN_EVIDENCE
+  gst_successful_posting:
+    status: NOT_MEASURED
+  question_rate:
+    status: MEASURED_ON_FIXTURE_ONLY
+    fixture: 20 same-supplier pairs, X and X Pvt Ltd
+    result: SAME 0, AMBIGUOUS 20, questions 20, unsafe merges 0
+    product_wide: NOT_MEASURED
+    measured_by: >-
+      tests/test_legal_identity_live.py::test_twenty_same_stem_pairs_produce_questions_and_never_a_silent_merge,
+      with the import-provenance assertion
+      test_the_accountant_package_under_test_is_the_one_in_this_worktree passing
+      in the same run. Landed in commit 03cc076 (D-05). Re-run 2026-08-10.
+    note: >-
+      The earlier record here said NOT_MEASURED with reason fixture-missing.
+      That was true when written. The fixture now exists and has been run, so
+      the measured result is recorded with its exact scope. It is NOT a
+      product-wide question rate, and the question rate is never written as
+      zero in any form - zero is not inferred from an absence.
+
+phase8_scope:
+  scope_marker: FROZEN-PLAN
+  decided_on: "2026-08-10"
+  final: true
+  never_ask_again: true
+  id_namespace_note: >-
+    These arrived as a Q1-Q8 scope questionnaire, not as D-nn decisions, and
+    they have deliberately NOT been given D-nn ids. They are therefore absent
+    from `decisions:` above by design, not by omission.
+  answers:
+    Q1: "A - official CBIC and Income Tax Department notifications/circulars"
+    Q2: "C - only codes seen in the company's verified history"
+    Q3: "D - do NOT implement GST posting in this phase"
+    Q4: "B - stub extractor only, no production backend selected"
+    Q5: "C - UK government data where it fits, synthetic elsewhere, each labelled"
+    Q6: "five sequential PRs"
+    Q7: "B - fix the DHSC 'Additions NCB PDC' root cause BEFORE enabling four detectors"
+    Q8: "A - explicit system/operator actor labels"
+  rule_sources:
+    authority_order:
+      - official CBIC notification or circular
+      - official Income Tax Department notification or circular
+      - official GST Council material, supplementary context only
+    commercial_api: forbidden
+    sole_authority_allowed: [CBIC, INCOME_TAX_DEPARTMENT]
+    required_fields:
+      - source URL
+      - source title
+      - issuing authority
+      - notification or circular number if available
+      - retrieval date
+      - effective date
+      - rule version
+      - jurisdiction
+    gates:
+      uncited_production_rules: 0
+      rules_with_only_commercial_sources: 0
+      rules_with_missing_retrieval_date: 0
+      commercial_api_dependencies: 0
+      runtime_tax_api_calls: 0
+    unverifiable_source_behaviour:
+      rule_status: SOURCE_UNVERIFIED
+      loads_in_production: false
+      result_shown: "NOT_FOUND or UNCLEAR"
+      automatic_posting: none
+      stale_rate_fallback: forbidden
+  corpus:
+    scope: "codes observed in verified company history, plus explicitly approved test fixtures"
+    not_scope: ["full HSN/SAC set", "top-N", "frequency cutoff"]
+    unseen_code_behaviour: NOT_FOUND
+    guess_from_similar_code: forbidden
+    added_for_coverage_alone: forbidden
+    reported_counts:
+      - total codes
+      - GST HSN codes
+      - GST SAC codes
+      - TDS sections
+      - Schedule III heads
+      - source-verified count
+      - source-unverified count
+      - unseen-code count during evaluation
+    gates:
+      loaded_codes_with_official_citations: "100%"
+      loaded_codes_with_retrieval_dates: "100%"
+      unseen_codes_returning_explicit_not_found: "100%"
+      guessed_rates: 0
+      uncited_rates: 0
+      silent_fallback_to_similar_code: 0
+  gst:
+    boundary: "deliberate safety boundary, not a failed test"
+    posting: NOT_IMPLEMENTED
+    cgst_sgst_igst_split: NOT_IMPLEMENTED
+    place_of_supply: NOT_IMPLEMENTED
+    ledger_selection: NOT_IMPLEMENTED
+    successful_posting_with_tax_lines: NOT_MEASURED
+    enabled_by: "a later explicit owner decision, not by this phase"
+    never_post_on: ["supplier GSTIN alone", "company history alone", "a guessed state", "a guessed rate"]
+    partial_split: forbidden
+    silent_place_of_supply_inference: forbidden
+    already_enforced_by: "tests/test_real_tally.py::test_a_gst_voucher_is_refused_rather_than_silently_stripped"
+  extraction:
+    backend: NOT_SELECTED
+    real_extraction_accuracy: NOT_MEASURED
+    s2: NOT_MEASURED
+    real_reader_s2: NOT_MEASURED
+    adapter_contract: measurable
+    five_input_type_real_extraction: INCOMPLETE
+    supported_now: [StubExtractor, UnavailableExtractor]
+    stub_cannot_satisfy_real_exit: true
+    customer_bill_to_third_party: "forbidden without explicit approval"
+  evaluation_corpus:
+    labels: [SYNTHETIC_EVIDENCE, THIRD_PARTY_PUBLIC_EVIDENCE, REAL_ANONYMISED_EVIDENCE, HELD_OUT_CUSTOMER_LIKE_EVIDENCE]
+    input_cases: 100
+    input_cases_note: "5 input types x 20"
+    detector_cases: 100
+    detector_cases_note: "4 detectors x 25"
+    required:
+      input_cases_labelled: "100/100"
+      detector_cases_labelled: "100/100"
+      cases_with_expected_outputs: "100/100"
+      cases_with_evidence_provenance: "100/100"
+    without_real_bills:
+      real_bill_accuracy: NOT_MEASURED
+      s2: NOT_MEASURED
+    synthetic_as_real_bill_evidence: forbidden
+  delivery:
+    shape: five sequential PRs
+    single_large_pr: forbidden
+    sequence:
+      - "PR-1 five input-type contracts and fixtures"
+      - "PR-2 four detector expansion and measurements"
+      - "PR-3 rules corpus and source provenance"
+      - "PR-4 UI provenance"
+      - "PR-5 full reversal history"
+    rule: "each merges and is confirmed in origin/main before the next begins integration"
+  detectors:
+    order: "root cause before the feature"
+    baseline_to_reproduce_first:
+      aggregate_false_alarm_rate: 6.29
+      all_detector_result: 36.36
+      dhsc_additions_ncb_pdc_contribution: "6 of 9 false alarms"
+      verified_from: "the intended worktree, before anything is built on it"
+    steps:
+      - isolate the account
+      - determine why it creates false alarms
+      - fix the root cause, not the threshold
+      - add a regression test for that account
+      - re-run the detector corpus
+      - enable all four detectors
+      - measure N1
+    gate: "N1 <= 10"
+    acceptance:
+      detectors_active_in_test_mode: "4/4"
+      detectors_with_tests: "4/4"
+      detectors_with_provenance: "4/4"
+      crashes: 0
+      silently_skipped_results: 0
+      n1: "<= 10"
+    on_failure:
+      detector_exit: FAIL
+      action: "fix the root cause and re-measure; the phase is not complete"
+    feature_flag: "development only; may never be used to claim the all-four exit while production runs one detector"
+  actor_labels:
+    system: accountant_dad
+    ui_answered: operator
+    authenticated_user_identity: NOT_IMPLEMENTED
+    actor_provenance: coarse-grained system/operator
+    operator_is_authenticated_identity: false
+    uses: existing action_log
+    authentication_dependency: none
+    reversal_event_fields:
+      - previous state
+      - new state
+      - reason
+      - actor
+      - timestamp
+      - company/document scope
+      - evidence
+    test:
+      events_preserving_all_seven: "20/20"
+      overwritten: 0
+      missing_actors: 0
+      missing_timestamps: 0
+      missing_scopes: 0
+      missing_reasons: 0
+    schema_gap_measured_2026_08_10: >-
+      action_log at accountant/memory/store.py:123 has eleven columns and
+      carries no actor column and no previous-state column. Five of the seven
+      required fields map onto existing columns; actor and previous state do
+      not exist. Adding them is a schema change, not an authentication
+      dependency, so it is compatible with the decision - but "use the existing
+      action_log" cannot be read as "unchanged".
+  approved_assumptions:
+    provenance_in_ui: "the existing draft screen displays detector/rule, source URL, evidence and explanation per decision"
+    four_detectors: [vendor_switch, first_use, magnitude, gst_anomaly]
+    full_reversal_history: "extends the existing action_log"
+    five_input_types: [text, PDF, PNG, JPG, DOCX]
+    web_implementation: "existing stdlib http.server unless separately approved"
+    on_contradiction: >-
+      Do not silently change scope. Record the contradiction, mark the affected
+      exit BLOCKED, and continue independent work.
+  human_required:
+    - id: "H-01"
+      item: "Approve production extraction backend"
+      status: OWNER_DECISION_REQUIRED
+      blocks: "Real-reader S2"
+      required_action: "Select backend after cost/privacy/residency review"
+    - id: "H-02"
+      item: "Supply real or anonymised bills"
+      status: OPTIONAL_HUMAN_INPUT
+      blocks: "Real-bill accuracy only"
+      required_action: "Provide labelled corpus if real-bill accuracy is required"
+    - id: "H-03"
+      item: "Create Demo Co in TallyPrime"
+      status: HUMAN_ACTION_REQUIRED
+      blocks: "LICENSED_REALTALLY only"
+      required_action: "Create company and four ledgers in GUI"
+      same_action_as: "B-01"
+    - id: "H-04"
+      item: "Provide licensed Tally evidence"
+      status: HUMAN_ACTION_REQUIRED
+      blocks: "LICENSED_REALTALLY only"
+      required_action: "Supply verified live-run evidence"
+      same_action_as: "B-02"
+    - id: "H-05"
+      item: "Approve authenticated actor identity"
+      status: OWNER_DECISION_REQUIRED
+      blocks: "Authenticated actor identity only"
+      required_action: "Approve identity subsystem if required"
+  human_required_does_not_block:
+    - schema
+    - rules corpus preparation
+    - detector tests
+    - UI provenance implementation
+    - reversal-history implementation
+  id_collision_recorded_not_reconciled: >-
+    H-03 and H-04 above are the same real-world actions as blockers B-01 and
+    B-02. Separately, the id H-03 is used for a DIFFERENT item in
+    docs/ARCHITECTURE.md section 16.1 - confirming the live evidence class after
+    B-01 and B-02. Both id sets are kept and cross-referenced. No third id was
+    invented and nothing was renumbered. This is the third id collision in this
+    project; the D-28/D-29 note at the head of this file records the previous
+    one the same way. Only the owner resolves an id collision.
