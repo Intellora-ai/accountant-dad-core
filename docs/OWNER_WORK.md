@@ -77,6 +77,27 @@ unsigned, so Windows SmartScreen will warn on first run.
 
 **Needed:** a distribution method, and a decision on code signing.
 
+### Authentication gaps that need a decision, not code
+Task 2 built sessions, tenancy and the two modes. Four things it did NOT build,
+each because the answer is a product decision or needs an account that does not
+exist:
+
+- **No `Secure` flag on the session cookie.** A browser withholds a `Secure`
+  cookie over plain HTTP, which would break the loopback development server. It
+  goes on with Task 7, when TLS is in front of the cloud server.
+- **No password reset.** Sending mail needs a provider, an account and a domain,
+  none of which exist. The login page deliberately carries no "forgot password"
+  link rather than a dead one.
+- **No sign-up route.** Users are created by calling `MemoryStore.create_user`.
+  Whether customers self-register or are created by you is a product decision.
+- **No rate limit on `/login`.** The refusal is constant-time against a
+  stopwatch and identical for an unknown email and a wrong password, so nothing
+  can be enumerated — but nothing yet slows a machine trying a million
+  passwords.
+
+**Needed:** a mail provider (reset), a decision on self-registration, and
+whichever of these you want before the first real customer.
+
 ### Legal
 Privacy policy, terms of service, billing, refunds, and a support process. The
 product will hold vendor names and amounts from real books.
