@@ -43,6 +43,24 @@ EOF
   exit 2
 fi
 
+# ---- the tenant, which is not this script's to decide either ----------------
+#
+# ACCOUNTANT_TENANT names the CUSTOMER a running container serves. It has no
+# default here, for exactly the reason the registry has none, and this script
+# does not invent one.
+#
+# It does NOT refuse, and that difference from the registry is a decision rather
+# than an omission. The registry is a BUILD input: nothing can be tagged or
+# pushed without it, so an unset value stops the work. The tenant is a RUN-TIME
+# input, and gating a build on it would state something false - that this image
+# is built per customer. It is not. One image serves every customer and is told
+# whose books it is opening when it is STARTED, which is a machine this script
+# has never heard of.
+#
+# What it can honestly do is refuse to be quiet. The image declares the variable
+# empty, `served_tenant()` answers every request 403 while it stays empty, and
+# the two lines below say so before anybody goes looking for a host to blame.
+
 # ---- tools, named exactly, never assumed ------------------------------------
 
 need() {
@@ -92,6 +110,7 @@ if [ "$TAG" != "$COMMIT" ]; then
   echo "  tree       DIRTY - the tag says so, and this image is not reproducible"
 fi
 echo "  reference  ${REF}"
+echo "  tenant     decided at RUN time - ACCOUNTANT_TENANT, no default, not here"
 
 # ---- build, tag, push -------------------------------------------------------
 
@@ -109,4 +128,10 @@ pushed ${REF}
 NOTHING WAS DEPLOYED. This script pushes an image. No host is configured, and
 none exists yet - docs/DEPLOY.md lists what the owner must supply, and what the
 image cannot do until they do.
+
+WHATEVER STARTS THIS IMAGE MUST SET ACCOUNTANT_TENANT. It names the tenant id
+that owns the company being opened. The image declares it EMPTY, and empty means
+REFUSED: every request is answered 403 until a real value is supplied at run
+time. There is no default, here or in the image, and neither of them invented
+one. docs/DEPLOY.md lists it with the other run-time variables.
 EOF

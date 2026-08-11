@@ -3814,6 +3814,35 @@ def config_from_environment() -> tuple[TallyConfig, str, RecordedBackups, list[s
     company = read(ENV_COMPANY, COMPANY)
     backed_up_text = read(ENV_BACKED_UP, "")
 
+    # WHOSE BOOKS, PRINTED BESIDE WHICH BOOKS. 2026-08-11.
+    #
+    # `ACCOUNTANT_COMPANY` was already here and `ACCOUNTANT_TENANT` was not,
+    # which left the startup banner able to say which books this process opens
+    # and unable to say who owns them. They are two halves of one statement and
+    # a reader had to go and find the second half somewhere else.
+    #
+    # NOT through `read()`, and that is the point rather than a detail. `read()`
+    # describes a value that has a FALLBACK, and this one has none:
+    # `served_tenant()` refuses every request 403 while it is unset, so printing
+    # `(default)` beside a blank would describe a refusal as a resolved value -
+    # the exact ambiguity this whole block exists to remove. Three states, three
+    # sentences, and the third one names its own consequence.
+    tenant = os.environ.get(ENV_TENANT, "").strip()
+    if local_dev_mode():
+        # Say `local-dev` rather than a blank. It is the tenant `authenticate`
+        # hands out in this mode and the one `served_tenant()` returns, so it is
+        # the true answer to "who is this serving" - and a blank here would read
+        # as the misconfiguration below on the one setup where it is not.
+        provenance.append(f"{ENV_TENANT}={LOCAL_DEV_TENANT!r} ({ENV_LOCAL_DEV_MODE}=1)")
+    elif tenant:
+        provenance.append(f"{ENV_TENANT}={tenant!r} (environment)")
+    else:
+        provenance.append(
+            f"{ENV_TENANT}=<unset> - EVERY REQUEST WILL BE REFUSED 403. This "
+            f"server does not know whose books it is serving, so it will not "
+            f"serve them to anybody."
+        )
+
     try:
         port = int(port_text)
     except ValueError as exc:

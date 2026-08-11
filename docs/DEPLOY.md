@@ -26,6 +26,7 @@ was not touched.
 | | |
 |---|---|
 | Registry | `ACCOUNTANT_REGISTRY`. **No default.** `scripts/deploy` refuses when it is unset. |
+| Tenant | `ACCOUNTANT_TENANT`. **No default, and no invented example.** The image declares it *empty*; empty means every request is refused 403. |
 | Host | None. Nothing in this repository knows a host name, and no line invents one. |
 | Domain | None. |
 | Credentials | None, anywhere. Not in the image, not in the script. |
@@ -88,12 +89,13 @@ docker manifest inspect python:3.14.6-slim
 
 ## Environment variables the running container needs
 
-The image sets `ACCOUNTANT_DB` and nothing else. Everything below is the
-operator's to supply.
+The image sets `ACCOUNTANT_DB` to a real value and `ACCOUNTANT_TENANT` to an
+**empty** one. Everything below is the operator's to supply.
 
 | Variable | Set in the image? | If it is missing |
 |---|---|---|
 | `ACCOUNTANT_DB` | **Yes**, `/app/data/app.db` | Falls back to `data/app.db` *relative to the working directory* — a database on the container's disposable filesystem, which is the exact defect commit `69191e2` fixed. Set in the image so it cannot happen. |
+| `ACCOUNTANT_TENANT` | **Declared, empty** | **Every request is refused 403, deliberately.** `served_tenant()` treats unset and empty identically and refuses rather than admitting everybody, so a deployment that forgets this variable is broken on the first request instead of quietly serving one customer's books to another. Reads and writes alike. There is **no default**: unset meaning "any tenant may enter" is defect J1 reintroduced. |
 | `ACCOUNTANT_TALLY_HOST` | No | Defaults to the built-in host and the container exits 1 with `REAL TALLY REQUIRED` — see blocker 1 above. |
 | `ACCOUNTANT_TALLY_PORT` | No | Defaults to 9000. A value that is not a number is a **refusal**, not a fallback: a typo must not connect to a different port. |
 | `ACCOUNTANT_COMPANY` | No | Defaults to the built-in company name. A wrong company is refused at startup by `runtime()`, in the terminal, before a socket is bound. |
@@ -103,6 +105,48 @@ operator's to supply.
 
 No secret of any kind is baked into a layer. A secret in an image layer is a
 secret in every registry, cache and backup that image ever touches.
+
+## Whose books this process serves — `ACCOUNTANT_TENANT`
+
+**Set it in every environment that runs this app.** Local dev, Docker, a
+launcher, CI, whatever eventually becomes production. There is one exception and
+it is `LOCAL_DEV_MODE=1`, where the served tenant is the constant `local-dev`
+and there are no customers to keep apart.
+
+One process serves one company — `runtime()` binds it at startup and refuses on
+any disagreement — so it also serves exactly one customer, and this variable
+names them. A session belonging to anybody else is refused **403** by
+`_identify` before a handler runs, however valid that session is.
+
+**The failure mode, exactly:** unset (or empty) means *every* request is refused
+403, reads included. The refusal names the variable. That is not a bug to work
+around — it is defect J1's fix, and the alternative, unset meaning "any tenant
+may enter", is the defect itself reintroduced as a default.
+
+**The image declares it empty rather than omitting it.** Empty and absent are
+identical to the code: `served_tenant()` reads
+`os.environ.get(ENV_TENANT, "").strip()`. They are not identical to a person.
+`docker inspect` and `docker history` show a declared variable and cannot show
+one nobody wrote down, so the image tells the operator what it needs. No
+placeholder that *looks* like a tenant id appears anywhere — a value that reads
+as real is a value somebody deploys.
+
+```bash
+docker run --rm \
+  -e ACCOUNTANT_TENANT=the-tenant-id-that-owns-these-books \
+  -e ACCOUNTANT_COMPANY='Their Company Name' \
+  -v accountant-data:/app/data \
+  registry.example.invalid/your-namespace/accountant-dad:<commit>
+```
+
+`ACCOUNTANT_COMPANY` and `ACCOUNTANT_TENANT` are two halves of one statement:
+which books, and whose.
+
+`scripts/deploy` does **not** refuse when this is unset, and that is a decision.
+The registry is a build input — nothing can be pushed without it. The tenant is
+a run-time input, and gating the build on it would claim the image is built per
+customer. It is not: one image serves every customer. The script says so in its
+closing message instead.
 
 ## The volume
 
@@ -166,10 +210,13 @@ up running a build nobody selected.
 
 1. A cloud account and a host.
 2. A container registry, and the value of `ACCOUNTANT_REGISTRY`.
-3. A domain, and TLS for it. Nothing in this repository terminates TLS.
-4. Registry credentials as repository secrets, for the CI deploy job that is
+3. The tenant id of the customer this deployment serves, and the value of
+   `ACCOUNTANT_TENANT` wherever the container is started. Without it the server
+   refuses every request 403. Nothing in this repository invents one.
+4. A domain, and TLS for it. Nothing in this repository terminates TLS.
+5. Registry credentials as repository secrets, for the CI deploy job that is
    owned elsewhere.
-5. A backup policy for the volume at `/app/data`. It holds the append-only
+6. A backup policy for the volume at `/app/data`. It holds the append-only
    action log, which is the record of what this software did to a real
    business's books. There is no other copy.
 
