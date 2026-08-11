@@ -498,23 +498,30 @@ def test_an_unmeasured_value_reads_not_measured_and_never_zero() -> None:
     """The standing owner rule, over an empty log, on the pure function.
 
     Every one of these is genuinely unmeasurable today and each says why in the
-    body: a rate over no entries is undefined; a refused replay is recorded as
-    an unknown outcome (defect I2) or as no row at all; an auth refusal writes
-    no durable row on purpose.
+    body: a rate over no entries is undefined, and an auth refusal writes no
+    durable row on purpose.
+
+    `refused_replays` WAS on this list, 2026-08-11, and is not any more. The
+    stated reason was defect I2 — a refused write replay recorded as
+    `write_outcome_unknown`, so the log could not tell a replay from an unknown
+    outcome. I2 was fixed while this file was being written: there are now two
+    named rows, `refused_replay` and `write_refused_duplicate`, so the count is
+    real and NOT_MEASURED would be the false statement.
+    `test_a_refused_replay_is_counted_now_that_it_has_a_row_of_its_own` below
+    is what replaced it.
     """
     body = observability.render_metrics((), company="Some Co", uptime=1.0)
     counts = parsed(body)
 
     for name in (
         "question_rate",
-        "refused_replays",
         "auth_refusals_401",
         "auth_refusals_403",
     ):
         assert counts[name] == observability.NOT_MEASURED, name
         assert counts[name] != "0", f"{name} reported a zero it never measured"
 
-    for name in ("question_rate", "refused_replays", "auth_refusals_401"):
+    for name in ("question_rate", "auth_refusals_401"):
         line = next(row for row in body.splitlines() if row.startswith(f"{name}: "))
         assert "  # " in line, f"{name} says NOT_MEASURED and does not say why"
 
@@ -806,3 +813,47 @@ def test_two_installs_do_not_write_every_line_twice() -> None:
             handler.close()
         logger.propagate = True
         logger.setLevel(logging.NOTSET)
+
+
+def test_a_refused_replay_is_counted_now_that_it_has_a_row_of_its_own(
+    tmp_path: Path,
+) -> None:
+    """What replaced `refused_replays` on the NOT_MEASURED list, 2026-08-11.
+
+    Post an entry, undo it, then re-submit the form that posted it. Until defect
+    I1 was fixed that wrote a SECOND voucher wearing the same operation id.
+    It is now refused before the socket opens, with a `refused_replay` row of
+    its own, and this is the metric reading that row.
+
+    Driven over HTTP rather than by hand-building the row, because the point is
+    that the word the handler WRITES and the word the metric READS are the same
+    word. Two literals is how a counter reads zero for ever while the thing it
+    counts keeps happening — which is why both ends import the name from one
+    place, and why this test would fail if they stopped.
+    """
+    db = tmp_path / "app.db"
+    with serving(demo_company(), fake_backend(), store_path=db) as base:
+        draft = an_entry_that_posts(base)
+        before = parsed(get(base, app.METRICS_PATH)[1])
+        assert before["refused_replays"] == "0", "a measured zero, before anything"
+
+        operation = app.DRAFTS[draft].operation_id
+        post(base, "/reverse", op=operation)
+
+        # 409 Conflict IS the refusal, so this cannot go through `post`, which
+        # raises on anything that is not 2xx. The status is asserted rather
+        # than swallowed: a replay that answered 200 would be the defect back.
+        replay = urllib.request.Request(  # noqa: S310
+            base + "/answer",
+            data=urllib.parse.urlencode(
+                {"draft": draft, "value": "Cash", "problem": FUNDING}
+            ).encode(),
+        )
+        with pytest.raises(urllib.error.HTTPError) as refused:
+            urllib.request.urlopen(replay, timeout=5)  # noqa: S310
+        assert refused.value.status == 409
+
+        after = parsed(get(base, app.METRICS_PATH)[1])
+
+    assert after["refused_replays"] == "1"
+    assert after["refused_replays"] != observability.NOT_MEASURED

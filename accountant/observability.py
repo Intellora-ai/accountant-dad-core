@@ -51,7 +51,11 @@ import uuid
 from collections.abc import Generator, Sequence
 from typing import TextIO
 
-from accountant.pipeline import WRITE_ATTEMPTED, WRITE_OUTCOME_UNKNOWN
+from accountant.pipeline import (
+    WRITE_ATTEMPTED,
+    WRITE_OUTCOME_UNKNOWN,
+    WRITE_REFUSED_DUPLICATE,
+)
 from accountant.reversal import BATCH_ACTION, VoucherState
 from accountant.schema import NOT_RECORDED, ActionLog, Outcome
 
@@ -343,6 +347,13 @@ def tally_calls_this_request() -> int:
 #: the writer writes counts zero forever and nothing ever complains.
 SINGLE_REVERSAL_ACTION = "reversed"
 
+#: The action name a replay refused BY OUR OWN operation register writes.
+#:
+#: Spelled here and imported by `accountant/web/app.py`, for the same reason as
+#: the line above: a metric that reads a different word than the writer writes
+#: counts zero for ever and nothing ever complains.
+REFUSED_REPLAY = "refused_replay"
+
 #: The outcome that action carries when the undo actually happened, as opposed
 #: to `not_found`, which is a request for an operation we never posted.
 SINGLE_REVERSAL_DONE = "reversed"
@@ -399,10 +410,21 @@ def _line(name: str, value: object, why: str = "") -> str:
 #:   the answer replay  `answer_refusal` returns 400 and writes NO ROW AT ALL,
 #:                      by design: nothing was touched. So there is nothing in
 #:                      the store to count.
+#: CORRECTED 2026-08-11. This value was NOT_MEASURED, and the stated reason was
+#: defect I2 — a refused write replay being recorded as `write_outcome_unknown`,
+#: so the log could not tell a replay from an unknown outcome.
+#:
+#: I2 was fixed while this file was being written. `pipeline.post` now records
+#: `write_refused_duplicate` for a duplicate Tally refuses, and the web handler
+#: records `refused_replay` for one our own operation register catches before
+#: the socket opens. Both are durable rows with their own names, so the count is
+#: measurable and NOT_MEASURED would now be the false statement.
+#:
+#: The two are counted TOGETHER because a person asking "how often does somebody
+#: post twice" is asking one question. They are separate rows in the log for
+#: whoever needs to tell them apart.
 _WHY_NO_REPLAYS = (
-    "a refused write replay is recorded as write_outcome_unknown (defect I2, "
-    "tests/test_idempotency.py) and a refused answer replay writes no row at "
-    "all, so the durable log cannot tell a replay from an unknown outcome"
+    "superseded: refused replays are now durable rows and are counted below"
 )
 
 #: Why auth refusals are not in the durable log, and why that is deliberate.
@@ -490,7 +512,18 @@ def render_metrics(rows: Sequence[ActionLog], *, company: str, uptime: float) ->
                 and row.outcome == VoucherState.REVERSED_VERIFIED.value
             ),
         ),
-        _line("refused_replays", NOT_MEASURED, _WHY_NO_REPLAYS),
+        # Both kinds. One is caught by our own operation register before the
+        # socket opens; the other by Tally, when our register does not know
+        # about an id Tally does — which is what a database restored from a
+        # backup older than the books looks like.
+        _line(
+            "refused_replays",
+            sum(
+                1
+                for row in rows
+                if row.action in (REFUSED_REPLAY, WRITE_REFUSED_DUPLICATE)
+            ),
+        ),
         _line("auth_refusals_401", NOT_MEASURED, _WHY_NO_AUTH_COUNTS),
         _line("auth_refusals_403", NOT_MEASURED, _WHY_NO_AUTH_COUNTS),
     ]

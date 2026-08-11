@@ -2042,7 +2042,11 @@ def _run(text: str) -> pipeline.Draft:
 
 #: The action a refused replay writes. Its own name rather than `failed`,
 #: because a replay is not a failure of ours: the system worked and said no.
-REFUSED_REPLAY = "refused_replay"
+#:
+#: Imported from `accountant/observability.py` rather than spelled here as well.
+#: The metric reads this word and the handler writes it; two literals is how a
+#: counter reads zero for ever while the thing it counts keeps happening.
+REFUSED_REPLAY = observability.REFUSED_REPLAY
 
 
 class Handler(BaseHTTPRequestHandler):

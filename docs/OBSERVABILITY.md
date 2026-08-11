@@ -258,7 +258,7 @@ writes_attempted: 2
 writes_outcome_unknown: 0
 reversals_single: 1
 reversals_bulk_vouchers: 0
-refused_replays: NOT_MEASURED  # a refused write replay is recorded as …
+refused_replays: 1
 auth_refusals_401: NOT_MEASURED  # an auth refusal writes no durable row …
 auth_refusals_403: NOT_MEASURED  # an auth refusal writes no durable row …
 question_rate: 0.667
@@ -277,6 +277,7 @@ question_rate: 0.667
 | `writes_outcome_unknown` | rows with `action = write_outcome_unknown` | **the number to watch.** Each one means a voucher may exist in somebody's books and nobody can say |
 | `reversals_single` | rows with `action = reversed`, `outcome = reversed` | the undo button. `not_found` rows are excluded — an undo of something we never posted is not a reversal |
 | `reversals_bulk_vouchers` | rows with `action = bulk_reverse`, `outcome = reversed_verified` | vouchers actually reversed by a batch, not batches started |
+| `refused_replays` | rows with `action = refused_replay` or `write_refused_duplicate` | somebody posted the same entry twice. Both kinds counted together, because that is one question; they are separate rows for whoever needs to tell them apart |
 | `question_rate` | entries with an `unclear` decision ÷ `entries_seen` | `NOT_MEASURED` when there are no entries |
 
 ---
@@ -286,24 +287,30 @@ question_rate: 0.667
 These are the values a reader will look for and not find as a number. Each one
 prints `NOT_MEASURED` with its reason attached, rather than a zero.
 
-### `refused_replays`
+### `refused_replays` — CORRECTED 2026-08-11, and it is now measured
 
-Both halves are measured facts about the code as it stands, and both are pinned
-by existing tests:
+This section said `refused_replays` could not be measured, and gave the reason:
+a refused write replay raised `DuplicateOperation`, which `pipeline.post`
+recorded as `write_outcome_unknown` — **defect I2**, held by a strict `xfail`.
+Counting those rows would have reported a defect as fixed while the customer's
+audit trail still said a voucher may exist and must be checked by hand.
 
-- **A refused write replay** — the same operation id posted twice — raises
-  `DuplicateOperation`, which `pipeline.post` catches and records as
-  `write_outcome_unknown`. That is **defect I2**, held by a strict `xfail` in
-  `tests/test_idempotency.py`. Counting those rows as refused replays would
-  quietly report a defect as fixed while the customer's audit trail still says a
-  voucher may exist and must be checked by hand.
-- **A refused answer replay** — an answer bound to a question the entry is no
-  longer asking — is a 400 and **writes no row at all**, by design: nothing was
-  touched, so there is nothing to record.
+**I2 was fixed while this file was being written.** There are now two named
+durable rows, and the metric reads both:
 
-So the durable log cannot today tell a replay from an unknown outcome. **Fixing
-defect I2 is what makes this metric possible**, and it should be filled in at
-the same time.
+- `refused_replay` — our own write-once operation register caught it before the
+  socket opened. Nothing went out.
+- `write_refused_duplicate` — our register did not know the id and **Tally
+  did**, which is what a database restored from a backup older than the books
+  looks like. The voucher carrying that id was written earlier.
+
+Counted together, because "how often does somebody post twice" is one question.
+They stay separate rows for whoever needs to tell them apart.
+
+The one half that is still unrecorded is a refused **answer** replay — an
+answer bound to a question the entry is no longer asking. That is a 400 and
+writes no row at all, by design: nothing was touched, so there is nothing to
+record. It is not counted here and is not claimed to be.
 
 ### `auth_refusals_401` and `auth_refusals_403`
 
