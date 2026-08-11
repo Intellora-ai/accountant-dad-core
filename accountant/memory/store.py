@@ -1089,8 +1089,19 @@ class MemoryStore:
         write than this function does: `pipeline.post` knows the draft, the
         vendor and the amount.
         """
+        # THE LOCK IS NOT REDUNDANT WITH THE PRIMARY KEY, 2026-08-11.
+        #
+        # The constraint is what makes the SECOND claim fail. The lock is what
+        # makes it safe for two threads to be inside this connection at all:
+        # one shared `sqlite3.Connection` opened with `check_same_thread=False`
+        # is not safe for interleaved use, whatever the schema says.
+        #
+        # Found by `test_every_store_method_that_touches_the_database_holds_the
+        # _lock`, which listed these four methods the moment the threaded
+        # server merged. They were written before it existed and the docstring
+        # above already claimed to handle "two requests arriving together".
         try:
-            with self._db:
+            with self._lock, self._db:
                 self._db.execute(
                     "INSERT INTO operation "
                     "(company_key, operation_id, first_used_at, reversed_at) "
@@ -1102,20 +1113,22 @@ class MemoryStore:
         return True
 
     def operation_used(self, company_key: str, operation_id: str) -> bool:
-        row = self._db.execute(
-            "SELECT 1 FROM operation WHERE company_key = ? AND operation_id = ?",
-            (normalise_company(company_key), operation_id),
-        ).fetchone()
+        with self._lock:
+            row = self._db.execute(
+                "SELECT 1 FROM operation WHERE company_key = ? AND operation_id = ?",
+                (normalise_company(company_key), operation_id),
+            ).fetchone()
         return row is not None
 
     def operation_reversed_at(self, company_key: str, operation_id: str) -> str:
         """When it was reversed, or "". Never a bool: "not reversed" and "never
         used" are different facts and `operation_used` answers the second."""
-        row = self._db.execute(
-            "SELECT reversed_at FROM operation "
-            "WHERE company_key = ? AND operation_id = ?",
-            (normalise_company(company_key), operation_id),
-        ).fetchone()
+        with self._lock:
+            row = self._db.execute(
+                "SELECT reversed_at FROM operation "
+                "WHERE company_key = ? AND operation_id = ?",
+                (normalise_company(company_key), operation_id),
+            ).fetchone()
         return "" if row is None or row[0] is None else str(row[0])
 
     def mark_operation_reversed(
@@ -1131,7 +1144,7 @@ class MemoryStore:
         Returns whether a row changed, so a second reversal of the same id is
         distinguishable from the first rather than silently identical.
         """
-        with self._db:
+        with self._lock, self._db:
             changed = self._db.execute(
                 "UPDATE operation SET reversed_at = ? "
                 "WHERE company_key = ? AND operation_id = ? AND reversed_at IS NULL",

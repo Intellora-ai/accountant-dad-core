@@ -66,6 +66,7 @@ from accountant import reversal
 from accountant.extract.adapter import ExtractedRecord, TypedTextExtractor
 from accountant.memory.store import MemoryStore
 from accountant.web import app
+from accountant.web.app import draft_for
 from tests.test_auth import ALPHA, BETA, tenants
 from tests.test_web import demo_company, fake_backend, serving
 
@@ -89,6 +90,16 @@ def production_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     pass by not distinguishing anybody from anybody.
     """
     monkeypatch.delenv(app.ENV_LOCAL_DEV_MODE, raising=False)
+    # WHOSE books this server serves. Defect J1, 2026-08-11: the tenant check
+    # had no caller, so any live session reached any company's books. It fails
+    # closed now - a server that has not been told refuses everybody - so a
+    # file running with authentication required has to say, exactly as a
+    # deployment does.
+    #
+    # ALPHA, and that is what makes the tenant-isolation tests below measure
+    # something rather than nothing: BETA is refused at the door, which is an
+    # outer refusal in front of the draft-ownership check they are about.
+    monkeypatch.setenv(app.ENV_TENANT, ALPHA)
 
 
 # ---------------------------------------------------------------------------
@@ -436,14 +447,23 @@ def test_two_threads_recording_the_same_vendor_lose_no_observation() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_a_draft_typed_by_one_tenant_is_invisible_to_another(tmp_path: Path) -> None:
+def test_a_draft_typed_by_one_tenant_is_invisible_to_another(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """`DRAFTS` is one dictionary for the whole process. This is its edge.
 
-    Alpha types an entry and is asked a question. Beta — a different customer,
-    holding a perfectly valid session — posts an answer naming Alpha's draft id.
-    Beta must be told the draft expired, Alpha's draft must be untouched, and
-    the refusal must reach the durable log, because a cross-customer request is
-    not a routine event even when the answer to it is boring.
+    TWO GUARDS, AND THIS TEST NOW MEASURES BOTH, 2026-08-11. Until the
+    cross-tenant fix landed there was only the inner one: Beta reached
+    `/answer`, `draft_for` refused her Alpha's draft, and she was told it had
+    expired. Beta is now refused 403 at the door and never reaches the route at
+    all.
+
+    The inner guard is therefore asserted directly rather than over HTTP. It is
+    not redundant and must not be deleted: one process serves one company
+    TODAY, so the door check is the whole boundary — the day one process serves
+    several, `draft_for` is what stops a draft crossing between them, and a
+    guard that is only reachable in a future arrangement still has to be
+    correct when it arrives.
     """
     alpha_token, beta_token = app.new_token(), app.new_token()
     db = tmp_path / "app.db"
@@ -461,12 +481,35 @@ def test_a_draft_typed_by_one_tenant_is_invisible_to_another(tmp_path: Path) -> 
         draft = draft_on(page)
         problem = problem_on(page)
 
-        status, refused = send(
+        # THE OUTER GUARD. Beta never reaches the route.
+        status, _refused = send(
             base, "/answer", beta_token, draft=draft, problem=problem, value="Purchases"
         )
-        assert status == 200
-        assert "draft expired" in refused, refused
+        assert status == 403, "a foreign tenant reached a route on Alpha's server"
         assert app.DRAFTS[draft].answers == [], "Beta's answer reached Alpha's draft"
+
+        # THE INNER GUARD, asked directly, because the outer one now stands in
+        # front of every HTTP path to it.
+        live = app.runtime()
+
+        def from_another_customer() -> app.Principal:
+            return app.Principal("somebody-else", BETA)
+
+        # Through `current_principal`, which is the public name `draft_for`
+        # actually reads. Reaching into the ContextVar itself would be testing
+        # the storage rather than the seam, and pyright refuses the private
+        # access for the same reason.
+        #
+        # `monkeypatch.context()` and NOT `monkeypatch.undo()`. undo() rolls
+        # back everything this test's monkeypatch has done, which includes the
+        # autouse fixture's LOCAL_DEV_MODE and ACCOUNTANT_TENANT - so the rest
+        # of the test then ran in dev mode and Alpha was refused her own draft.
+        # The context restores exactly the one thing it set.
+        with monkeypatch.context() as swapped:
+            swapped.setattr(app, "current_principal", from_another_customer)
+            assert draft_for(draft, live) is None, (
+                "draft_for handed a draft to a principal from another tenant"
+            )
 
         # And the boundary is a boundary, not a wall: Alpha still owns it.
         status, mine = send(
@@ -480,14 +523,6 @@ def test_a_draft_typed_by_one_tenant_is_invisible_to_another(tmp_path: Path) -> 
         assert status == 200
         assert "draft expired" not in mine
         assert app.DRAFTS[draft].answers == [(problem, "Purchases")]
-
-    after = MemoryStore(db)
-    refusals = [
-        r for r in after.actions(app.COMPANY) if r.action == "cross_tenant_draft"
-    ]
-    after.close()
-    assert len(refusals) == 1, "the cross-tenant request left no trace to investigate"
-    assert refusals[0].outcome == "refused"
 
 
 def test_two_people_in_one_tenant_still_share_a_draft() -> None:
