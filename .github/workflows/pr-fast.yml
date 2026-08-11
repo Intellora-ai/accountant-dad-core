@@ -37,7 +37,12 @@ env:
   # 87.92% instead of 94.34%. Measured on this repository 2026-08-07.
   COVERAGE_CORE: pytrace
   FORCE_COLOR: "1"
-  GH_TOKEN: ${{ github.token }}
+  GH_TOKEN: ${{ github.token }}  # Administration:read only. Separate from GH_TOKEN on purpose - the nine live
+  # protection tests measure what the DEFAULT identity can do.
+  CLAUDE_AUDIT_TOKEN: ${{ secrets.CLAUDE_AUDIT_TOKEN }}
+  # The four tamper tests are skipped by default so a plain pytest never asks
+  # GitHub to delete this repository. In CI the refusal IS the measurement.
+  RUN_DESTRUCTIVE_TESTS: "1"
 
 jobs:
   pr-fast:
