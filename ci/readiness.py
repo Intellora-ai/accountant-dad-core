@@ -434,8 +434,34 @@ def clean_room_install() -> tuple[bool, str]:
                 list(argv), cwd=cwd, capture_output=True, text=True, check=False
             )
 
+        # BUILT FROM A COPY, NOT FROM THE REPO. Fixed 2026-08-11.
+        #
+        # `python -m build` writes setuptools' scratch into `<source>/build/`.
+        # Two tests call this function, CI runs the suite under `-n auto`, and
+        # both were pointed at the same repository — so one worker deleted
+        # `build/bdist.../accountant/web/__init__.py` while the other was
+        # copying it, and pr-full failed with a missing file that is present in
+        # the tree. Seen on a real run; the tests are green serially and had
+        # been for weeks.
+        #
+        # A lock would have serialised them. Copying removes the shared mutable
+        # directory instead, and makes the clean room actually clean: the wheel
+        # is now built from the tracked files and nothing else, so a package
+        # that only builds because of something untracked sitting in the
+        # working tree fails here rather than at a customer.
+        source = out / "source"
+        tracked = run(["git", "ls-files", "-z"], repo)
+        if tracked.returncode != 0:
+            return False, f"could not list the tracked files: {tracked.stderr[-400:]}"
+        for name in tracked.stdout.split("\0"):
+            if not name:
+                continue
+            target = source / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(repo / name, target)
+
         built = run(
-            [sys.executable, "-m", "build", "--wheel", "--outdir", str(wheels)], repo
+            [sys.executable, "-m", "build", "--wheel", "--outdir", str(wheels)], source
         )
         if built.returncode != 0:
             return False, f"the wheel would not build: {built.stderr[-400:]}"
