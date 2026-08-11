@@ -56,7 +56,7 @@ from accountant.tallyio.factory import RealTallyRequired
 from accountant.tallyio.real import TallyConfig
 from accountant.web import app
 from accountant.web.app import ENV_TLS_CERT, ENV_TLS_KEY, TlsMisconfigured
-from tests.test_auth import PASSWORD, seeding
+from tests.test_auth import ALPHA, PASSWORD, seeding
 from tests.test_web import demo_company, fake_backend, serving
 
 EMAIL = "a@alpha.test"
@@ -162,6 +162,13 @@ def production_auth(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     them sets them itself.
     """
     monkeypatch.delenv(app.ENV_LOCAL_DEV_MODE, raising=False)
+    # WHOSE books this server serves. Defect J1, 2026-08-11: the tenant check
+    # had no caller, so any live session reached any company's books. It fails
+    # closed now, and a server that has not been told whose books it is serving
+    # refuses everybody - so a file running with authentication required has to
+    # say, exactly as a deployment does. `seeding()` is imported from
+    # tests/test_auth.py and issues its sessions to ALPHA.
+    monkeypatch.setenv(app.ENV_TENANT, ALPHA)
     monkeypatch.delenv(ENV_TLS_CERT, raising=False)
     monkeypatch.delenv(ENV_TLS_KEY, raising=False)
     app.disconnect()
