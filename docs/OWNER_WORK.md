@@ -48,15 +48,56 @@ No document reader is selected. `D-23` is open.
 `artifacts/extraction_backends.md:3` — *"third-party backend selection =
 OWNER_DECISION_REQUIRED"*.
 
-Task 9 builds the upload routes and a **placeholder** reader behind the existing
-`Extractor` seam, so one config change swaps in a real vendor later. Until then
-every uploaded document returns explicit `not_found` and `S2 = NOT_MEASURED`.
+**The seam is now BUILT — Task 9, 2026-08-11.** Before that day,
+`grep -rn "multipart\|enctype\|type=file" accountant/` returned nothing: there
+was no way to hand this product a document at all. There is now.
+
+What shipped:
+
+- `POST /upload` in `accountant/web/app.py`, reachable from a file input on the
+  home page. Authenticated like every other route; a maximum of **10 MB**
+  refused with `413` on the declared length **before the body is read**; an
+  allow-list of `application/pdf`, `image/jpeg`, `image/png` refused with `415`;
+  a malformed body answered with `400` and a sentence rather than a crash.
+- `accountant/web/multipart.py`, a strict stdlib parser. `cgi` was removed in
+  Python 3.13 and `.python-version` says 3.14, so there was nothing to call and
+  `dependencies = []` had to stay empty.
+- `accountant/extract/placeholder.py::PlaceholderReader`, registered as
+  `no_reader`. Every field comes back explicit `not_found` carrying *"no
+  document reader is configured"*. It never guesses, never blanks, never claims
+  a name it is not, and never carries the uploaded bytes back out.
+- The upload goes through `Runtime.extractor` — the **same** seam typed text
+  uses — so the answer flows into the existing decision path and the person is
+  told plainly. Nothing is written to disk and nothing is logged: the durable
+  row records the decision, never the document.
+
+**What swapping in a real vendor costs, exactly.** Three edits, all inside
+`accountant/extract/`:
+
+1. a class satisfying the `Extractor` Protocol that calls the vendor through an
+   **injected** transport — `service.ServiceExtractor` is that shape already and
+   needs only a `ServiceCall`. It cannot import a vendor SDK:
+   `tests/test_no_reader.py` allows stdlib and `accountant.*` and nothing else,
+   so the criterion is *plain HTTPS JSON API*, not *best SDK*.
+2. one line in `registry._READY` giving it a name.
+3. `registry.DEFAULT_BACKEND` set to that name.
+
+Nothing outside that package changes, and that is measured rather than promised:
+`tests/test_adapter_contract.py` counts concrete-backend references outside
+`accountant/extract/` off the AST and the count is `{}`.
+
+**Still true, and not fixed by any of the above:** `S2 = NOT_MEASURED`. Nothing
+read anything, the question rate for uploaded documents is not zero and is not
+measured, and the placeholder's output is **not extraction evidence**. Until a
+vendor is chosen, every uploaded document returns explicit `not_found` and the
+person is asked to type the entry instead.
 
 Measured options are in `artifacts/extraction_backends.md`. Azure Document
 Intelligence and AWS Textract are both $0.01/page; Azure has the clearest
 retention terms and a Central India region, AWS has explicit GST fields.
 
-**Needed:** pick one, create the account, add the endpoint and key.
+**Needed:** pick one, create the account, add the endpoint and key. That is a
+person, not a task — no code change is blocked on anything else.
 
 ### Tally licensing model
 Educational mode accepts vouchers dated only the 1st, 2nd and 31st of a month —

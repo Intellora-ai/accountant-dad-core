@@ -41,11 +41,35 @@ try around it, so an exception there is an HTTP 503 saying the application
 broke — for a person whose only problem is that a supplier's website is down.
 `guarded` closes that, in one place, for every backend at once.
 
+WHAT SWAPPING IN A REAL DOCUMENT READER COSTS, EXACTLY
+-------------------------------------------------------
+Written down 2026-08-11, when the upload routes landed and `no_reader` joined
+`_READY` below. Three edits, all of them inside this package:
+
+    1. a class in `accountant/extract/` satisfying `Extractor`, calling the
+       vendor through an INJECTED transport — `service.ServiceExtractor` is
+       that shape already and needs only a `ServiceCall`
+    2. one line in `_READY` giving it a name
+    3. `DEFAULT_BACKEND` set to that name
+
+Nothing outside this package changes, and that is measured rather than claimed:
+`tests/test_adapter_contract.py` counts concrete-backend references outside
+`accountant/extract/` off the AST and the count is `{}`.
+
+What is NOT a code change, and is the reason none of this has happened: the
+owner has to pick a vendor, create the account and supply the endpoint and key.
+`docs/OWNER_WORK.md` carries that as owner work, `D-23` is open, and until it
+closes `no_reader` is what an uploaded document meets.
+
 WHAT THIS FILE DOES NOT PROVE
 -----------------------------
 That any backend reads a bill well. This file chooses one; it does not grade
 one. Accuracy is `artifacts/extraction_backends.md`, and the choice between
 third-party readers is an owner decision, not a test result.
+
+That `no_reader` reads anything. It reads nothing, on purpose, and says so on
+every field. `S2 = NOT_MEASURED` stays true and the question rate for uploaded
+documents is not zero — there is no reader to measure one against.
 
 That a deployment can pick a backend WITHOUT a code change. It cannot, on
 purpose — see "why no environment variable" above. `configure(extractor=...)`
@@ -80,6 +104,7 @@ from accountant.extract.adapter import (
     TypedTextExtractor,
     UnavailableExtractor,
 )
+from accountant.extract.placeholder import PlaceholderReader
 from accountant.extract.service import MALFORMED, reason_for
 
 #: The backend the application runs with. Change THIS to swap it.
@@ -91,10 +116,19 @@ class UnknownBackend(LookupError):
 
 
 #: Backends that need nothing to be constructed.
+#:
+#: `no_reader` JOINED 2026-08-11 with the upload routes. It is the honest
+#: answer to "what reads an uploaded document today", and the answer is
+#: nothing: `artifacts/extraction_backends.md:3` says the third-party selection
+#: is the owner's, and `D-23` is open. Registering it is what makes the swap a
+#: NAME rather than a code change — `DEFAULT_BACKEND = "<vendor>"` once a
+#: vendor exists — and what stops "we have no reader" being expressed as a
+#: missing feature that each caller has to remember.
 _READY: Final[dict[str, Callable[[], Extractor]]] = {
     "typed_text": TypedTextExtractor,
     "stub": StubExtractor,
     "unavailable": UnavailableExtractor,
+    "no_reader": PlaceholderReader,
 }
 
 #: Backends that exist but cannot be built from a name alone, and the sentence

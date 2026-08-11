@@ -72,6 +72,7 @@ from accountant.extract.adapter import (
     TypedTextExtractor,
     UnavailableExtractor,
 )
+from accountant.extract.placeholder import PlaceholderReader
 from accountant.extract.service import (
     ALL_REASONS,
     DOCUMENT_KEY,
@@ -172,10 +173,17 @@ def service_for(data: bytes, **fields: object) -> ServiceExtractor:
 
 
 #: Every backend the package ships that can be built with no configuration.
+#:
+#: `PlaceholderReader` joined 2026-08-11. It reads nothing on purpose, which is
+#: exactly why it belongs here: the record contract below — every field
+#: sourced, no silent blank, its own name on the row, no exception on bytes
+#: that are not text — is what stops "we have no reader" being expressed as a
+#: blank, and a backend exempt from those checks could express it as one.
 CONFIGURATION_FREE: tuple[Callable[[], Extractor], ...] = (
     TypedTextExtractor,
     StubExtractor,
     UnavailableExtractor,
+    PlaceholderReader,
 )
 
 
@@ -462,7 +470,11 @@ def test_every_extractor_the_package_defines_returns_the_same_type() -> None:
 def test_the_registry_builds_every_backend_it_says_is_available() -> None:
     built = {name: registry.build(name) for name in registry.available()}
 
-    assert registry.available() == ("stub", "typed_text", "unavailable")
+    # `no_reader` joined 2026-08-11 with the upload routes. Still an EXACT
+    # equality and still four names spelled out: the assertion is not loosened
+    # to a subset, because the thing it is guarding is that a backend cannot
+    # appear in the registry without somebody writing its name down here.
+    assert registry.available() == ("no_reader", "stub", "typed_text", "unavailable")
     assert all(isinstance(b, Extractor) for b in built.values())
 
 
