@@ -9,11 +9,17 @@ other into false confidence.
 Nothing here blocks coding work. Each item is recorded and work continues around
 it.
 
-## THE THREE LINES ONLY YOU CAN APPLY
+## THE FOUR LINES ONLY YOU CAN APPLY
 
 Everything below this block is either done, decided, or genuinely waiting on a
-person. **This section is the short version: one secret and three lines, and
-they unblock four separate pieces of work at once.**
+person. **This section is the short version: one secret and four lines, and they
+unblock four separate pieces of work at once.**
+
+Every line below was read out of the file on `main` before being written here,
+and the line numbers are from that read. Correcting an earlier version of this
+block that said "beside the existing `GH_TOKEN`" in `pr-fast.yml`: there is no
+`GH_TOKEN` in that file at all. `full.yml` has one, twice, at step level; the
+workflow that runs on every pull request does not.
 
 `.github/` is refused twice over in this environment — the file tool denies the
 directory, and the shell path is refused by the permission classifier. Both
@@ -28,14 +34,14 @@ access token with **`Administration: read` and nothing else**. Never send the
 value to anybody, including me — the code that uses it never needs to see it,
 and a test asserts it is never printed.
 
-### 2. Three lines in `.github/workflows/`
+### 2. One line at `pr-fast.yml:66`
 
-**a. `pr-fast.yml`, job `pr-fast`, step `sync dependencies from the lockfile`.**
-This is the `lockfile` gate, and it has never checked anything: `--frozen` is
-the one uv flag that guarantees the check is SKIPPED.
+This is the `lockfile` gate, and it has never checked anything: `--frozen` is the
+one uv flag that guarantees the check is SKIPPED. The comment above the line
+already says this step IS the gate.
 
 ```
-BEFORE
+BEFORE  (lines 63-66)
       - name: sync dependencies from the lockfile
         # --frozen fails if uv.lock does not match pyproject.toml, which is the
         # `uv lock --check` gate.
@@ -50,35 +56,64 @@ AFTER
         run: uv sync --extra dev --locked
 ```
 
-**b. `pr-fast.yml`, the workflow-level `env:` block.** Add one line beside the
-existing `GH_TOKEN`. `GH_TOKEN` STAYS — the nine other live protection tests
-measure what the DEFAULT identity can do, and replacing it destroys that
-measurement.
+**A second `--frozen` exists at `pr-fast.yml:243`, and five more in `full.yml`.**
+You authorised one change, to the gate step, so only line 66 is written out
+above. The others are named here rather than changed, because changing a line
+you did not name is how a diff stops being reviewable. Whether they should
+follow is your call, not mine.
+
+### 3. Three lines in the `pr-fast.yml` `env:` block
+
+The block today ends at `FORCE_COLOR` (lines 32-39). All three lines are
+additions; nothing in it is removed or renamed.
 
 ```
+BEFORE  (last line of the block)
+  FORCE_COLOR: "1"
+
+AFTER
+  FORCE_COLOR: "1"
+
+  # The DEFAULT identity, so the nine live protection tests actually run. They
+  # measure what the token CI runs as can do to branch protection, and a refusal
+  # is the measurement. Unauthenticated, `gh` cannot even ask, so every hosted
+  # run took the skip and measured nothing.
+  GH_TOKEN: ${{ github.token }}
+
+  # The audited identity, Administration:read only. Separate from GH_TOKEN
+  # ON PURPOSE - GH_TOKEN must stay exactly what it is, because the nine tests
+  # above measure the DEFAULT identity. Replacing it would destroy that.
   CLAUDE_AUDIT_TOKEN: ${{ secrets.CLAUDE_AUDIT_TOKEN }}
-```
 
-**c. `pr-fast.yml`, the same `env:` block.** The four tamper tests are skipped
-by default so a plain `pytest` never asks GitHub to delete a repository. In CI
-the refusal IS the measurement, so CI must opt in.
-
-```
+  # The four tamper tests are skipped by default so a plain `pytest` never asks
+  # GitHub to delete a repository. In CI the refusal IS the measurement, so CI
+  # opts in.
   RUN_DESTRUCTIVE_TESTS: "1"
 ```
 
-### What those three lines unblock
+`GH_TOKEN` is also added by PR #34 itself. If you merge that PR the line arrives
+with it and you do not need to type it twice — but #34 cannot go green until the
+secret exists, so the secret comes first either way.
+
+### What those four lines unblock
 
 ```
-the secret + line b  ->  bypass_actors becomes readable, so the honest
-                         three-state reporting stops turning CI red
-line b               ->  ci/test_protection.py's module-level skipif can go,
-                         because the live tests can finally run in CI
-that skip going      ->  ci/check_workflow_integrity.py can land, since it
-                         correctly refuses to pass a tree containing one
-the checker landing  ->  the ack-fingerprint content hash lands with it
-line a               ->  the lockfile gate starts checking
-line c               ->  the tamper tests measure the refusal in CI
+the secret + CLAUDE_AUDIT_TOKEN  ->  bypass_actors becomes readable, so the
+                                     honest three-state reporting stops turning
+                                     CI red
+GH_TOKEN                         ->  the nine live protection tests stop being
+                                     skipped on every hosted run
+both of those                    ->  ci/test_protection.py's module-level skipif
+                                     can go, and PR #34 replaces it with a
+                                     fixture that FAILS in CI rather than skips
+that skip going                  ->  ci/check_workflow_integrity.py can land,
+                                     since it correctly refuses to pass a tree
+                                     containing one
+the checker landing              ->  the ack-fingerprint content hash lands with
+                                     it - your decision of 2026-08-11, built and
+                                     waiting on PR #34
+line 66                          ->  the lockfile gate starts checking
+RUN_DESTRUCTIVE_TESTS            ->  the tamper tests measure the refusal in CI
 ```
 
 **One action, four unblocked.** PR #34 goes green on its own once they are
