@@ -188,6 +188,47 @@ enforce the 90 threshold.
 **Needed: nothing.** Listed only so "2 of 20 gates never execute" is not read
 as two defects when it is one.
 
+### DEFECT J1 — a live session reaches any tenant's books
+
+Found 2026-08-11 by Task 16, the end-to-end journey file, at step 6. It is a
+source change, so it is recorded here rather than fixed there.
+
+`docs/CLOUD_ARCHITECTURE.md` §7.1 says *"every request naming an operation is
+checked against the caller's tenant"*. No route does that check.
+`Principal.require()` exists and is tested by
+`test_a_valid_session_is_refused_another_tenant_with_403_not_401`, and it is
+called from nowhere in `accountant/`. Every route serves the ONE company named
+at startup, to any live session, whatever tenant issued it.
+
+Measured, over HTTP, in `tests/test_user_journey.py`:
+
+```
+tenant-beta session GET /                     200, and tenant-alpha's
+                                              operation id is on the page
+tenant-beta session POST /reverse op=<alpha>  200, tenant-alpha's voucher gone
+```
+
+The audit trail is honest about it — one company's log ends up carrying a
+`posted` row for tenant-alpha and a `reversed` row for tenant-beta — which is
+how the second assertion is made. Nothing hid it and nothing stopped it.
+
+`test_another_tenants_session_reads_and_reverses_these_books_today` records
+what happens now. `test_another_tenants_session_is_refused_before_it_can_touch_these_books`
+is an `xfail(strict=True)` asserting 403, so it becomes a hard failure the day
+somebody fixes this and forgets the test.
+
+**Bound on it, so the claim is not larger than the evidence.** One process
+serves one company, so this is not a query that returns another customer's rows:
+it is a session from tenant B being allowed into the company tenant A has open.
+On the deployment shape `docs/CLOUD_ARCHITECTURE.md` §7.2 calls *strongest* —
+one connector, one company, on the customer's own machine — there is no second
+tenant's data in the process to reach. The exposure is exactly as large as the
+number of tenants sharing one server, which today is a test fixture.
+
+**Needed:** a decision on where the check goes — `_identify`, so it covers every
+route by construction, or each handler that names an operation — and then the
+§7.3 cross-tenant test the design already asks for.
+
 ### Legal
 Privacy policy, terms of service, billing, refunds, and a support process. The
 product will hold vendor names and amounts from real books.
