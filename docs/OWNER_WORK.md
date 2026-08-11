@@ -188,6 +188,32 @@ enforce the 90 threshold.
 **Needed: nothing.** Listed only so "2 of 20 gates never execute" is not read
 as two defects when it is one.
 
+### DEFECT J1 — CLOSED 2026-08-11, recorded so nobody redoes it
+
+Found by Task 16, the end-to-end journey file, at step 6. **Fixed the same day**
+in `accountant/web/app.py::Handler._identify`; the reasoning, the mutants and
+the seven new tests are in `docs/AUTH.md` under "DEFECT J1".
+
+What it was, in one sentence: `Principal.require` had a passing unit test and
+**no caller** anywhere in `accountant/`, so a session issued to one customer was
+authenticated against another customer's open books and let through.
+
+Why it is worth remembering rather than deleting: *a unit test of a guard proves
+the guard works and says nothing about whether the guard is installed.* Every
+piece of the journey had passing tests while the pieces did not connect. The
+guard is now called unconditionally at the one seam every route passes through,
+and an AST test asserts both that the call exists and that it is not inside a
+condition.
+
+**One thing this created, and it is not optional.** `ACCOUNTANT_TENANT` is now
+**required in production** and names the customer a process serves. Unset means
+every request is refused, which is deliberate — unset meaning "any tenant may
+enter" is the defect itself reintroduced as a default.
+
+**Needed:** set `ACCOUNTANT_TENANT` in whatever runs this, alongside
+`ACCOUNTANT_COMPANY`. They are two halves of one statement: which books, and
+whose. `docs/DEPLOY.md` lists it with the rest.
+
 ### Legal
 Privacy policy, terms of service, billing, refunds, and a support process. The
 product will hold vendor names and amounts from real books.
