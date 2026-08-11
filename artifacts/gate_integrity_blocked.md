@@ -48,16 +48,38 @@ runnable from a pull request. `artifacts/gate_integrity_audit.md` recommended
 
 ## What was NOT done, deliberately
 
-    not skipped        the test still runs and still fails
+    not skipped        the test still runs and still fails in CI
     not deleted        the assertion is unchanged
     not weakened       `None` is not accepted as `[]`
     not suppressed     no pytestmark, no xfail, no nosec
     no widened permission without a separate authorisation
 
-The failure message is itself imprecise and that is recorded rather than fixed
-here: `someone can bypass the rules: None` states a violation when what actually
-happened is that the field could not be read. Correcting that wording without an
-owner decision would still leave the gate red, so it is noted, not changed.
+## The wording WAS corrected, 2026-08-11
+
+The paragraph that stood here said the failure message was imprecise and was
+being recorded rather than fixed, on the grounds that fixing it would leave the
+gate red anyway. That reasoning was wrong: red is not the defect. The message
+was, and a false sentence in a security test is read by the person deciding
+whether this repository is protected.
+
+`someone can bypass the rules: None` stated a violation that had never been
+measured. It now reports `PROTECTION_TEST_BYPASS_ACTORS_NOT_MEASURED`, naming
+the withheld field, the permission that would read it, and the owner action.
+The `== []` assertion is untouched when the field IS readable, and a non-empty
+list still fails with the accusation — which is then true.
+
+The same conflation was found in `ci/check_ruleset.py` on the same day and
+failed in the OPPOSITE direction: `list(full.get("bypass_actors") or [])` made
+an absent field print `✓ no bypass actors` and exit 0, under the identity
+`.github/workflows/watchdog.yml` actually runs it as. Both call sites now route
+through one `check_bypass_actors`, and an unreadable field is NOT_MEASURED
+there too — no tick, and the audit is not clean.
+
+Test count went from 10 to 12 in `ci/test_protection.py` and 34 to 38 in
+`tests/test_gate_integrity.py`. Nothing was removed.
+
+**Owner option 2 below is still unchosen**, so CI still goes red. Only the
+sentence it goes red with has changed.
 
 ## Owner
 

@@ -38,11 +38,32 @@ class Drift:
     problems: list[str] = field(default_factory=list[str])
     checked: list[str] = field(default_factory=list[str])
     observed: list[str] = field(default_factory=list[str])
+    unmeasured: list[str] = field(default_factory=list[str])
 
     def require(self, ok: bool, description: str, detail: str) -> None:
         self.checked.append(description)
         if not ok:
             self.problems.append(f"{description} — {detail}")
+
+    def cannot_measure(self, description: str, detail: str) -> None:
+        """A thing this identity was not permitted to look at.
+
+        The third state, added 2026-08-11. It is neither `require` nor
+        `observe`, and collapsing it into either was a live defect:
+
+          * `require` would report a violation nobody measured - the same false
+            statement `ci/test_protection.py` used to make, see that file's
+            docstring.
+          * `observe` reads a value successfully and prints it without judging.
+            That is for settings the owner has not chosen. This field WAS
+            chosen; we were simply not shown it.
+
+        NEVER added to `checked`, so it can never be printed with a tick, and
+        it makes the audit not-clean so the run cannot end in PASS. This
+        repository's standing rule is that an unmeasured value is NOT_MEASURED
+        and never a zero.
+        """
+        self.unmeasured.append(f"{description} — {detail}")
 
     def observe(self, description: str, value: object) -> None:
         """Print a live value without judging it.
@@ -57,7 +78,13 @@ class Drift:
 
     @property
     def clean(self) -> bool:
-        return not self.problems
+        """Clean means every check was RUN and every one of them passed.
+
+        A check that could not run does not count as passed. Until 2026-08-11
+        `unmeasured` did not exist and an unreadable `bypass_actors` printed
+        `✓ no bypass actors` and exited 0.
+        """
+        return not self.problems and not self.unmeasured
 
 
 def gh_api(path: str) -> Any:
@@ -79,6 +106,54 @@ def contract() -> dict[str, Any]:
     with CONTRACT.open("rb") as fh:
         data: dict[str, Any] = tomllib.load(fh)
     return data
+
+
+def check_bypass_actors(drift: Drift, body: dict[str, Any], description: str) -> None:
+    """Judge `bypass_actors` for one ruleset. The only place it is judged.
+
+    ABSENT IS NOT EMPTY, and until 2026-08-11 both call sites wrote
+
+        list(body.get("bypass_actors") or [])
+
+    which turned an absent field, a null field and an empty list into the same
+    `[]`. `not []` is True, so a field this identity was never shown printed
+    `✓ no bypass actors` and the audit exited 0. It reported as measured a thing
+    it could not read - and it did so in the OPPOSITE direction to the same
+    conflation in `ci/test_protection.py`, which failed closed. One response
+    body, two audits, two contradictory verdicts.
+
+    That absent case is not hypothetical. `.github/workflows/watchdog.yml` runs
+    this file under `GH_TOKEN: ${{ github.token }}`, and that identity receives a
+    ruleset body with `bypass_actors` withheld - measured 2026-08-10 on hosted
+    run 31386545513, and recorded in `artifacts/gate_integrity_blocked.md`.
+    Reading it needs repository `Administration: read`, a fine-grained
+    personal-access-token permission that no workflow `permissions:` block can
+    grant. `docs/OWNER_WORK.md` tracks the secret that would supply it.
+
+    Three states, matching `ci/test_protection.py` exactly:
+
+        absent or null   NOT_MEASURED - no tick, and the audit is not clean
+        []               measured, nobody can bypass - PASS
+        [...]            measured, somebody can - FAIL
+    """
+    actors = body.get("bypass_actors")
+    if actors is None:
+        drift.cannot_measure(
+            description,
+            "NOT_MEASURED: the ruleset read succeeded but `bypass_actors` was "
+            f"not in the response (keys received: {sorted(body)}). This is NOT a "
+            "finding that anyone can get past the required check, and it is not "
+            "a finding that nobody can - the field was withheld. Reading it "
+            "needs repository `Administration: read`; see docs/OWNER_WORK.md "
+            "and artifacts/gate_integrity_blocked.md.",
+        )
+        return
+    found: list[Any] = list(actors)
+    drift.require(
+        not found,
+        description,
+        f"{len(found)} actor(s) can bypass the rules: {found}",
+    )
 
 
 def audit(repo: str) -> Drift:
@@ -104,11 +179,10 @@ def audit(repo: str) -> Drift:
     # look at it.
     for extra in active[1:]:
         extra_full = gh_api(f"repos/{repo}/rulesets/{extra['id']}")
-        extra_bypass: list[Any] = list(extra_full.get("bypass_actors") or [])
-        drift.require(
-            not extra_bypass,
+        check_bypass_actors(
+            drift,
+            extra_full,
             f"ruleset {extra['id']} ({extra.get('name')!r}) has no bypass actors",
-            f"{len(extra_bypass)} actor(s) can bypass it: {extra_bypass}",
         )
     drift.observe("branch rulesets on this repository", [r["id"] for r in active])
 
@@ -138,12 +212,7 @@ def audit(repo: str) -> Drift:
         f"conditions.ref_name.exclude is {exclude}",
     )
 
-    bypass: list[Any] = list(full.get("bypass_actors") or [])
-    drift.require(
-        not bypass,
-        "no bypass actors",
-        f"{len(bypass)} actor(s) can bypass the rules: {bypass}",
-    )
+    check_bypass_actors(drift, full, "no bypass actors")
 
     status = rules.get("required_status_checks")
     drift.require(
@@ -274,6 +343,7 @@ def main() -> int:
                     "clean": drift.clean,
                     "checked": drift.checked,
                     "observed": drift.observed,
+                    "unmeasured": drift.unmeasured,
                     "problems": drift.problems,
                 },
                 indent=2,
@@ -291,11 +361,23 @@ def main() -> int:
         for line in drift.observed:
             print(f"    · {line}")
 
+    # NOT_MEASURED items never appear in `checked`, so they cannot be printed
+    # with a tick. They get their own marker and their own section, because a
+    # reader scanning this output must not be able to mistake "we were refused
+    # the field" for either "we checked and it was fine" or "we found a bypass".
+    if drift.unmeasured:
+        print("\n  NOT_MEASURED — could not be read, so NOT reported as clean:")
+        for line in drift.unmeasured:
+            print(f"    ? {line}")
+
     if drift.clean:
         print("\nPASS — protection matches the contract")
         return 0
 
-    print(f"\nFAIL — {len(drift.problems)} drift(s):\n")
+    counts = [f"{len(drift.problems)} drift(s)"]
+    if drift.unmeasured:
+        counts.append(f"{len(drift.unmeasured)} NOT_MEASURED")
+    print(f"\nFAIL — {', '.join(counts)}:\n")
     for problem in drift.problems:
         print(f"  {problem}")
     print(

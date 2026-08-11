@@ -578,17 +578,29 @@ def status_checks(ruleset: dict[str, object]) -> list[dict[str, object]]:
     raise AssertionError("the canned ruleset lost its required_status_checks rule")
 
 
-def run_ruleset_audit(tmp: Path, ruleset: dict[str, object]) -> tuple[int, str]:
+def run_ruleset_audit(
+    tmp: Path, ruleset: dict[str, object], extra_rulesets: int = 0
+) -> tuple[int, str]:
     """Run the real ci/check_ruleset.py against a canned API.
 
     A fake `gh` on PATH answers the two endpoints the audit reads. Running the
     CLI rather than importing it means the argument handling and the exit code
     are under test too.
+
+    `extra_rulesets` adds further branch rulesets to the list endpoint, which is
+    what drives the audit's `active[1:]` loop. Every id resolves to the same
+    canned body, because what is under test is the audit's handling, not
+    GitHub's ability to return two different rulesets.
     """
     fixtures = tmp / "fixtures"
     fixtures.mkdir(parents=True, exist_ok=True)
+    summary = {k: ruleset[k] for k in ("id", "name", "target", "enforcement")}
+    listing = [summary] + [
+        {**summary, "id": 90000000 + n, "name": f"extra ruleset {n}"}
+        for n in range(1, extra_rulesets + 1)
+    ]
     (fixtures / "rulesets.json").write_text(
-        json.dumps([{k: ruleset[k] for k in ("id", "name", "target", "enforcement")}]),
+        json.dumps(listing),
         encoding="utf-8",
     )
     (fixtures / "ruleset.json").write_text(json.dumps(ruleset), encoding="utf-8")
@@ -685,6 +697,84 @@ def test_the_drift_audit_notices_a_bypass_actor(tmp_path: Path) -> None:
     code, out = run_ruleset_audit(tmp_path, ruleset)
     assert code == 1, out
     assert "no bypass actors" in out
+
+
+# ---------------------------------------------------------------------------
+# an unreadable bypass_actors field is NOT_MEASURED, never a tick
+# ---------------------------------------------------------------------------
+#
+# Until 2026-08-11 `ci/check_ruleset.py` read the field as
+# `list(full.get("bypass_actors") or [])`, which made absent, null and empty the
+# same `[]`. An absent field printed `✓ no bypass actors` and exited 0.
+#
+# The absent case is what `GITHUB_TOKEN` actually receives, and
+# `.github/workflows/watchdog.yml` runs this audit under that identity - so the
+# audit was reporting a clean bill on a field it had never been shown. Measured
+# 2026-08-10, hosted run 31386545513; see artifacts/gate_integrity_blocked.md.
+#
+# Four cases, because a fix that simply refuses everything would look correct
+# with only the first two.
+
+
+def test_an_absent_bypass_actors_field_is_not_measured_rather_than_clean(
+    tmp_path: Path,
+) -> None:
+    """The live case: GITHUB_TOKEN is shown a ruleset with the key missing."""
+    ruleset = deepcopy(LIVE_RULESET)
+    del ruleset["bypass_actors"]
+    code, out = run_ruleset_audit(tmp_path, ruleset)
+    assert code == 1, out
+    assert "NOT_MEASURED" in out, out
+    assert "✓ no bypass actors" not in out, "an unread field must never get a tick"
+    assert "PASS — protection matches the contract" not in out, out
+
+
+def test_a_null_bypass_actors_field_is_not_measured_rather_than_clean(
+    tmp_path: Path,
+) -> None:
+    """JSON null is the other way the field arrives without a value.
+
+    `or []` swallowed this one identically, and a separate case is cheap next to
+    a fix that handles absence and misses null.
+    """
+    ruleset = deepcopy(LIVE_RULESET)
+    ruleset["bypass_actors"] = None
+    code, out = run_ruleset_audit(tmp_path, ruleset)
+    assert code == 1, out
+    assert "NOT_MEASURED" in out, out
+    assert "✓ no bypass actors" not in out, out
+
+
+def test_an_empty_bypass_actors_list_still_passes(tmp_path: Path) -> None:
+    """The control. Without it, a fix that refuses every value looks correct.
+
+    `[]` is a real measurement with a real answer: nobody can bypass. It must
+    keep passing, and it must keep printing the tick.
+    """
+    ruleset = deepcopy(LIVE_RULESET)
+    ruleset["bypass_actors"] = []
+    code, out = run_ruleset_audit(tmp_path, ruleset)
+    assert code == 0, out
+    assert "✓ no bypass actors" in out, out
+    assert "NOT_MEASURED" not in out, out
+
+
+def test_a_second_ruleset_with_an_unreadable_bypass_field_is_also_not_measured(
+    tmp_path: Path,
+) -> None:
+    """The same conflation existed twice, and the second copy is new in this PR.
+
+    `active[1:]` was added here to audit every branch ruleset rather than only
+    the first, and it was written with the same `or []`. Both call sites now go
+    through one `check_bypass_actors`, so they cannot drift apart again - this
+    test is what proves the second site is really routed through it.
+    """
+    ruleset = deepcopy(LIVE_RULESET)
+    del ruleset["bypass_actors"]
+    code, out = run_ruleset_audit(tmp_path, ruleset, extra_rulesets=1)
+    assert code == 1, out
+    assert out.count("NOT_MEASURED") >= 2, out
+    assert "✓ no bypass actors" not in out, out
 
 
 def test_the_review_settings_are_reported_even_though_they_are_not_asserted(

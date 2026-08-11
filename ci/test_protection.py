@@ -50,6 +50,62 @@ authenticate". An unauthenticated caller is refused everything, so a removed or
 expired token made every assertion below pass - for entirely the wrong reason.
 403 and 404 come back to an identity GitHub recognises and then declines, which
 is the thing being asserted. 401 is now a missing prerequisite, not a refusal.
+
+WHY AN ABSENT FIELD IS NO LONGER PROOF EITHER - CHANGED 2026-08-11
+------------------------------------------------------------------
+The same mistake in a second place. `test_bypass_actors_are_still_empty` read
+
+    data.get("bypass_actors") == []
+
+and `.get` answers `None` both when the field says nobody may bypass and when
+this identity was never shown the field. Two facts, one value, and the failure
+message picked the wrong one out loud:
+
+    AssertionError: someone can bypass the rules: None
+
+Nobody had been shown to be able to bypass anything. The field had not been
+read. A security test that states an unmeasured violation is worse than one
+that stays quiet, because a person deciding whether this repository is
+protected will believe it.
+
+Measured 2026-08-10, hosted run 31386545513, commit `f6494ad`, job `pr-fast`:
+the ruleset GET returns 200 with a real body - `id`, `name`, `target`,
+`source_type`, `rules`, `enforcement` - and no `bypass_actors` key at all. Not a
+401, not a 403. A redacted view. Reading that field needs repository
+`Administration: read`, which exists only as a fine-grained personal-access-token
+permission; actionlint v1.7.12 rejects `administration` as a workflow permission
+scope, so no `permissions:` block can grant it to `GITHUB_TOKEN`.
+
+So the field now has three outcomes, matching the rest of this file:
+
+    present and []       PASS - the required check binds everyone
+    present and not []   FAIL - and the accusation is then TRUE
+    absent               NOT_MEASURED - fail in CI, skip on a laptop, and say
+                         in both cases that nothing was measured
+
+`NOT_MEASURED` is this repository's standing label for a thing nobody could
+look at; the rule is that it is never scored as a zero. See
+`artifacts/phase9_data_quality.md` for where the line sits, and
+`artifacts/gate_integrity_blocked.md` for this specific blocker.
+
+WHY THIS IS NOT AN xfail, WHICH IS THE USUAL IDIOM HERE
+-------------------------------------------------------
+`tests/test_gate_contract.py::test_the_lockfile_gate_is_actually_enforced` pins
+a defect with `@pytest.mark.xfail(strict=True)`, paired with a passing test
+recording today's behaviour. That idiom needs the failure to be DETERMINISTIC,
+and this one is not: it depends on which identity runs it. Measured on this
+machine 2026-08-11, a fine-grained token that can read the field makes all ten
+tests pass, so a strict xfail would XPASS and turn a developer's run red for
+doing nothing wrong, while xfailing in CI. Same code, opposite verdicts. An
+xfail here would be a coin toss wearing a gate's clothing.
+
+WHAT WAS DELIBERATELY NOT DECIDED HERE
+--------------------------------------
+Whether an unreadable `bypass_actors` should stop blocking pull requests is
+owner option 2 in `artifacts/gate_integrity_blocked.md`, and it is unchosen. So
+CI still goes red. Only the sentence it goes red with has changed - from a
+false statement about bypass to a true one about a measurement that could not
+be taken.
 """
 
 from __future__ import annotations
@@ -61,7 +117,7 @@ import shutil
 import subprocess
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import pytest
 
@@ -78,6 +134,32 @@ FORBIDDEN_STATUSES = (403, 404)
 
 # 401 is not a refusal, it is an absence. Never counted as proof.
 UNAUTHENTICATED_STATUSES = (401,)
+
+# The verdict code for a field this identity was never shown. It is a distinct
+# string so a person reading a red build, or grepping one, can tell "we looked
+# and found a bypass" apart from "we were not allowed to look".
+BYPASS_ACTORS_NOT_MEASURED = "PROTECTION_TEST_BYPASS_ACTORS_NOT_MEASURED"
+
+# The accusation. Defined once, used by the one assertion entitled to make it,
+# and asserted ABSENT from the NOT_MEASURED verdict - so this sentence appears
+# in a build log only when a bypass was actually seen. Somebody grepping logs
+# for it must not be able to hit a case where nothing was measured, which is
+# what the code before 2026-08-11 did.
+BYPASS_FOUND = "someone can bypass the rules"
+
+# The permission that would make the field readable, and the secret the owner
+# would have to create to supply it. Named here and checked against
+# docs/OWNER_WORK.md by a test below, so the two cannot drift apart.
+#
+# S105 fires on the name, not the value: this is the NAME of a repository
+# secret that does not exist yet, and no credential is stored in this file.
+ADMINISTRATION_READ = "Administration: read"
+AUDIT_TOKEN_SECRET = "CLAUDE_AUDIT_TOKEN"  # noqa: S105
+
+# Keys that prove the response really is a ruleset. If these are missing too,
+# the read itself is broken and that is a different, larger failure than one
+# redacted field.
+RULESET_MARKERS = ("id", "name", "enforcement")
 
 
 def contract() -> dict[str, Any]:
@@ -172,6 +254,47 @@ def canonical(rid: int) -> str:
         data.pop(volatile, None)
     blob = json.dumps(data, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode()).hexdigest()
+
+
+def bypass_actors_were_read(body: dict[str, Any]) -> bool:
+    """True when this identity was shown the field at all.
+
+    ABSENT IS NOT EMPTY. `body.get("bypass_actors")` collapses both into `None`,
+    which is the whole defect this replaced - see the module docstring. Membership
+    is the only question that separates them, so membership is what is asked.
+    """
+    return "bypass_actors" in body
+
+
+def unread_bypass_actors(body: dict[str, Any]) -> NoReturn:
+    """Report a field that could not be read, without inventing what it said.
+
+    Never returns. Fails in CI and skips on a developer laptop, which is the
+    same three-outcome shape `live_github_or_an_honest_verdict` already uses for
+    a missing prerequisite - because that is what this is. The old code asserted
+    a bypass instead, which was a statement nobody had measured.
+    """
+    seen = sorted(body)
+    verdict = (
+        f"{BYPASS_ACTORS_NOT_MEASURED} - the field was not read, so nothing was "
+        "measured.\n"
+        "  This is NOT a finding of a bypass. Nobody has been shown able to get "
+        "past the required check, and nobody has been shown unable to. The value "
+        "is NOT_MEASURED, which this repository never scores as a zero.\n"
+        f"  The ruleset read SUCCEEDED and returned a real body; `bypass_actors` "
+        f"is simply not in it. Keys received: {seen}\n"
+        f"  Reading it needs repository `{ADMINISTRATION_READ}`. That exists only "
+        "as a fine-grained personal-access-token permission - actionlint v1.7.12 "
+        "rejects `administration` as a workflow permission scope - so no "
+        "`permissions:` block can grant it to GITHUB_TOKEN. Measured 2026-08-10 "
+        "on hosted run 31386545513.\n"
+        f"  Owner action: repository secret `{AUDIT_TOKEN_SECRET}`, a "
+        f"fine-grained token with `{ADMINISTRATION_READ}` and nothing else. See "
+        "docs/OWNER_WORK.md and artifacts/gate_integrity_blocked.md."
+    )
+    if in_ci():
+        pytest.fail(verdict, pytrace=False)
+    pytest.skip(f"LOCAL_ENVIRONMENT_UNAVAILABLE: {verdict}")
 
 
 def refused(result: subprocess.CompletedProcess[str]) -> bool:
@@ -280,12 +403,97 @@ def test_the_required_check_is_still_present():
 
 
 def test_bypass_actors_are_still_empty():
-    """Empty means the required check binds everyone, including repo admins."""
+    """Empty means the required check binds everyone, including repo admins.
+
+    The assertion is unchanged in strength: when the field is readable, `[]` is
+    still the only value that passes, and a non-empty list still fails with the
+    accusation - which is then TRUE.
+
+    What changed on 2026-08-11 is the third case. An absent field used to reach
+    that same accusation carrying `None`, reporting a bypass that had never been
+    measured. It now reports NOT_MEASURED and names the owner action instead.
+    See the module docstring for the measurement behind that.
+    """
     rid = ruleset_id()
     data = json.loads(gh("api", f"repos/{REPO}/rulesets/{rid}").stdout)
-    assert data.get("bypass_actors") == [], (
-        f"someone can bypass the rules: {data.get('bypass_actors')}"
+
+    missing = [k for k in RULESET_MARKERS if k not in data]
+    assert not missing, (
+        f"the ruleset read did not return a ruleset: {missing} absent as well. "
+        "This is a broken read, not a redacted field, and it must not be "
+        f"reported as NOT_MEASURED. Keys received: {sorted(data)}"
     )
+
+    if not bypass_actors_were_read(data):
+        unread_bypass_actors(data)
+
+    assert data["bypass_actors"] == [], f"{BYPASS_FOUND}: {data['bypass_actors']}"
+
+
+def test_an_unread_bypass_actors_field_is_never_reported_as_a_bypass(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The defect that shipped, pinned so it cannot come back.
+
+    Until 2026-08-11 a redacted ruleset body produced
+
+        AssertionError: someone can bypass the rules: None
+
+    from `ci/test_protection.py:286`. This drives the same redacted body through
+    the verdict path and holds it to two things: it must say NOT_MEASURED, and
+    it must not accuse anyone. Both directions matter - a verdict that goes
+    quiet is as useless as one that lies.
+
+    The body below is the shape actually returned by hosted run 31386545513: a
+    successful read of a real ruleset with the one field withheld.
+    """
+    redacted: dict[str, Any] = {
+        "id": 20557129,
+        "name": "main protection",
+        "target": "branch",
+        "source_type": "Repository",
+        "enforcement": "active",
+        "rules": [],
+    }
+    assert not bypass_actors_were_read(redacted), "absent is not empty"
+
+    for ci_value, outcome in (
+        ("true", pytest.fail.Exception),
+        ("", pytest.skip.Exception),
+    ):
+        monkeypatch.setenv("GITHUB_ACTIONS", ci_value)
+        monkeypatch.setenv("CI", ci_value)
+        with pytest.raises(outcome) as raised:
+            unread_bypass_actors(redacted)
+        said = str(raised.value)
+        assert BYPASS_ACTORS_NOT_MEASURED in said, said
+        assert BYPASS_FOUND not in said, said
+        assert AUDIT_TOKEN_SECRET in said, "the owner action must be named"
+
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("CI", "true")
+    assert bypass_actors_were_read({**redacted, "bypass_actors": []}), (
+        "a field that IS present must never take the NOT_MEASURED path"
+    )
+
+
+def test_the_owner_action_in_the_verdict_is_the_one_actually_on_record():
+    """Two places name the same fix, so they must not drift apart.
+
+    The NOT_MEASURED verdict tells a reader to create `CLAUDE_AUDIT_TOKEN` with
+    `Administration: read`. If `docs/OWNER_WORK.md` stops saying that - renamed,
+    reworded, or the item quietly dropped once somebody assumes it is done - the
+    verdict starts pointing at nothing and this goes red. It is the cheapest
+    available check that the unknown still has an owner.
+    """
+    owner_work = ROOT / "docs" / "OWNER_WORK.md"
+    assert owner_work.is_file(), f"{owner_work} is where blocked work is tracked"
+    text = owner_work.read_text()
+    for named in (AUDIT_TOKEN_SECRET, ADMINISTRATION_READ):
+        assert named in text, (
+            f"{named!r} is named in the NOT_MEASURED verdict but no longer "
+            f"appears in {owner_work.name}. One of the two is now wrong."
+        )
 
 
 def test_main_is_still_protected():
