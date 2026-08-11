@@ -39,3 +39,6 @@ coverage/
 data/
 *.db
 *.sqlite3
+
+# Agent worktrees. Nested git repositories, never part of a commit.
+.claude/worktrees/
