@@ -1776,6 +1776,57 @@ def render_provenance(d: pipeline.Draft) -> str:
     )
 
 
+def render_tax(d: pipeline.Draft) -> str:
+    """What the GST engine made of this bill, or "" when it carries no tax.
+
+    ADDED 2026-08-10 with Task 10. `accountant/rules/` and `accountant/tax/`
+    were built, tested and merged, and then called by nothing on the live path:
+    a corpus that is never evaluated is a corpus nobody can be wrong about.
+
+    IT SAYS WHAT IT IS. A tax verdict here is EVIDENCE and never permission -
+    the badge above it still reads "not posted", `checks.tax_lines_can_be_posted`
+    still fails the entry, and the connector still refuses it at the wire. Owner
+    decision Q3 = D is untouched. The sentence a person was left holding was
+    "Accountant Dad cannot post a tax line yet"; this adds why the tax could not
+    be worked out either, which is the part they can actually act on.
+
+    `data-tax-outcome` carries the verdict so a test matches an attribute rather
+    than a word the stylesheet already contains. Two tests in this repository
+    were green and vacuous for exactly that reason.
+    """
+    if d.tax is None:
+        return ""
+
+    # The rule id is resolved through RULES_BY_ID and the CORPUS's own URL is
+    # what renders, exactly as `render_provenance` already does. A citation is a
+    # CLAIM: it names a rule and carries a URL saying that rule is where it came
+    # from. Repeating the claim would let a bad citation put any address it
+    # liked on the one panel whose whole job is to be trusted about sources.
+    cited = "".join(
+        f"<li class=ev>{esc(c.rule_id)} — "
+        f"{esc(cited_source(RULES_BY_ID[c.rule_id]))}</li>"
+        if c.rule_id in RULES_BY_ID
+        else f"<li class=ev>{esc(c.rule_id)} — "
+        f"{esc(uncorroborated_source(c.rule_id, 'not in the loaded corpus'))}</li>"
+        for c in d.tax.citations
+    )
+    total = d.tax.total_tax_paise
+    computed = (
+        f"<tr><td>Tax the rules give</td><td>{esc(money(total))}</td></tr>"
+        if total is not None
+        else ""
+    )
+    return (
+        f'<h2>GST rules</h2><div data-tax-outcome="{esc(d.tax.outcome.value)}">'
+        f"<p class=reason>{esc(d.tax.reason)}</p>"
+        f"<table>{computed}</table>"
+        + (f"<ul>{cited}</ul>" if cited else "")
+        + "<p class=hint>This is what the rule corpus says. It is not permission "
+        "to post: Accountant Dad still cannot write a tax line, so this entry "
+        "is yours to make in Tally.</p></div>"
+    )
+
+
 def render_decision(d: pipeline.Draft) -> str:
     out = d.outcome
     cls = {"valid": "valid", "unclear": "unclear", "not_valid": "notvalid"}[out.value]
@@ -1802,6 +1853,8 @@ def render_decision(d: pipeline.Draft) -> str:
         f"<tr><td>{esc(k)}</td><td><code>{esc(s)}</code></td></tr>"
         for k, s in sorted((d.voucher.provenance or {}).items())
     )
+
+    tax = render_tax(d)
 
     # G6.1 and G6.3. Each flag shows its detector, its evidence, and — until it
     # has been dismissed — a way to dismiss it. Dismissing changes nothing about
@@ -1887,6 +1940,7 @@ def render_decision(d: pipeline.Draft) -> str:
 {flags}{overflow}{ask}{posted}
 <h2>Voucher</h2><table>{rows}</table>
 <h2>Where each field came from</h2><table>{prov}</table>
+{tax}
 {render_provenance(d)}
 {checks_line}
 </div>"""

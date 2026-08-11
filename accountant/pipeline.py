@@ -35,6 +35,8 @@ from accountant.memory.company import (
 from accountant.memory.identity import normalise_company
 from accountant.memory.index import normalise_vendor
 from accountant.problems import FUNDING_PROBLEM, Problem
+from accountant.rules.gst_rates import official_corpus
+from accountant.rules.place_of_supply import SupplyEvidence
 from accountant.schema import (
     NOT_RECORDED,
     ActionLog,
@@ -49,6 +51,7 @@ from accountant.tallyio.client import (
     TallyClient,
     new_operation_id,
 )
+from accountant.tax.decision import TaxDecision, decide_tax
 
 #: What `provenance` says about a leg that came out of this company's own books.
 #: A literal in three places until 2026-08-10, and one of them is now read as a
@@ -121,6 +124,14 @@ class Draft:
     suppressed_flags: list[Flag] = field(default_factory=list[Flag])
     problems: list[Problem] = field(default_factory=list[Problem])
     decision: Decision | None = None
+    #: What the GST engine made of this bill, or None when it carries no tax.
+    #:
+    #: EVIDENCE, NEVER AUTHORITY. A `TaxOutcome.VALID` here means the tax was
+    #: computed and every part of it can be cited. It does not mean, and must
+    #: never come to mean, "post this" - `accountant/tax/decision.py` says the
+    #: same thing at greater length and refuses to construct a decision that
+    #: claims otherwise.
+    tax: TaxDecision | None = None
     posted_tally_id: str | None = None
     answers: list[tuple[str, str]] = field(default_factory=list[tuple[str, str]])
     #: Detector names the person has looked at and chosen not to act on.
@@ -389,6 +400,43 @@ def _with_conflict_question(
     return [*found[:at], problem, *found[at:]]
 
 
+def tax_for(draft: Draft, accounts: Sequence[str]) -> TaxDecision:
+    """Run the GST engine over one bill and return what it made of it.
+
+    WHAT IT CAN ANSWER WITH TODAY, STATED PLAINLY. `ExtractedRecord` carries no
+    HSN or SAC code and no GSTINs, so `SupplyEvidence` is empty and the honest
+    answer is almost always UNCLEAR with the reason named - "the document does
+    not state a place of supply" rather than a computed rate.
+
+    That is the point rather than a shortfall. The person is currently told only
+    that Accountant Dad cannot post a tax line; this tells them WHY the tax
+    could not be worked out either. And the day a reader that extracts a GSTIN
+    and an HSN code arrives, this call starts producing real rates with nothing
+    further to wire - the engine was always able to, and nothing was asking it.
+
+    `taxable_paise` is the amount NET of tax. `Voucher.amount_paise` is the
+    total and `gst_paise` is the tax inside it, so the base is the difference. A
+    rate applied to the gross would overstate the tax by the tax.
+    """
+    voucher = draft.voucher
+    gst = voucher.gst_paise or 0
+    return decide_tax(
+        corpus=official_corpus(),
+        # No HSN or SAC is extracted yet, and None is the honest value. Passing
+        # a guessed code would produce a rate with a citation behind it, which
+        # is the most convincing possible way to be wrong.
+        raw_code=None,
+        taxable_paise=max(voucher.amount_paise - gst, 0),
+        supply_date=voucher.date,
+        # Empty for the same reason. `place_of_supply_stated_on_document` is
+        # False because no document has stated one to us: the flag is the
+        # difference between "the document says so" and "something says so",
+        # and only the first may decide a tax.
+        evidence=SupplyEvidence(supplier=None, place_of_supply=None),
+        chart_of_accounts=tuple(accounts),
+    )
+
+
 def evaluate(
     draft: Draft,
     accounts: tuple[str, ...],
@@ -460,6 +508,27 @@ def evaluate(
 
     index = memory.index()
     draft.checks = checks.run(draft.voucher, accounts)
+
+    # THE RULES ENGINE IS ACTUALLY RUN, 2026-08-10.
+    #
+    # `accountant/rules/` and `accountant/tax/` were built, tested and merged,
+    # and then imported by nothing outside their own package: `decide_tax` had
+    # no caller anywhere on the live path. A corpus that is never evaluated is a
+    # corpus nobody can be wrong about, which is the same reason a check that
+    # cannot fail is not a check.
+    #
+    # IT DOES NOT AUTHORISE A POSTING, AND CANNOT. Owner decision Q3 = D stands
+    # untouched: `checks.tax_lines_can_be_posted` still fails a bill carrying
+    # `gst_paise`, `tallyio.real.check_writable` still refuses it at the wire,
+    # and `TaxDecision.posting_enabled` cannot be constructed True. What this
+    # buys is that the hand-over stops saying only "enter this one yourself" and
+    # starts saying WHY the tax could not be computed - which is the question
+    # the person is left holding.
+    #
+    # Only for bills that carry tax. Running it on every entry would compute an
+    # answer to a question nobody asked and put an UNCLEAR tax verdict beside a
+    # plain cash purchase.
+    draft.tax = tax_for(draft, accounts) if draft.voucher.needs_tax_lines else None
     # Detect everything, THEN decide what fits on the screen. Running with the
     # cap would give the same `flags` and the same count, and would throw the
     # overflow away - which is the one thing the owner's decision forbids. The
