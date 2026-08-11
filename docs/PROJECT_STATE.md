@@ -3891,3 +3891,143 @@ recorded as "verified absent" in this file, in `ARCHITECTURE.md` and in
 `CONTROL_PLANE.yaml` simultaneously, days after it had merged in `7db7f45`. The
 three copies corroborated each other, so cross-checking the documents could not
 catch it. Only `ls` could.
+
+---
+
+## §46 The cloud launch — sixteen tasks, what shipped, and what a mutant found
+
+Dated 2026-08-11. The owner directed a cloud launch and superseded the frozen
+plan **in words**, in chat:
+
+> "frozen plan SUPERSEDED for cloud-launch work; multi-user, login, accounts,
+> cloud hosting now allowed; runtime dependencies allowed"
+
+`docs/ARCHITECTURE.md` §4.8 carries the same amendment beside the line it
+changes, rather than being edited silently.
+
+**The permission was wider than what was used.** No runtime dependency was
+added by any of the sixteen tasks. `pyproject.toml` still declares
+`dependencies = []`, so the "zero runtime dependency" claim in ARCHITECTURE is
+still true, and every task below landed on the standard library.
+
+### §46.1 The starting position, measured before anything was built
+
+Three read-only agents established this, and it is why each task exists.
+
+```
+no connector, no cloud code       CONNECTOR_PROTOCOL.md:3
+no auth, no tenant, no session    grep tenant|login|session in accountant/ = 0
+every route unauthenticated       app.py do_GET, do_POST
+/reverse deletes a voucher        one unauthenticated POST, caller-supplied id
+/reverse-all bulk-deletes         every voucher we ever wrote
+audit log lost on restart         configure() defaulted to MemoryStore(":memory:")
+I1 duplicate voucher              tests/test_idempotency.py, xfail(strict)
+writes bypass the one door        ci/educational_slice.py hits RealTally direct
+2 of 20 gates never execute       lockfile, cached-mutation
+no upload route at all            grep multipart|enctype|type=file = 0
+rules corpus never evaluated      accountant/tax/ imported by nothing outside it
+single-threaded dev server        HTTPServer
+no deployment artefact            0 Dockerfiles, 0 deploy jobs
+```
+
+The architecture class this establishes was recorded at the time as
+`NOT_CLOUD_DEPLOYABLE`.
+
+### §46.2 What shipped
+
+| # | Task | Evidence |
+|---|---|---|
+| 1 | connector dials out, never listens | `docs/CONNECTOR.md`, `tests/test_connector.py` |
+| 2 | authentication and tenancy | `docs/AUTH.md`, `tests/test_auth.py` |
+| 3 | the destroying routes guarded | `tests/test_reversal_guard.py` |
+| 4 | durable audit log | `tests/test_durable_log.py` |
+| 5 | idempotency I1, and I2 with it | `tests/test_idempotency.py` |
+| 6 | every write through the one door | `tests/test_write_door.py` |
+| 7 | TLS on the two legs that cross a network | `docs/TLS.md`, `tests/test_tls.py` |
+| 8 | the lockfile gate, pinned as a defect | `tests/test_gate_contract.py` |
+| 9 | upload plus a placeholder reader | `tests/test_upload.py` |
+| 10 | the rules engine is actually evaluated | `tests/test_rules_wired.py` |
+| 11 | threaded server | `tests/test_concurrency.py` |
+| 12 | deployment artefacts | `docs/DEPLOY.md`, `tests/test_deploy_artefacts.py` |
+| 13 | data deletion | `docs/DATA_DELETION.md`, `tests/test_data_deletion.py` |
+| 14 | log redaction | `docs/REDACTION.md`, `tests/test_redaction.py` |
+| 15 | observability | `docs/OBSERVABILITY.md` |
+| 16 | the whole journey, end to end | `tests/test_user_journey.py` |
+
+Each landed as its own pull request with its own mutants. The per-task detail
+lives in the PR body and the commit message; this section is the index, not a
+second copy of them.
+
+### §46.3 Six defects found by things nobody was looking at
+
+Recorded because each one is a lesson about a *kind* of check, not a one-off.
+
+1. **The evidence script still carried defect W1.** `ci/educational_slice.py`
+   read back with `back is not None` — a presence check. That is the exact hole
+   `pipeline.post` was fixed for on 2026-08-09: it checks the label on the box
+   and never opens it. Fixed on 2026-08-09 in one place and left standing in
+   another for two days.
+2. **`ci/readiness.py`'s "FakeTally only" was prose, not a constraint.**
+   `run_a`, `post_one` and `_retry_creates` were annotated `TallyClient`, so a
+   harness whose entire method is injecting 30 failures type-checked against a
+   real `RealTally`. Now the type says what the paragraph said.
+3. **The `lockfile` gate has never run.** `uv sync --frozen` is the one flag
+   that *guarantees* the check is skipped; the comment above it claimed it was
+   the check. `test_every_command_in_the_contract_appears_in_a_workflow` matches
+   only the first token, so `uv` matched everything. That is the fourth check
+   found in this repository that could never fail.
+4. **Two documentation pointers cited an OWNER_WORK entry that did not exist.**
+   `docs/AUTH.md` and a comment in `app.py` both said the missing `Secure`
+   cookie flag was recorded as owner work. It never was — two sources
+   corroborating nothing, which is the exact failure `OWNER_WORK.md`'s own
+   header was written about.
+5. **A mutant caught a false claim inside a comment of mine.** The redaction
+   module said a 32-character hex threshold "would have eaten every operation
+   id". It would not: `_` is a word character, so `\b` never fires at the start
+   of the hex run in `ad_ffff…`. The boundary anchors were doing the work and
+   the number was doing none of it. The reason is restated to what measurement
+   supports and a test makes the number load-bearing.
+6. **A TLS mutant survived** because OpenSSL 3.6 already defaults a server
+   context to TLS 1.2 — which is precisely the argument for *stating* the floor
+   rather than inheriting it, arriving as a test failure. The replacement test
+   reads the AST and requires the assignment, not the value.
+
+Two more, smaller: a test was writing a real `data/app.db` into the working
+tree on every run, and `argparse` was accepting `--secret hunter2` as an
+abbreviation of `--secret-file` — quietly reinstating the one argument the
+connector refuses to have.
+
+### §46.4 What is NOT claimed
+
+- **Everything is FAKETALLY.** Not one of the sixteen tasks produced
+  `LICENSED_REALTALLY` evidence. Nothing here says anything about a real
+  TallyPrime, and §21 and §28 remain the only live evidence in this document.
+- **Nothing is deployed.** There is no host, no domain, no registry and no
+  certificate authority. The image is buildable and reviewable; it has never
+  been built, because there is no Docker here, and that is recorded in
+  `docs/DEPLOY.md` as `NOT MEASURED` rather than asserted.
+- **The container cannot start in a cloud yet.** `serve()` calls `connect()`
+  before binding, so with no reachable Tally it refuses to start — correct
+  behaviour, and a cloud host has no Tally. The cloud side of the connector
+  protocol (`/connector/register`, `/jobs`, `/result`) does not exist.
+- **`S2` is still `NOT_MEASURED`.** The upload route accepts a document and the
+  placeholder reader returns an explicit `not_found` for every field. No
+  document reader vendor is selected; `D-23` is open.
+- **GST posting is still off.** Owner decision `Q3 = D`. The rules engine is now
+  evaluated and its verdict shown, and that authorises nothing:
+  `POSTING_ENABLED` is False, and two independent guards still refuse a GST
+  bill.
+
+### §46.5 Owner work created by this launch
+
+All of it is in `docs/OWNER_WORK.md`, which stays the single list. The new
+entries are: the one-line `--frozen` → `--locked` fix in `pr-fast.yml`
+(`.github/` is denied at the permission layer in this environment, so the exact
+before/after diff is recorded there rather than applied); a certificate
+authority for TLS; a mail provider before any password reset; and a decision on
+self-registration.
+
+`cached-mutation` is also listed there as the second gate that never executes —
+and as **no action wanted**, because it is parked deliberately with a measured
+reason and a standing owner rule. It is listed only so "2 of 20 gates never
+execute" is not read as two defects when it is one.

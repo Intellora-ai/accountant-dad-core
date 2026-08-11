@@ -448,8 +448,29 @@ the connector needs localhost access to Tally.
 | notify | what was written and where, for Valid; what failed and that nothing was posted, for Not valid |
 | list | every voucher we wrote, with bulk reverse |
 
-**Forbidden:** multi-user, login, accounts, cloud hosting, mobile, styling beyond
-legibility.
+**Forbidden:** mobile, styling beyond legibility.
+
+> **AMENDED 2026-08-11 BY THE OWNER, IN WORDS, AND RECORDED RATHER THAN APPLIED
+> SILENTLY.** This line read *"Forbidden: multi-user, login, accounts, cloud
+> hosting, mobile, styling beyond legibility"* until the owner directed a
+> cloud launch and wrote:
+>
+> > "frozen plan SUPERSEDED for cloud-launch work; multi-user, login, accounts,
+> > cloud hosting now allowed; runtime dependencies allowed"
+>
+> Three of the five bans are lifted. **Mobile and styling are not**, and are
+> left in place above.
+>
+> What actually shipped under the amendment is narrower than the permission
+> given: multi-user, login and accounts are built (`docs/AUTH.md`); cloud
+> hosting has artefacts but no host (`docs/DEPLOY.md`); and **no runtime
+> dependency was added at all** — every task landed on the standard library, so
+> `pyproject.toml`'s `dependencies = []` still holds and the "zero runtime
+> dependency" claim two paragraphs above is still true.
+>
+> The local, single-user path is unchanged and still supported:
+> `LOCAL_DEV_MODE=1` skips authentication entirely and prints a loud warning on
+> every start. See `docs/PROJECT_STATE.md` §46.
 
 ### 4.9 Synthetic generator and error injector — `accountant/generate/` · **present**
 
