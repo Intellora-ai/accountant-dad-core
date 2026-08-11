@@ -34,6 +34,7 @@ import os
 import urllib.parse
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 
 from accountant import pipeline, reversal
 from accountant import questions as Q
@@ -54,7 +55,12 @@ from accountant.extract.registry import default_extractor, guarded
 from accountant.memory.bootstrap import bootstrap
 from accountant.memory.company import CompanyMemory
 from accountant.memory.identity import normalise_company, same_company_name
-from accountant.memory.store import BootstrapReport, BootstrapStatus, MemoryStore
+from accountant.memory.store import (
+    IN_MEMORY,
+    BootstrapReport,
+    BootstrapStatus,
+    MemoryStore,
+)
 from accountant.rules.gst_rates import RateRule, official_corpus
 from accountant.schema import ActionLog, Outcome
 from accountant.tallyio.client import TallyClient, operation_id_in
@@ -964,7 +970,27 @@ def configure(
             f"downstream could tell which one was written to."
         )
 
-    owned = store if store is not None else MemoryStore(":memory:")
+    if store is None:
+        # NOT `MemoryStore(":memory:")`, which is what stood here until
+        # 2026-08-10 and is the whole of defect "the audit log is lost on
+        # restart". Every decision this app makes about somebody's books went
+        # into a database that existed only while the process did, so the
+        # durable, append-only, never-updated audit trail was durable for as
+        # long as nobody closed the window.
+        #
+        # The fix is not a different default. A default that silently loses
+        # data and a default that silently writes a file are both this function
+        # deciding something the caller should have said, so it says neither:
+        # `connect()` opens `default_store()` and hands it in, and a test that
+        # wants a throwaway passes `MemoryStore(IN_MEMORY)` and can be seen
+        # doing it.
+        raise ValueError(
+            f"{REFUSAL}: no operation performed. configure() needs a store. "
+            f"Pass MemoryStore({IN_MEMORY!r}) for a throwaway one, or call "
+            f"connect(), which opens the durable database this product keeps "
+            f"its audit trail in."
+        )
+    owned = store
     # `identity.company` and NOT the module default. This is the one place the
     # company enters the runtime, so it is the one place it can be got wrong.
     built = Runtime(
@@ -987,6 +1013,31 @@ def configure(
     return install(built)
 
 
+def default_store_path() -> Path:
+    """Where the audit trail lives. `ACCOUNTANT_DB`, or `data/app.db`.
+
+    A FILE, and a relative one by default, so a person who runs this on their
+    own laptop gets a database beside the app rather than in a temporary
+    directory they will never find. The environment variable exists because a
+    deployment puts it on a mounted volume, and a path that cannot be moved is
+    a path that ends up on a container's disposable filesystem.
+    """
+    named = os.environ.get(ENV_DB, "").strip()
+    return Path(named) if named else Path("data") / "app.db"
+
+
+def default_store() -> MemoryStore:
+    """Open the durable database, making its directory if it is not there.
+
+    `mkdir` rather than a refusal: the missing directory is the FIRST run, not
+    a misconfiguration, and refusing to start because a folder does not exist
+    yet would be a product that cannot be installed by running it.
+    """
+    path = default_store_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return MemoryStore(path)
+
+
 def connect(
     config: TallyConfig,
     company: str = COMPANY,
@@ -1000,9 +1051,15 @@ def connect(
     company identity is uncertain. It never falls back — see the factory's
     docstring for why "unreachable" and "empty" must not collapse into one
     another.
+
+    The store defaults to the DURABLE one, and this is the only place that
+    default lives. `configure()` refuses a missing store rather than guessing,
+    so there is exactly one site that decides where the audit trail goes.
     """
     client, identity = real_tally(config, company, backups=backups)
-    return configure(client, identity, store=store)
+    return configure(
+        client, identity, store=store if store is not None else default_store()
+    )
 
 
 def disconnect() -> None:
@@ -2377,6 +2434,9 @@ ENV_HOST = "ACCOUNTANT_TALLY_HOST"
 ENV_PORT = "ACCOUNTANT_TALLY_PORT"
 ENV_COMPANY = "ACCOUNTANT_COMPANY"
 ENV_BACKED_UP = "ACCOUNTANT_BACKED_UP_COMPANIES"
+#: Where the audit trail is kept. A deployment points this at a mounted volume;
+#: a person on a laptop leaves it alone and gets `data/app.db` beside the app.
+ENV_DB = "ACCOUNTANT_DB"
 
 
 def config_from_environment() -> tuple[TallyConfig, str, RecordedBackups, list[str]]:
@@ -2402,6 +2462,7 @@ def config_from_environment() -> tuple[TallyConfig, str, RecordedBackups, list[s
         provenance.append(f"{name}={raw.strip()!r} (environment)")
         return raw.strip()
 
+    read(ENV_DB, str(Path("data") / "app.db"))
     host = read(ENV_HOST, TallyConfig.host)
     port_text = read(ENV_PORT, str(TallyConfig.port))
     company = read(ENV_COMPANY, COMPANY)
