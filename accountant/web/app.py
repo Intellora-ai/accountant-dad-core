@@ -33,6 +33,7 @@ import json
 import os
 import time
 import urllib.parse
+import uuid
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -61,6 +62,7 @@ from accountant.memory.store import (
     BootstrapReport,
     BootstrapStatus,
     MemoryStore,
+    TenantDeletion,
 )
 from accountant.rules.gst_rates import RateRule, official_corpus
 from accountant.schema import ActionLog, Outcome
@@ -396,6 +398,125 @@ def batch_for(batch_id: str, live: Runtime) -> reversal.Batch | None:
 
     BATCHES.pop(batch_id, None)
     return batch
+
+
+@dataclass(frozen=True)
+class DeletionPlan:
+    """What deleting THIS caller's own customer record would destroy.
+
+    Built from the store, shown on screen, and confirmed by a second request
+    carrying its id. Every number here is MEASURED off the database rather than
+    described in prose, because "delete my data" is the one button in this
+    product whose blast radius the person cannot see from the button — the same
+    argument the bulk-reversal preview is built on, applied to the one action
+    that is even less reversible.
+
+    `tenant_id` is on the plan for the audit trail and for the check in
+    `deletion_for`, NOT so that it can be posted back. It never reaches a form
+    field: the route reads the caller's tenant off the credential every time,
+    and `tests/test_data_deletion.py` walks the AST of this module to prove no
+    tenant id is ever read out of a request.
+    """
+
+    plan_id: str
+    tenant_id: str
+    tenant_name: str
+    companies_erased: tuple[str, ...]
+    companies_kept: tuple[str, ...]
+    users: int
+    sessions: int
+    actions_kept: int
+
+
+#: Previewed deletions, waiting for a yes. Same shape as `BATCHES` and for the
+#: same reason, including the user in the value rather than only the id.
+#:
+#: Bounded, and small, because a preview is answered in seconds or abandoned.
+#: A deletion plan that has aged out is not a problem to route around: taking a
+#: fresh preview is exactly what somebody should be made to do, because the
+#: numbers it shows may no longer be the numbers that would be destroyed.
+#: plan id -> (the plan, the user who asked for it).
+DELETIONS: dict[str, tuple[DeletionPlan, str]] = {}
+DELETION_LIMIT = 20
+
+
+def remember_deletion(plan: DeletionPlan, who: Principal | None = None) -> None:
+    DELETIONS[plan.plan_id] = (plan, who.user_id if who else NOT_RECORDED)
+    while len(DELETIONS) > DELETION_LIMIT:
+        DELETIONS.pop(next(iter(DELETIONS)))
+
+
+def deletion_plan(store: MemoryStore, who: Principal) -> DeletionPlan | None:
+    """Measure what this caller's deletion would do. None when there is nobody.
+
+    The tenant comes from `who`, which came from the credential. There is no
+    parameter here that a request could fill in, and that is deliberate: a
+    function that could be asked to plan the deletion of a NAMED tenant is one
+    careless caller away from being the hole `docs/AUTH.md` exists to prevent.
+
+    None means this session has no customer record behind it — the local-dev
+    principal is the reachable case, and a user row created without a tenant row
+    is the other. Neither can be deleted: there is nowhere to record that the
+    deletion happened, and erasing an index while nothing says who asked or when
+    is the half-deletion `MemoryStore.delete_tenant` refuses outright.
+    """
+    tenant = store.tenant(who.tenant_id)
+    if tenant is None:
+        return None
+
+    # THE STORE'S OWN FUNCTION, not a second copy of the rule. What this screen
+    # promises and what `delete_tenant` then does have to be one thing, or the
+    # person is confirming a list that is not the list that happens — which is
+    # the defect the two-step preview exists to prevent.
+    erase, keep = store.deletion_scope(who.tenant_id)
+
+    return DeletionPlan(
+        plan_id=f"erase_{uuid.uuid4().hex[:12]}",
+        tenant_id=tenant.tenant_id,
+        tenant_name=tenant.name,
+        companies_erased=erase,
+        companies_kept=keep,
+        users=len(store.users_of_tenant(who.tenant_id)),
+        sessions=len(store.live_sessions_of_tenant(who.tenant_id)),
+        actions_kept=len(store.actions_of_tenant(who.tenant_id)),
+    )
+
+
+def deletion_for(plan_id: str) -> DeletionPlan | None:
+    """The previewed plan, but only for the person who was shown it.
+
+    The same rule as `batch_for`, for a stronger reason. A bulk reversal
+    destroys vouchers that can be typed again; this closes an account and erases
+    an index, and the person who confirms it must be the person who read what it
+    said would happen. A confirmation from anybody else is a deletion nobody was
+    shown, and it is silent — the plan is real, the session is valid, and every
+    other check passes.
+
+    The tenant is checked as well as the user. One user cannot change tenants
+    today, so it is a comparison that cannot currently fail; it is here because
+    the thing being executed is a deletion, and a plan for one customer reaching
+    a request from another must be impossible by construction rather than by the
+    shape of the current user table.
+
+    A plan that is not this caller's is LEFT IN PLACE rather than popped. The
+    person who took it may still be looking at it, and destroying their preview
+    as a side effect of somebody else's request is the smaller version of the
+    same mistake.
+    """
+    held = DELETIONS.get(plan_id)
+    if held is None:
+        return None
+    plan, asked_by = held
+
+    who = current_principal()
+    mine = who.user_id if who else NOT_RECORDED
+    if asked_by != mine:
+        return None
+    if who is None or plan.tenant_id != who.tenant_id:
+        return None
+
+    DELETIONS.pop(plan_id, None)
+    return plan
 
 
 # How many log rows the page shows. The log itself is unbounded and append-only;
@@ -1996,6 +2117,111 @@ def render_bulk_result(batch: reversal.Batch) -> bytes:
 <p><a href="/">&larr; back</a></p>""")
 
 
+#: What a deletion does NOT touch, said on the screen before it happens and
+#: again after. Written once and rendered twice, so the promise a person is
+#: shown before pressing the button is the same sentence they are shown after.
+#:
+#: Every clause is a fact about this codebase rather than a reassurance:
+#: `ARCHITECTURE.md` §2 — we never store the customer's books; `store.py` —
+#: `action_log` has no update path and no delete path; `docs/DATA_POLICY.md`
+#: §3.6 — what "deleted" means when a backup exists is D-17 and is not answered,
+#: so this page does not claim it.
+DELETION_KEEPS = (
+    "<h2>What this does not touch</h2>"
+    "<ul>"
+    "<li><b>Your books in Tally are untouched.</b> Every voucher stays exactly "
+    "where it is. We never held a copy of your books to delete.</li>"
+    "<li><b>The record of what we did to your books is kept.</b> Who typed "
+    "what, what we posted and why, the supplier names and the amounts — that "
+    "is your evidence and an auditor's, and deleting it would destroy the one "
+    "thing that can answer what happened to your accounts. It is marked from "
+    "now on as belonging to a closed account.</li>"
+    "<li><b>We cannot promise anything about backups yet.</b> Nobody has "
+    "decided whether backups exist, where they are or how long they are kept "
+    "(decision D-17), so this page will not tell you a copy is gone from a "
+    "place nobody has described.</li>"
+    "</ul>"
+)
+
+
+def render_deletion_preview(plan: DeletionPlan) -> bytes:
+    """What would be destroyed, counted, before anything is.
+
+    Two requests for the same reason `/reverse-all` is two: the first measures
+    and writes nothing, the second executes the plan that was shown. A
+    single-request version would have to measure at confirmation time, which
+    means deleting a set the person was never shown.
+
+    The counts are rendered as `data-` attributes as well as words, so a test
+    matches the NUMBER rather than the prose. Two tests in this project were
+    green and vacuous because they searched a page for a common word the
+    stylesheet already contained.
+    """
+    companies = (
+        "".join(
+            f"<tr><td><code>{esc(key)}</code></td></tr>"
+            for key in plan.companies_erased
+        )
+        or "<tr><td class=muted>nothing learned about any company yet</td></tr>"
+    )
+    shared = (
+        "<p class=reason>"
+        f"{len(plan.companies_kept)} company/companies are left alone because "
+        "another customer is also recorded as working in them: "
+        + ", ".join(f"<code>{esc(key)}</code>" for key in plan.companies_kept)
+        + "</p>"
+        if plan.companies_kept
+        else ""
+    )
+    return page(f"""<div class=warn data-deletion="preview"
+ data-companies="{len(plan.companies_erased)}"
+ data-users="{plan.users}" data-sessions="{plan.sessions}"
+ data-actions-kept="{plan.actions_kept}">
+<b>Delete everything we have learned about {esc(plan.tenant_name)}?</b>
+Nothing has been deleted yet. This closes {plan.users} sign-in(s), ends
+{plan.sessions} signed-in session(s) including this one, and erases what we
+learned about {len(plan.companies_erased)} company/companies. It cannot be
+undone.</div>
+<h2>What we would erase</h2>
+<table>{companies}</table>
+{shared}
+{DELETION_KEEPS}
+<form method=post action=/delete-my-data>
+<input type=hidden name=plan value="{esc(plan.plan_id)}">
+<input type=hidden name=confirm value="yes">
+<button class=primary>Yes, delete my data</button></form>
+<p><a href="/">&larr; no, leave it alone</a></p>""")
+
+
+def render_deletion_result(done: TenantDeletion) -> bytes:
+    """What actually happened, counted, in the store's own words.
+
+    `done.summary()` is printed verbatim — the same sentence that went into the
+    audit row. Two wordings of one event is how a screen and a log end up
+    disagreeing, and the one nobody is watching is always the one that stays
+    wrong.
+    """
+    erased = (
+        "".join(
+            f"<tr><td><code>{esc(key)}</code></td></tr>"
+            for key in done.companies_erased
+        )
+        or "<tr><td class=muted>there was nothing learned to erase</td></tr>"
+    )
+    return page(f"""<div class="card valid" data-deletion="done"
+ data-companies="{len(done.companies_erased)}"
+ data-users="{done.users_closed}" data-sessions="{done.sessions_revoked}"
+ data-actions-kept="{done.actions_kept}">
+<span class="badge b-valid">deleted</span>
+<p class=reason>{esc(done.summary())}</p>
+<p class=reason>You have been signed out. This account cannot be signed in to
+again.</p>
+</div>
+<h2>What we erased</h2>
+<table>{erased}</table>
+{DELETION_KEEPS}""")
+
+
 def render_home(banner: str = "") -> bytes:
     live = runtime()
     # ONE company, read once, used for all three reads below. Two calls to
@@ -2066,7 +2292,14 @@ def render_home(banner: str = "") -> bytes:
 <h2>Trial balance</h2>
 <table>{tb_rows}</table>
 
-<h2>Activity</h2><section id=log>{events}</section>""")
+<h2>Activity</h2><section id=log>{events}</section>
+
+<h2>Your data</h2>
+<form method=post action=/delete-my-data>
+<button>Delete everything we have learned about you</button></form>
+<p class=hint>A right you can use, so it is a button and not an email address.
+Pressing it shows you exactly what would go, counted, and deletes nothing until
+you say yes on that page.</p>""")
 
 
 # ---- server -----------------------------------------------------------------
@@ -2747,7 +2980,125 @@ class Handler(BaseHTTPRequestHandler):
             self._send(render_bulk_result(result))
             return
 
+        if self.path == "/delete-my-data":
+            self._delete_my_data(form)
+            return
+
         self._send(render_home(), 404)
+
+    def _delete_my_data(self, form: dict[str, str]) -> None:
+        """A customer deleting their own data. Two requests, own tenant only.
+
+        THE TENANT IS NEVER READ FROM THE REQUEST. It comes off
+        `current_principal()`, which `_identify` built from the credential, and
+        that is the whole of the isolation guarantee here. A tenant id taken
+        from this form would let any customer delete any other customer's data
+        with one edited field — which is the exact rule `docs/AUTH.md` exists to
+        enforce, arriving through the most destructive route in the product.
+
+        TWO STEPS, like `/reverse-all`, and bound to the person the same way.
+        The first request measures and writes nothing; the second executes the
+        plan that was SHOWN, and only for the person it was shown to. A
+        confirmation from a colleague who saw nothing is a deletion nobody
+        agreed to, and every other check would pass on the way through.
+
+        THE RUNTIME'S MEMORY IS INVALIDATED when this company's index was one of
+        the ones erased. `CompanyMemory` answers from the store rather than from
+        a cached index, so the learning really is gone the moment the rows are —
+        but `report` still says READY, and a READY report is the app claiming it
+        has read books whose derived index no longer exists. `invalidate` is the
+        method that already exists for exactly this, and after it every entry is
+        a question rather than a proposal.
+
+        WHAT IS DELETED AND WHAT IS KEPT is `MemoryStore.delete_tenant`, not
+        this handler. The route decides WHO may ask; the store decides what the
+        answer does.
+        """
+        live = runtime()
+        who = current_principal()
+        if who is None:  # pragma: no cover - `_identify` has already run
+            self._refuse(AuthRefusal(401, "no session was identified"))
+            return
+
+        if form.get("confirm") != "yes":
+            plan = deletion_plan(live.store, who)
+            if plan is None:
+                self._no_customer_record(who)
+                return
+            remember_deletion(plan, who)
+            self._send(render_deletion_preview(plan))
+            return
+
+        shown = deletion_for(form.get("plan", ""))
+        if shown is None:
+            # No preview, one that has aged out, or one taken by somebody else.
+            # Not an error to hide: confirming a deletion nobody was shown is
+            # the exact thing the two steps exist to prevent, so the person is
+            # sent back to look at what it would do.
+            self._send(
+                render_home(
+                    "<div class=warn>That delete-my-data request had no "
+                    "preview, so nothing was deleted. Start again and read "
+                    "what it would remove.</div>"
+                )
+            )
+            return
+
+        done = live.store.delete_tenant(
+            who.tenant_id, datetime.datetime.now(datetime.UTC).isoformat()
+        )
+        # BEFORE the memory is invalidated, because `note()` writes through the
+        # runtime and the row is the point of the whole request. A deletion
+        # nobody can find afterwards cannot be evidenced to the customer who
+        # asked for it, and this is the row they will be shown.
+        note(
+            "data_deleted",
+            "deleted",
+            f"{who.user_id} asked for their own customer data to be deleted: "
+            f"{done.summary()}",
+            detail=(
+                f"erased={list(done.companies_erased)} "
+                f"kept={list(done.companies_kept)} "
+                f"users_closed={done.users_closed} "
+                f"sessions_revoked={done.sessions_revoked} "
+                f"index_rows_erased={done.rows_erased} "
+                f"action_rows_kept={done.actions_kept}"
+            ),
+        )
+        body = render_deletion_result(done)
+        if live.company_key in done.companies_erased:
+            live.memory.invalidate(
+                "the customer asked for their data to be deleted, so the index "
+                "we derived from this company's books was erased"
+            )
+        # The cookie is cleared as well as revoked. Every session was killed in
+        # the same transaction as the deletion, so the browser is holding a
+        # credential the server will now refuse; leaving it there would answer
+        # the next request with a 401 that reads like a fault.
+        self._send_with_session(body, "", clear=True)
+
+    def _no_customer_record(self, who: Principal) -> None:
+        """There is no `tenant` row behind this session, so nothing may be erased.
+
+        Reachable in LOCAL_DEV_MODE, where the principal is a constant and no
+        customer record was ever created. Refused rather than approximated: the
+        deletion has to be RECORDED on the tenant row, and erasing an index
+        while nothing says who asked or when is a half-deletion that cannot
+        afterwards be explained to anybody.
+
+        400 rather than 503. The service is fine; the request cannot be
+        completed for this caller.
+        """
+        self._send(
+            page(
+                "<div class=warn><b>There is no customer account behind this "
+                "session, so there is nothing to delete.</b> This session "
+                f"belongs to {esc(who.tenant_id)}, which has no customer "
+                "record. Nothing was erased.</div>"
+                '<p><a href="/">&larr; back</a></p>'
+            ),
+            code=400,
+        )
 
 
 # ---- where IS Tally, and may we write to it? --------------------------------

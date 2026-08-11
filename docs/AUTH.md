@@ -194,6 +194,11 @@ session    token_fingerprint PK, user_id, tenant_id, created_at, expires_at,
 set equality is exact: a new table cannot be added without deciding, in that
 test, which shape it is.
 
+`deleted_at` on `tenant` and `app_user` was declared here on 2026-08-10 and
+nothing set it. Task 13 does, on 2026-08-11: closing an account sets both,
+revokes every session in the same transaction, and `authenticate` refuses a
+session whose tenant is not live. See [`DATA_DELETION.md`](./DATA_DELETION.md).
+
 ## The audit log names the tenant and the user
 
 `action_log` gained `tenant_id` and `user_id`, nullable, reading back as
