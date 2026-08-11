@@ -9,6 +9,83 @@ other into false confidence.
 Nothing here blocks coding work. Each item is recorded and work continues around
 it.
 
+## THE THREE LINES ONLY YOU CAN APPLY
+
+Everything below this block is either done, decided, or genuinely waiting on a
+person. **This section is the short version: one secret and three lines, and
+they unblock four separate pieces of work at once.**
+
+`.github/` is refused twice over in this environment — the file tool denies the
+directory, and the shell path is refused by the permission classifier. Both
+refusals stand even with your written authorisation, because they are a harness
+setting rather than a missing permission from you. Working around either would
+be bypassing the intent of the denial, so it was not attempted.
+
+### 1. Create the secret
+
+Repository secret, name exactly `CLAUDE_AUDIT_TOKEN`. A fine-grained personal
+access token with **`Administration: read` and nothing else**. Never send the
+value to anybody, including me — the code that uses it never needs to see it,
+and a test asserts it is never printed.
+
+### 2. Three lines in `.github/workflows/`
+
+**a. `pr-fast.yml`, job `pr-fast`, step `sync dependencies from the lockfile`.**
+This is the `lockfile` gate, and it has never checked anything: `--frozen` is
+the one uv flag that guarantees the check is SKIPPED.
+
+```
+BEFORE
+      - name: sync dependencies from the lockfile
+        # --frozen fails if uv.lock does not match pyproject.toml, which is the
+        # `uv lock --check` gate.
+        run: uv sync --extra dev --frozen
+
+AFTER
+      - name: sync dependencies from the lockfile
+        # --locked, NOT --frozen. This step IS the `lockfile` gate declared in
+        # ci/gates.toml, and until now it checked nothing. uv's reference:
+        # --frozen skips the check, --locked requires the lockfile to be up to
+        # date.
+        run: uv sync --extra dev --locked
+```
+
+**b. `pr-fast.yml`, the workflow-level `env:` block.** Add one line beside the
+existing `GH_TOKEN`. `GH_TOKEN` STAYS — the nine other live protection tests
+measure what the DEFAULT identity can do, and replacing it destroys that
+measurement.
+
+```
+  CLAUDE_AUDIT_TOKEN: ${{ secrets.CLAUDE_AUDIT_TOKEN }}
+```
+
+**c. `pr-fast.yml`, the same `env:` block.** The four tamper tests are skipped
+by default so a plain `pytest` never asks GitHub to delete a repository. In CI
+the refusal IS the measurement, so CI must opt in.
+
+```
+  RUN_DESTRUCTIVE_TESTS: "1"
+```
+
+### What those three lines unblock
+
+```
+the secret + line b  ->  bypass_actors becomes readable, so the honest
+                         three-state reporting stops turning CI red
+line b               ->  ci/test_protection.py's module-level skipif can go,
+                         because the live tests can finally run in CI
+that skip going      ->  ci/check_workflow_integrity.py can land, since it
+                         correctly refuses to pass a tree containing one
+the checker landing  ->  the ack-fingerprint content hash lands with it
+line a               ->  the lockfile gate starts checking
+line c               ->  the tamper tests measure the refusal in CI
+```
+
+**One action, four unblocked.** PR #34 goes green on its own once they are
+applied; nothing further needs writing.
+
+---
+
 ## Owner / Manual Work
 
 ### Deployment target
