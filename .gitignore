@@ -32,3 +32,10 @@ coverage/
 
 # Pinned tools fetched by scripts/install-actionlint
 .tools/
+
+# The durable database. This is a REAL CUSTOMER'S AUDIT TRAIL and their vendor
+# and account history - the one file in this project that must never reach a
+# commit. `ACCOUNTANT_DB` moves it; `data/app.db` is where it lands otherwise.
+data/
+*.db
+*.sqlite3

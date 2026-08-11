@@ -64,6 +64,23 @@ from accountant.tallyio import real
 from accountant.tallyio.factory import RealTallyRequired
 from accountant.web import app
 
+
+@pytest.fixture(autouse=True)
+def a_database_outside_the_working_tree(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """This file is the only one that runs `serve()` for real, so it is the only
+    one that reaches `connect()` -> `default_store()`.
+
+    Added 2026-08-10 with the durable audit log. Without it the suite wrote a
+    real `data/app.db` into the working tree on every run: harmless here, and
+    exactly the shape of accident that ends with a customer's audit trail in a
+    commit. The variable is what a deployment uses to move the database, so
+    pointing it at `tmp_path` is the same mechanism rather than a special case.
+    """
+    monkeypatch.setenv(app.ENV_DB, str(tmp_path / "app.db"))
+
+
 # Every wait in this file is bounded by this. `serve()` calls `serve_forever()`,
 # so a test that waits without a deadline does not fail, it hangs the suite.
 HARD_TIMEOUT = 15.0
