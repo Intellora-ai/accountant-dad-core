@@ -288,62 +288,39 @@ tidy a cosmetic leak is the thing this project has a rule against.
 part of the decision. Recorded here rather than added, so the choice is visible
 rather than taken quietly.
 
-### Destructive tests are opt-in now — DECIDED 2026-08-11, hard requirement
+### Destructive tests are opt-in — DONE, landed separately
 
-`pyproject.toml` sets `testpaths = ["tests", "ci"]`, so `ci/test_protection.py`
-was in the DEFAULT suite. Four of its tests ask GitHub to disable the ruleset,
-delete the ruleset, enable force-push, and **delete the repository**. They pass
-because every call is refused, and the refusal IS the measurement — that design
-is unchanged and was not weakened.
+Merged on its own so it did not have to wait on a secret. A plain `pytest` no
+longer asks GitHub to delete anything; `RUN_DESTRUCTIVE_TESTS=1` opts in.
 
-What was wrong is that a plain `pytest` fired them, against the real
-repository, as whoever `gh` happens to be authenticated as. Safe exactly as
-long as the token cannot do it, which is a property of somebody's credential
-rather than of this code.
+**Needed: nothing here.** Setting `RUN_DESTRUCTIVE_TESTS=1` in CI is listed
+under the lockfile entry above, because it is the same blocked `.github` edit.
 
-```
-pytest                              the four are SKIPPED
-RUN_DESTRUCTIVE_TESTS=1 pytest      the four run, and prove the refusal
-```
 
-Strictly `"1"` — not `"true"`, not `"yes"`, not `" 1"` — for the same reason
-`LOCAL_DEV_MODE` is strict: a loose reading turns a typo into a live
-delete-the-repository call.
+### An acknowledgement now expires with its content — BUILT, WAITING ON YOU
 
-Two AST tests hold it: one finds every test that calls a destructive endpoint
-and fails if it is not gated, so a fifth added later cannot arrive ungated; the
-other is the control, asserting the scan finds exactly the four known ones, so
-a broken scan cannot pass by finding nothing.
+The fingerprint was `CODE:location`, so an acknowledgement said *"somebody
+looked at the header of `pr-fast.yml` once"* and went on saying it for ever.
+Measured: `contents: read` swapped for `write-all`, nothing else touched, no ack
+added — and the checker returned **PASS**, consuming an ack written for a
+different change.
 
-**Needed: set `RUN_DESTRUCTIVE_TESTS=1` in CI**, where the refusal is the thing
-being proved. That is a `.github` line and is not applied — see the lockfile
-entry above for why `.github/` cannot be written from here.
+It is now `CODE:location:hash-of-the-acknowledged-content`, over all six
+acknowledgeable finding types. An ack dies the moment its content changes.
 
-### An acknowledgement now expires with its content — DECIDED 2026-08-11
+**Why it has not landed.** It ships with `ci/check_workflow_integrity.py`, which
+correctly flags `ci/test_protection.py`'s module-level `pytest.mark.skipif` as
+`PROTECTION_TEST_SKIPPABLE` — a module-level skip is how those tests once passed
+on every hosted run without calling GitHub. Removing that skip needs the live
+tests to actually run in CI, which needs `CLAUDE_AUDIT_TOKEN`.
 
-`ci/check_workflow_integrity.py`'s fingerprint was `CODE:location`. So an
-acknowledgement said *"somebody looked at the header of `pr-fast.yml` once"* and
-went on saying it for ever. The two lines shipped for one authorised two-line
-change permanently pre-authorised **every future rewrite** of the triggers,
-permissions, concurrency and env of the two most sensitive workflows here.
+So the chain is: **secret → workflow line → the skip can go → the checker can
+land.** One action of yours unblocks all four.
 
-Measured before the fix: `permissions:\n  contents: read` replaced by
-`permissions: write-all` in `pr-fast.yml`, nothing else touched, no ack added —
-and the checker returned **PASS**, consuming an ack written for a different
-change.
+**Needed: create `CLAUDE_AUDIT_TOKEN` and apply the two workflow lines** (this
+entry and the lockfile entry above give both verbatim). Nothing else about it is
+undecided, and no further code is waiting to be written.
 
-The fingerprint is now `CODE:location:hash-of-the-acknowledged-content`, over
-all six acknowledgeable finding types. An ack dies the moment its content
-changes. Whitespace is collapsed first, so a reflow does not expire an approval
-and train people to re-add acks without reading.
-
-The checker prints the line to copy, because nobody can construct the hash by
-hand — that is the point.
-
-`ci/workflow_changes.ack` also **misdescribed what you authorised**: it said
-*"`administration: read` … and `GH_TOKEN` … Four added lines"*. The diff is TWO
-lines, both `GH_TOKEN`; `administration: read` is not in it and cannot be.
-Corrected in place.
 
 ### Legal
 Privacy policy, terms of service, billing, refunds, and a support process. The
