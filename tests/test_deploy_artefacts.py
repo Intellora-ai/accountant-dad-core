@@ -5,8 +5,14 @@ WHAT THIS FILE PROVES, AND WHAT IT DOES NOT
 No image is built, pulled, run or pushed here, so the evidence class is
 `NOT MEASURED` and nothing in this file says a container starts. What it does
 prove is the part that can be proved before any of that exists: that the
-Dockerfile still has the properties it was written for, and that
-`scripts/deploy` refuses to invent a registry.
+Dockerfile still has the properties it was written for, that `scripts/deploy`
+refuses to invent a registry, and — since 2026-08-11 — that no artefact anywhere
+invents a TENANT ID while all four of them say the variable has to be set.
+
+That last one is four checks and not one, on purpose. `ACCOUNTANT_TENANT` unset
+means every request is refused 403, deliberately, so the thing that goes wrong
+is not a wrong value: it is nobody being told there is a value to supply. One
+document saying so is one document somebody has not opened.
 
 Every one of those properties is written down in `docs/DEPLOY.md` as well. A
 promise in a document is not a check — it is a sentence that stays true until
@@ -42,16 +48,25 @@ from typing import Any
 
 import pytest
 
+from accountant.auth import ENV_LOCAL_DEV_MODE, LOCAL_DEV_TENANT, AuthRefusal
+from accountant.web import app
+
 ROOT = Path(__file__).resolve().parent.parent
 DOCKERFILE = ROOT / "Dockerfile"
 DOCKERIGNORE = ROOT / ".dockerignore"
 DEPLOY = ROOT / "scripts" / "deploy"
+DEPLOY_DOC = ROOT / "docs" / "DEPLOY.md"
 PYPROJECT = ROOT / "pyproject.toml"
 PYTHON_VERSION = ROOT / ".python-version"
 APP = ROOT / "accountant" / "web" / "app.py"
 
 #: The variable `scripts/deploy` reads, and the one it must never default.
 REGISTRY = "ACCOUNTANT_REGISTRY"
+
+#: WHOSE books a running process serves. Read by the app, never valued by any
+#: artefact: a tenant id is a customer's identity, and an artefact that carries
+#: one has put a customer's name in every registry, cache and backup it reaches.
+TENANT = app.ENV_TENANT
 
 #: Names whose presence in an image layer is a leak, whatever the value is.
 SECRET_WORDS = ("SECRET", "TOKEN", "PASSWORD", "PASSWD", "CREDENTIAL", "APIKEY")
@@ -169,6 +184,79 @@ def baked_secrets(instrs: list[tuple[str, str]]) -> list[str]:
         for key in environment(instrs)
         if any(word in key.upper() for word in SECRET_WORDS)
     ]
+
+
+def baked_tenant(instrs: list[tuple[str, str]]) -> str | None:
+    """The tenant id the image carries, or None when it carries none.
+
+    An EMPTY value is not a tenant id, and the difference is the whole decision
+    the Dockerfile records. `ENV ACCOUNTANT_TENANT=""` is a note to whoever runs
+    the image — it shows up in `docker inspect` and `docker history`, and a
+    variable nobody wrote down cannot — while behaving exactly as unset does:
+    `served_tenant()` strips the value and refuses on anything empty.
+
+    The quotes are stripped because `=""`, `=''` and `=` are three spellings of
+    the same empty, and a check that only knew one of them would be a check
+    about punctuation.
+    """
+    value = environment(instrs).get(TENANT)
+    if value is None:
+        return None
+    return value.strip().strip("\"'").strip() or None
+
+
+def named_tenant(provenance: list[str]) -> str | None:
+    """What the startup banner says about the tenant, or None if it is silent.
+
+    Read out of the provenance lines rather than off a substring of the whole
+    banner: a line that merely MENTIONS the variable somewhere in a sentence is
+    not the banner reporting a resolved value, and the failure this catches is
+    the banner going quiet about which customer the process serves.
+    """
+    for line in provenance:
+        name, sep, rest = line.partition("=")
+        if sep and name.strip() == TENANT:
+            return rest.strip()
+    return None
+
+
+def documented_variables(text: str) -> dict[str, str]:
+    """`docs/DEPLOY.md`'s environment table, as `{variable: what if it is missing}`.
+
+    Parsed as a table rather than searched as text for the same reason the
+    Dockerfile is parsed into instructions. The document explains the tenant at
+    length in prose; a substring scan would pass on the explanation and go on
+    passing after the row that states the FAILURE MODE was deleted, which is the
+    row an operator actually reads.
+    """
+    rows: dict[str, str] = {}
+    for line in text.splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) != 3:
+            continue
+        found = re.fullmatch(r"`([A-Z_]+)`", cells[0])
+        if found is not None:
+            rows[found.group(1)] = cells[2]
+    return rows
+
+
+def states_the_refusal(sentence: str) -> bool:
+    """True when a sentence says what happens with no tenant, not just that one exists.
+
+    "Set ACCOUNTANT_TENANT" is advice, and advice is what gets skipped. "Every
+    request is refused 403" is a consequence, and a consequence is what makes
+    somebody go and set it. Both halves are required, so deleting the
+    consequence and leaving the name is caught.
+    """
+    lowered = sentence.lower()
+    return "403" in lowered and "refus" in lowered
+
+
+def announces_the_tenant(text: str) -> bool:
+    """True when `text` names the variable AND says what happens without it."""
+    return TENANT in text and states_the_refusal(text)
 
 
 def shell_code(text: str) -> str:
@@ -741,3 +829,289 @@ def test_the_script_says_plainly_that_nothing_was_deployed(tmp_path: Path) -> No
     result = run_deploy(env)
 
     assert "NOTHING WAS DEPLOYED" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# 11. the image names the tenant and values it nowhere
+# ---------------------------------------------------------------------------
+
+
+def test_the_image_carries_no_tenant_id() -> None:
+    """A tenant id is a customer's identity, and an image goes to a registry.
+
+    Baking one in would put that customer's name in every registry, cache and
+    backup the image ever touches, and would silently make this one image PER
+    CUSTOMER — a separate build to tag, push and audit every time somebody signs
+    up. The image is the same for everybody.
+    """
+    assert baked_tenant(dockerfile()) is None, (
+        f"the image carries the tenant id {baked_tenant(dockerfile())!r}"
+    )
+
+
+def test_the_image_declares_the_tenant_variable_so_it_cannot_be_missed() -> None:
+    """Empty, but PRESENT. `docker inspect` and `docker history` show a declared
+    variable and cannot show one nobody wrote down, so the operator working out
+    what to pass to `docker run` is told by the image itself."""
+    assert TENANT in environment(dockerfile()), (
+        f"the image never mentions {TENANT}, so nothing in it says the server "
+        f"refuses every request until that variable is set"
+    )
+
+
+def test_the_tenant_variable_is_the_one_the_application_reads() -> None:
+    """Named from the source, not from memory. A Dockerfile declaring a variable
+    the app does not read is a declaration with no effect and no error."""
+    declared = re.search(r'ENV_TENANT = "([A-Z_]+)"', APP.read_text(encoding="utf-8"))
+    assert declared is not None
+    assert declared.group(1) in environment(dockerfile())
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "\t\n"])
+def test_a_blank_tenant_in_the_image_still_means_refuse(
+    monkeypatch: pytest.MonkeyPatch, blank: str
+) -> None:
+    """The property the empty declaration RESTS on, measured rather than assumed.
+
+    Declaring the variable is only safe while a blank value behaves exactly as
+    an absent one does. The day `served_tenant()` accepts it, the image ships a
+    tenant id of `""` — a value, not an absence — and the fail-closed refusal
+    the whole of defect J1 turns on is gone with no other symptom anywhere.
+
+    Whitespace is in the list because it is the same mistake with a space in it:
+    a `docker run -e ACCOUNTANT_TENANT=" "`, or a value pasted with a newline,
+    must not be a tenant either. Two mutants were needed to prove both halves —
+    dropping the `.strip()` survives an empty-string-only check.
+    """
+    monkeypatch.delenv(ENV_LOCAL_DEV_MODE, raising=False)
+    monkeypatch.setenv(TENANT, blank)
+
+    with pytest.raises(AuthRefusal) as refusal:
+        app.served_tenant()
+
+    assert refusal.value.status == 403
+    assert TENANT in refusal.value.reason
+
+
+def test_the_control_a_dockerfile_that_bakes_a_tenant_id_is_caught() -> None:
+    planted = instructions(
+        f"FROM python:3.14.6-slim\nENV {TENANT}=a-real-customers-id\n"
+    )
+    assert baked_tenant(planted) == "a-real-customers-id"
+
+
+def test_the_control_a_quoted_tenant_id_is_still_a_tenant_id() -> None:
+    """Quoting is punctuation. The obvious way to slip a value past a check that
+    only knew the bare spelling is to write the quoted one."""
+    planted = instructions(f'FROM python:3.14.6-slim\nENV {TENANT}="a-customer"\n')
+    assert baked_tenant(planted) == "a-customer"
+
+
+def test_the_control_a_dockerfile_that_never_mentions_the_tenant_is_caught() -> None:
+    """The other guard's control. Silence is the failure mode here: an image
+    that says nothing leaves the operator to find the variable in a document."""
+    planted = instructions("FROM python:3.14.6-slim\nENV ACCOUNTANT_DB=/app/x.db\n")
+    assert TENANT not in environment(planted)
+
+
+def test_the_control_an_empty_declaration_is_not_a_baked_tenant() -> None:
+    """The direction that keeps the guard usable. All three spellings of empty
+    are a note to the operator, not a customer's identity."""
+    for empty in ('""', "''", ""):
+        planted = instructions(f"FROM python:3.14.6-slim\nENV {TENANT}={empty}\n")
+        assert baked_tenant(planted) is None, empty
+        assert TENANT in environment(planted), empty
+
+
+# ---------------------------------------------------------------------------
+# 12. the deploy script neither defaults the tenant nor stays quiet about it
+# ---------------------------------------------------------------------------
+
+
+def test_the_tenant_variable_has_no_default_in_the_script() -> None:
+    """The same rule as the registry, for the same reason. A default tenant id
+    is a customer's books handed to whoever the fallback happened to name."""
+    assert not defaulted(shell_code(DEPLOY.read_text(encoding="utf-8")), TENANT)
+
+
+def test_the_control_a_defaulted_tenant_is_caught() -> None:
+    assert defaulted(f'{TENANT}="a-real-customers-id"\n', TENANT)
+    assert defaulted(f'REF="${{{TENANT}:-a-real-customers-id}}"\n', TENANT)
+
+
+def test_the_script_says_the_runtime_must_set_the_tenant(tmp_path: Path) -> None:
+    """It builds and pushes; it cannot set a run-time variable on a machine it
+    has never heard of. What it CAN do is refuse to be quiet, and the sentence
+    has to carry the consequence — advice is what gets skipped."""
+    env, _ = fake_docker(tmp_path)
+    env[REGISTRY] = "registry.example.invalid/placeholder-namespace"
+
+    result = run_deploy(env)
+
+    assert announces_the_tenant(result.stdout), result.stdout
+
+
+def test_the_control_a_script_that_never_mentions_the_tenant_is_caught() -> None:
+    assert not announces_the_tenant("pushed x\n\nNOTHING WAS DEPLOYED.\n")
+
+
+def test_the_control_naming_the_tenant_without_the_consequence_is_caught() -> None:
+    """The regression this predicate is shaped for: somebody shortens the
+    closing message, keeps the variable name and drops what happens without it.
+    A reader is then told to set something and never told why."""
+    assert not announces_the_tenant(f"Remember to set {TENANT} on the host.\n")
+
+
+# ---------------------------------------------------------------------------
+# 13. the startup banner says which customer this process serves
+# ---------------------------------------------------------------------------
+#
+# Behavioural, not textual. `config_from_environment()` is called for real and
+# its provenance lines are read, because the property is "the banner reports the
+# tenant", and a source scan would keep passing on a line that had stopped being
+# printed.
+
+
+def provenance_with(
+    monkeypatch: pytest.MonkeyPatch, **environ: str | None
+) -> list[str]:
+    for name, value in environ.items():
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+    return app.config_from_environment()[3]
+
+
+def test_the_startup_banner_names_the_tenant_it_was_given(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The first thing printed at startup already said WHICH books this process
+    opens. Until 2026-08-11 it could not say WHOSE, and those are two halves of
+    one statement."""
+    lines = provenance_with(
+        monkeypatch,
+        **{ENV_LOCAL_DEV_MODE: None, TENANT: "placeholder-tenant-id"},
+    )
+
+    reported = named_tenant(lines)
+    assert reported is not None, lines
+    assert "placeholder-tenant-id" in reported
+    assert "environment" in reported, reported
+
+
+def test_the_startup_banner_says_local_dev_rather_than_a_blank(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """In LOCAL_DEV_MODE the served tenant is the constant `local-dev` — that is
+    what `served_tenant()` returns and what `authenticate` hands out. Printing a
+    blank would read as the misconfiguration below on the one setup where it is
+    not one."""
+    lines = provenance_with(monkeypatch, **{ENV_LOCAL_DEV_MODE: "1", TENANT: None})
+
+    reported = named_tenant(lines)
+    assert reported is not None, lines
+    assert LOCAL_DEV_TENANT in reported, reported
+
+
+def test_the_startup_banner_names_the_refusal_when_no_tenant_is_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unset is not a default and must not be printed as one. The line says what
+    the server will do about it, which is refuse every request."""
+    lines = provenance_with(monkeypatch, **{ENV_LOCAL_DEV_MODE: None, TENANT: None})
+
+    reported = named_tenant(lines)
+    assert reported is not None, lines
+    assert states_the_refusal(reported), reported
+    assert "(default)" not in reported, reported
+
+
+def test_the_control_a_banner_that_never_reports_the_tenant_is_caught() -> None:
+    """The banner as it stood before 2026-08-11: every other resolved value, and
+    silence about the customer."""
+    assert (
+        named_tenant(
+            [
+                "ACCOUNTANT_DB='/app/data/app.db' (environment)",
+                "ACCOUNTANT_COMPANY='Some Company' (default)",
+            ]
+        )
+        is None
+    )
+
+
+def test_the_control_a_tenant_mentioned_in_passing_is_not_a_report() -> None:
+    """The other direction. A sentence about the variable is not the banner
+    reporting a resolved value, and a predicate that could not tell them apart
+    would pass on a banner that had gone quiet."""
+    assert named_tenant([f"set {TENANT} before starting this server"]) is None
+
+
+# ---------------------------------------------------------------------------
+# 14. the docs state the tenant's failure mode, not just its name
+# ---------------------------------------------------------------------------
+
+
+def test_the_deploy_document_lists_the_tenant_variable() -> None:
+    assert TENANT in documented_variables(DEPLOY_DOC.read_text(encoding="utf-8")), (
+        f"docs/DEPLOY.md does not list {TENANT} in its environment table"
+    )
+
+
+def test_the_deploy_document_states_what_happens_when_the_tenant_is_missing() -> None:
+    """Naming a variable is advice. "Every request is refused 403" is the
+    reason somebody sets it, and it is deliberate rather than a bug to route
+    around — which is exactly what a reader who was told only the first half
+    would try to do."""
+    rows = documented_variables(DEPLOY_DOC.read_text(encoding="utf-8"))
+    assert TENANT in rows
+    assert states_the_refusal(rows[TENANT]), rows[TENANT]
+
+
+def test_every_accountant_variable_the_image_sets_is_documented() -> None:
+    """Two lists that must agree, checked rather than remembered.
+
+    The image is where a variable becomes invisible: it is set, it works, and
+    nobody reading the document knows it exists. Scoped to `ACCOUNTANT_*`
+    because the `PYTHON*` settings are the interpreter's and are explained in
+    the Dockerfile beside the lines that set them.
+    """
+    image = {
+        name for name in environment(dockerfile()) if name.startswith("ACCOUNTANT")
+    }
+    documented = set(documented_variables(DEPLOY_DOC.read_text(encoding="utf-8")))
+    assert image <= documented, f"undocumented: {sorted(image - documented)}"
+
+
+def test_the_control_a_document_that_omits_the_tenant_row_is_caught() -> None:
+    planted = (
+        "| Variable | Set in the image? | If it is missing |\n"
+        "|---|---|---|\n"
+        "| `ACCOUNTANT_DB` | **Yes** | Falls back to a disposable path. |\n"
+    )
+    assert TENANT not in documented_variables(planted)
+
+
+def test_the_control_a_tenant_row_with_no_failure_mode_is_caught() -> None:
+    """The likelier regression: the row survives an edit and the consequence in
+    it does not."""
+    planted = (
+        "| Variable | Set in the image? | If it is missing |\n"
+        "|---|---|---|\n"
+        f"| `{TENANT}` | Declared, empty | Set it to the tenant id. |\n"
+    )
+    rows = documented_variables(planted)
+    assert TENANT in rows
+    assert not states_the_refusal(rows[TENANT])
+
+
+def test_the_control_the_tenant_named_only_in_prose_is_not_a_documented_row() -> None:
+    """The reason the table is parsed rather than the file scanned. The document
+    explains this variable at length; the explanation is not the row an operator
+    reads, and must not be able to stand in for it."""
+    planted = (
+        f"`{TENANT}` names the customer this process serves, and unset means "
+        f"every request is refused 403.\n"
+    )
+    assert TENANT not in documented_variables(planted)

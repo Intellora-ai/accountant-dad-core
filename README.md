@@ -61,6 +61,12 @@ mapping is silently incomplete and the score under-reports badly.
 
 ```bash
 uv sync --extra dev
+
+# Whose books this process serves. No default, on purpose: unset means every
+# request is refused 403 rather than any customer being let in. Any id you like
+# on a laptop; the real customer's id in anything real.
+export ACCOUNTANT_TENANT=whichever-tenant-owns-these-books
+
 python -m accountant.web              # http://127.0.0.1:8000
 
 It connects to TallyPrime FIRST. If Tally is not running, or the company is not

@@ -57,6 +57,27 @@ ENV PYTHONPATH=/app
 # write the mount point is one place to get it wrong.
 ENV ACCOUNTANT_DB=/app/data/app.db
 
+# WHOSE BOOKS THIS PROCESS SERVES - NAMED HERE, VALUED NOWHERE. 2026-08-11.
+#
+# A tenant id is a customer's identity. Baking a real one in would put that
+# customer's name in every registry, cache and backup this image ever touches,
+# and it would quietly make this ONE IMAGE PER CUSTOMER: a separate build to
+# tag, push and audit every time somebody signs up. The image is the same for
+# everybody. WHO it serves is a run-time fact and is injected at run time.
+#
+# So the variable is declared EMPTY rather than left out, and the two are not
+# the same thing to a reader. They are identical to the CODE - `served_tenant()`
+# reads `os.environ.get(ENV_TENANT, "").strip()`, so empty and absent both
+# refuse every request 403 - but only a declared variable shows up in
+# `docker inspect` and `docker history`. The operator working out what to pass
+# to `docker run` is told by the image itself instead of by a document they may
+# not have open. tests/test_deploy_artefacts.py asserts it stays empty, because
+# the day it holds a real id it has stopped being a hint and become a leak.
+#
+# NOTHING THAT LOOKS LIKE AN ID GOES HERE, not even as an example. A value that
+# reads as real is a value somebody deploys.
+ENV ACCOUNTANT_TENANT=""
+
 # LOCAL_DEV_MODE IS DELIBERATELY ABSENT, AND MUST STAY ABSENT.
 # Unset, authentication is required. Set to 1 it means every request runs as
 # tenant "local-dev" and anybody who can reach the port can read and write
