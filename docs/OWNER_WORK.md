@@ -267,6 +267,33 @@ It supports unique constraints and migrations and needs no server. It will not
 support two web workers writing at once — SQLite locks the whole file — so
 Task 11's concurrency has a ceiling until this is revisited.
 
+**What Task 11 measured, 2026-08-11.** The server is now
+`ThreadingHTTPServer`: one thread per connection, so two people no longer queue
+behind each other and a hung Tally call no longer takes the product down for
+everybody. `MemoryStore` opens its connection with `check_same_thread=False`
+and every method that uses it holds one `threading.RLock`
+(`accountant/memory/store.py::MemoryStore.__init__` records the two routes not
+taken and why).
+
+Be clear about what that buys, because the honest answer is smaller than it
+sounds:
+
+- **What is now parallel:** everything outside the database. The slow part of a
+  request is the Tally round trip, and it holds no lock at all.
+- **What is still serial:** every SQL statement in the process. The lock costs
+  us parallel *reads*, which SQLite would have allowed; SQLite already
+  serialised every *write* by locking the whole file, so no write throughput was
+  given up.
+- **What is still one:** the process. Two web workers against one SQLite file
+  is exactly what this entry defers, and nothing in Task 11 changes it.
+
+**The trigger to revisit:** when read latency under load, or a second worker,
+becomes the constraint. Neither is measured today, and one Python lock around a
+database this small is not the bottleneck for a handful of accountants.
+
+**Needed:** nothing yet. This is recorded so the ceiling is a known number
+rather than a surprise.
+
 ### Connector audit token
 `CLAUDE_AUDIT_TOKEN` — a fine-grained token with `Administration: read` and
 nothing else, as a repository secret.

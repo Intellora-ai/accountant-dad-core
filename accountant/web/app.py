@@ -32,12 +32,13 @@ import html
 import json
 import os
 import ssl
+import threading
 import time
 import urllib.parse
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from accountant import observability, pipeline, reversal
@@ -233,7 +234,49 @@ URL_DISAGREES = "the URL cited is not the corpus URL for the rule cited"
 #: source; leaving the slot blank would be the hallucination.
 DECISION_ORDER_RULE = "decision_order"
 
+# THE ONE LOCK OVER THE IN-PROCESS CACHES. Task 11, 2026-08-11.
+#
+# `serve()` runs a `ThreadingHTTPServer`, so `DRAFTS`, `DRAFT_TENANT`, `BATCHES`
+# and `_recorded_mismatches` are now touched by several request threads at once.
+# A single `dict` assignment is atomic under the GIL and needs no help; NONE of
+# the four operations below is a single assignment, and each fails differently:
+#
+#   evict-oldest   `while len(D) > LIMIT: D.pop(next(iter(D)))` is check-then-act
+#                  over an iterator. Two threads evicting at the same instant
+#                  raise `RuntimeError: dictionary changed size during
+#                  iteration` or `KeyError` on an id the other one just popped —
+#                  a 503 on somebody's entry for no reason they can see.
+#   get-then-pop   `batch_for` reads a batch and then removes it, and the gap
+#                  between those two lines is where TWO confirmations of ONE
+#                  bulk reversal both succeed. That is a double WRITE to a
+#                  customer's books, and it is the worst thing on this list.
+#   record-once    `_recorded_mismatches` exists so one standing fault writes
+#                  one audit row. Two threads both find it absent and both write.
+#   pair-in-step   `DRAFTS` and `DRAFT_TENANT` must gain and lose the same keys.
+#
+# ONE lock rather than four, because every critical section here is a handful of
+# dictionary operations with no I/O in it — measured in microseconds against a
+# Tally round trip measured in tens of milliseconds. Four locks would be four
+# lock orders to get wrong for a contention cost nothing can detect.
+#
+# NOT a lock over the drafts THEMSELVES. `Draft` is mutable and shared, so two
+# simultaneous answers to ONE draft id do race on `d.answers` — but that is one
+# person double-clicking their own form, and the books are protected a layer
+# down: `pipeline.post` refuses the duplicate operation id and says so in a
+# durable row (`tests/test_idempotency.py`). Holding a lock across a request
+# that talks to Tally would put every customer behind the slowest one.
+_CACHE_LOCK = threading.Lock()
+
 DRAFTS: dict[str, pipeline.Draft] = {}
+
+#: draft id -> the tenant whose person typed it. THE TENANT BOUNDARY, and it
+#: lives beside `DRAFTS` rather than inside it because forty assertions across a
+#: dozen test files read `app.DRAFTS[id]` and expect a `Draft`.
+#:
+#: Kept in step with `DRAFTS` by `remember_draft`, which also drops orphans — a
+#: caller that clears `DRAFTS` by hand (every web test fixture does) would
+#: otherwise leave owner rows growing without limit.
+DRAFT_TENANT: dict[str, str] = {}
 
 # How many drafts stay answerable at once. `DRAFTS` was unbounded: every entry
 # anybody ever typed stayed in memory for the life of the process, holding its
@@ -252,11 +295,29 @@ DRAFTS: dict[str, pipeline.Draft] = {}
 DRAFT_LIMIT = 200
 
 
-def remember_draft(draft: pipeline.Draft) -> None:
-    """Keep this draft answerable, and drop the oldest once past the limit."""
-    DRAFTS[draft.id] = draft
-    while len(DRAFTS) > DRAFT_LIMIT:
-        DRAFTS.pop(next(iter(DRAFTS)))
+def remember_draft(draft: pipeline.Draft, who: Principal | None = None) -> None:
+    """Keep this draft answerable, and drop the oldest once past the limit.
+
+    `who` defaults to whoever is acting on THIS request, the same way
+    `remember_batch` takes its owner, so no route has to remember to pass it. A
+    draft remembered outside a request — `tests/test_lifecycle.py` does exactly
+    that to drive the eviction window — is owned by `NOT_RECORDED`, which
+    matches no live tenant and is therefore answerable by nobody over HTTP.
+    """
+    owner = who if who is not None else current_principal()
+    with _CACHE_LOCK:
+        DRAFTS[draft.id] = draft
+        DRAFT_TENANT[draft.id] = owner.tenant_id if owner else NOT_RECORDED
+        while len(DRAFTS) > DRAFT_LIMIT:
+            oldest = next(iter(DRAFTS))
+            DRAFTS.pop(oldest)
+            DRAFT_TENANT.pop(oldest, None)
+        # Self-healing rather than trusting every caller. `DRAFTS.clear()` is
+        # in a dozen test fixtures and cannot know about this second map; an
+        # owner row for a draft that no longer exists is dead weight that the
+        # eviction window would never reach.
+        for orphan in DRAFT_TENANT.keys() - DRAFTS.keys():
+            DRAFT_TENANT.pop(orphan, None)
 
 
 # Previewed bulk reversals, waiting for a yes. Bounded for the same reason
@@ -280,9 +341,10 @@ BATCH_LIMIT = 20
 
 
 def remember_batch(batch: reversal.Batch, who: Principal | None = None) -> None:
-    BATCHES[batch.batch_id] = (batch, who.user_id if who else NOT_RECORDED)
-    while len(BATCHES) > BATCH_LIMIT:
-        BATCHES.pop(next(iter(BATCHES)))
+    with _CACHE_LOCK:
+        BATCHES[batch.batch_id] = (batch, who.user_id if who else NOT_RECORDED)
+        while len(BATCHES) > BATCH_LIMIT:
+            BATCHES.pop(next(iter(BATCHES)))
 
 
 def draft_for(draft_id: str, live: Runtime) -> pipeline.Draft | None:
@@ -308,10 +370,45 @@ def draft_for(draft_id: str, live: Runtime) -> pipeline.Draft | None:
     identity of this session and must not read as routine. The handler turns
     the refusal into a 503 that names no internals, and the durable log keeps
     the detail.
+
+    THE TENANT CHECK, ADDED WITH THREADS. Task 11, 2026-08-11.
+
+    `DRAFTS` is one dictionary shared by every request in the process, and until
+    today the only thing scoping it was the COMPANY. Company is the right unit
+    for the case it was written for — two colleagues in one accounts department
+    are meant to be able to pick up each other's half-finished entry, which is
+    why this stays at tenant level and does not go down to the user, unlike
+    `batch_for` below. It is the WRONG unit across customers: two tenants that
+    happen to have opened books of the same name would have been one cache.
+
+    Single-threaded, that needed a guessed draft id and was therefore unlikely.
+    Threaded, it is the same unlikely thing happening in parallel, which is not
+    an improvement, and "unlikely" is not a boundary. This is.
+
+    A FOREIGN TENANT READS AS EXPIRED — None, not a refusal, and deliberately
+    NOT the 503 a foreign company gets. The company refusal is loud because both
+    companies belong to the person reading it and they need to know which one is
+    wrong. Another customer's draft is not theirs to be told about at all: a
+    distinct answer would confirm that this id exists somewhere, which is the
+    one fact worth keeping from them. The event still reaches the durable log,
+    so it is invisible to the caller and not to us.
     """
     draft = DRAFTS.get(draft_id)
     if draft is None:
         return None
+
+    who = current_principal()
+    mine = who.tenant_id if who else NOT_RECORDED
+    if DRAFT_TENANT.get(draft_id, NOT_RECORDED) != mine:
+        note(
+            "cross_tenant_draft",
+            "refused",
+            f"a request from tenant {mine!r} named draft {draft_id!r}, which "
+            f"belongs to another tenant. Nothing was read and nothing was "
+            f"written, and the caller was told the draft had expired.",
+        )
+        return None
+
     if normalise_company(draft.company) != live.company_key:
         raise RuntimeError(
             f"{REFUSAL}: no operation performed. Draft {draft_id!r} belongs to "
@@ -385,20 +482,42 @@ def batch_for(batch_id: str, live: Runtime) -> reversal.Batch | None:
     Refused rather than re-previewed, and left in place rather than popped, for
     the same reason as above: the person who took the preview may still be
     looking at it.
+
+    THE READ AND THE POP ARE ONE STEP. Task 11, 2026-08-11, and this is the most
+    dangerous line in the threading change.
+
+    The batch is REMOVED here because a confirmation may be honoured exactly
+    once. Under `HTTPServer` that was free: requests were serialised, so the
+    check and the removal could not be interleaved. Under
+    `ThreadingHTTPServer` two confirmations of the same batch id arriving
+    together — a double-click, a retried request, two tabs — both read a batch
+    that is still present, both pass the owner check, and both go on to reverse
+    every voucher in it. A DOUBLE WRITE to a customer's books, from a race with
+    a window of a few microseconds.
+
+    So the lookup, both checks and the removal happen under ONE hold of
+    `_CACHE_LOCK`. Whoever takes it second finds nothing and is told the preview
+    expired, which is exactly what happened to it: it was used.
+
+    No tenant check on top of the user check, and that is not an omission. A
+    user id identifies one row in `app_user`, which carries the tenant, so two
+    tenants cannot share one. The user check is the STRICTER of the two and
+    already implies it.
     """
-    held = BATCHES.get(batch_id)
-    if held is None:
-        return None
-    batch, previewed_by = held
-    if normalise_company(batch.company) != live.company_key:
-        return None
+    with _CACHE_LOCK:
+        held = BATCHES.get(batch_id)
+        if held is None:
+            return None
+        batch, previewed_by = held
+        if normalise_company(batch.company) != live.company_key:
+            return None
 
-    who = current_principal()
-    mine = who.user_id if who else NOT_RECORDED
-    if previewed_by != mine:
-        return None
+        who = current_principal()
+        mine = who.user_id if who else NOT_RECORDED
+        if previewed_by != mine:
+            return None
 
-    BATCHES.pop(batch_id, None)
+        BATCHES.pop(batch_id, None)
     return batch
 
 
@@ -443,9 +562,16 @@ DELETION_LIMIT = 20
 
 
 def remember_deletion(plan: DeletionPlan, who: Principal | None = None) -> None:
-    DELETIONS[plan.plan_id] = (plan, who.user_id if who else NOT_RECORDED)
-    while len(DELETIONS) > DELETION_LIMIT:
-        DELETIONS.pop(next(iter(DELETIONS)))
+    # Under `_CACHE_LOCK` like every other shared cache, 2026-08-11. Data
+    # deletion merged before the threaded server did, so this was written
+    # against a one-request-at-a-time process; evict-oldest is check-then-act
+    # over an iterator and two threads doing it at once raise on an id the
+    # other just popped. `test_every_shared_cache_in_the_web_app_is_written_
+    # under_the_lock` named it the moment the two met.
+    with _CACHE_LOCK:
+        DELETIONS[plan.plan_id] = (plan, who.user_id if who else NOT_RECORDED)
+        while len(DELETIONS) > DELETION_LIMIT:
+            DELETIONS.pop(next(iter(DELETIONS)))
 
 
 def deletion_plan(store: MemoryStore, who: Principal) -> DeletionPlan | None:
@@ -505,20 +631,26 @@ def deletion_for(plan_id: str) -> DeletionPlan | None:
     as a side effect of somebody else's request is the smaller version of the
     same mistake.
     """
-    held = DELETIONS.get(plan_id)
-    if held is None:
-        return None
-    plan, asked_by = held
+    # THE WHOLE LOOKUP IS ONE STEP, 2026-08-11. `get` then `pop` is
+    # check-then-act: two confirmations of one plan can both find it present
+    # and both proceed, which for a bulk reversal meant a double write to a
+    # customer's books and here would mean deleting an account twice. The lock
+    # makes the find-and-take atomic, exactly as it does for `batch_for`.
+    with _CACHE_LOCK:
+        held = DELETIONS.get(plan_id)
+        if held is None:
+            return None
+        plan, asked_by = held
 
-    who = current_principal()
-    mine = who.user_id if who else NOT_RECORDED
-    if asked_by != mine:
-        return None
-    if who is None or plan.tenant_id != who.tenant_id:
-        return None
+        who = current_principal()
+        mine = who.user_id if who else NOT_RECORDED
+        if asked_by != mine:
+            return None
+        if who is None or plan.tenant_id != who.tenant_id:
+            return None
 
-    DELETIONS.pop(plan_id, None)
-    return plan
+        DELETIONS.pop(plan_id, None)
+        return plan
 
 
 # How many log rows the page shows. The log itself is unbounded and append-only;
@@ -672,6 +804,19 @@ class Runtime:
             )
 
 
+#: The live connection, shared by every request thread on purpose.
+#:
+#: AUDITED FOR THREADS, 2026-08-11, and left shared. One process serves ONE
+#: company: `serve()` calls `connect()` and then `runtime()` BEFORE it binds a
+#: socket, so this is written once, before any request thread exists, and after
+#: that it is read-only for the life of the process. The only other writers are
+#: `configure()` and `disconnect()`, which are startup and test entry points and
+#: are never reached from a handler — a fact `tests/test_concurrency.py` asserts
+#: over the AST rather than trusting.
+#:
+#: Shared is also the only CORRECT answer here. Per-thread would mean a request
+#: landing on a fresh thread had no company, no memory and no audit store, so it
+#: would refuse for a reason that has nothing to do with the customer.
 _runtime_state: Runtime | None = None
 
 
@@ -749,10 +894,18 @@ def _record_mismatch(state: Runtime, detail: str) -> None:
     exactly the failure somebody will be asked to explain six months later.
     Filed under the STARTUP company's key: that is the company the person
     believes they are working in, and it is where they will go looking.
+
+    ONCE MEANS ONCE UNDER THREADS TOO. Task 11, 2026-08-11. `in` then `add` is
+    check-then-act: two request threads hitting the same standing fault at the
+    same instant both find it absent and both write a row, which is precisely
+    the duplication this set exists to prevent. The claim and the write are
+    therefore taken together, and the SQLite write is left OUTSIDE the lock —
+    the store has its own — so a slow disk cannot hold up a second request.
     """
-    if detail in _recorded_mismatches:
-        return
-    _recorded_mismatches.add(detail)
+    with _CACHE_LOCK:
+        if detail in _recorded_mismatches:
+            return
+        _recorded_mismatches.add(detail)
     state.store.record_action(
         ActionLog(
             ts=datetime.datetime.now(datetime.UTC),
@@ -864,10 +1017,13 @@ def auth_store() -> MemoryStore:
 #: Who is acting, for the duration of ONE request.
 #:
 #: A ContextVar rather than a module global, and that is not a style choice.
-#: Task 11 replaces `HTTPServer` with a threading one, and a plain global would
-#: then be one customer's identity visible to another customer's request — the
-#: exact cross-tenant leak this whole task exists to prevent. Every thread gets
-#: its own context, so a `set` here is invisible to every other request.
+#: Task 11 replaced `HTTPServer` with `ThreadingHTTPServer` on 2026-08-11, and a
+#: plain global would then have been one customer's identity visible to another
+#: customer's request — the exact cross-tenant leak this was chosen in advance
+#: to prevent. It is the ONE piece of per-request state that needed no work when
+#: the threads arrived, and the reason is that it was written for them. Every
+#: thread gets its own context, so a `set` here is invisible to every other
+#: request; `_CACHE_LOCK` above covers the state that is genuinely shared.
 #:
 #: `None` means nobody was identified, and the audit row says `NOT_RECORDED`
 #: rather than inventing an actor.
@@ -1219,7 +1375,14 @@ def configure(
     # route that does not exist yet. `serve()` calls `runtime()` once before it
     # binds a socket, so a startup that cannot work still refuses in the
     # terminal rather than on the first page.
-    _recorded_mismatches.clear()
+    #
+    # Under the lock even though this runs before any request thread exists.
+    # `configure()` is public and a test may call it while a server is up; more
+    # to the point, "every mutation of a shared cache holds the lock" is a rule
+    # a scan can check, and "every mutation except the ones I decided were safe"
+    # is a rule that decays.
+    with _CACHE_LOCK:
+        _recorded_mismatches.clear()
     return install(built)
 
 
@@ -1277,8 +1440,10 @@ def disconnect() -> None:
     global _runtime_state
     _runtime_state = None
     # The next runtime is a different one, so a mismatch it happens to word
-    # identically is a new fact and must be recorded again.
-    _recorded_mismatches.clear()
+    # identically is a new fact and must be recorded again. Under the lock for
+    # the reason given in `configure()`.
+    with _CACHE_LOCK:
+        _recorded_mismatches.clear()
 
 
 def record(draft: pipeline.Draft, action: str) -> None:
@@ -3312,20 +3477,35 @@ def tls_context(cert: str, key: str) -> ssl.SSLContext:
 
 def start_server(
     host: str, port: int, context: ssl.SSLContext | None = None
-) -> HTTPServer:
-    """Bind, and wrap the socket in TLS when there is a context. One path.
+) -> ThreadingHTTPServer:
+    """Bind a THREADING server, and wrap the socket in TLS when asked. One path.
 
-    ONE wrapping site on purpose. `serve()` uses this and so does
-    `tests/test_web.py::serving`, because a test that wrapped its own socket
-    would be measuring a second implementation of the thing under test — the
-    same argument `tests/conftest.py` makes for re-exporting the server fixture
-    rather than copying it.
+    ONE binding site on purpose, and it now carries two decisions rather than
+    one. `serve()` uses this and so does `tests/test_web.py::serving`, because a
+    test that built or wrapped its own socket would be measuring a second
+    implementation of the thing under test — the same argument
+    `tests/conftest.py` makes for re-exporting the server fixture rather than
+    copying it.
 
-    `server_side=True` and the socket is wrapped BEFORE `serve_forever`, so the
+    THREADING, 2026-08-11. `HTTPServer` handles requests one after another, so
+    two customers — or one customer with two tabs — queue behind each other, and
+    a Tally call that hangs takes the whole product down for everybody until it
+    times out. `ThreadingHTTPServer` is the stdlib's own answer and adds no
+    dependency. What it turns on is a set of cross-request hazards that had been
+    sleeping; see `_CACHE_LOCK` and `MemoryStore.__init__`.
+
+    `daemon_threads = True` is set explicitly even though the class already
+    defaults to it. It states the shutdown contract where somebody reads it —
+    Ctrl-C ends the process, and a request thread still waiting on a Tally
+    socket does not hold it open for the connector's full timeout — and it pins
+    the behaviour against a default changing underneath us.
+
+    `server_side=True`, and the socket is wrapped BEFORE `serve_forever`, so the
     first byte any client sends is already inside a handshake. There is no
     window in which a plaintext request is accepted.
     """
-    httpd = HTTPServer((host, port), Handler)
+    httpd = ThreadingHTTPServer((host, port), Handler)
+    httpd.daemon_threads = True
     if context is not None:
         httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
     return httpd
@@ -3409,6 +3589,17 @@ def serve(
     Refusing here rather than per-request is deliberate. If Tally is not there,
     the person finds out in the terminal in one second, not by opening a page
     that looks like an app and refuses everything they type.
+
+    THE BIND ADDRESS STAYS ON LOOPBACK, AND THAT IS A DECISION. 2026-08-11.
+    `host` has always been a parameter, so the address IS configurable by
+    anything that calls `serve()`; the only question was whether the DEFAULT
+    should widen to `0.0.0.0` now that the server can hold more than one
+    conversation. It must not. This process reads and writes an accountant's
+    books, and a default that listens on every interface puts them on the office
+    LAN for anybody who guesses the port — the exact failure Task 1 spent a
+    whole connector avoiding on port 9000. Concurrency is about serving two
+    tabs, not about serving two networks. `tests/test_deploy_artefacts.py` reads
+    this default with `ast` and expects `127.0.0.1`; it still gets it.
     """
     # FIRST, before anything can fail. A start-up that refuses is a thing
     # somebody has to diagnose, and diagnosing it from a log with no lines in
@@ -3487,6 +3678,21 @@ def serve(
         f"  writable {sorted(backups.companies) or 'NOTHING - reads only'}\n"
         f"  run      {live.identity.run_id}"
     )
+    # ONE REQUEST AT A TIME WAS THE DEFECT. Task 11, 2026-08-11.
+    #
+    # `HTTPServer` handles requests one after another: `serve_forever` accepts a
+    # connection, runs the whole handler, and only then looks at the next one.
+    # Measured on this code - two GETs issued together against a handler that
+    # blocks - the second request did not begin until the first had finished.
+    # So two customers, or ONE customer with two tabs, queue behind each other,
+    # and a Tally call that hangs takes the entire product down with it, for
+    # everybody, until it times out. That is not a performance note. It is the
+    # whole service failing on one slow request.
+    #
+    # The class changed inside `start_server`, which TLS had already made the
+    # single binding site. Both tasks touched this line and neither wins: the
+    # server is threading AND its socket is wrapped, and there is still exactly
+    # one place either of those is decided.
     start_server(host, port, context).serve_forever()
 
 

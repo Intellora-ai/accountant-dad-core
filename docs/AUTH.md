@@ -211,10 +211,19 @@ nobody measured.
 NOT_IMPLEMENTED (H-05)."* That is what this task closed.
 
 The request's principal reaches both writers — `record()` and `note()` — through
-a `contextvars.ContextVar` rather than a module global. Task 11 replaces
-`HTTPServer` with a threading one, and a plain global would then be one
-customer's identity visible to another customer's request: the exact leak this
-task exists to prevent.
+a `contextvars.ContextVar` rather than a module global. Task 11 replaced
+`HTTPServer` with `ThreadingHTTPServer` on 2026-08-11, and a plain global would
+then have been one customer's identity visible to another customer's request:
+the exact leak the ContextVar was chosen in advance to prevent. Every thread
+gets its own context, so a `set` in one request is invisible to every other.
+
+The same task put the tenant boundary on `DRAFTS`, which is the other half of
+this: a session identifies who is asking, and `DRAFT_TENANT` decides whose
+half-finished entries that answer entitles them to. It is checked at TENANT
+rather than at user, because two colleagues in one accounts department picking
+up each other's entry is the design; `BATCHES` is checked at USER, because the
+guarantee there is that whoever confirms a bulk reversal saw the list.
+`tests/test_concurrency.py` asserts both directions of each.
 
 ## How the suite runs
 

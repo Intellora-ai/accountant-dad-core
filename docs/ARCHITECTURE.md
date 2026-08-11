@@ -1345,8 +1345,18 @@ python -m accountant.web.app        ──┘
    bootstrap this company's memory from its OWN Tally
         │
         ▼
-   HTTPServer(...).serve_forever()
+   ThreadingHTTPServer(...).serve_forever()
 ```
+
+**Why the server threads.** Until 2026-08-11 this line built a plain
+`HTTPServer`, which handles one request at a time: two customers, or one
+customer with two tabs, queued behind each other, and a Tally call that hung
+took the whole product down until it timed out. One thread per connection fixes
+the queue and turns on three cross-request hazards that serialisation had been
+hiding — the SQLite connection's thread affinity, check-then-act inside the
+in-process caches, and a shared draft cache with no owner on it. All three are
+closed and measured in `tests/test_concurrency.py`; the ceiling that remains is
+one PROCESS, recorded in [`OWNER_WORK.md`](./OWNER_WORK.md).
 
 **Why the refusal happens before the socket opens.** A server that starts and
 then answers `REAL TALLY REQUIRED` on every page looks like a working
@@ -1792,8 +1802,10 @@ web implementation    existing stdlib http.server unless separately approved
 
 All five were checked against the code and all five hold today:
 `ALL_DETECTORS` names those four detectors; `action_log` exists;
-`accountant/web/app.py:35` imports `HTTPServer` from the standard library; and
-the five input types are the same five already frozen as `S1` in
+`accountant/web/app.py` imports `ThreadingHTTPServer` from the standard
+library's own `http.server` — Task 11 changed WHICH stdlib server, not whether
+it is one, so the frozen assumption is unaffected and no approval was needed;
+and the five input types are the same five already frozen as `S1` in
 [`PROJECT_STATE.md` §6](./PROJECT_STATE.md) and §4 of this document.
 
 **If implementation inspection later contradicts an assumption, scope is not
