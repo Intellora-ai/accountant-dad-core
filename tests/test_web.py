@@ -189,6 +189,11 @@ def serving(
     still gets the in-memory store it had.
     """
     app.DRAFTS.clear()
+    # And `BATCHES`, for the same reason. It was not cleared here, so a pending
+    # bulk-reversal preview survived into the next test and any assertion that
+    # said "there is exactly one batch" was measuring the leftovers of whatever
+    # ran before it.
+    app.BATCHES.clear()
     # `EVENTS` used to be cleared here: a module-level list that leaked rows
     # from one test into the next. The log now lives in this test's own
     # MemoryStore, so there is nothing global left to reset.

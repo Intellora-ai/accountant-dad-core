@@ -507,7 +507,7 @@ def test_a_bulk_reversal_previewed_for_another_company_never_reverses_it(
     code, _preview = bench.http.post("/reverse-all")
     assert code == 200
     batch_id = next(iter(app.BATCHES))
-    assert app.BATCHES[batch_id].company == OURS
+    assert app.BATCHES[batch_id][0].company == OURS
 
     _rebind(bench)
     assert app.runtime().company == THEIRS, "the app is now bound to the other company"

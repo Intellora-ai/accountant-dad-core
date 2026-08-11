@@ -252,12 +252,20 @@ def remember_draft(draft: pipeline.Draft) -> None:
 # The batch is held rather than recomputed because the candidate list is the
 # thing being confirmed. Re-listing at confirmation time would mean a voucher
 # posted in the gap gets reversed by a click that never showed it.
-BATCHES: dict[str, reversal.Batch] = {}
+#: batch id -> (the batch, the user who previewed it).
+#:
+#: THE USER IS PART OF THE KEY, not decoration. The two-step preview exists so
+#: that the person who confirms a bulk reversal is the person who SAW the list
+#: it will destroy. Keyed by id alone, that guarantee lasted exactly as long as
+#: one person used the app: colleague A previews, colleague B posts the
+#: confirmation with A's batch id, and B has just deleted every voucher we ever
+#: wrote in that company having been shown nothing at all.
+BATCHES: dict[str, tuple[reversal.Batch, str]] = {}
 BATCH_LIMIT = 20
 
 
-def remember_batch(batch: reversal.Batch) -> None:
-    BATCHES[batch.batch_id] = batch
+def remember_batch(batch: reversal.Batch, who: Principal | None = None) -> None:
+    BATCHES[batch.batch_id] = (batch, who.user_id if who else NOT_RECORDED)
     while len(BATCHES) > BATCH_LIMIT:
         BATCHES.pop(next(iter(BATCHES)))
 
@@ -351,11 +359,32 @@ def batch_for(batch_id: str, live: Runtime) -> reversal.Batch | None:
     A foreign batch is left in place rather than popped. Popping it would
     destroy another company's pending preview as a side effect of a request
     that has no business touching it.
+
+    THE SECOND CHECK, added with tenancy. Company is not enough once two people
+    share a company, which is the normal case in an accounts department. The
+    preview→confirm pair exists to guarantee that whoever presses the button saw
+    the list; a confirmation from a DIFFERENT person than the one who previewed
+    breaks that guarantee completely, and it breaks it silently, because the
+    batch is valid and the company matches.
+
+    Refused rather than re-previewed, and left in place rather than popped, for
+    the same reason as above: the person who took the preview may still be
+    looking at it.
     """
-    batch = BATCHES.get(batch_id)
-    if batch is None or normalise_company(batch.company) != live.company_key:
+    held = BATCHES.get(batch_id)
+    if held is None:
         return None
-    return BATCHES.pop(batch_id, None)
+    batch, previewed_by = held
+    if normalise_company(batch.company) != live.company_key:
+        return None
+
+    who = current_principal()
+    mine = who.user_id if who else NOT_RECORDED
+    if previewed_by != mine:
+        return None
+
+    BATCHES.pop(batch_id, None)
+    return batch
 
 
 # How many log rows the page shows. The log itself is unbounded and append-only;
@@ -2278,7 +2307,7 @@ class Handler(BaseHTTPRequestHandler):
             live = runtime()
             if form.get("confirm") != "yes":
                 batch = reversal.preview(live.client, live.company)
-                remember_batch(batch)
+                remember_batch(batch, current_principal())
                 self._send(render_bulk_preview(batch))
                 return
 

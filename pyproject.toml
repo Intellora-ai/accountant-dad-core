@@ -73,6 +73,7 @@ select = [
 # exemption is this file only - the rule stays live for the other 60 test files,
 # which is where a real credential would actually get pasted by accident.
 "tests/test_auth.py" = ["S101", "S105", "S106"]
+"tests/test_reversal_guard.py" = ["S101", "S105", "S106"]
 
 # ---------------------------------------------------------------------------
 # pyright - the only type checker
