@@ -596,6 +596,12 @@ class TestMetricsNeedsACredential:
     @pytest.fixture(autouse=True)
     def production_auth(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(ident.ENV_LOCAL_DEV_MODE, raising=False)
+        # WHOSE books this server serves. Defect J1, 2026-08-11: the tenant
+        # check had no caller, so any live session reached any company's
+        # books. It fails closed now — a server that has not been told whose
+        # books it is serving refuses everybody — so a test running with
+        # authentication required has to say, exactly as a deployment does.
+        monkeypatch.setenv(app.ENV_TENANT, "tenant-obs")
 
     @staticmethod
     def seeding(token: str) -> Callable[[MemoryStore], None]:
