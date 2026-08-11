@@ -578,11 +578,29 @@ report that is missing one of the seven items.
 
 ## D-23 · Which input types must work at first launch
 
-**Status: `OPEN`.**
+**Status: `ANSWERED 2026-08-11`.**
 
-Frozen criterion S1 wants five of five — typed text, PDF, PNG, JPG, DOCX. Today
-only typed text works; `accountant/extract/adapter.py` is a stub with no backend
-connected.
+> D-23 (2026-08-11): First launch supports typed-text entry and uploaded
+> documents (PDF/PNG/JPG) via Azure Document Intelligence. Azure backend is
+> implemented; real-invoice verification is required before general
+> availability.
+
+**DOCX is not in that list, and its absence is the answer rather than an
+oversight.** Frozen criterion S1 wanted five of five. Four ship.
+
+**What "implemented" means, precisely, and what it does not.** The Azure backend
+exists, is registered as `azure`, is the default, and refuses rather than guesses
+when it is not configured. No request from this repository has ever reached
+Azure. The parser was written from Azure's *documented* response shape and its
+tests supply responses written by the same author, so a green suite proves those
+two agree with each other — not that either agrees with Azure. The status is
+`UNVERIFIED_VENDOR_SHAPE` and it can only be changed by running real invoices.
+
+**So launch is beta / early access, not GA.** `docs/OWNER_WORK.md` carries the
+verification plan that has to be finished first.
+
+Before this answer: only typed text worked; `accountant/extract/adapter.py` was
+a stub with no backend connected.
 
 `EPIC.md` also records that bill extraction is now a vendor feature with a free
 price floor, and argues against entering that market at all. So "all five" is a
@@ -716,7 +734,7 @@ until a licence physically exists.
 | D-19 | connector update policy | the version-support window | `OPEN` |
 | D-20 | who may clear the emergency stop | the recovery path | `OPEN` |
 | D-21 | confirm the launch caps | the write-lease reading | `OPEN` |
-| D-23 | launch input types | whether extraction is on the critical path | `OPEN` |
+| D-23 | launch input types | whether extraction is on the critical path | `ANSWERED 2026-08-11` — typed text + PDF/PNG/JPG |
 | D-24 | supported Windows and Tally versions | what may be claimed | `OPEN` |
 
 **Answered but not yet built into the code — these are the ones with work
