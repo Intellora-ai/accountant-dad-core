@@ -155,7 +155,7 @@ BYPASS_FOUND = "someone can bypass the rules"
 # S105 fires on the name, not the value: this is the NAME of a repository
 # secret that does not exist yet, and no credential is stored in this file.
 ADMINISTRATION_READ = "Administration: read"
-AUDIT_TOKEN_SECRET = "CLAUDE_AUDIT_TOKEN"  # noqa: S105
+AUDIT_TOKEN_SECRET = "CLAUDE_AUDIT_TOKEN"
 
 # Keys that prove the response really is a ruleset. If these are missing too,
 # the read itself is broken and that is a different, larger failure than one
@@ -172,6 +172,46 @@ def contract() -> dict[str, Any]:
 REPO = str(contract()["meta"]["repository"])
 
 
+#: The audit identity, when one has been supplied.
+#:
+#: STEP 1 OF 2 OF THE `CLAUDE_AUDIT_TOKEN` MECHANISM, 2026-08-11.
+#:
+#: `bypass_actors` is withheld from `GITHUB_TOKEN`: reading it needs repository
+#: `Administration: read`, which exists only as a fine-grained
+#: personal-access-token permission. actionlint v1.7.12 rejects
+#: `administration` as a workflow `permissions:` scope, so no `permissions:`
+#: block can grant it. That is why `test_bypass_actors_are_still_empty` reports
+#: NOT_MEASURED rather than a verdict.
+#:
+#: This is the half that lives in code: when `CLAUDE_AUDIT_TOKEN` is present in
+#: the environment, every `gh` call in this file runs as that identity instead
+#: of the ambient one. Nothing else changes, and no other file reads it.
+#:
+#: STEP 2 is a single line in a workflow, which cannot be written from this
+#: environment (`.github/` is denied). `docs/OWNER_WORK.md` carries it verbatim.
+#: Until it is applied this constant does nothing, and that is the honest state:
+#: the mechanism is complete and the wire is not connected.
+ENV_AUDIT_TOKEN = "CLAUDE_AUDIT_TOKEN"
+
+
+def gh_environment(environ: dict[str, str]) -> dict[str, str]:
+    """The environment a `gh` call should run under.
+
+    A pure function of a mapping so it can be tested without a real token and
+    without touching the process environment. The token VALUE is never returned
+    to a caller, never logged and never asserted on - only the fact that it was
+    forwarded.
+    """
+    out = dict(environ)
+    audit = out.get(ENV_AUDIT_TOKEN, "").strip()
+    if audit:
+        # GH_TOKEN is what the `gh` CLI reads. Setting it here rather than
+        # asking every call site to remember is the same argument the rest of
+        # this repository makes about checks: one seam, not a convention.
+        out["GH_TOKEN"] = audit
+    return out
+
+
 def gh(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603
         ["gh", *args],  # noqa: S607
@@ -179,6 +219,7 @@ def gh(*args: str) -> subprocess.CompletedProcess[str]:
         text=True,
         check=False,
         cwd=ROOT,
+        env=gh_environment(dict(os.environ)),
     )
 
 
@@ -686,3 +727,127 @@ def test_the_gate_is_strict_about_what_switches_it_on() -> None:
         assert not _destructive_allowed_for({ENV_DESTRUCTIVE: wrong}), wrong
     assert _destructive_allowed_for({ENV_DESTRUCTIVE: "1"})
     assert not _destructive_allowed_for({})
+
+
+# ---------------------------------------------------------------------------
+# the CLAUDE_AUDIT_TOKEN mechanism, step 1 of 2
+# ---------------------------------------------------------------------------
+
+
+def test_an_audit_token_is_forwarded_to_gh_as_its_identity() -> None:
+    """The whole of the code half, in one assertion.
+
+    When `CLAUDE_AUDIT_TOKEN` is present, `gh` runs as that identity. Nothing
+    else in this repository reads the variable, and no other behaviour changes.
+    """
+    out = gh_environment({ENV_AUDIT_TOKEN: "a-token-value"})
+    assert out["GH_TOKEN"] == "a-token-value"
+
+
+def test_without_an_audit_token_the_ambient_identity_is_left_alone() -> None:
+    """No token means no change. A mechanism that rewrote GH_TOKEN when it had
+    nothing to put there would log every developer out of their own `gh`."""
+    assert "GH_TOKEN" not in gh_environment({})
+    assert gh_environment({"GH_TOKEN": "already-here"})["GH_TOKEN"] == "already-here"
+
+
+def test_a_blank_audit_token_is_not_an_identity() -> None:
+    """`CLAUDE_AUDIT_TOKEN=` is a common way to think you unset something.
+
+    Read loosely it would replace a working GH_TOKEN with an empty string and
+    make every call fail as unauthenticated - which this file would then report
+    as PROTECTION_TEST_PREREQUISITES_MISSING, sending somebody to debug a
+    network problem that is really a stray equals sign.
+    """
+    for blank in ("", "   ", "\t"):
+        out = gh_environment({ENV_AUDIT_TOKEN: blank, "GH_TOKEN": "the-real-one"})
+        assert out["GH_TOKEN"] == "the-real-one", repr(blank)
+
+
+def test_the_audit_token_is_never_written_anywhere_it_could_be_read_back() -> None:
+    """It is forwarded and nothing else. Not printed, not put in a message, not
+    part of any assertion's failure text.
+
+    Read off the source rather than trusted: a token that reaches a log on a
+    hosted runner is a token in a public artefact.
+    """
+    source = Path(__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    leaks: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        printing = (isinstance(func, ast.Name) and func.id == "print") or (
+            isinstance(func, ast.Attribute) and func.attr in {"write", "fail", "skip"}
+        )
+        if not printing:
+            continue
+        for arg in ast.walk(node):
+            if isinstance(arg, ast.Name) and arg.id == "ENV_AUDIT_TOKEN":
+                leaks.append(ast.dump(node)[:60])
+
+    assert leaks == [], (
+        f"the audit token name reaches something that prints: {leaks}. The "
+        "VALUE must never be printed, and naming the variable beside a print "
+        "is how that starts."
+    )
+
+
+def test_only_this_file_reads_the_audit_token() -> None:
+    """One reader, so there is one place to look when it stops working.
+
+    Scans the shipped package and the CI scripts. A second reader would mean
+    two answers to "which identity is this running as", which is the ambiguity
+    the whole tenancy work exists to remove.
+    """
+    here = Path(__file__).resolve()
+    readers: list[str] = []
+    for folder in ("accountant", "ci", "scripts"):
+        root = ROOT / folder
+        if not root.is_dir():
+            continue
+        for path in root.rglob("*.py"):
+            if path.resolve() == here:
+                continue
+            if "CLAUDE_AUDIT_TOKEN" in path.read_text(encoding="utf-8"):
+                readers.append(str(path.relative_to(ROOT)))
+
+    assert readers == [], f"something else reads the audit token: {readers}"
+
+
+def test_gh_actually_runs_under_that_environment() -> None:
+    """WRITTEN BY A MUTANT. Deleting `env=` from the `gh` call changed nothing.
+
+    Every test above measured `gh_environment` on its own, so the token could
+    be computed perfectly and then thrown away - which is the failure mode this
+    whole file exists to catch in other people's code.
+
+    Read off the AST, not the text: a comment mentioning `env=gh_environment`
+    must not satisfy it.
+    """
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    gh_def = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "gh"
+    )
+    runs = [
+        call
+        for call in ast.walk(gh_def)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr == "run"
+    ]
+    assert runs, "gh() no longer runs a subprocess at all"
+    for call in runs:
+        env = next((kw for kw in call.keywords if kw.arg == "env"), None)
+        assert env is not None, (
+            "gh() runs a subprocess without an explicit env, so "
+            "CLAUDE_AUDIT_TOKEN is computed and then discarded"
+        )
+        assert (
+            isinstance(env.value, ast.Call)
+            and isinstance(env.value.func, ast.Name)
+            and env.value.func.id == "gh_environment"
+        ), "gh() passes an env that did not come from gh_environment"

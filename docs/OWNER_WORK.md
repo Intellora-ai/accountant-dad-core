@@ -388,12 +388,51 @@ database this small is not the bottleneck for a handful of accountants.
 **Needed:** nothing yet. This is recorded so the ceiling is a known number
 rather than a surprise.
 
-### Connector audit token
-`CLAUDE_AUDIT_TOKEN` — a fine-grained token with `Administration: read` and
-nothing else, as a repository secret.
+### Connector audit token — STEP 1 BUILT, STEP 2 IS ONE LINE YOU MUST APPLY
 
-Without it `ci/test_protection.py::test_bypass_actors_are_still_empty` cannot
-run: `GITHUB_TOKEN` receives a ruleset body with `bypass_actors` **absent**, and
-actionlint v1.7.12 proves `administration` is not a workflow permission scope at
-all, so no `permissions:` block can grant it. The other nine protection tests
-pass. Details in `artifacts/gate_integrity_blocked.md`.
+`bypass_actors` is withheld from `GITHUB_TOKEN`. Reading it needs repository
+`Administration: read`, which exists only as a fine-grained
+personal-access-token permission — actionlint v1.7.12 rejects `administration`
+as a workflow `permissions:` scope, so no `permissions:` block can grant it.
+That is why `test_bypass_actors_are_still_empty` reports `NOT_MEASURED` and not
+a verdict.
+
+**STEP 1 — BUILT 2026-08-11.** `ci/test_protection.py` reads
+`CLAUDE_AUDIT_TOKEN` from the environment and runs every `gh` call as that
+identity. One reader, tested: the token is forwarded, a blank one does not
+clobber a working `GH_TOKEN`, the value is never printed, no other file reads
+it, and an AST test proves `gh()` actually *uses* the environment it computes —
+that last one exists because a mutant deleted `env=` and nothing noticed.
+
+**STEP 2 — YOURS.** Two parts, neither of which can be done from here.
+
+1. Create the repository secret. Fine-grained token, **`Administration: read`
+   and nothing else**, named `CLAUDE_AUDIT_TOKEN`. Never send the value to
+   anybody, including me; the mechanism above never needs to see it.
+2. Pass it to the job. In `.github/workflows/pr-fast.yml`, the `env:` block
+   currently reads:
+
+```
+  GH_TOKEN: ${{ github.token }}
+```
+
+   Add one line beside it:
+
+```
+  CLAUDE_AUDIT_TOKEN: ${{ secrets.CLAUDE_AUDIT_TOKEN }}
+```
+
+   `GH_TOKEN` stays. It is what the other nine live protection tests run as,
+   and they are measuring what the DEFAULT identity can do — replacing it would
+   destroy that measurement.
+
+**Until step 2 is applied the constant does nothing**, and that is the honest
+state: the mechanism is complete and the wire is not connected. `.github/` is
+denied at the permission layer in this environment — see the lockfile entry
+above.
+
+**When it is applied**, `bypass_actors` becomes readable, the `NOT_MEASURED`
+outcome turns into a real verdict on its own, and the strict-xfail pair around
+it fails loudly until somebody removes the now-passing half. Nothing else needs
+changing.
+

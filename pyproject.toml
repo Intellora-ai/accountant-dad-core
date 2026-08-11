@@ -72,6 +72,12 @@ select = [
 # scripts it guards.
 "tests/*" = ["S101"]
 "ci/test_*.py" = ["S101"]
+# S105 flags a string literal assigned to something named like a token.
+# `ci/test_protection.py` is the file whose subject IS which identity `gh` runs
+# as, so its fixtures name GH_TOKEN and none of them is a credential - they are
+# the strings "a-token-value" and "the-real-one". Scoped to this file; the rule
+# stays live everywhere else, which is where a real token would get pasted.
+"ci/test_protection.py" = ["S101", "S105"]
 # S105/S106 flag a string literal handed to something named like a password, a
 # secret or a token. The three files below are the ones whose SUBJECT is exactly
 # that - passwords and sessions, the destroying routes' credentials, and the
