@@ -639,6 +639,18 @@ def production_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     collapse into itself and pass by distinguishing nothing.
     """
     monkeypatch.delenv(ident.ENV_LOCAL_DEV_MODE, raising=False)
+    # WHOSE books this server serves. Defect J1, 2026-08-11: the tenant check
+    # had no caller, so any live session reached any company's books. It fails
+    # closed now, and a server that has not been told whose books it is serving
+    # refuses everybody - so a file running with authentication required has to
+    # say, exactly as a deployment does.
+    #
+    # ALPHA, and that is what makes
+    # `test_a_caller_cannot_delete_a_customer_that_is_not_theirs` measure
+    # something: BETA's session is now refused at the door rather than reaching
+    # the route and being turned away there. Two independent refusals, and this
+    # file proves the outer one is in front of the inner one.
+    monkeypatch.setenv(app.ENV_TENANT, ALPHA)
 
 
 def seeding(*sessions: tuple[str, str, str]) -> Callable[[MemoryStore], None]:
@@ -841,7 +853,16 @@ def test_a_caller_cannot_delete_a_customer_that_is_not_theirs(tmp_path: Path) ->
             tenant_id=BETA,
         )
         assert status == 200, body
-        assert get_as(base, beta) == 200, "Beta's session was killed by Anna"
+
+        # Beta's session is checked in the DATABASE below, not by an HTTP 200.
+        # Since the cross-tenant fix (2026-08-11) this server serves ALPHA, so
+        # Beta is refused 403 at the door however alive her session is - which
+        # is a SECOND, outer refusal and not the one under test here. Asserting
+        # a 200 would now be asserting that the outer guard is missing.
+        assert get_as(base, beta) == 403, (
+            "Beta reached a server serving Alpha's books, so the tenant guard "
+            "is not in front of this route"
+        )
 
     after = MemoryStore(db)
     beta_row = after.tenant(BETA)
