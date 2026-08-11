@@ -78,6 +78,31 @@ ENV ACCOUNTANT_DB=/app/data/app.db
 # reads as real is a value somebody deploys.
 ENV ACCOUNTANT_TENANT=""
 
+# WHERE THE READING SERVICE IS - NAMED HERE, VALUED NOWHERE. D-23, 2026-08-11.
+#
+# Azure Document Intelligence reads an uploaded bill. The endpoint is not a
+# credential, so it is safe to declare; it is also not a DEFAULT, so it is
+# declared empty for the same reason ACCOUNTANT_TENANT is. Empty and absent are
+# identical to the code - accountant/reader/azure.py reads both variables and
+# returns None if either is missing - but only a declared variable shows up in
+# `docker inspect`, and the operator working out what to pass to `docker run`
+# should be told by the image rather than by a document they may not have open.
+#
+# Empty means the reading service is UNCONFIGURED, and unconfigured means an
+# uploaded document is refused with a sentence naming both variables. It does
+# not mean a fallback. There is no fallback: a reader that quietly degrades to
+# guessing is the failure the whole extraction package exists to prevent, and a
+# typed bill still works with no reading service at all.
+ENV ACCOUNTANT_AZURE_ENDPOINT=""
+
+# ACCOUNTANT_AZURE_KEY IS DELIBERATELY ABSENT, AND MUST STAY ABSENT.
+# It is a credential. A credential in a layer is a credential in every registry,
+# cache and backup this image ever touches. It is injected at run time, and
+# tests/test_deploy_artefacts.py fails if this file ever sets it - the word
+# `KEY` was added to that check's list on the day this variable was written,
+# because until then only `APIKEY` was watched for and this name would have
+# passed.
+
 # LOCAL_DEV_MODE IS DELIBERATELY ABSENT, AND MUST STAY ABSENT.
 # Unset, authentication is required. Set to 1 it means every request runs as
 # tenant "local-dev" and anybody who can reach the port can read and write

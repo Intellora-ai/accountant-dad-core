@@ -104,11 +104,23 @@ from accountant.extract.adapter import (
     TypedTextExtractor,
     UnavailableExtractor,
 )
+from accountant.extract.azure import build_azure
 from accountant.extract.placeholder import PlaceholderReader
 from accountant.extract.service import MALFORMED, reason_for
 
 #: The backend the application runs with. Change THIS to swap it.
-DEFAULT_BACKEND: Final = "typed_text"
+#:
+#: VENDOR SELECTED 2026-08-11: Azure Document Intelligence, for its Central
+#: India region and its retention terms. `azure` reads DOCUMENTS;
+#: a sentence a person typed into our own form still goes to
+#: `TypedTextExtractor`, because that was never a vendor decision and sending it
+#: to an invoice-reading service would charge a fee to parse our own form field.
+#: `accountant.extract.azure.ByMediaType` holds that split and says why.
+#:
+#: An unconfigured deployment does NOT fall back to anything. It refuses every
+#: document with a sentence naming the two variables it needs. A reader that
+#: quietly degrades to guessing is the failure this package exists to prevent.
+DEFAULT_BACKEND: Final = "azure"
 
 
 class UnknownBackend(LookupError):
@@ -124,11 +136,17 @@ class UnknownBackend(LookupError):
 #: NAME rather than a code change — `DEFAULT_BACKEND = "<vendor>"` once a
 #: vendor exists — and what stops "we have no reader" being expressed as a
 #: missing feature that each caller has to remember.
+#: `azure` JOINED 2026-08-11 with the vendor selection, and `no_reader` STAYS. The
+#: placeholder is no longer the honest answer to "what reads a document" — Azure
+#: is — but it remains selectable, because a deployment that wants no third
+#: party reading its customers' bills should be able to say so by name rather
+#: than by deleting a credential and hoping.
 _READY: Final[dict[str, Callable[[], Extractor]]] = {
     "typed_text": TypedTextExtractor,
     "stub": StubExtractor,
     "unavailable": UnavailableExtractor,
     "no_reader": PlaceholderReader,
+    "azure": build_azure,
 }
 
 #: Backends that exist but cannot be built from a name alone, and the sentence

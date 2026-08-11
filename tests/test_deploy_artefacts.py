@@ -69,7 +69,19 @@ REGISTRY = "ACCOUNTANT_REGISTRY"
 TENANT = app.ENV_TENANT
 
 #: Names whose presence in an image layer is a leak, whatever the value is.
-SECRET_WORDS = ("SECRET", "TOKEN", "PASSWORD", "PASSWD", "CREDENTIAL", "APIKEY")
+#: `KEY` ADDED 2026-08-11, when D-23 introduced `ACCOUNTANT_AZURE_KEY`. That
+#: name contains `KEY` but not `APIKEY`, so until this line the check would have
+#: watched a credential go into a layer and said nothing. The gap was found by
+#: writing the variable, not by reviewing the list, which is the ordinary way
+#: these lists go stale.
+#:
+#: KNOWN AND ACCEPTED CONSEQUENCE: `ACCOUNTANT_TLS_KEY` holds a PATH, not a key,
+#: and this now refuses to let that path be set in the Dockerfile either. That
+#: is the intended direction of the error. This check is on the NAME precisely
+#: so that nobody has to judge whether a particular value was really a
+#: credential, and a name-based check that never over-fires is one that is about
+#: to under-fire.
+SECRET_WORDS = ("SECRET", "TOKEN", "PASSWORD", "PASSWD", "CREDENTIAL", "APIKEY", "KEY")
 
 
 # ---------------------------------------------------------------------------
@@ -569,6 +581,47 @@ def test_the_control_a_dockerfile_that_bakes_a_credential_is_caught() -> None:
         "FROM python:3.14.6-slim\nENV ACCOUNTANT_CONNECTOR_SECRET=placeholder\n"
     )
     assert baked_secrets(planted) == ["ACCOUNTANT_CONNECTOR_SECRET"]
+
+
+def test_the_reading_service_key_cannot_be_baked_in_either() -> None:
+    """The case that found the gap in `SECRET_WORDS`.
+
+    `ACCOUNTANT_AZURE_KEY` arrived with D-23 on 2026-08-11 and the word list did
+    not have `KEY` in it — only `APIKEY`. So this exact name would have gone into
+    an image layer with the check reporting clean. Written as its own test rather
+    than folded into the one above, because a control that covers two names and
+    is asserted on one is a control that can quietly stop covering the other.
+    """
+    planted = instructions(
+        "FROM python:3.14.6-slim\nENV ACCOUNTANT_AZURE_KEY=placeholder\n"
+    )
+    assert baked_secrets(planted) == ["ACCOUNTANT_AZURE_KEY"]
+
+
+def test_the_reading_service_endpoint_is_declared_empty_like_the_tenant() -> None:
+    """An endpoint is not a credential, and it is not a default either.
+
+    Declared EMPTY for the reason `ACCOUNTANT_TENANT` is: a variable that is
+    absent and a variable that is empty behave identically to the code, but only
+    a declared one appears in `docker inspect`. The operator working out what to
+    pass to `docker run` is told by the image rather than by a document they may
+    not have open.
+
+    Empty means the reading service is unconfigured, which means an uploaded
+    document is refused with a sentence naming both variables. It does not mean
+    a fallback, and there is none.
+    """
+    declared = environment(dockerfile())
+    endpoint = declared.get("ACCOUNTANT_AZURE_ENDPOINT")
+
+    assert endpoint is not None, "the image does not declare the endpoint at all"
+    # The same normalisation `baked_tenant` uses, and for its stated reason:
+    # `=""`, `=''` and `=` are three spellings of one empty, and a check that
+    # knew only one of them would be a check about punctuation.
+    assert endpoint.strip().strip("\"'").strip() == "", (
+        f"the endpoint should be declared empty; found {endpoint!r}"
+    )
+    assert "ACCOUNTANT_AZURE_KEY" not in declared
 
 
 # ---------------------------------------------------------------------------
