@@ -158,14 +158,19 @@ def serving(
     NAMES NO BACKEND: a default of `TypedTextExtractor()` here would be a
     fixture quietly deciding what the shipped path uses.
 
-    The memory store is opened INSIDE the serving thread. SQLite gives a
-    connection to the thread that opened it and to no other; in production
-    `app.serve()` runs the server on the thread that imported the module, so
-    there is only ever one. Here the server needs its own thread so the test can
-    make requests, which means the store has to be opened there too. That is a
-    fixture detail, not a change of behaviour: `configure()` still bootstraps
-    memory exactly once, from this company's own Tally, before a single request
-    is served.
+    THREADING, since 2026-08-11, because `app.serve()` is. `HTTPServer` stood
+    here and served one request at a time, which meant this fixture — the one
+    spin-up path in the suite — could not reproduce the shape of the shipped
+    server at all: every cross-request hazard threads create was invisible to
+    every test that runs through here. It builds the same class production does.
+
+    The memory store is still opened INSIDE the serving thread, and it no longer
+    has to be. `MemoryStore` opens its connection with `check_same_thread=False`
+    behind one lock (Task 11), so any thread may use it; what has NOT changed is
+    that `:memory:` is private to its connection, so a store built out here
+    would be a second, empty database. `configure()` still bootstraps memory
+    exactly once, from this company's own Tally, before a single request is
+    served.
 
     A CONTEXT MANAGER RATHER THAN A SECOND FIXTURE, 2026-08-10. The HTTP reader
     outage in `tests/test_extract_outage.py` needs a server carrying a failing
@@ -174,9 +179,9 @@ def serving(
     fixture instead of duplicating it. There is one spin-up path and this is it.
 
     `seed` JOINED 2026-08-10 with tenancy, and it takes a CALLBACK rather than a
-    ready-made store for the reason two paragraphs up: SQLite hands a connection
-    to the thread that opened it, so a store built in the test thread cannot be
-    read by the server thread. The callback runs where the connection lives.
+    ready-made store for the reason two paragraphs up: a `:memory:` database is
+    private to the connection that opened it, so a store built in the test
+    thread is not the store the server reads. The callback runs where it lives.
     `tests/test_auth.py` uses it to write tenants and sessions; anything a test
     needs to carry back out — a token, say — is generated in the test and passed
     IN, not read out.
@@ -210,10 +215,18 @@ def serving(
     # reason: a pending delete-my-data plan surviving into the next test would
     # make any "there is exactly one plan" assertion a measurement of leftovers.
     app.DELETIONS.clear()
+    # And the owner map beside `DRAFTS`, so a draft id reused by a later test
+    # cannot inherit the previous test's tenant.
+    app.DRAFT_TENANT.clear()
     # `EVENTS` used to be cleared here: a module-level list that leaked rows
     # from one test into the next. The log now lives in this test's own
     # MemoryStore, so there is nothing global left to reset.
 
+    # Through `app.start_server`, which is the ONE binding site: it chooses the
+    # server class and wraps the socket, so this fixture cannot drift from what
+    # `serve()` actually runs. It built its own ThreadingHTTPServer for a few
+    # hours between the two tasks landing; a fixture that constructs its own
+    # server is a second definition of what a running app is.
     httpd = app.start_server("127.0.0.1", 0, tls)
     ready = threading.Event()
 

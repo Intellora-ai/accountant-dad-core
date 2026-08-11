@@ -84,6 +84,20 @@ the first — the same argument `Observation.identity_evidence` is built on — 
 an UPDATE on `action_log` would end the append-only property the whole table
 exists for. `tests/test_reversal_history.py` scans this module for one and
 fails if it ever appears.
+
+ONE CONNECTION, ONE LOCK. Task 11, 2026-08-11.
+----------------------------------------------
+`sqlite3.connect` defaults to `check_same_thread=True`, which means the
+connection may only be used by the thread that opened it. `app.serve()` now runs
+a `ThreadingHTTPServer`, so the store is opened on the startup thread and used
+by whatever thread the OS hands the next request to: measured, the FIRST request
+on a new thread raised
+
+    sqlite3.ProgrammingError: SQLite objects created in a thread can only be
+    used in that same thread.
+
+before any handler code ran. See `MemoryStore.__init__` for the three routes
+considered and why this one was taken.
 """
 
 from __future__ import annotations
@@ -91,6 +105,7 @@ from __future__ import annotations
 import datetime
 import json
 import sqlite3
+import threading
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -826,14 +841,58 @@ def _observation_params(
 
 class MemoryStore:
     """Our SQLite file. One store can hold many companies; no query can reach
-    more than one of them at a time."""
+    more than one of them at a time.
+
+    THREAD-SAFE BY ONE LOCK OVER ONE CONNECTION. Every method that touches
+    `self._db` holds `self._lock` for the whole of that touch, and
+    `tests/test_concurrency.py::test_every_store_method_that_touches_the_database_holds_the_lock`
+    walks the AST and fails if a new one forgets.
+    """
 
     def __init__(self, path: str | Path = IN_MEMORY) -> None:
-        self._db = sqlite3.connect(str(path))
-        for statement in SCHEMA:
-            self._db.execute(statement)
-        self._migrate()
-        self._db.commit()
+        """Open the database, and make it usable from more than one thread.
+
+        WHY `check_same_thread=False` PLUS A LOCK, AND NOT THE OTHER TWO ROUTES.
+        Measured and decided 2026-08-11, Task 11.
+
+        A CONNECTION PER THREAD (`threading.local`) was the first instinct and it
+        is wrong here for one decisive reason: `IN_MEMORY` is `":memory:"`, and a
+        `:memory:` database is PRIVATE TO ITS CONNECTION. Almost every test and
+        every `configure()` caller opens one. A second connection on a request
+        thread would therefore open a second, EMPTY database — the tenants and
+        sessions seeded on the startup thread would be invisible, so every
+        request would 401 against a database that looked fine. That is a silent
+        wrong answer, which is worse than the ProgrammingError it replaces.
+        (`file::memory:?cache=shared` would share it, but it would also make two
+        `MemoryStore(":memory:")` objects in one process the same database, and
+        the isolation those tests rely on is a much bigger thing to break than
+        the defect being fixed.)
+
+        A CONNECTION POOL has the identical `:memory:` problem and adds a
+        lifetime to get wrong.
+
+        The lock is REENTRANT because `_record` reads through `self._one` and
+        then writes, and those two must be ONE atomic step: two threads
+        recording the same vendor both read `times=1`, both write `times=2`, and
+        one observation is silently lost. A plain `Lock` would deadlock on that
+        path; an `RLock` lets the outer method hold the lock across both halves.
+
+        WHAT THIS ACTUALLY BUYS, HONESTLY. Not parallel SQL. SQLite takes a
+        write lock over the WHOLE FILE for every write, so writes were already
+        serialised by SQLite itself and this lock only moves the queue into
+        Python. What it buys is that reads and writes from different request
+        threads are CORRECT — no ProgrammingError, no lost read-modify-write —
+        while the parallelism that matters for this product happens above it:
+        the slow part of a request is the Tally round trip, which is I/O and
+        holds no lock at all. `docs/OWNER_WORK.md` records the ceiling.
+        """
+        self._lock = threading.RLock()
+        self._db = sqlite3.connect(str(path), check_same_thread=False)
+        with self._lock:
+            for statement in SCHEMA:
+                self._db.execute(statement)
+            self._migrate()
+            self._db.commit()
 
     def _migrate(self) -> None:
         """Add columns a file written by an older build does not have.
@@ -871,16 +930,21 @@ class MemoryStore:
                 ),
             ),
         )
-        for table, wanted in added:
-            columns = {
-                str(row[0]) for row in self._db.execute(_COLUMNS, (table,)).fetchall()
-            }
-            for column in wanted:
-                if column not in columns:
-                    self._db.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT")
+        with self._lock:
+            for table, wanted in added:
+                columns = {
+                    str(row[0])
+                    for row in self._db.execute(_COLUMNS, (table,)).fetchall()
+                }
+                for column in wanted:
+                    if column not in columns:
+                        self._db.execute(
+                            f"ALTER TABLE {table} ADD COLUMN {column} TEXT"
+                        )
 
     def close(self) -> None:
-        self._db.close()
+        with self._lock:
+            self._db.close()
 
     # ---- tenancy ----------------------------------------------------------
     #
@@ -890,7 +954,7 @@ class MemoryStore:
     # the whole isolation guarantee, and `tests/test_auth.py` asserts it.
 
     def create_tenant(self, tenant_id: str, name: str, created_at: str) -> Tenant:
-        with self._db:
+        with self._lock, self._db:
             self._db.execute(
                 "INSERT INTO tenant (tenant_id, name, created_at, deleted_at) "
                 "VALUES (?, ?, ?, NULL)",
@@ -899,11 +963,12 @@ class MemoryStore:
         return Tenant(tenant_id, name, created_at)
 
     def tenant(self, tenant_id: str) -> Tenant | None:
-        row = self._db.execute(
-            "SELECT tenant_id, name, created_at, deleted_at FROM tenant "
-            "WHERE tenant_id = ?",
-            (tenant_id,),
-        ).fetchone()
+        with self._lock:
+            row = self._db.execute(
+                "SELECT tenant_id, name, created_at, deleted_at FROM tenant "
+                "WHERE tenant_id = ?",
+                (tenant_id,),
+            ).fetchone()
         if row is None:
             return None
         return Tenant(str(row[0]), str(row[1]), str(row[2]), str(row[3] or ""))
@@ -917,7 +982,7 @@ class MemoryStore:
         salt: str,
         created_at: str,
     ) -> User:
-        with self._db:
+        with self._lock, self._db:
             self._db.execute(
                 "INSERT INTO app_user (user_id, tenant_id, email, password_hash, "
                 "salt, created_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, NULL)",
@@ -926,11 +991,12 @@ class MemoryStore:
         return User(user_id, tenant_id, email, password_hash, salt, created_at)
 
     def user_by_email(self, email: str) -> User | None:
-        row = self._db.execute(
-            "SELECT user_id, tenant_id, email, password_hash, salt, created_at, "
-            "deleted_at FROM app_user WHERE email = ?",
-            (email,),
-        ).fetchone()
+        with self._lock:
+            row = self._db.execute(
+                "SELECT user_id, tenant_id, email, password_hash, salt, "
+                "created_at, deleted_at FROM app_user WHERE email = ?",
+                (email,),
+            ).fetchone()
         if row is None:
             return None
         return User(
@@ -956,7 +1022,7 @@ class MemoryStore:
         The caller keeps the token and hands it to the person; this row can
         recognise it later and is useless to anyone who steals the database.
         """
-        with self._db:
+        with self._lock, self._db:
             self._db.execute(
                 "INSERT INTO session (token_fingerprint, user_id, tenant_id, "
                 "created_at, expires_at, revoked_at) VALUES (?, ?, ?, ?, ?, NULL)",
@@ -967,11 +1033,12 @@ class MemoryStore:
     def session_by_fingerprint(self, token_fingerprint: str) -> Session | None:
         """The lookup `accountant.auth.authenticate` needs, and the only way a
         `Principal` is ever built from a credential."""
-        row = self._db.execute(
-            "SELECT token_fingerprint, user_id, tenant_id, created_at, "
-            "expires_at, revoked_at FROM session WHERE token_fingerprint = ?",
-            (token_fingerprint,),
-        ).fetchone()
+        with self._lock:
+            row = self._db.execute(
+                "SELECT token_fingerprint, user_id, tenant_id, created_at, "
+                "expires_at, revoked_at FROM session WHERE token_fingerprint = ?",
+                (token_fingerprint,),
+            ).fetchone()
         if row is None:
             return None
         return Session(
@@ -990,7 +1057,7 @@ class MemoryStore:
         stays answerable. A deleted row and a session that never existed are
         indistinguishable afterwards, and support needs to tell them apart.
         """
-        with self._db:
+        with self._lock, self._db:
             changed = self._db.execute(
                 "UPDATE session SET revoked_at = ? "
                 "WHERE token_fingerprint = ? AND revoked_at IS NULL",
@@ -1000,7 +1067,7 @@ class MemoryStore:
 
     def revoke_all_sessions_for(self, user_id: str, revoked_at: str) -> int:
         """Every live session for one user. What a password change should call."""
-        with self._db:
+        with self._lock, self._db:
             changed = self._db.execute(
                 "UPDATE session SET revoked_at = ? "
                 "WHERE user_id = ? AND revoked_at IS NULL",
@@ -1291,21 +1358,26 @@ class MemoryStore:
     # ---- introspection, so the scoping rule is checked rather than trusted --
 
     def table_names(self) -> tuple[str, ...]:
-        return tuple(str(row[0]) for row in self._db.execute(_TABLE_NAMES).fetchall())
+        with self._lock:
+            rows = self._db.execute(_TABLE_NAMES).fetchall()
+        return tuple(str(row[0]) for row in rows)
 
     def columns_of(self, table: str) -> tuple[str, ...]:
-        rows = self._db.execute(_COLUMNS, (table,)).fetchall()
+        with self._lock:
+            rows = self._db.execute(_COLUMNS, (table,)).fetchall()
         return tuple(str(row[0]) for row in rows)
 
     def primary_key_of(self, table: str) -> tuple[str, ...]:
-        rows = self._db.execute(_PRIMARY_KEY, (table,)).fetchall()
+        with self._lock:
+            rows = self._db.execute(_PRIMARY_KEY, (table,)).fetchall()
         return tuple(str(row[0]) for row in rows)
 
     # ---- reads -------------------------------------------------------------
 
     def state(self, company_key: str) -> BootstrapReport | None:
         """The last recorded bootstrap for this company, or None if none ran."""
-        row = self._db.execute(_COMPANY_SELECT, (company_key,)).fetchone()
+        with self._lock:
+            row = self._db.execute(_COMPANY_SELECT, (company_key,)).fetchone()
         if row is None:
             return None
         display_name = str(row[0])
@@ -1329,7 +1401,8 @@ class MemoryStore:
         )
 
     def chart(self, company_key: str) -> tuple[str, ...]:
-        rows = self._db.execute(_CHART_SELECT, (company_key,)).fetchall()
+        with self._lock:
+            rows = self._db.execute(_CHART_SELECT, (company_key,)).fetchall()
         return tuple(str(row[0]) for row in rows)
 
     def record_action(self, entry: ActionLog) -> None:
@@ -1350,8 +1423,15 @@ class MemoryStore:
         `NOT_RECORDED`, so "we did not record this" has exactly one
         representation in the file, the same one a row written before those
         columns existed already has.
+
+        THE ONE THAT MUST NOT LOSE A ROW UNDER THREADS. Task 11, 2026-08-11.
+        This is the durable audit trail, and `ThreadingHTTPServer` means N
+        people can reach it at the same instant. One INSERT inside one
+        transaction inside the store lock: N concurrent posts leave exactly N
+        rows, never N-1 and never N+1.
+        `tests/test_concurrency.py` posts from N threads and counts.
         """
-        with self._db:
+        with self._lock, self._db:
             self._db.execute(
                 _ACTION_INSERT,
                 (
@@ -1382,8 +1462,29 @@ class MemoryStore:
         a trail is asked for.
         """
         key = normalise_company(company)
-        rows = self._db.execute(_ACTION_SELECT, (key,)).fetchall()
-        return tuple(_row_to_action(row) for row in rows)
+        with self._lock:
+            rows = self._db.execute(_ACTION_SELECT, (key,)).fetchall()
+        return tuple(
+            ActionLog(
+                company_key=str(row[0]),
+                ts=datetime.datetime.fromisoformat(str(row[1])),
+                action=str(row[2]),
+                outcome=str(row[3]),
+                reason=str(row[4]),
+                run_id=str(row[5]),
+                backend=str(row[6]),
+                operation_id=str(row[7]),
+                voucher_id=str(row[8]),
+                vendor_id=str(row[9]),
+                detail=str(row[10]),
+                actor=_null_as_unrecorded(row[11]),
+                previous_state=_null_as_unrecorded(row[12]),
+                batch_id="" if row[13] is None else str(row[13]),
+                tenant_id=_null_as_unrecorded(row[14]),
+                user_id=_null_as_unrecorded(row[15]),
+            )
+            for row in rows
+        )
 
     def vendors(self, company_key: str) -> tuple[Observation, ...]:
         return self._all(_VENDOR, company_key)
@@ -1398,13 +1499,15 @@ class MemoryStore:
         return self._one(_PHRASE, company_key, subject)
 
     def _all(self, table: _Table, company_key: str) -> tuple[Observation, ...]:
-        rows = self._db.execute(table.select_all, (company_key,)).fetchall()
+        with self._lock:
+            rows = self._db.execute(table.select_all, (company_key,)).fetchall()
         return tuple(_row_to_observation(company_key, row) for row in rows)
 
     def _one(
         self, table: _Table, company_key: str, subject: str
     ) -> tuple[Observation, ...]:
-        rows = self._db.execute(table.select_one, (company_key, subject)).fetchall()
+        with self._lock:
+            rows = self._db.execute(table.select_one, (company_key, subject)).fetchall()
         return tuple(_row_to_observation(company_key, row) for row in rows)
 
     # ---- writes ------------------------------------------------------------
@@ -1412,8 +1515,8 @@ class MemoryStore:
     def forget(self, company_key: str) -> None:
         """Drop everything this company knows. A rebuild starts from nothing,
         so a half-loaded index can never be mistaken for a whole one."""
-        with self._db:
-            for statement in LEARNED_INDEX_DELETES:
+        with self._lock, self._db:
+            for statement in _DELETES:
                 self._db.execute(statement, (company_key,))
 
     def save_bootstrap(
@@ -1437,8 +1540,8 @@ class MemoryStore:
                     f"refusing to store {o.subject!r} from company "
                     f"{o.company_key!r} under {key!r}"
                 )
-        with self._db:
-            for statement in LEARNED_INDEX_DELETES:
+        with self._lock, self._db:
+            for statement in _DELETES:
                 self._db.execute(statement, (key,))
             self._db.executemany(_CHART_INSERT, [(key, a) for a in chart])
             self._db.executemany(
@@ -1492,28 +1595,44 @@ class MemoryStore:
         provenance: str,
         raw_subject: str | None = None,
     ) -> Observation:
-        existing = self._one(table, company_key, subject)
-        seen = [o for o in existing if o.account == account]
-        times = seen[0].times + 1 if seen else 1
-        ids = list(seen[0].source_voucher_ids) if seen else []
-        if source_voucher_id and source_voucher_id not in ids:
-            ids.append(source_voucher_id)
-        # Evidence is only ever GAINED. A row that already knows the name it
-        # was written under does not lose it to a later call that does not.
-        kept_raw = raw_subject if raw_subject is not None else None
-        if kept_raw is None and seen:
-            kept_raw = seen[0].raw_subject
-        updated = Observation(
-            company_key=company_key,
-            subject=subject,
-            account=account,
-            times=times,
-            source_voucher_ids=tuple(ids),
-            provenance=provenance,
-            raw_subject=kept_raw,
-        )
-        with self._db:
-            self._db.execute(table.upsert, _observation_params(updated))
+        """READ, COUNT, WRITE — and all three under ONE hold of the lock.
+
+        Task 11, 2026-08-11. This is the only read-modify-write in the module
+        and therefore the only place a thread can lose somebody's data without
+        anything raising. Two threads recording the same vendor both read
+        `times=1`, both compute `2`, and both upsert `2`: the count says two
+        observations where three happened, and the source voucher id one of
+        them carried is gone from the row entirely. Nothing errors. Nothing
+        logs. The evidence is simply thinner than the truth.
+
+        `self._lock` is an RLock precisely so the nested `self._one` below can
+        take it again rather than deadlocking on it.
+        `tests/test_concurrency.py::test_two_threads_recording_the_same_vendor_lose_no_observation`
+        drives the race and counts.
+        """
+        with self._lock:
+            existing = self._one(table, company_key, subject)
+            seen = [o for o in existing if o.account == account]
+            times = seen[0].times + 1 if seen else 1
+            ids = list(seen[0].source_voucher_ids) if seen else []
+            if source_voucher_id and source_voucher_id not in ids:
+                ids.append(source_voucher_id)
+            # Evidence is only ever GAINED. A row that already knows the name it
+            # was written under does not lose it to a later call that does not.
+            kept_raw = raw_subject if raw_subject is not None else None
+            if kept_raw is None and seen:
+                kept_raw = seen[0].raw_subject
+            updated = Observation(
+                company_key=company_key,
+                subject=subject,
+                account=account,
+                times=times,
+                source_voucher_ids=tuple(ids),
+                provenance=provenance,
+                raw_subject=kept_raw,
+            )
+            with self._db:
+                self._db.execute(table.upsert, _observation_params(updated))
         return updated
 
 

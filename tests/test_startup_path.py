@@ -23,10 +23,10 @@ identity check and the real bootstrap all run. The seam is one layer lower than
 the client, which is the whole point: everything above the socket is production
 code.
 
-The only other seam is `app.HTTPServer`, replaced by a factory that builds a
-GENUINE `HTTPServer` and hands the test a handle to it. `serve()` calls
-`serve_forever()` and keeps no reference, so without that handle the suite could
-neither stop the server nor prove one was never opened.
+The only other seam is `app.ThreadingHTTPServer`, replaced by a factory that
+builds a GENUINE `ThreadingHTTPServer` and hands the test a handle to it.
+`serve()` calls `serve_forever()` and keeps no reference, so without that handle
+the suite could neither stop the server nor prove one was never opened.
 
 WHAT THIS FILE DOES NOT PROVE
 -----------------------------
@@ -53,7 +53,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Generator, Iterator, Sequence
 from dataclasses import dataclass
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from pathlib import Path
 from typing import cast
 
@@ -422,22 +422,30 @@ def _page(base: str) -> str:
 
 @pytest.fixture
 def watched_servers(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[HTTPServer]]:
-    """Every HTTPServer `serve()` builds — a real one, plus a handle to it.
+    """Every server `serve()` builds — a real one, plus a handle to it.
 
-    `serve()` does `HTTPServer(...).serve_forever()` and keeps no reference, so
-    a test can neither stop it nor say it was never opened. The factory builds
-    the genuine class; only the handle is new.
+    `serve()` does `ThreadingHTTPServer(...).serve_forever()` and keeps no
+    reference, so a test can neither stop it nor say it was never opened. The
+    factory builds the genuine class; only the handle is new.
+
+    THE GENUINE CLASS IS `ThreadingHTTPServer` SINCE 2026-08-11, Task 11. The
+    seam moved with the production line it doubles: patching the old name would
+    have left `serve()` building an unwatched server, so these tests would have
+    stopped stopping it and `test_serve_refuses_and_opens_no_socket` would have
+    passed by measuring a list nothing writes to. It is still a real stdlib
+    class and still the exact one the product runs, which is the whole point of
+    this fixture — the seam is the HANDLE, never the behaviour.
     """
     opened: list[HTTPServer] = []
 
     def build(
         address: tuple[str, int], handler: type[BaseHTTPRequestHandler]
     ) -> HTTPServer:
-        server = HTTPServer(address, handler)
+        server = ThreadingHTTPServer(address, handler)
         opened.append(server)
         return server
 
-    monkeypatch.setattr(app, "HTTPServer", build)
+    monkeypatch.setattr(app, "ThreadingHTTPServer", build)
     yield opened
 
     for server in opened:
