@@ -19,6 +19,30 @@ anywhere until an account exists.
 **Needed:** a host, a container registry, a domain, and the credentials as
 repository secrets.
 
+### TLS certificate for the cloud server
+The code half is **done** — Task 7, 2026-08-11. `ACCOUNTANT_TLS_CERT` and
+`ACCOUNTANT_TLS_KEY` make the web app serve HTTPS at minimum TLS 1.2; setting
+exactly one refuses to start rather than falling back to plaintext; the session
+cookie gains `Secure` when and only when the connection is actually encrypted.
+`docs/TLS.md` has the whole table, including what each misconfiguration does.
+
+The certificate half is **not**, and cannot be from inside this repository. A
+certificate is issued to a **domain name**, and no domain, host or certificate
+authority exists yet — the same gap as *Deployment target* above. Every test
+runs against a self-signed certificate generated into `tmp_path` at run time,
+which proves the code path and proves nothing about a browser trusting it.
+
+This also closes the entry `docs/AUTH.md` recorded as pending: the cookie's
+missing `Secure` flag. It was **never actually written down here** despite two
+places saying it was — `docs/AUTH.md:200` and the comment in
+`accountant/web/app.py::_send_with_session` both pointed at this file for an
+item that was not in it. Recorded now, and both pointers corrected. That is the
+same duplication failure the header of this file was written about.
+
+**Needed:** a domain, then a certificate for it (Let's Encrypt is free and
+automatable), then the two paths as deployment configuration. Until then the
+server runs plain HTTP on loopback and says so loudly at every start.
+
 ### Production reader selection
 No document reader is selected. `D-23` is open.
 `artifacts/extraction_backends.md:3` — *"third-party backend selection =

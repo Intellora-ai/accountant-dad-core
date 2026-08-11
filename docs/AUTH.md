@@ -258,11 +258,17 @@ because that mutant lived.
 Nothing here touches a real TallyPrime. Every test runs against `FakeTally`, so
 all of it is `FAKETALLY` evidence.
 
-Not built, and recorded in `docs/OWNER_WORK.md` rather than promised here:
+Not built, and recorded here and in `docs/OWNER_WORK.md` rather than promised:
 
-- **No `Secure` flag on the cookie.** A browser withholds a `Secure` cookie over
-  plain HTTP, which would break the loopback development server. It goes on with
-  Task 7, when TLS is in front of the cloud server.
+- **~~No `Secure` flag on the cookie.~~ DONE, Task 7, 2026-08-11.** It was
+  absent because a browser withholds a `Secure` cookie over plain HTTP, which
+  would have broken the loopback development server. Now that TLS exists the
+  flag is set when — and only when — the connection is actually encrypted,
+  measured off the socket rather than off a setting. See `docs/TLS.md`.
+
+  What is still owner work is the **certificate**: there is no host, no domain
+  and no certificate authority, so nothing has ever served HTTPS outside a
+  test. `docs/OWNER_WORK.md` records that half.
 - **No password reset.** Sending mail needs a provider, an account and a domain,
   none of which exist. There is deliberately no dead link on the login page.
 - **No sign-up route.** Users are created by calling `MemoryStore.create_user`.
