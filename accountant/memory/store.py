@@ -52,6 +52,38 @@ So this module imports nothing from `accountant.redact`, and
 reads the import graph and fails the day somebody helpfully adds it. If you are
 here to "finish the redaction work", this paragraph is the answer: it is
 finished, and this is where it stops. `docs/REDACTION.md` has the long version.
+
+WHEN A CUSTOMER ASKS TO BE DELETED
+----------------------------------
+`delete_tenant` is the whole of it, and it does three different things to three
+different kinds of row because they are three different kinds of fact:
+
+    tenant, app_user        SOFT deleted. `deleted_at` is set, every session is
+                            revoked, and authentication refuses afterwards. The
+                            row stays so "this account was closed on the 11th"
+                            is answerable; a vanished row and an account that
+                            never existed are indistinguishable, and support
+                            has to tell them apart.
+    the learned index       HARD deleted, by the same four statements `forget()`
+                            uses. It is OUR derivation of THEIR books, it can be
+                            rebuilt from their own Tally at any time, and it is
+                            the only thing here that is genuinely ours to lose.
+    `action_log`            KEPT, every field, including `vendor_id` and the
+                            amounts that appear in `reason` and `detail`. Owner
+                            decision, and not reopened here. What we did to a
+                            real business's books is the evidence a regulator or
+                            the customer themselves may ask for, and a deletion
+                            feature that erases it destroys exactly the record
+                            that would answer "what did you do to my accounts".
+
+A kept row is MARKED rather than rewritten. `RetainedAction` carries the
+tenant's `deleted_at` beside the row, so nobody reads retained evidence as an
+active customer. It is DERIVED at read time from the `tenant` row and never
+written into `action_log`, for two reasons: a second copy could disagree with
+the first — the same argument `Observation.identity_evidence` is built on — and
+an UPDATE on `action_log` would end the append-only property the whole table
+exists for. `tests/test_reversal_history.py` scans this module for one and
+fails if it ever appears.
 """
 
 from __future__ import annotations
@@ -406,6 +438,86 @@ class Observation:
 
 
 @dataclass(frozen=True)
+class RetainedAction:
+    """One kept audit row, and whether the customer behind it has been deleted.
+
+    THE MARK IS DERIVED, NOT STORED. `tenant_deleted_at` is read off the
+    `tenant` row at the moment the log is read, never written into
+    `action_log`. Two reasons, and both are load-bearing:
+
+        a stored copy could disagree with the tenant row it copied, and a mark
+        claiming "active" over a closed account is exactly the false confidence
+        `Observation.identity_evidence` is derived rather than stored to avoid;
+
+        writing it would need an UPDATE on `action_log`, and a row a later
+        write can edit is not an audit row. That table has no update path and
+        no delete path anywhere in this module, and a test scans the source to
+        keep it that way.
+
+    Empty string means the tenant is live, or that the row never recorded a
+    tenant at all — `NOT_RECORDED` rows predate tenancy and belong to nobody, so
+    they cannot be marked as belonging to a deleted anybody.
+    """
+
+    entry: ActionLog
+    tenant_deleted_at: str = ""
+
+    @property
+    def tenant_deleted(self) -> bool:
+        """Read this row as evidence about a FORMER customer, not a current one."""
+        return bool(self.tenant_deleted_at)
+
+
+@dataclass(frozen=True)
+class TenantDeletion:
+    """What one deletion actually did. Counted, never assumed.
+
+    Returned rather than logged from inside the store for the same reason
+    `BootstrapReport` is returned: the store's job is to make the change and
+    say what it changed, and the caller's job is to decide where that sentence
+    is written down. `accountant/web/app.py` puts it in the audit trail.
+
+    `companies_kept` is not a rounding error. A company key both this customer
+    and another LIVE customer are recorded as having worked in is left alone:
+    erasing it would delete somebody else's learning as a side effect of this
+    person's request, which is the exact cross-tenant harm the deletion feature
+    must not commit while claiming to protect them.
+    """
+
+    tenant_id: str
+    at: str
+    users_closed: int = 0
+    sessions_revoked: int = 0
+    companies_erased: tuple[str, ...] = ()
+    companies_kept: tuple[str, ...] = ()
+    rows_erased: int = 0
+    actions_kept: int = 0
+
+    def summary(self) -> str:
+        """One sentence naming everything that was removed and everything kept.
+
+        Written for the `reason` field of the audit row this deletion produces,
+        so the trail says WHAT was destroyed rather than only that something
+        was. A row saying "data deleted" answers nothing six months later.
+        """
+        kept = (
+            f", {len(self.companies_kept)} company/companies left alone because "
+            f"another live customer shares them ({', '.join(self.companies_kept)})"
+            if self.companies_kept
+            else ""
+        )
+        return (
+            f"tenant {self.tenant_id} closed at {self.at}: "
+            f"{self.users_closed} user(s) closed, "
+            f"{self.sessions_revoked} session(s) revoked, "
+            f"the learned index erased for {len(self.companies_erased)} "
+            f"company/companies ({self.rows_erased} row(s)){kept}; "
+            f"{self.actions_kept} audit row(s) KEPT with their vendor and "
+            f"amount fields and marked as a deleted customer"
+        )
+
+
+@dataclass(frozen=True)
 class _Table:
     """The four literal statements one observation table needs."""
 
@@ -492,12 +604,124 @@ _ACTION_SELECT = """
 # `action_log` is NOT here, and that is the point. `forget()` runs on every
 # rebuild; the index is a statement about our memory and may be rebuilt, but
 # what we already did to somebody's books is a different fact and survives.
-_DELETES: tuple[str, ...] = (
+#
+# PUBLIC since 2026-08-11, because `delete_tenant` uses this exact tuple and
+# `tests/test_data_deletion.py` reads it back to prove the two have not become
+# two lists. A deletion policy that names four tables in a comment and drops a
+# fifth in an implementation is the drift that test exists to catch, and it
+# cannot catch it through a name it is not allowed to touch.
+LEARNED_INDEX_DELETES: tuple[str, ...] = (
     _VENDOR.delete,
     _PHRASE.delete,
     _CHART_DELETE,
     _COMPANY_DELETE,
 )
+
+# ---------------------------------------------------------------------------
+# Data deletion. Task 13, 2026-08-11.
+#
+# The three lists below are the policy, written as data rather than as prose in
+# a docstring, so `tests/test_data_deletion.py` can read them back and assert
+# they cover the live schema EXACTLY. A table that is in neither list fails that
+# test, which is the point: the next table anybody adds cannot be silently
+# swept into a customer deletion, and cannot be silently left out of one either.
+# ---------------------------------------------------------------------------
+
+#: Erased outright when a customer asks to be deleted. Our derivation of their
+#: books — vendor and phrase history, the chart we cached, the bootstrap row.
+#: Rebuildable from their own Tally, so losing it costs them nothing they
+#: cannot get back, and keeping it after they have left is us holding learning
+#: about a company that is no longer a customer.
+ERASED_BY_DELETION: tuple[str, ...] = (
+    "vendor_account",
+    "phrase_account",
+    "chart_account",
+    "company",
+)
+
+#: Kept, and each for its own reason.
+#:
+#:     action_log   the evidence of what we did to a real business's books.
+#:                  Owner decision: kept WITH its vendor and amount fields.
+#:                  Marked as belonging to a deleted customer, never rewritten.
+#:     tenant       soft deleted. The row IS the record that the account was
+#:                  closed, and the thing every later read is marked from.
+#:     app_user     soft deleted, so a closed login cannot be reopened by
+#:                  re-registering the same email against a row that is gone.
+#:     session      revoked, not deleted. "This session was revoked at 14:02"
+#:                  stays answerable; a deleted row and a session that never
+#:                  existed are indistinguishable afterwards.
+KEPT_BY_DELETION: tuple[str, ...] = (
+    "action_log",
+    "tenant",
+    "app_user",
+    "session",
+)
+
+# The soft deletes. Each is `AND <column> IS NULL`, so a second deletion reports
+# that it changed nothing rather than moving the time of the first one. When a
+# customer was deleted is a fact and is not improved by being overwritten.
+_TENANT_CLOSE = (
+    "UPDATE tenant SET deleted_at = ? WHERE tenant_id = ? AND deleted_at IS NULL"
+)
+_USERS_CLOSE = (
+    "UPDATE app_user SET deleted_at = ? WHERE tenant_id = ? AND deleted_at IS NULL"
+)
+_SESSIONS_REVOKE_BY_TENANT = (
+    "UPDATE session SET revoked_at = ? WHERE tenant_id = ? AND revoked_at IS NULL"
+)
+
+_USERS_OF_TENANT = (
+    "SELECT user_id, tenant_id, email, password_hash, salt, created_at, deleted_at "
+    "FROM app_user WHERE tenant_id = ? ORDER BY user_id"
+)
+_LIVE_SESSIONS_OF_TENANT = (
+    "SELECT token_fingerprint, user_id, tenant_id, created_at, expires_at, "
+    "revoked_at FROM session WHERE tenant_id = ? AND revoked_at IS NULL "
+    "ORDER BY token_fingerprint"
+)
+_DELETED_TENANTS = (
+    "SELECT tenant_id, deleted_at FROM tenant WHERE deleted_at IS NOT NULL "
+    "ORDER BY tenant_id"
+)
+
+# THE AUDIT LOG IS THE ONLY MAP FROM A CUSTOMER TO THEIR BOOKS.
+#
+# Nothing in this schema says which companies a tenant owns: `company_key`
+# scopes the books, `tenant_id` scopes the account, and the only place the two
+# appear on one row is `action_log`. So the set of companies a deletion may
+# erase is READ OFF THE TRAIL — what this customer was recorded doing, not what
+# somebody assumed they owned.
+#
+# That is also the sharpest practical argument for keeping the log: erase it and
+# a LATER deletion request could not even be scoped, because nothing would be
+# left that knows whose books were whose.
+_COMPANIES_OF_TENANT = """
+    SELECT DISTINCT company_key
+      FROM action_log
+     WHERE tenant_id = ?
+     ORDER BY company_key
+"""
+
+# Who else has worked in this company. NULL is excluded rather than counted: a
+# NULL tenant means "nobody wrote this down", not "another customer", and
+# treating an unattributed row as a co-owner would make deletion impossible in
+# every database written before tenancy existed.
+_TENANTS_IN_COMPANY = """
+    SELECT DISTINCT tenant_id
+      FROM action_log
+     WHERE company_key = ? AND tenant_id IS NOT NULL
+     ORDER BY tenant_id
+"""
+
+_ACTIONS_OF_TENANT = """
+    SELECT company_key, ts, action, outcome, reason, run_id,
+           backend, operation_id, voucher_id, vendor_id, detail,
+           actor, previous_state, batch_id, tenant_id, user_id
+      FROM action_log
+     WHERE tenant_id = ?
+     ORDER BY rowid
+"""
 
 _TABLE_NAMES = "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name"
 _COLUMNS = "SELECT name FROM pragma_table_info(?) ORDER BY cid"
@@ -531,6 +755,34 @@ def _row_to_observation(company_key: str, row: Sequence[object]) -> Observation:
         source_voucher_ids=_ids_from(str(row[3])),
         provenance=str(row[4]),
         raw_subject=None if row[5] is None else str(row[5]),
+    )
+
+
+def _row_to_action(row: Sequence[object]) -> ActionLog:
+    """One `action_log` row, whichever statement selected it.
+
+    Shared by the company-scoped read and the tenant-scoped one. Two copies of
+    a sixteen-column unpacking is two places for a column to slip a position,
+    and the failure would be silent: every field is a string, so a swap reads
+    back as a plausible row saying the wrong thing.
+    """
+    return ActionLog(
+        company_key=str(row[0]),
+        ts=datetime.datetime.fromisoformat(str(row[1])),
+        action=str(row[2]),
+        outcome=str(row[3]),
+        reason=str(row[4]),
+        run_id=str(row[5]),
+        backend=str(row[6]),
+        operation_id=str(row[7]),
+        voucher_id=str(row[8]),
+        vendor_id=str(row[9]),
+        detail=str(row[10]),
+        actor=_null_as_unrecorded(row[11]),
+        previous_state=_null_as_unrecorded(row[12]),
+        batch_id="" if row[13] is None else str(row[13]),
+        tenant_id=_null_as_unrecorded(row[14]),
+        user_id=_null_as_unrecorded(row[15]),
     )
 
 
@@ -807,6 +1059,221 @@ class MemoryStore:
                 (at, normalise_company(company_key), operation_id),
             ).rowcount
         return bool(changed)
+    # ---- deleting a customer ----------------------------------------------
+    #
+    # Task 13, 2026-08-11. Read `ERASED_BY_DELETION` and `KEPT_BY_DELETION`
+    # above first: they are the policy, and everything here executes it.
+
+    def users_of_tenant(self, tenant_id: str) -> tuple[User, ...]:
+        """Every user of one customer, closed ones included.
+
+        Closed ones included on purpose: this answers "who was on this
+        account", which is a question a deletion has to be able to answer
+        afterwards as well as before.
+        """
+        rows = self._db.execute(_USERS_OF_TENANT, (tenant_id,)).fetchall()
+        return tuple(
+            User(
+                str(row[0]),
+                str(row[1]),
+                str(row[2]),
+                str(row[3]),
+                str(row[4]),
+                str(row[5]),
+                str(row[6] or ""),
+            )
+            for row in rows
+        )
+
+    def live_sessions_of_tenant(self, tenant_id: str) -> tuple[Session, ...]:
+        """Sessions of this customer that have not been revoked.
+
+        The measurement behind "every session dies": empty after a deletion, and
+        the count before it is what the confirmation screen shows the person.
+        Not filtered on `expires_at` — an expired session is still a live ROW
+        that a clock change could revive, and revoking it costs nothing.
+        """
+        rows = self._db.execute(_LIVE_SESSIONS_OF_TENANT, (tenant_id,)).fetchall()
+        return tuple(
+            Session(
+                str(row[0]),
+                str(row[1]),
+                str(row[2]),
+                str(row[3]),
+                str(row[4]),
+                str(row[5] or ""),
+            )
+            for row in rows
+        )
+
+    def deleted_tenants(self) -> dict[str, str]:
+        """Every closed customer, by id, with the time they were closed.
+
+        One statement rather than a lookup per log row: marking a page of the
+        audit trail would otherwise be one query per line, and the marking is
+        the thing that has to be cheap enough that nobody is tempted to skip it.
+        """
+        rows = self._db.execute(_DELETED_TENANTS).fetchall()
+        return {str(row[0]): str(row[1]) for row in rows}
+
+    def companies_of_tenant(self, tenant_id: str) -> tuple[str, ...]:
+        """The company keys this customer is RECORDED as having worked in.
+
+        Read off `action_log`, because that is the only table where a tenant id
+        and a company key sit on the same row. Nothing in this schema declares
+        ownership, so this is a measurement of what happened rather than a
+        claim about what is owned — and a deletion scoped by a measurement
+        cannot erase books this customer was never seen touching.
+        """
+        rows = self._db.execute(_COMPANIES_OF_TENANT, (tenant_id,)).fetchall()
+        return tuple(str(row[0]) for row in rows)
+
+    def tenants_in_company(self, company_key: str) -> tuple[str, ...]:
+        """Every customer recorded as having worked in one company.
+
+        More than one is normal in the shape this product is heading for: a
+        tenant owns companies, and nothing stops two tenants from being
+        recorded against the same key. What it must never mean is that one
+        customer's deletion takes another customer's learning with it.
+        """
+        rows = self._db.execute(_TENANTS_IN_COMPANY, (company_key,)).fetchall()
+        return tuple(str(row[0]) for row in rows)
+
+    def deletion_scope(self, tenant_id: str) -> tuple[tuple[str, ...], ...]:
+        """`(erase, keep)` — which of this customer's companies may be erased.
+
+        ONE FUNCTION, TWO CALLERS, AND THAT IS THE WHOLE REASON IT EXISTS.
+        `delete_tenant` executes it and `web/app.py::deletion_plan` shows it to
+        the person before they confirm. Written twice, the screen could promise
+        one set and the deletion could take another — a person confirming a list
+        that is not what happens is the exact defect the two-step preview exists
+        to prevent, arriving through the back door.
+
+        A company is erasable only when no OTHER LIVE customer is recorded as
+        having worked in it. Already-deleted customers do not count as owners,
+        so the index goes when the last live one leaves rather than being kept
+        forever by a customer who has also gone.
+        """
+        closed = self.deleted_tenants()
+        erase: list[str] = []
+        keep: list[str] = []
+        for company_key in self.companies_of_tenant(tenant_id):
+            others = [
+                other
+                for other in self.tenants_in_company(company_key)
+                if other != tenant_id and other not in closed
+            ]
+            (keep if others else erase).append(company_key)
+        return tuple(erase), tuple(keep)
+
+    def actions_of_tenant(self, tenant_id: str) -> tuple[RetainedAction, ...]:
+        """This customer's audit rows, oldest first, each carrying the mark."""
+        closed = self.deleted_tenants()
+        rows = self._db.execute(_ACTIONS_OF_TENANT, (tenant_id,)).fetchall()
+        return tuple(
+            RetainedAction(_row_to_action(row), closed.get(tenant_id, ""))
+            for row in rows
+        )
+
+    def retained_actions(self, company: str) -> tuple[RetainedAction, ...]:
+        """One company's audit rows, each marked with its customer's state.
+
+        The same rows `actions()` returns and in the same order — this adds the
+        mark and takes nothing away. Both exist because a company's log can hold
+        rows from more than one tenant, so the mark is per ROW and cannot be a
+        property of the read.
+        """
+        closed = self.deleted_tenants()
+        return tuple(
+            RetainedAction(entry, closed.get(entry.tenant_id, ""))
+            for entry in self.actions(company)
+        )
+
+    def delete_tenant(self, tenant_id: str, at: str) -> TenantDeletion:
+        """Delete one customer. Soft where it is a record, hard where it is ours.
+
+        WHAT HAPPENS, AND WHY EACH PART IS THE SHAPE IT IS
+
+        `tenant` and `app_user` are SOFT deleted — `deleted_at` set, nothing
+        removed. The row is the record that the account was closed, and it is
+        what every later read is marked from. Dropping it would leave "deleted
+        on the 11th" and "never existed" indistinguishable, and it would let the
+        same email be registered again against nothing.
+
+        Every session is REVOKED, in the same transaction, so the credential
+        stops working at the moment the deletion lands rather than at the next
+        expiry. `login` already refuses a user that is not live, and
+        `authenticate` refuses a session whose tenant is not live, so the two
+        halves of "cannot get back in" are both closed and neither depends on
+        the other.
+
+        The LEARNED INDEX is erased outright, by the same four statements
+        `forget()` uses — deliberately the same tuple rather than a second copy
+        of the list, because two lists of "what may be dropped" is one list too
+        many. It is our derivation of their books; their books are untouched on
+        their own machine and it can be rebuilt from them at any time.
+
+        `action_log` IS KEPT, with its `vendor_id` and with the amounts that
+        appear in `reason` and `detail`. That is an owner decision and this
+        method does not reopen it. The argument for it is that the log is the
+        record of what was done to a real business's statutory books: a
+        regulator, an auditor or the customer themselves may need it, and a
+        deletion that erases it destroys the one thing that could answer them.
+        The argument against — that it is retained personal data — is answered
+        by the MARK rather than by erasure: `RetainedAction` carries the
+        tenant's `deleted_at`, so no reader can mistake it for a live customer.
+
+        ONE TRANSACTION, so a half-deletion cannot exist. An index erased while
+        the login still works, or a login closed while the index survives, are
+        both worse than either end state.
+
+        REFUSES WHEN THERE IS NO CUSTOMER RECORD. The deletion has to be
+        RECORDED on the `tenant` row; with no row there is nowhere to record it,
+        and erasing the index anyway would leave a company's learning gone with
+        nothing anywhere saying who asked or when. Fails closed and erases
+        nothing.
+        """
+        if not tenant_id.strip():
+            raise ValueError("a deletion must name the customer it is deleting")
+        if not at.strip():
+            raise ValueError(
+                f"the deletion of tenant {tenant_id!r} must carry the time it "
+                f"happened; a deletion nobody can date cannot be evidenced"
+            )
+        if self.tenant(tenant_id) is None:
+            raise ValueError(
+                f"there is no customer record for tenant {tenant_id!r}, so a "
+                f"deletion cannot be recorded on one. Nothing was erased."
+            )
+
+        # Read BEFORE the writes, so the decision about each company is made
+        # against the state the person was shown rather than against a state
+        # this method has already started changing. `deletion_scope` is the same
+        # function the preview screen calls, so what is executed here and what
+        # was shown there cannot be two different rules.
+        erase, keep = self.deletion_scope(tenant_id)
+
+        with self._db:
+            users = self._db.execute(_USERS_CLOSE, (at, tenant_id)).rowcount
+            sessions = self._db.execute(
+                _SESSIONS_REVOKE_BY_TENANT, (at, tenant_id)
+            ).rowcount
+            self._db.execute(_TENANT_CLOSE, (at, tenant_id))
+            rows_erased = 0
+            for company_key in erase:
+                for statement in LEARNED_INDEX_DELETES:
+                    rows_erased += self._db.execute(statement, (company_key,)).rowcount
+
+        return TenantDeletion(
+            tenant_id=tenant_id,
+            at=at,
+            users_closed=int(users),
+            sessions_revoked=int(sessions),
+            companies_erased=erase,
+            companies_kept=keep,
+            rows_erased=rows_erased,
+            actions_kept=len(self.actions_of_tenant(tenant_id)),
+        )
 
     # ---- introspection, so the scoping rule is checked rather than trusted --
 
@@ -855,8 +1322,8 @@ class MemoryStore:
     def record_action(self, entry: ActionLog) -> None:
         """Append one decision. There is no update and no delete.
 
-        Deliberately absent from `_DELETES`, so `forget()` — which runs on
-        every rebuild — cannot erase it. Re-reading a company's index is a
+        Deliberately absent from `LEARNED_INDEX_DELETES`, so `forget()` — which
+        runs on every rebuild — cannot erase it. Re-reading a company's index is a
         statement about our memory; what we already did to their books is a
         different fact and stays true regardless.
 
@@ -903,27 +1370,7 @@ class MemoryStore:
         """
         key = normalise_company(company)
         rows = self._db.execute(_ACTION_SELECT, (key,)).fetchall()
-        return tuple(
-            ActionLog(
-                company_key=str(row[0]),
-                ts=datetime.datetime.fromisoformat(str(row[1])),
-                action=str(row[2]),
-                outcome=str(row[3]),
-                reason=str(row[4]),
-                run_id=str(row[5]),
-                backend=str(row[6]),
-                operation_id=str(row[7]),
-                voucher_id=str(row[8]),
-                vendor_id=str(row[9]),
-                detail=str(row[10]),
-                actor=_null_as_unrecorded(row[11]),
-                previous_state=_null_as_unrecorded(row[12]),
-                batch_id="" if row[13] is None else str(row[13]),
-                tenant_id=_null_as_unrecorded(row[14]),
-                user_id=_null_as_unrecorded(row[15]),
-            )
-            for row in rows
-        )
+        return tuple(_row_to_action(row) for row in rows)
 
     def vendors(self, company_key: str) -> tuple[Observation, ...]:
         return self._all(_VENDOR, company_key)
@@ -953,7 +1400,7 @@ class MemoryStore:
         """Drop everything this company knows. A rebuild starts from nothing,
         so a half-loaded index can never be mistaken for a whole one."""
         with self._db:
-            for statement in _DELETES:
+            for statement in LEARNED_INDEX_DELETES:
                 self._db.execute(statement, (company_key,))
 
     def save_bootstrap(
@@ -978,7 +1425,7 @@ class MemoryStore:
                     f"{o.company_key!r} under {key!r}"
                 )
         with self._db:
-            for statement in _DELETES:
+            for statement in LEARNED_INDEX_DELETES:
                 self._db.execute(statement, (key,))
             self._db.executemany(_CHART_INSERT, [(key, a) for a in chart])
             self._db.executemany(

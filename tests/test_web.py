@@ -194,6 +194,10 @@ def serving(
     # said "there is exactly one batch" was measuring the leftovers of whatever
     # ran before it.
     app.BATCHES.clear()
+    # And `DELETIONS`, added with data deletion 2026-08-11, for the identical
+    # reason: a pending delete-my-data plan surviving into the next test would
+    # make any "there is exactly one plan" assertion a measurement of leftovers.
+    app.DELETIONS.clear()
     # `EVENTS` used to be cleared here: a module-level list that leaked rows
     # from one test into the next. The log now lives in this test's own
     # MemoryStore, so there is nothing global left to reset.

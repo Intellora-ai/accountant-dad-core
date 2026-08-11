@@ -26,6 +26,15 @@ WHY EXPIRY IS A COLUMN AND NOT A TIMER
 --------------------------------------
 The process restarts. A session that expired while the server was down must
 still be expired when it comes back, so the fact lives in the row.
+
+A DELETED CUSTOMER CANNOT AUTHENTICATE
+--------------------------------------
+`Tenant.deleted_at` and `User.deleted_at` were declared with the tables on
+2026-08-10 and nothing set them until Task 13 on 2026-08-11. They are now the
+end of a session: `MemoryStore.delete_tenant` sets them and revokes every
+session in one transaction, `login` already refuses a user that is not live,
+and `authenticate` refuses a session whose tenant is not live. Three closures,
+none of which depends on another being correct. See `docs/DATA_DELETION.md`.
 """
 
 from __future__ import annotations
@@ -243,5 +252,41 @@ def authenticate(
         raise AuthRefusal(401, "that session has been revoked")
     if not session.live_at(when):
         raise AuthRefusal(401, "that session has expired")
+    _refuse_a_deleted_customer(lookup, session.tenant_id)
 
     return Principal(session.user_id, session.tenant_id)
+
+
+def _refuse_a_deleted_customer(lookup: object, tenant_id: str) -> None:
+    """Nobody authenticates into a customer that has been deleted.
+
+    THE BELT, NOT THE BRACES. `MemoryStore.delete_tenant` revokes every session
+    in the same transaction that closes the account, so the check above already
+    turns away every credential that existed at the moment of the deletion.
+    This is the one that holds for a credential that did NOT exist then — a
+    session opened by a request that was already in flight, or a row some later
+    code path writes without asking whether the account is still open.
+
+    It is a 401 rather than a 403 because we genuinely no longer know who this
+    is: the account it names is closed. 403 would say "I know you, and no",
+    which would be a claim about a customer we have just stopped having.
+
+    `getattr` for the same reason `session_by_fingerprint` is looked up that
+    way — `lookup` is anything that can answer, injected rather than imported,
+    so this module still holds no database. A lookup that cannot answer the
+    question does not get to fail the request over it; the session check above
+    is what such a caller is relying on, and it has already run.
+
+    A tenant id with NO row is allowed through deliberately. That is a user
+    created without a customer record, which is a different defect with a
+    different fix, and quietly repurposing this refusal to cover it would hide
+    it behind a message about deletion.
+    """
+    reader = getattr(lookup, "tenant", None)
+    if reader is None:
+        return
+    tenant = reader(tenant_id)
+    if tenant is not None and not tenant.live:
+        raise AuthRefusal(
+            401, "that customer's data has been deleted, so this session is closed"
+        )

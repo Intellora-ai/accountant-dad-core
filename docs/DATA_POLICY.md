@@ -168,7 +168,8 @@ be answered before a single customer signs up.
 
 ## 4. Cross-checks — what should be true, and how to prove it
 
-Each of these is a test that could exist. **None of them do.**
+Each of these is a test that could exist. **One of them now does** — the
+deletion row, built by Task 13 on 2026-08-11. The other five still do not.
 
 | Claim | Test |
 |---|---|
@@ -177,7 +178,7 @@ Each of these is a test that could exist. **None of them do.**
 | the memory index never leaves the machine | assert no message type in `CONNECTOR_PROTOCOL.md` §4 carries a vendor→account mapping |
 | retention is enforced, not intended | once D-15 is answered: a scheduled job, and a test that ages a row past the boundary and asserts it is gone |
 | export produces what it claims | export a tenant, re-import into an empty instance, assert byte-identical |
-| deletion is real | delete a tenant, then assert the row is absent from the primary store **and** state plainly what remains in backups (D-17) |
+| deletion is real | **BUILT.** `tests/test_data_deletion.py` deletes a tenant and asserts, in the primary store, that the learned index is gone, that the account is closed, that every session is dead and that the audit log survives with its rows marked. It says **nothing** about backups, and neither does the screen, because D-17 is unanswered — see [`DATA_DELETION.md`](./DATA_DELETION.md) |
 
 ---
 

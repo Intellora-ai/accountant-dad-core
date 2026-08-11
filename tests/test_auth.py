@@ -566,7 +566,19 @@ def test_every_post_route_refuses_an_unauthenticated_caller() -> None:
     and it enumerates the routes rather than sampling one, because a check
     every route must have is a check some route will be missing.
     """
-    routes = ("/entry", "/answer", "/reverse", "/dismiss", "/reverse-all")
+    routes = (
+        "/entry",
+        "/answer",
+        "/reverse",
+        "/dismiss",
+        "/reverse-all",
+        # Added 2026-08-11 with data deletion. It closes an account and erases
+        # an index, so it belongs in this list beside the two that destroy
+        # vouchers — and it is enumerated HERE as well as in
+        # `tests/test_data_deletion.py`, because this is the list somebody adds
+        # the next route to.
+        "/delete-my-data",
+    )
     with serving(demo_company(), fake_backend(), seed=seeding()) as base:
         for route in routes:
             status, _body, _cookie = send(base, route, text="anything")
