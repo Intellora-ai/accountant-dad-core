@@ -545,7 +545,7 @@ def test_a_companys_own_index_holds_only_its_own_rows() -> None:
 def test_every_table_is_keyed_by_company() -> None:
     """Structural, read off the live schema rather than promised in a comment.
 
-    Two table SHAPES, and the difference is deliberate rather than an
+    Three table SHAPES, and the differences are deliberate rather than an
     inconsistency to be tidied away.
 
     A lookup table keys on `company_key` first in a composite primary key,
@@ -555,20 +555,32 @@ def test_every_table_is_keyed_by_company() -> None:
     Its scoping is `company_key NOT NULL` plus an index, and its uniqueness is
     SQLite's rowid.
 
-    Both shapes are asserted here. What must hold for EVERY table, whatever its
-    shape, is that `company_key` is present — that is what makes a query
-    without a company impossible to write by accident.
+    The tenancy tables added 2026-08-10 are the third shape, and they are the
+    reason this test is not simply "every table has company_key" any more. They
+    sit ABOVE company rather than inside it: a tenant owns companies. Requiring
+    `company_key` on the row that says which tenant a user belongs to would be
+    a circular scope, so what they carry instead is `tenant_id`.
+
+    What must hold for EVERY table, whatever its shape, is that it carries the
+    key of the thing that owns it — `company_key` for the books, `tenant_id`
+    for the accounts. That is what makes an unscoped query impossible to write
+    by accident. The set equality below is exact on purpose: a new table cannot
+    be added without deciding, here, which of the three shapes it is.
     """
     store = st.MemoryStore()
 
     lookups = {"company", "vendor_account", "phrase_account", "chart_account"}
     append_only = {"action_log"}
+    tenancy = {"tenant", "app_user", "session"}
 
     tables = set(store.table_names())
-    assert tables == lookups | append_only
+    assert tables == lookups | append_only | tenancy
 
-    for table in tables:
+    for table in lookups | append_only:
         assert "company_key" in store.columns_of(table), table
+
+    for table in tenancy:
+        assert "tenant_id" in store.columns_of(table), table
 
     for table in lookups:
         assert store.primary_key_of(table)[0] == "company_key", table
@@ -578,6 +590,13 @@ def test_every_table_is_keyed_by_company() -> None:
             f"{table} is append-only; a primary key would drop a repeated "
             "decision that genuinely happened twice"
         )
+
+    # Each tenancy row is unique on the thing it IS, not on its tenant: two
+    # users of one tenant are two rows, and `tenant_id` scopes them without
+    # deduplicating them.
+    assert store.primary_key_of("tenant") == ("tenant_id",)
+    assert store.primary_key_of("app_user") == ("user_id",)
+    assert store.primary_key_of("session") == ("token_fingerprint",)
 
 
 def test_the_store_refuses_an_observation_carrying_another_companys_key() -> None:
@@ -1019,7 +1038,7 @@ def test_the_package_exports_what_it_documents() -> None:
     assert memory.STEPS == STEPS
     # 5 tables + 1 index on the append-only log. Counted rather than
     # described, so a table added without a thought here fails.
-    assert len(memory.SCHEMA) == 6
+    assert len(memory.SCHEMA) == 11
 
 
 # ---------------------------------------------------------------------------

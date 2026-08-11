@@ -171,6 +171,12 @@ ELEVEN_BEFORE: tuple[str, ...] = (
 
 THREE_ADDED: tuple[str, ...] = ("actor", "previous_state", "batch_id")
 
+#: Added AFTER those three, by tenancy on 2026-08-10. Kept as its own tuple
+#: rather than folded into `THREE_ADDED`, because the assertions below are about
+#: the Phase 8 PR-5 migration specifically and merging the two would quietly
+#: change what they measure.
+TWO_ADDED_BY_TENANCY: tuple[str, ...] = ("tenant_id", "user_id")
+
 
 class Recorder:
     """A log sink that keeps its own copy of every row AND forwards it.
@@ -213,7 +219,7 @@ def test_the_action_log_was_missing_exactly_two_of_the_seven() -> None:
         "the eleven columns that were there before must still be there, in "
         "order; this migration is additive"
     )
-    assert columns[len(ELEVEN_BEFORE) :] == THREE_ADDED
+    assert columns[len(ELEVEN_BEFORE) :] == THREE_ADDED + TWO_ADDED_BY_TENANCY
     assert "actor" not in ELEVEN_BEFORE
     assert "previous_state" not in ELEVEN_BEFORE
 
@@ -793,7 +799,7 @@ def test_a_row_written_before_the_columns_existed_reads_as_unrecorded(
     assert row.reason == "reversed as part of the phase 5B batch"
     assert row.outcome == VoucherState.REVERSED_VERIFIED.value
     assert row.operation_id == "op-legacy"
-    assert store.columns_of("action_log")[-3:] == THREE_ADDED
+    assert store.columns_of("action_log")[-5:] == THREE_ADDED + TWO_ADDED_BY_TENANCY
 
 
 def test_a_legacy_row_is_never_mistaken_for_a_system_action(
