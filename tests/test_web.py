@@ -41,12 +41,12 @@ import datetime
 import html
 import json
 import re
+import ssl
 import threading
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Generator, Iterator
-from http.server import HTTPServer
 from pathlib import Path
 
 import pytest
@@ -141,6 +141,7 @@ def serving(
     extractor: Extractor | None = None,
     seed: Callable[[MemoryStore], None] | None = None,
     store_path: str | Path = IN_MEMORY,
+    tls: ssl.SSLContext | None = None,
 ) -> Generator[str]:
     """A real server on a real ephemeral port, torn down on the way out.
 
@@ -187,6 +188,17 @@ def serving(
     server has shut down, which is sequential access rather than shared access
     and needs no locking argument. Default unchanged, so every existing caller
     still gets the in-memory store it had.
+
+    `tls` JOINED 2026-08-11 with Task 7, and it is EXTENDED here rather than
+    copied into `tests/test_tls.py` for the reason two paragraphs up: a second
+    threaded spin-up is a second implementation of the thing under test, and
+    the TLS claim is precisely a claim about how the socket was bound. Passing
+    an `ssl.SSLContext` makes this the HTTPS path; passing nothing leaves every
+    existing caller on plain HTTP, byte for byte as before. The wrapping itself
+    is NOT done here — `app.start_server` does it, so the shipped `serve()` and
+    this fixture bind through one function. The yielded base URL carries the
+    scheme that was actually served, so a caller cannot address an HTTPS server
+    as `http://` by accident.
     """
     app.DRAFTS.clear()
     # And `BATCHES`, for the same reason. It was not cleared here, so a pending
@@ -202,7 +214,7 @@ def serving(
     # from one test into the next. The log now lives in this test's own
     # MemoryStore, so there is nothing global left to reset.
 
-    httpd = HTTPServer(("127.0.0.1", 0), app.Handler)
+    httpd = app.start_server("127.0.0.1", 0, tls)
     ready = threading.Event()
 
     def serve() -> None:
@@ -216,8 +228,9 @@ def serving(
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
     assert ready.wait(timeout=5), "the server thread never bootstrapped memory"
+    scheme = "https" if tls is not None else "http"
     try:
-        yield f"http://127.0.0.1:{httpd.server_address[1]}"
+        yield f"{scheme}://127.0.0.1:{httpd.server_address[1]}"
     finally:
         httpd.shutdown()
         httpd.server_close()

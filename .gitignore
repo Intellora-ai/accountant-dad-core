@@ -33,6 +33,16 @@ coverage/
 # Pinned tools fetched by scripts/install-actionlint
 .tools/
 
+# TLS material. A private key committed once is in every clone and every fork
+# forever, and six months later nobody can tell a test key from a real one by
+# looking at it. Tests generate their certificate into `tmp_path` at run time
+# (`tests/test_tls.py::certificate`), which is outside this tree already; these
+# three lines are the second line of defence for the day somebody makes one in
+# the working directory to try something.
+*.pem
+*.key
+*.crt
+
 # The durable database. This is a REAL CUSTOMER'S AUDIT TRAIL and their vendor
 # and account history - the one file in this project that must never reach a
 # commit. `ACCOUNTANT_DB` moves it; `data/app.db` is where it lands otherwise.

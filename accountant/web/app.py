@@ -31,9 +31,11 @@ import datetime
 import html
 import json
 import os
+import ssl
 import time
 import urllib.parse
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -2396,18 +2398,50 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _over_tls(self) -> bool:
+        """Is THIS connection encrypted? Measured off the socket, not a flag.
+
+        Task 7, 2026-08-11. `ssl.SSLSocket` is what `ssl.SSLContext.wrap_socket`
+        returns and nothing else produces one, so this answers the question the
+        `Secure` attribute is actually about — "was this byte stream
+        encrypted" — rather than the question a configuration flag answers,
+        which is "did somebody intend it to be".
+
+        The two can disagree. A module-level "TLS is on" boolean set at startup
+        stays true after the setting that produced it has been changed, and a
+        cookie that claims a protection the connection does not have is worse
+        than no claim: the browser then refuses to send it and the person
+        cannot log in, with nothing on screen saying why.
+
+        KNOWN BOUNDARY, and it is in `docs/TLS.md`: behind a TLS-terminating
+        reverse proxy this connection really is plain HTTP, so `Secure` is
+        correctly omitted here even though the browser spoke HTTPS. That
+        deployment does not exist yet — no host, no domain, no proxy; see
+        `docs/OWNER_WORK.md` — and inventing a trusted `X-Forwarded-Proto`
+        reader for it would add a header anybody can forge.
+        """
+        return isinstance(self.connection, ssl.SSLSocket)
+
     def _send_with_session(
         self, body: bytes, token: str, *, clear: bool = False
     ) -> None:
         """Answer, and set or clear the session cookie.
 
         HttpOnly so page scripts cannot read it, SameSite=Lax so another site
-        cannot make the browser use it, Path=/ so it covers every route. NOT
-        `Secure` yet: that flag makes a browser withhold the cookie over plain
-        HTTP, which would break the loopback development server before Task 7
-        puts TLS in front of the cloud one. `docs/OWNER_WORK.md` records it.
+        cannot make the browser use it, Path=/ so it covers every route.
+
+        `Secure` SINCE TASK 7, 2026-08-11, and only when this connection is
+        actually encrypted. The flag makes a browser withhold the cookie over
+        plain HTTP, so setting it unconditionally would break the loopback
+        development server — which is why it was absent until TLS existed. It
+        is not set unconditionally now either: `_over_tls` measures the socket,
+        so the attribute appears exactly when it is true and never as a promise.
+
+        `docs/TLS.md` has the cost of getting it wrong in either direction.
         """
         attrs = "; HttpOnly; SameSite=Lax; Path=/"
+        if self._over_tls():
+            attrs += "; Secure"
         cookie = (
             f"{COOKIE}=; Max-Age=0{attrs}"
             if clear
@@ -3136,6 +3170,166 @@ ENV_DB = "ACCOUNTANT_DB"
 #: database defines who owns the company. That is a land grab, not a check.
 ENV_TENANT = "ACCOUNTANT_TENANT"
 
+# TLS. TASK 7, 2026-08-11.
+#
+# WHICH LEG THIS IS, AND WHICH LEGS IT IS NOT
+# -------------------------------------------
+# There are three legs and only two of them can carry TLS:
+#
+#     browser  -> cloud       these two variables. In scope here.
+#     cloud    -> connector   already enforced, and not by a warning:
+#                             `accountant/agent/connector.py::https_cloud_call`
+#                             REFUSES a non-https URL, because the request body
+#                             carries the connector secret.
+#     connector -> Tally      stays `http://`, on loopback, forever.
+#
+# The third one is physics, not preference. TallyPrime's HTTP server speaks
+# plain HTTP on port 9000 and has no TLS setting to turn on; there is no
+# certificate it would present and no way to give it one. `TallyConfig.url`
+# (`accountant/tallyio/real.py:1921`) therefore builds `http://host:port` and
+# that is correct. The connector runs on the SAME MACHINE as Tally, so those
+# bytes never reach a network interface — Task 1's whole point was that port
+# 9000 is never exposed. A check that flagged this leg would be flagging the
+# one connection that cannot be attacked from the network and would make the
+# product unrunnable. Nothing added here reads it.
+ENV_TLS_CERT = "ACCOUNTANT_TLS_CERT"
+ENV_TLS_KEY = "ACCOUNTANT_TLS_KEY"
+
+#: The floor, written out rather than left to whatever OpenSSL was built with,
+#: for the same reason `accountant/auth/identity.py` writes out n=16384, r=8,
+#: p=1 instead of defaulting them: a security parameter nobody can read is a
+#: security parameter nobody can check. TLS 1.0 and 1.1 were deprecated by
+#: RFC 8996 (March 2021); 1.2 is the lowest version still permitted there.
+MINIMUM_TLS = ssl.TLSVersion.TLSv1_2
+
+
+class TlsMisconfigured(RuntimeError):
+    """TLS was asked for and cannot be honoured, so no socket is bound.
+
+    A separate type from `RealTallyRequired` because it is a separate fact.
+    Reusing that one would print "REAL TALLY REQUIRED" at somebody whose Tally
+    is fine and whose certificate path has a typo, and send them to debug the
+    wrong machine.
+    """
+
+
+def tls_from_environment(
+    environ: Mapping[str, str] | None = None,
+) -> tuple[ssl.SSLContext | None, list[str]]:
+    """Resolve TLS into a context or an honest None, with provenance.
+
+    Three cases, and the middle one is the reason this function refuses rather
+    than falls back:
+
+        both set      an `ssl.SSLContext`, minimum TLS 1.2, HTTPS is served
+        neither set   None, plain HTTP is served, and the banner says so
+        exactly one   `TlsMisconfigured`, naming the one that is missing
+
+    HALF-CONFIGURED TLS MUST NOT DEGRADE TO PLAINTEXT. An operator who set
+    `ACCOUNTANT_TLS_CERT` believes the traffic is encrypted. A server that
+    quietly serves HTTP anyway leaves them holding a false belief, and the
+    session cookie, the password on the login form and every vendor name in
+    the books go out in clear while the terminal that would have told them
+    scrolled past hours ago. Refusing costs one restart. The other costs a
+    credential and does not announce itself.
+
+    `environ` is injectable exactly as `accountant.auth.identity.local_dev_mode`
+    takes one, so the three cases are provable without touching the process.
+    """
+    source = dict(environ) if environ is not None else dict(os.environ)
+    cert = source.get(ENV_TLS_CERT, "").strip()
+    key = source.get(ENV_TLS_KEY, "").strip()
+
+    if not cert and not key:
+        return None, [
+            f"{ENV_TLS_CERT}=<unset> (default)",
+            f"{ENV_TLS_KEY}=<unset> (default)",
+        ]
+
+    if not cert or not key:
+        missing, present = (
+            (ENV_TLS_CERT, ENV_TLS_KEY) if not cert else (ENV_TLS_KEY, ENV_TLS_CERT)
+        )
+        raise TlsMisconfigured(
+            f"{present} is set but {missing} is not, so TLS cannot be started "
+            f"and nothing was bound. Set {missing} to the matching file, or "
+            f"unset {present} to serve plain HTTP on purpose. Falling back to "
+            f"plaintext here would leave you believing this server is encrypted "
+            f"when it is not."
+        )
+
+    provenance = [
+        f"{ENV_TLS_CERT}={cert!r} (environment)",
+        f"{ENV_TLS_KEY}={key!r} (environment)",
+    ]
+    return tls_context(cert, key), provenance
+
+
+def tls_banner(context: ssl.SSLContext | None) -> str:
+    """The one sentence a person must not be able to miss or misread.
+
+    Two modes, two different shapes, and the plaintext one is the longer and
+    louder of the pair because it is the one that costs something. A banner
+    that reads the same either way is a banner nobody checks.
+    """
+    if context is not None:
+        return f"\n  *** SERVING HTTPS - TLS ON, minimum {MINIMUM_TLS.name} ***\n"
+    return (
+        f"\n  *** SERVING PLAIN HTTP - TLS IS OFF ***\n"
+        f"  Everything crosses the network in clear, including the password "
+        f"typed on the sign-in page and every vendor name in these books.\n"
+        f"  Set {ENV_TLS_CERT} and {ENV_TLS_KEY} to serve HTTPS.\n"
+    )
+
+
+def tls_context(cert: str, key: str) -> ssl.SSLContext:
+    """Build the server context. Every parameter that matters is stated here.
+
+    `PROTOCOL_TLS_SERVER` negotiates the highest version both ends support and
+    `minimum_version` puts the floor at TLS 1.2, so 1.0 and 1.1 cannot be
+    negotiated down to. Neither is left to a default: the default depends on
+    which OpenSSL the machine was built with, which means the answer to "what
+    is the weakest connection this accepts" would change with the host.
+
+    A certificate that cannot be loaded refuses the START, not the request. The
+    alternative is a process that binds a socket and then fails every
+    handshake, which looks like a network fault from the browser and takes an
+    afternoon to trace back to a path.
+    """
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = MINIMUM_TLS
+    try:
+        context.load_cert_chain(certfile=cert, keyfile=key)
+    except (OSError, ssl.SSLError) as exc:
+        raise TlsMisconfigured(
+            f"the certificate {cert!r} and key {key!r} could not be loaded, so "
+            f"nothing was bound: {type(exc).__name__}: {exc}. Check both paths "
+            f"exist, that this process can read them, and that the key belongs "
+            f"to the certificate."
+        ) from exc
+    return context
+
+
+def start_server(
+    host: str, port: int, context: ssl.SSLContext | None = None
+) -> HTTPServer:
+    """Bind, and wrap the socket in TLS when there is a context. One path.
+
+    ONE wrapping site on purpose. `serve()` uses this and so does
+    `tests/test_web.py::serving`, because a test that wrapped its own socket
+    would be measuring a second implementation of the thing under test — the
+    same argument `tests/conftest.py` makes for re-exporting the server fixture
+    rather than copying it.
+
+    `server_side=True` and the socket is wrapped BEFORE `serve_forever`, so the
+    first byte any client sends is already inside a handshake. There is no
+    window in which a plaintext request is accepted.
+    """
+    httpd = HTTPServer((host, port), Handler)
+    if context is not None:
+        httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
+    return httpd
+
 
 def config_from_environment() -> tuple[TallyConfig, str, RecordedBackups, list[str]]:
     """Resolve where Tally is, and which companies we are permitted to write to.
@@ -3226,17 +3420,37 @@ def serve(
     company = company if company is not None else env_company
     backups = backups if backups is not None else env_backups
 
+    # Resolved BEFORE `connect()` and before anything is printed, because a
+    # half-configured TLS setting must not cost a round trip to Tally first.
+    # The exception carries its own provenance — it names the variable that is
+    # set and the one that is not — so nothing is lost by raising this early.
+    context, tls_provenance = tls_from_environment()
+
     # Printed BEFORE connecting, so a wrong address is visible even when the
     # connection then fails. A refusal that does not say where it tried to go
     # sends the reader to check Tally when the real fault is a typo here.
     print("Accountant Dad, resolving configuration:")
-    for line in provenance:
+    for line in [*provenance, *tls_provenance]:
         print(f"  {line}")
     if not backups.companies:
         print(
             f"  no company is recorded as backed up, so WRITES WILL BE REFUSED. "
             f"Set {ENV_BACKED_UP} to a comma-separated list once you have a backup."
         )
+
+    # WHICH OF THE TWO IT IS, UNMISSABLY, AND BEFORE ANYTHING ELSE CAN FAIL.
+    #
+    # Printed here rather than beside the endpoint summary below for the same
+    # reason the configuration block is printed before `connect()`: a person
+    # whose Tally is down still needs to know whether the server they were
+    # about to run was encrypted. "I thought TLS was on" is the exact belief
+    # this feature exists to stop being wrong, and a banner that only appears
+    # on a fully successful start is missing on every run where it matters.
+    #
+    # Its own block, in the same shape as the DEVELOPMENT MODE banner below,
+    # rather than being inferable from a scheme in a URL. A reader scanning a
+    # terminal does not diff `http` against `https`.
+    print(tls_banner(context))
 
     connect(tally, company, backups=backups)
 
@@ -3264,20 +3478,25 @@ def serve(
             f"read and write these books.\n"
             f"  Unset {ENV_LOCAL_DEV_MODE} to require a login.\n"
         )
+    scheme = "https" if context is not None else "http"
     print(
-        f"Accountant Dad -> http://{host}:{port}\n"
+        f"Accountant Dad -> {scheme}://{host}:{port}\n"
         f"  backend {live.identity.backend} at {live.identity.endpoint}\n"
         f"  company {live.company!r}\n"
         f"  books    {live.memory.report.status.value}\n"
         f"  writable {sorted(backups.companies) or 'NOTHING - reads only'}\n"
         f"  run      {live.identity.run_id}"
     )
-    HTTPServer((host, port), Handler).serve_forever()
+    start_server(host, port, context).serve_forever()
 
 
 if __name__ == "__main__":  # pragma: no cover - the process entry point
     try:
         serve()
+    except TlsMisconfigured as exc:
+        # Its own arm, and its own words. Printing "REAL TALLY REQUIRED" over a
+        # certificate path would send the reader to the wrong machine.
+        raise SystemExit(f"TLS MISCONFIGURED: nothing was bound. {exc}") from exc
     except RealTallyRequired as exc:
         # Exit non-zero so a launcher, a script or a packaged .exe can tell the
         # difference between "stopped" and "never started".
