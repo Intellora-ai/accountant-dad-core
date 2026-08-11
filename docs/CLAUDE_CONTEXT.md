@@ -120,7 +120,7 @@ COVERAGE_CORE=pytrace .venv/bin/python -m pytest -q -p no:cacheprovider
 ```
 
 **Agents working in a git worktree have no `.venv` of their own.** Call the main
-one by its full path — `/Users/tanveersidhu/ACCOUNTANT/.venv/bin/python` — or
+one by its full path — `$PWD/.venv/bin/python` from the repository root — or
 nothing runs at all.
 
 ---

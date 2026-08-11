@@ -190,7 +190,7 @@ in a way that is harder to read than "the company is not there".
 
 # PART B — THE COMMANDS, IN ORDER, WITH EXPECTED OUTPUT
 
-All commands run from the repository root, `/Users/tanveersidhu/ACCOUNTANT`.
+All commands run from the repository root. `$PWD` below is that root, so every block can be pasted as it stands.
 
 Replace `192.168.64.2` with the VM's actual address everywhere.
 
@@ -200,7 +200,7 @@ This touches no Tally. It proves the tool itself is not broken before it is
 pointed at anybody's books.
 
 ```bash
-COVERAGE_CORE=pytrace /Users/tanveersidhu/ACCOUNTANT/.venv/bin/python \
+COVERAGE_CORE=pytrace $PWD/.venv/bin/python \
   -m pytest -q -p no:cacheprovider \
   tests/test_acceptance_n10.py tests/test_acceptance_cli.py \
   tests/test_tally_contract.py tests/test_phase5b_readiness.py \
@@ -223,7 +223,7 @@ failing harness.
 ## B.2 Pre-flight — reads only, writes nothing
 
 ```bash
-COVERAGE_CORE=pytrace /Users/tanveersidhu/ACCOUNTANT/.venv/bin/python \
+COVERAGE_CORE=pytrace $PWD/.venv/bin/python \
   -m ci.acceptance_cli \
   --host 192.168.64.2 --port 9000 \
   --company "Demo Co" --backed-up \
@@ -281,7 +281,7 @@ Read every line before going on:
 Same command, plus `--yes` and `--out`.
 
 ```bash
-COVERAGE_CORE=pytrace /Users/tanveersidhu/ACCOUNTANT/.venv/bin/python \
+COVERAGE_CORE=pytrace $PWD/.venv/bin/python \
   -m ci.acceptance_cli \
   --host 192.168.64.2 --port 9000 \
   --company "Demo Co" --backed-up \
@@ -339,7 +339,7 @@ they are empty.
 ## B.4 If the run leaves entries behind — the cleanup command
 
 ```bash
-COVERAGE_CORE=pytrace /Users/tanveersidhu/ACCOUNTANT/.venv/bin/python \
+COVERAGE_CORE=pytrace $PWD/.venv/bin/python \
   -m accountant.tallyio --reverse-all \
   --company "Demo Co" --host 192.168.64.2 --port 9000 --backed-up
 ```
@@ -524,7 +524,7 @@ Inside the run: `ci/acceptance.py:242-252`, calling `client.trial_balance()`.
 On its own (read only, writes nothing):
 
 ```bash
-COVERAGE_CORE=pytrace /Users/tanveersidhu/ACCOUNTANT/.venv/bin/python -c "
+COVERAGE_CORE=pytrace $PWD/.venv/bin/python -c "
 from accountant.tallyio.factory import real_tally
 from accountant.tallyio.real import TallyConfig
 c, i = real_tally(TallyConfig(host='192.168.64.2', port=9000), 'Demo Co')
@@ -584,7 +584,7 @@ Inside the run: `ci/acceptance.py:305-321`. Three library calls in sequence —
 On its own, as an operator command:
 
 ```bash
-COVERAGE_CORE=pytrace /Users/tanveersidhu/ACCOUNTANT/.venv/bin/python \
+COVERAGE_CORE=pytrace $PWD/.venv/bin/python \
   -m accountant.tallyio --reverse-all \
   --company "Demo Co" --host 192.168.64.2 --port 9000 --backed-up --yes
 ```

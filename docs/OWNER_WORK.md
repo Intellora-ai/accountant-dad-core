@@ -121,7 +121,8 @@ exist:
 
 **Needed:** a mail provider (reset), a decision on self-registration, and
 whichever of these you want before the first real customer.
-### The lockfile gate is declared and does not run — ONE LINE
+### The lockfile gate — AUTHORISED 2026-08-11, and BLOCKED BY THIS ENVIRONMENT
+
 `ci/gates.toml` declares the `lockfile` gate as `uv lock --check`, threshold 0,
 required, active. No workflow runs that command. What runs instead, in
 `.github/workflows/pr-fast.yml`, is `uv sync --extra dev --frozen`, under a
@@ -154,17 +155,23 @@ BEFORE
 AFTER
       - name: sync dependencies from the lockfile
         # --locked, NOT --frozen. This step IS the `lockfile` gate declared in
-        # ci/gates.toml, and until now it did not check anything. uv's
-        # reference: --frozen skips the check, --locked requires the lockfile
-        # to be up to date.
+        # ci/gates.toml, and until now it checked nothing. uv's reference:
+        # --frozen skips the check, --locked requires the lockfile to be up to
+        # date.
         run: uv sync --extra dev --locked
 ```
 
 Only the `pr-fast` job, because that is the only job the gate names. No other
-`uv sync` step is touched. No gate is added or removed and no threshold moves.
+`uv sync` step is touched. No gate added or removed, no threshold moved.
 
-**Why it is not already done:** `.github/` is denied at the permission layer in
-this environment, so it cannot be edited from here.
+**Status: the owner authorised this change on 2026-08-11. It could not be
+applied.** `.github/` is refused twice over in this environment — the file tool
+denies the directory, and the shell path is refused by the permission
+classifier. Working around either would be bypassing the intent of the denial,
+so it was not attempted.
+
+**Needed: apply the four lines above by hand, or add a permission rule for
+`.github/`.** Nothing else about it is undecided.
 
 `tests/test_gate_contract.py::test_the_lockfile_gate_is_actually_enforced` pins
 it as a strict xfail, paired with a passing test recording what runs today. The
@@ -214,42 +221,31 @@ enter" is the defect itself reintroduced as a default.
 `ACCOUNTANT_COMPANY`. They are two halves of one statement: which books, and
 whose. `docs/DEPLOY.md` lists it with the rest.
 
-### The repository is PUBLIC and 24 tracked lines carry your home path
-Found 2026-08-11 by a sweep of every tracked file.
-`gh repo view --json visibility` says **PUBLIC**, and `/Users/tanveersidhu/`
-appears 24 times across 8 files:
+### The home path on a public repository — DECIDED 2026-08-11, option B
 
-```
-artifacts/detector_evidence.md              6
-docs/RUNBOOK_PHASE5_ACCEPTANCE.md           7
-artifacts/phase9_exit_audit.md              2
-artifacts/phase7_evidence.md                2
-artifacts/phase9_data_quality.md            2
-artifacts/realtally_readiness.md            2
-artifacts/phase9_error_coverage.md          1
-artifacts/phase9_reproducibility_manifest.json  1
-docs/CLAUDE_CONTEXT.md                      1
-```
+Owner decision, closed. Recorded so it is not re-opened.
 
-It leaks one thing: the macOS account name on the machine this was built on.
-No key, no token, no customer data — a sweep for those found nothing.
+    the two DOCS files      corrected. `$PWD` instead of a fixed home path.
+    the seven ARTEFACTS     UNCHANGED, deliberately. 16 occurrences remain.
 
-**Not fixed here, deliberately.** Six of the eight are **evidence artefacts**,
-and the paths inside them are part of what was recorded — a reproducibility
-manifest that names a path nobody can check is a weaker artefact, not a safer
-one. Rewriting recorded evidence to tidy a cosmetic leak is the kind of edit
-this project has a rule against.
+**A correction to the count I gave when asking.** I said eight files, six of
+them evidence. It is **nine** files, **seven** of them evidence — one more
+artefact than I reported. The decision is unaffected either way: every file
+under `artifacts/` was left exactly as measured.
 
-**Needed: your decision, one of three.**
-1. Leave them. The exposure is a username on a public repository.
-2. Replace with `$HOME` or `~` in the two DOCS only
-   (`RUNBOOK_PHASE5_ACCEPTANCE.md`, `CLAUDE_CONTEXT.md`), leaving the six
-   artefacts exactly as measured. This is the smallest honest change.
-3. Rewrite all eight, and record in each artefact that its paths were
-   redacted after the fact and on what date.
+`docs/RUNBOOK_PHASE5_ACCEPTANCE.md` and `docs/CLAUDE_CONTEXT.md` are
+INSTRUCTIONS, not records — they tell a person which command to run. `$PWD` is
+the same instruction without naming whose machine it was written on, and it
+still works when pasted, which a fixed path would not on anybody else's laptop.
+That is why they could be changed and the artefacts could not.
 
-A guard test refusing new occurrences can be added under any of the three, and
-should be — the useful half of this is stopping the 25th, not the 24 that exist.
+The artefacts are EVIDENCE. A reproducibility manifest naming a path nobody can
+check is a weaker artefact, not a safer one, and rewriting recorded evidence to
+tidy a cosmetic leak is the thing this project has a rule against.
+
+**No guard test was added.** One would stop a 25th occurrence, and it was not
+part of the decision. Recorded here rather than added, so the choice is visible
+rather than taken quietly.
 
 ### Legal
 Privacy policy, terms of service, billing, refunds, and a support process. The
