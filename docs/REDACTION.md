@@ -183,8 +183,8 @@ built, not here, and the cloud does not exist yet.
 ```python
 from accountant import redact
 
-redact.learn_secret(value)                 # credential: nothing survives
-redact.learn_private(name, "vendor")       # private: the length survives
+redact.learn_secret(value)  # credential: nothing survives
+redact.learn_private(name, "vendor")  # private: the length survives
 ```
 
 Register it at the **narrowest place the value cannot avoid passing through**,
