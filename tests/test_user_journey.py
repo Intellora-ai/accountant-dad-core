@@ -18,8 +18,8 @@ compose. Either alone is half a measurement.
      3  a correct password returns an HttpOnly; SameSite=Lax cookie
      4  unknown vendor -> asked what for -> asked how paid -> posted, to the paise
      5  the audit row for that posting names the tenant and the user
-     6  a colleague in the same tenant sees the company's data
-        (and what a DIFFERENT tenant can do today - see DEFECT J1 below)
+     6  a colleague in the same tenant sees the company's data, and a session
+        from a DIFFERENT tenant is refused 403 before it touches anything
      7  replaying the answer that posted it is refused; one voucher, one row
      8  undoing it returns the trial balance to its exact prior paise
      9  the reversed operation id cannot be written again
@@ -29,6 +29,42 @@ compose. Either alone is half a measurement.
         from steps 4-10 is still there with its reasons
     13  LOCAL_DEV_MODE=1: no credential, the same entry posts, and the rows name
         the local-dev tenant and user rather than being blank
+
+WHAT THIS FILE DOES NOT PROVE
+-----------------------------
+Nothing here touches a real TallyPrime. The backend is `FakeTally` throughout,
+injected through `app.configure()`. EVERY result below is FAKETALLY evidence and
+none of it says anything about a licensed installation. `tests/test_real_tally.py`
+and `docs/PROJECT_STATE.md` are where live evidence lives.
+
+It does not prove concurrency. `HTTPServer` is single-threaded, so every step
+below serialises in the handler. Two people are two SESSIONS here, never two
+simultaneous requests.
+
+It does not re-prove the mechanisms it drives. `tests/test_auth.py` owns the
+credential, `tests/test_reversal_guard.py` the two destroying routes,
+`tests/test_durable_log.py` the store, `tests/test_idempotency.py` the operation
+identity. This file imports their helpers rather than copying them, for the
+reason `tests/conftest.py` states: two copies of a helper is how two test files
+end up disagreeing.
+
+It does not prove that a customer's books are isolated from another customer's.
+They are not, on this branch. See below.
+
+DEFECT J1 — FOUND BY STEP 6, FIXED THE SAME DAY
+-----------------------------------------------
+Step 6 is why this file exists. `Principal.require` had a passing unit test and
+no caller anywhere in `accountant/`, so a session issued to one customer was
+authenticated against another customer's open books and let through.
+
+A unit test of a guard proves the guard works. It says nothing about whether
+the guard is installed — and every piece of this journey had passing tests
+while the pieces did not connect.
+
+Fixed in `accountant/web/app.py::Handler._identify`, which now calls
+`require()` on every request, unconditionally, before any handler runs.
+`docs/AUTH.md` carries the reasoning and the mutants. Step 6 below is now an
+ordinary passing assertion rather than a pinned defect.
 
 WHAT THIS FILE DOES NOT PROVE
 -----------------------------
@@ -86,6 +122,7 @@ from accountant import auth
 from accountant.auth import identity as ident
 from accountant.memory.store import MemoryStore
 from accountant.problems import FUNDING_PROBLEM
+from accountant.schema import NOT_RECORDED
 from accountant.web import app
 from tests.test_auth import (
     ALPHA,
@@ -343,24 +380,26 @@ def test_a_colleague_in_the_same_tenant_sees_the_company_that_was_posted_to() ->
     assert operation_id in page, "a colleague could not see what was posted"
 
 
-def test_another_tenants_session_reads_and_reverses_these_books_today(
+def test_another_tenants_session_is_refused_before_it_can_touch_these_books(
     tmp_path: Path,
 ) -> None:
-    """WHAT WAS MEASURED. This test PINS DEFECT J1; see the xfail below.
+    """DEFECT J1, FOUND BY THIS FILE AND FIXED THE SAME DAY.
 
-    Carla holds a live session issued to tenant-beta. Anna's tenant-alpha books
-    are the only ones this process has open. Carla is answered 200, sees Anna's
-    operation id on the page, and `/reverse` carrying that id destroys Anna's
-    voucher — every check on the way passes, because no check on the way looks
-    at the tenant.
+    This step was a pinned defect for a few hours on 2026-08-11 and is now the
+    behaviour. What it found: `Principal.require` existed, had a passing unit
+    test, and had no caller anywhere in `accountant/` — so a session issued to
+    one customer was authenticated against another customer's open books and
+    let through.
 
-    The last two assertions are the sharpest statement of the defect available.
-    The audit trail is HONEST: it records, in the same company's log, a posting
-    by tenant-alpha and a reversal by tenant-beta. Nothing is hidden. Nothing
-    stopped it either.
+    A unit test of a guard proves the guard works and says nothing about
+    whether the guard is installed. That is the whole of it, and it is why this
+    file exists: every piece had passing tests and the pieces did not connect.
 
-    Recorded as a fact rather than argued about, so a green run still shows the
-    defect and the xfail below is not the only evidence of it.
+    403 and not 401. Carla's credential is perfectly good; it is for somebody
+    else's books, and 401 would tell her the credential was the problem.
+
+    The trial balance is the assertion rather than the status code alone: a 403
+    with a reversed voucher behind it would be a passing test and a lost entry.
     """
     anna, carla = auth.new_token(), auth.new_token()
     db = tmp_path / "app.db"
@@ -372,58 +411,21 @@ def test_another_tenants_session_reads_and_reverses_these_books_today(
     ) as base:
         operation_id = a_posted_voucher(base, anna)
         tally = app.runtime().client
+        before = tally.trial_balance(app.COMPANY)
         assert len(tally.list_our_vouchers(app.COMPANY)) == 1
 
-        status, page, _cookie = fetch(base, token=carla)
-        assert status == 200, "a stranger's tenant was refused after all"
-        assert operation_id in page
+        assert fetch(base, token=carla)[0] == 403, "a foreign session got in"
+        assert as_user(base, "/reverse", carla, op=operation_id)[0] == 403
 
-        reversed_status, _body = as_user(base, "/reverse", carla, op=operation_id)
-        assert reversed_status == 200
-        assert tally.list_our_vouchers(app.COMPANY) == (), (
-            "the cross-tenant reversal did not go through, so J1 has moved"
-        )
-
-    assert posted_rows(db)[-1][2:] == (ALPHA, ANNA)
-    undone = [row for row in trail(db) if row[0] == "reversed"]
-    assert undone[-1][2:] == (BETA, CARLA), (
-        "one company's log now carries two tenants, and neither request was refused"
-    )
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT J1 - no route calls Principal.require; accountant/web/app.py:2170",
-)
-def test_another_tenants_session_is_refused_before_it_can_touch_these_books() -> None:
-    """DEFECT J1. The behaviour `docs/CLOUD_ARCHITECTURE.md` §7.1 calls for.
-
-    403 and not 401: 401 says "I do not know who you are", and Carla's
-    credential is perfectly good. 403 says "I know, and no", which is the true
-    sentence — and §7.3 asks for the refusal to be indistinguishable from "no
-    such operation", which is a further step this assertion does not reach for.
-
-    `Principal.require()` already exists and is already tested. What is missing
-    is a caller. The fix is a source change and the owner makes it.
-    """
-    anna, carla = auth.new_token(), auth.new_token()
-    with serving(
-        demo_company(), fake_backend(), seed=signed_in(anna=anna, carla=carla)
-    ) as base:
-        operation_id = a_posted_voucher(base, anna)
-        tally = app.runtime().client
-        before = tally.trial_balance(app.COMPANY)
-
-        status, _body = as_user(base, "/reverse", carla, op=operation_id)
-
-        assert status == 403
         assert tally.trial_balance(app.COMPANY) == before
         assert len(tally.list_our_vouchers(app.COMPANY)) == 1
 
-
-# ---------------------------------------------------------------------------
-# 7-9. the same request twice, and the undo in between
-# ---------------------------------------------------------------------------
+    # And one company's durable log names ONE tenant. NOT_RECORDED is allowed
+    # and is not a second tenant: it is what a row written by a path with no
+    # session behind it honestly says, and the whole point of that value is
+    # that it is distinguishable from a tenant id rather than blank.
+    named = {row[2] for row in trail(db) if row[2] and row[2] != NOT_RECORDED}
+    assert named == {ALPHA}, "one company's log carries more than one tenant"
 
 
 def test_replaying_the_answer_that_posted_writes_no_second_voucher(

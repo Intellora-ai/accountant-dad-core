@@ -188,46 +188,31 @@ enforce the 90 threshold.
 **Needed: nothing.** Listed only so "2 of 20 gates never execute" is not read
 as two defects when it is one.
 
-### DEFECT J1 — a live session reaches any tenant's books
+### DEFECT J1 — CLOSED 2026-08-11, recorded so nobody redoes it
 
-Found 2026-08-11 by Task 16, the end-to-end journey file, at step 6. It is a
-source change, so it is recorded here rather than fixed there.
+Found by Task 16, the end-to-end journey file, at step 6. **Fixed the same day**
+in `accountant/web/app.py::Handler._identify`; the reasoning, the mutants and
+the seven new tests are in `docs/AUTH.md` under "DEFECT J1".
 
-`docs/CLOUD_ARCHITECTURE.md` §7.1 says *"every request naming an operation is
-checked against the caller's tenant"*. No route does that check.
-`Principal.require()` exists and is tested by
-`test_a_valid_session_is_refused_another_tenant_with_403_not_401`, and it is
-called from nowhere in `accountant/`. Every route serves the ONE company named
-at startup, to any live session, whatever tenant issued it.
+What it was, in one sentence: `Principal.require` had a passing unit test and
+**no caller** anywhere in `accountant/`, so a session issued to one customer was
+authenticated against another customer's open books and let through.
 
-Measured, over HTTP, in `tests/test_user_journey.py`:
+Why it is worth remembering rather than deleting: *a unit test of a guard proves
+the guard works and says nothing about whether the guard is installed.* Every
+piece of the journey had passing tests while the pieces did not connect. The
+guard is now called unconditionally at the one seam every route passes through,
+and an AST test asserts both that the call exists and that it is not inside a
+condition.
 
-```
-tenant-beta session GET /                     200, and tenant-alpha's
-                                              operation id is on the page
-tenant-beta session POST /reverse op=<alpha>  200, tenant-alpha's voucher gone
-```
+**One thing this created, and it is not optional.** `ACCOUNTANT_TENANT` is now
+**required in production** and names the customer a process serves. Unset means
+every request is refused, which is deliberate — unset meaning "any tenant may
+enter" is the defect itself reintroduced as a default.
 
-The audit trail is honest about it — one company's log ends up carrying a
-`posted` row for tenant-alpha and a `reversed` row for tenant-beta — which is
-how the second assertion is made. Nothing hid it and nothing stopped it.
-
-`test_another_tenants_session_reads_and_reverses_these_books_today` records
-what happens now. `test_another_tenants_session_is_refused_before_it_can_touch_these_books`
-is an `xfail(strict=True)` asserting 403, so it becomes a hard failure the day
-somebody fixes this and forgets the test.
-
-**Bound on it, so the claim is not larger than the evidence.** One process
-serves one company, so this is not a query that returns another customer's rows:
-it is a session from tenant B being allowed into the company tenant A has open.
-On the deployment shape `docs/CLOUD_ARCHITECTURE.md` §7.2 calls *strongest* —
-one connector, one company, on the customer's own machine — there is no second
-tenant's data in the process to reach. The exposure is exactly as large as the
-number of tenants sharing one server, which today is a test fixture.
-
-**Needed:** a decision on where the check goes — `_identify`, so it covers every
-route by construction, or each handler that names an operation — and then the
-§7.3 cross-tenant test the design already asks for.
+**Needed:** set `ACCOUNTANT_TENANT` in whatever runs this, alongside
+`ACCOUNTANT_COMPANY`. They are two halves of one statement: which books, and
+whose. `docs/DEPLOY.md` lists it with the rest.
 
 ### Legal
 Privacy policy, terms of service, billing, refunds, and a support process. The
