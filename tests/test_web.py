@@ -45,15 +45,16 @@ import threading
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Generator, Iterator
+from collections.abc import Callable, Generator, Iterator
 from http.server import HTTPServer
+from pathlib import Path
 
 import pytest
 
 from accountant import questions as Q
 from accountant.extract.adapter import Extractor
 from accountant.memory.identity import normalise_company
-from accountant.memory.store import MemoryStore
+from accountant.memory.store import IN_MEMORY, MemoryStore
 from accountant.schema import Outcome, Voucher
 from accountant.tallyio.factory import BackendIdentity, new_run_id
 from accountant.tallyio.fake import FakeTally
@@ -138,6 +139,8 @@ def serving(
     identity: BackendIdentity,
     *,
     extractor: Extractor | None = None,
+    seed: Callable[[MemoryStore], None] | None = None,
+    store_path: str | Path = IN_MEMORY,
 ) -> Generator[str]:
     """A real server on a real ephemeral port, torn down on the way out.
 
@@ -168,6 +171,22 @@ def serving(
     backend, and copying a threaded spin-up is how two spin-up paths drift
     apart — the same argument `tests/conftest.py` makes for re-exporting the
     fixture instead of duplicating it. There is one spin-up path and this is it.
+
+    `seed` JOINED 2026-08-10 with tenancy, and it takes a CALLBACK rather than a
+    ready-made store for the reason two paragraphs up: SQLite hands a connection
+    to the thread that opened it, so a store built in the test thread cannot be
+    read by the server thread. The callback runs where the connection lives.
+    `tests/test_auth.py` uses it to write tenants and sessions; anything a test
+    needs to carry back out — a token, say — is generated in the test and passed
+    IN, not read out.
+
+    `store_path` is the other half of that. A test that has to READ what the
+    server wrote — an audit row, say — cannot reach the in-memory database at
+    all: `:memory:` is private to its connection, so there is no second way in.
+    Pointing the store at a file lets the test open its own connection AFTER the
+    server has shut down, which is sequential access rather than shared access
+    and needs no locking argument. Default unchanged, so every existing caller
+    still gets the in-memory store it had.
     """
     app.DRAFTS.clear()
     # `EVENTS` used to be cleared here: a module-level list that leaked rows
@@ -178,9 +197,10 @@ def serving(
     ready = threading.Event()
 
     def serve() -> None:
-        app.configure(
-            tally, identity, store=MemoryStore(":memory:"), extractor=extractor
-        )
+        store = MemoryStore(store_path)
+        app.configure(tally, identity, store=store, extractor=extractor)
+        if seed is not None:
+            seed(store)
         ready.set()
         httpd.serve_forever()
 

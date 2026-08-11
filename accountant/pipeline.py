@@ -35,7 +35,15 @@ from accountant.memory.company import (
 from accountant.memory.identity import normalise_company
 from accountant.memory.index import normalise_vendor
 from accountant.problems import FUNDING_PROBLEM, Problem
-from accountant.schema import ActionLog, CheckResult, Decision, Flag, Outcome, Voucher
+from accountant.schema import (
+    NOT_RECORDED,
+    ActionLog,
+    CheckResult,
+    Decision,
+    Flag,
+    Outcome,
+    Voucher,
+)
 from accountant.tallyio.client import TallyClient, new_operation_id
 
 #: What `provenance` says about a leg that came out of this company's own books.
@@ -913,6 +921,8 @@ def record_decision(
     client: TallyClient,
     action: str,
     run_id: str,
+    tenant_id: str = NOT_RECORDED,
+    user_id: str = NOT_RECORDED,
 ) -> None:
     """One durable row per decision, written HERE rather than by a caller.
 
@@ -932,6 +942,11 @@ def record_decision(
     posted one. "Why did you refuse" is the obvious question; "why did you
     post" is the one asked six months later by somebody looking at the voucher
     in their books.
+
+    `tenant_id` and `user_id` default to `NOT_RECORDED` rather than to a blank
+    or to a made-up "system" identity. A caller with no session behind it -
+    `run`, a script, a test - genuinely has neither, and the row says so. Only
+    a caller that HELD a session passes them.
     """
     if log is None or draft.decision is None:
         return
@@ -950,5 +965,7 @@ def record_decision(
             vendor_id=draft.voucher.party,
             detail=f"{draft.voucher.debit_account or '(none proposed)'} "
             f"{draft.voucher.amount_paise} paise",
+            tenant_id=tenant_id,
+            user_id=user_id,
         )
     )

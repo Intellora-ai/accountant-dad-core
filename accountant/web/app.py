@@ -26,6 +26,7 @@ Stdlib only. No framework, no build step, no install.
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import datetime
 import html
 import json
@@ -36,6 +37,18 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from accountant import pipeline, reversal
 from accountant import questions as Q
+from accountant.auth import (
+    ENV_LOCAL_DEV_MODE,
+    LOCAL_DEV_TENANT,
+    SESSION_HOURS,
+    AuthRefusal,
+    Principal,
+    authenticate,
+    local_dev_mode,
+    new_token,
+    token_fingerprint,
+    verify_password,
+)
 from accountant.extract.adapter import Extractor
 from accountant.extract.registry import default_extractor, guarded
 from accountant.memory.bootstrap import bootstrap
@@ -633,6 +646,80 @@ def runtime() -> Runtime:
     return live
 
 
+def auth_store() -> MemoryStore:
+    """Where sessions are looked up.
+
+    Reads `_runtime_state` DIRECTLY rather than calling `runtime()`, and the
+    difference matters. "Who are you" and "which company is open" are two
+    separate questions: a company mismatch must not turn into a 401, because
+    401 says the credential is bad and the credential is fine. Every route that
+    needs a company still calls `_confirm_company` afterwards and still gets its
+    503 — the two checks stay in order and stay distinguishable.
+    """
+    if _runtime_state is None:
+        raise RuntimeError(
+            f"{REFUSAL}: no operation performed. "
+            "connect() or configure() has not been called, so there is nowhere "
+            "to look a session up and nobody can be identified."
+        )
+    return _runtime_state.store
+
+
+#: Who is acting, for the duration of ONE request.
+#:
+#: A ContextVar rather than a module global, and that is not a style choice.
+#: Task 11 replaces `HTTPServer` with a threading one, and a plain global would
+#: then be one customer's identity visible to another customer's request — the
+#: exact cross-tenant leak this whole task exists to prevent. Every thread gets
+#: its own context, so a `set` here is invisible to every other request.
+#:
+#: `None` means nobody was identified, and the audit row says `NOT_RECORDED`
+#: rather than inventing an actor.
+_principal: contextvars.ContextVar[Principal | None] = contextvars.ContextVar(
+    "accountant_principal", default=None
+)
+
+
+def current_principal() -> Principal | None:
+    """Who this request belongs to, or None outside a request."""
+    return _principal.get()
+
+
+def login(email: str, password: str, *, now: datetime.datetime | None = None) -> str:
+    """Check a password and open a session. Returns the token, ONCE.
+
+    The token is returned and never stored; what the database gets is its
+    fingerprint. So this is the only moment the token exists in full, and losing
+    it means logging in again rather than reading it back out of a row.
+
+    One refusal sentence for both "no such user" and "wrong password", on
+    purpose. Two different messages let anybody with a browser enumerate which
+    email addresses have accounts, which is a customer list handed out for free.
+    """
+    when = now or datetime.datetime.now(datetime.UTC)
+    store = auth_store()
+    user = store.user_by_email(email.strip().lower())
+    refusal = AuthRefusal(401, "that email address and password do not match")
+    if user is None or not user.live:
+        # The hash still runs when there is no user, so the answer takes the
+        # same time either way. A fast "no" and a slow "no" are two different
+        # answers to somebody with a stopwatch.
+        verify_password(password, "0" * 128, "00")
+        raise refusal
+    if not verify_password(password, user.password_hash, user.salt):
+        raise refusal
+
+    token = new_token()
+    store.open_session(
+        token_fingerprint(token),
+        user.user_id,
+        user.tenant_id,
+        when.isoformat(),
+        (when + datetime.timedelta(hours=SESSION_HOURS)).isoformat(),
+    )
+    return token
+
+
 def health() -> dict[str, object]:
     """Measured readiness. Every value read from the live runtime.
 
@@ -908,8 +995,16 @@ def record(draft: pipeline.Draft, action: str) -> None:
     rather than promising it.
     """
     live = runtime()
+    who = current_principal()
     pipeline.record_decision(
-        live.store, draft, live.memory, live.client, action, live.identity.run_id
+        live.store,
+        draft,
+        live.memory,
+        live.client,
+        action,
+        live.identity.run_id,
+        tenant_id=who.tenant_id if who else NOT_RECORDED,
+        user_id=who.user_id if who else NOT_RECORDED,
     )
 
 
@@ -922,6 +1017,7 @@ def note(action: str, outcome: str, reason: str, **fields: str) -> None:
     for the same reason it is required everywhere else.
     """
     live = runtime()
+    who = current_principal()
     live.store.record_action(
         ActionLog(
             ts=datetime.datetime.now(datetime.UTC),
@@ -931,6 +1027,8 @@ def note(action: str, outcome: str, reason: str, **fields: str) -> None:
             reason=reason,
             run_id=live.identity.run_id,
             backend=type(live.client).__name__,
+            tenant_id=who.tenant_id if who else NOT_RECORDED,
+            user_id=who.user_id if who else NOT_RECORDED,
             **fields,
         )
     )
@@ -950,8 +1048,8 @@ margin:28px 0 10px;font-weight:600}
 .warn{border:1px solid #b45309;background:#b4530915;padding:10px 12px;
 border-radius:8px;font-size:13px;margin:0 0 22px}
 form.entry{display:flex;gap:8px;margin:0 0 6px}
-input[type=text]{flex:1;padding:11px 13px;font:inherit;border-radius:8px;
-border:1px solid #8884}
+input[type=text],input[type=password]{flex:1;padding:11px 13px;font:inherit;
+border-radius:8px;border:1px solid #8884}
 button{padding:11px 16px;font:inherit;font-weight:600;border-radius:8px;
 border:1px solid #8884;cursor:pointer;background:#8881}
 button.primary{background:#2563eb;color:#fff;border-color:#2563eb}
@@ -977,6 +1075,32 @@ padding:1px 5px;border-radius:4px}
 .ev{font-size:12.5px;padding:5px 0;border-bottom:1px solid #8882}
 .muted{opacity:.55}
 """
+
+
+#: The cookie a browser carries its session in.
+COOKIE = "accountant_session"
+
+
+def render_login(banner: str = "") -> bytes:
+    """The sign-in page. The only page a request without a session may see.
+
+    No "forgot password" link, because there is no path behind it: sending mail
+    needs a provider, an account and a domain, none of which exist. A dead link
+    would be worse than its absence. `docs/OWNER_WORK.md` carries it as owner
+    work rather than this page carrying a promise.
+    """
+    return page(
+        banner
+        + "<h1>Accountant Dad</h1>"
+        + "<p class=sub>Sign in to your company's books.</p>"
+        + '<form method=post action="/login">'
+        + '<p><input type=text name=email placeholder="you@company.com" '
+        + "autocomplete=username></p>"
+        + '<p><input type=password name=password placeholder="password" '
+        + "autocomplete=current-password></p>"
+        + "<p><button class=primary type=submit>Sign in</button></p>"
+        + "</form>"
+    )
 
 
 def rupees(paise: int) -> str:
@@ -1715,6 +1839,31 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_with_session(
+        self, body: bytes, token: str, *, clear: bool = False
+    ) -> None:
+        """Answer, and set or clear the session cookie.
+
+        HttpOnly so page scripts cannot read it, SameSite=Lax so another site
+        cannot make the browser use it, Path=/ so it covers every route. NOT
+        `Secure` yet: that flag makes a browser withhold the cookie over plain
+        HTTP, which would break the loopback development server before Task 7
+        puts TLS in front of the cloud one. `docs/OWNER_WORK.md` records it.
+        """
+        attrs = "; HttpOnly; SameSite=Lax; Path=/"
+        cookie = (
+            f"{COOKIE}=; Max-Age=0{attrs}"
+            if clear
+            else f"{COOKIE}={urllib.parse.quote(token)}; "
+            f"Max-Age={SESSION_HOURS * 3600}{attrs}"
+        )
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Set-Cookie", cookie)
+        self.end_headers()
+        self.wfile.write(body)
+
     def handle_one_request(self) -> None:
         """Turn an unusable runtime into an answer instead of a dropped socket.
 
@@ -1798,6 +1947,60 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:  # quiet
         pass
 
+    def _token(self) -> str:
+        """The session token this request presented, or "".
+
+        Two places, because two kinds of caller. A browser sends a cookie; the
+        connector and any script send `Authorization: Bearer`. The cookie is
+        read first only because a browser is the common case — neither is
+        trusted more than the other, and both go through the same lookup.
+        """
+        raw = self.headers.get("Cookie", "")
+        for part in raw.split(";"):
+            name, _, value = part.strip().partition("=")
+            if name == COOKIE and value:
+                return urllib.parse.unquote(value)
+        header = self.headers.get("Authorization", "")
+        prefix = "Bearer "
+        if header.startswith(prefix):
+            return header[len(prefix) :].strip()
+        return ""
+
+    def _identify(self) -> bool:
+        """Put the principal in context, or answer 401 and return False.
+
+        Sited here beside `_confirm_company` for the same stated reason: a check
+        every handler must remember is a check some handler will forget. A
+        caller that returns False has ALREADY been answered and must return
+        immediately without touching anything.
+        """
+        try:
+            who = authenticate(self._token(), auth_store(), dev_mode=local_dev_mode())
+        except AuthRefusal as refusal:
+            self._refuse(refusal)
+            return False
+        _principal.set(who)
+        return True
+
+    def _refuse(self, refusal: AuthRefusal) -> None:
+        """Answer an auth refusal. The status carries the meaning, not the text.
+
+        401 and 403 are kept apart because they say different things: 401 is "I
+        do not know who you are", 403 is "I know, and no". Answering 403 to an
+        unauthenticated request would tell a stranger the thing exists.
+        """
+        self._send(
+            page(
+                f"<div class=warn><b>{esc(refusal.reason)}.</b></div>"
+                + (
+                    '<p><a href="/login">Sign in</a></p>'
+                    if refusal.status == 401
+                    else ""
+                )
+            ),
+            code=refusal.status,
+        )
+
     def _confirm_company(self) -> None:
         """One check, once per request, before any handler does any work.
 
@@ -1818,6 +2021,13 @@ class Handler(BaseHTTPRequestHandler):
             code = 200 if health()["ready"] else 503
             self._send(body, code=code, content_type="application/json")
             return
+        if self.path.startswith("/login"):
+            # The one page a signed-out person is allowed to see, and the
+            # reason `_identify` is not called before this line.
+            self._send(render_login())
+            return
+        if not self._identify():
+            return
         self._confirm_company()
         self._send(render_home())
 
@@ -1827,6 +2037,35 @@ class Handler(BaseHTTPRequestHandler):
         # whose company had closed got a connection error instead of the 503
         # that explains it.
         form = self._form()
+
+        if self.path == "/login":
+            try:
+                token = login(form.get("email", ""), form.get("password", ""))
+            except AuthRefusal as refusal:
+                self._send(
+                    render_login(f"<div class=warn>{esc(refusal.reason)}</div>"),
+                    code=refusal.status,
+                )
+                return
+            self._send_with_session(render_home(), token)
+            return
+
+        if not self._identify():
+            return
+
+        if self.path == "/logout":
+            # Revoked in the database, not only forgotten by the browser. A
+            # cookie the server still honours is not a logout, it is a request
+            # that the stolen copy be polite.
+            token = self._token()
+            if token:
+                auth_store().revoke_session(
+                    token_fingerprint(token),
+                    datetime.datetime.now(datetime.UTC).isoformat(),
+                )
+            self._send_with_session(render_login(), "", clear=True)
+            return
+
         self._confirm_company()
 
         if self.path == "/entry":
@@ -2220,6 +2459,18 @@ def serve(
     # an extra request in the startup traces that `tests/test_startup_path.py`
     # counts.
     live = runtime()
+    if local_dev_mode():
+        # Loud, and on every start. A server that skips authentication must not
+        # be something you can be running without knowing: the flag is set on
+        # purpose, so the only way to be here by accident is to have forgotten,
+        # and this is the sentence that reminds you.
+        print(
+            f"\n  *** {ENV_LOCAL_DEV_MODE}=1 - DEVELOPMENT MODE ***\n"
+            f"  Authentication is SKIPPED. Every request runs as tenant "
+            f"{LOCAL_DEV_TENANT!r}, and anybody who can reach this port can "
+            f"read and write these books.\n"
+            f"  Unset {ENV_LOCAL_DEV_MODE} to require a login.\n"
+        )
     print(
         f"Accountant Dad -> http://{host}:{port}\n"
         f"  backend {live.identity.backend} at {live.identity.endpoint}\n"

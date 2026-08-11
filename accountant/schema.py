@@ -326,6 +326,19 @@ class ActionLog:
     #: Which batch a reversal event belongs to. Carried as its own field rather
     #: than parsed back out of `detail`, for the same reason `action` exists.
     batch_id: str = ""
+    #: WHOSE books, and WHO was logged in. Added 2026-08-10 with tenancy.
+    #:
+    #: `company_key` above says which set of books; these two say which
+    #: customer account owns them and which human was holding the session. One
+    #: cloud server serves many customers, so a row that names only the company
+    #: cannot answer "did somebody from another tenant do this", which is the
+    #: first question asked after any cross-tenant scare.
+    #:
+    #: `NOT_RECORDED`, never blank, for the same reason as `actor`: a row
+    #: written before tenancy existed, or by a path with no session behind it,
+    #: must SAY it does not carry them rather than show an empty column.
+    tenant_id: str = NOT_RECORDED
+    user_id: str = NOT_RECORDED
 
     def __post_init__(self) -> None:
         if not self.reason.strip():
@@ -341,8 +354,15 @@ class ActionLog:
                 f"action {self.action!r} for {self.company_key!r} names actor "
                 f"{self.actor!r}; the only actors are "
                 f"{', '.join(a.value for a in Actor)} or {NOT_RECORDED}. "
-                "Authenticated user identity is NOT_IMPLEMENTED (H-05)."
+                "WHICH human is `user_id`; this field is which KIND of actor."
             )
+        for name, value in (("tenant", self.tenant_id), ("user", self.user_id)):
+            if not value.strip():
+                raise ValueError(
+                    f"action {self.action!r} for {self.company_key!r} has a "
+                    f"blank {name} id; write {NOT_RECORDED} when there is none, "
+                    "so the absence is a fact rather than an empty column"
+                )
         if not self.previous_state.strip():
             raise ValueError(
                 f"action {self.action!r} for {self.company_key!r} has a blank "

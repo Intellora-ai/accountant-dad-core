@@ -46,6 +46,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import cast
 
+from accountant.auth.identity import Session, Tenant, User
 from accountant.memory.identity import (
     CompanyIdentity,
     IdentityEvidence,
@@ -144,7 +145,12 @@ SCHEMA: tuple[str, ...] = (
         -- rule, and the same reason, as `raw_subject` above.
         actor          TEXT,
         previous_state TEXT,
-        batch_id       TEXT
+        batch_id       TEXT,
+        -- Tenancy, 2026-08-10. Same shape and same reason as the three above:
+        -- nullable, and NULL reads back as NOT_RECORDED rather than being
+        -- back-filled with a tenant nobody measured.
+        tenant_id      TEXT,
+        user_id        TEXT
     )
     """,
     # The other four tables key on `company_key` FIRST in a composite primary
@@ -156,6 +162,60 @@ SCHEMA: tuple[str, ...] = (
     """
     CREATE INDEX IF NOT EXISTS action_log_by_company
         ON action_log (company_key)
+    """,
+    # ----------------------------------------------------------------------
+    # Tenancy. Added 2026-08-10 for the cloud product.
+    #
+    # `company_key` already scopes every table above, and it stays. Tenancy
+    # sits ABOVE it rather than replacing it: a tenant owns companies, and a
+    # company still owns its vendors and its log. Replacing the existing key
+    # would have meant rewriting five tables and every query that reads them,
+    # to gain nothing the extra level does not already give.
+    # ----------------------------------------------------------------------
+    """
+    CREATE TABLE IF NOT EXISTS tenant (
+        tenant_id  TEXT NOT NULL PRIMARY KEY,
+        name       TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        deleted_at TEXT
+    )
+    """,
+    # `email` is UNIQUE across the whole table, not per tenant. Two tenants
+    # sharing one email address would make "which tenant am I logging in to"
+    # ambiguous at exactly the moment a password is being checked, and the
+    # only ways out are asking the person to disambiguate or picking one.
+    """
+    CREATE TABLE IF NOT EXISTS app_user (
+        user_id       TEXT NOT NULL PRIMARY KEY,
+        tenant_id     TEXT NOT NULL,
+        email         TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        salt          TEXT NOT NULL,
+        created_at    TEXT NOT NULL,
+        deleted_at    TEXT
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS app_user_by_tenant ON app_user (tenant_id)
+    """,
+    # The PRIMARY KEY is the token FINGERPRINT, never the token. A database
+    # that leaks yields nothing replayable.
+    #
+    # `expires_at` is a column rather than a timer because the process
+    # restarts: a session that expired while the server was down must still be
+    # expired when it comes back.
+    """
+    CREATE TABLE IF NOT EXISTS session (
+        token_fingerprint TEXT NOT NULL PRIMARY KEY,
+        user_id           TEXT NOT NULL,
+        tenant_id         TEXT NOT NULL,
+        created_at        TEXT NOT NULL,
+        expires_at        TEXT NOT NULL,
+        revoked_at        TEXT
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS session_by_user ON session (user_id)
     """,
 )
 
@@ -368,14 +428,14 @@ _ACTION_INSERT = """
     INSERT INTO action_log (
         company_key, ts, action, outcome, reason, run_id,
         backend, operation_id, voucher_id, vendor_id, detail,
-        actor, previous_state, batch_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        actor, previous_state, batch_id, tenant_id, user_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _ACTION_SELECT = """
     SELECT company_key, ts, action, outcome, reason, run_id,
            backend, operation_id, voucher_id, vendor_id, detail,
-           actor, previous_state, batch_id
+           actor, previous_state, batch_id, tenant_id, user_id
       FROM action_log
      WHERE company_key = ?
      ORDER BY rowid
@@ -488,7 +548,16 @@ class MemoryStore:
         added: tuple[tuple[str, tuple[str, ...]], ...] = (
             ("vendor_account", ("raw_subject",)),
             ("phrase_account", ("raw_subject",)),
-            ("action_log", ("actor", "previous_state", "batch_id")),
+            (
+                "action_log",
+                (
+                    "actor",
+                    "previous_state",
+                    "batch_id",
+                    "tenant_id",
+                    "user_id",
+                ),
+            ),
         )
         for table, wanted in added:
             columns = {
@@ -500,6 +569,132 @@ class MemoryStore:
 
     def close(self) -> None:
         self._db.close()
+
+    # ---- tenancy ----------------------------------------------------------
+    #
+    # Added 2026-08-10. Every method here either takes a tenant id from a
+    # STORED row or writes one; none of them accepts a tenant id chosen by a
+    # caller and returns data scoped to it without checking. That asymmetry is
+    # the whole isolation guarantee, and `tests/test_auth.py` asserts it.
+
+    def create_tenant(self, tenant_id: str, name: str, created_at: str) -> Tenant:
+        with self._db:
+            self._db.execute(
+                "INSERT INTO tenant (tenant_id, name, created_at, deleted_at) "
+                "VALUES (?, ?, ?, NULL)",
+                (tenant_id, name, created_at),
+            )
+        return Tenant(tenant_id, name, created_at)
+
+    def tenant(self, tenant_id: str) -> Tenant | None:
+        row = self._db.execute(
+            "SELECT tenant_id, name, created_at, deleted_at FROM tenant "
+            "WHERE tenant_id = ?",
+            (tenant_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return Tenant(str(row[0]), str(row[1]), str(row[2]), str(row[3] or ""))
+
+    def create_user(
+        self,
+        user_id: str,
+        tenant_id: str,
+        email: str,
+        password_hash: str,
+        salt: str,
+        created_at: str,
+    ) -> User:
+        with self._db:
+            self._db.execute(
+                "INSERT INTO app_user (user_id, tenant_id, email, password_hash, "
+                "salt, created_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, NULL)",
+                (user_id, tenant_id, email, password_hash, salt, created_at),
+            )
+        return User(user_id, tenant_id, email, password_hash, salt, created_at)
+
+    def user_by_email(self, email: str) -> User | None:
+        row = self._db.execute(
+            "SELECT user_id, tenant_id, email, password_hash, salt, created_at, "
+            "deleted_at FROM app_user WHERE email = ?",
+            (email,),
+        ).fetchone()
+        if row is None:
+            return None
+        return User(
+            str(row[0]),
+            str(row[1]),
+            str(row[2]),
+            str(row[3]),
+            str(row[4]),
+            str(row[5]),
+            str(row[6] or ""),
+        )
+
+    def open_session(
+        self,
+        token_fingerprint: str,
+        user_id: str,
+        tenant_id: str,
+        created_at: str,
+        expires_at: str,
+    ) -> Session:
+        """Store a session. The TOKEN is never passed here, only its hash.
+
+        The caller keeps the token and hands it to the person; this row can
+        recognise it later and is useless to anyone who steals the database.
+        """
+        with self._db:
+            self._db.execute(
+                "INSERT INTO session (token_fingerprint, user_id, tenant_id, "
+                "created_at, expires_at, revoked_at) VALUES (?, ?, ?, ?, ?, NULL)",
+                (token_fingerprint, user_id, tenant_id, created_at, expires_at),
+            )
+        return Session(token_fingerprint, user_id, tenant_id, created_at, expires_at)
+
+    def session_by_fingerprint(self, token_fingerprint: str) -> Session | None:
+        """The lookup `accountant.auth.authenticate` needs, and the only way a
+        `Principal` is ever built from a credential."""
+        row = self._db.execute(
+            "SELECT token_fingerprint, user_id, tenant_id, created_at, "
+            "expires_at, revoked_at FROM session WHERE token_fingerprint = ?",
+            (token_fingerprint,),
+        ).fetchone()
+        if row is None:
+            return None
+        return Session(
+            str(row[0]),
+            str(row[1]),
+            str(row[2]),
+            str(row[3]),
+            str(row[4]),
+            str(row[5] or ""),
+        )
+
+    def revoke_session(self, token_fingerprint: str, revoked_at: str) -> bool:
+        """Mark a session dead. Returns whether a row was actually changed.
+
+        An UPDATE rather than a DELETE, so "this session was revoked at 14:02"
+        stays answerable. A deleted row and a session that never existed are
+        indistinguishable afterwards, and support needs to tell them apart.
+        """
+        with self._db:
+            changed = self._db.execute(
+                "UPDATE session SET revoked_at = ? "
+                "WHERE token_fingerprint = ? AND revoked_at IS NULL",
+                (revoked_at, token_fingerprint),
+            ).rowcount
+        return bool(changed)
+
+    def revoke_all_sessions_for(self, user_id: str, revoked_at: str) -> int:
+        """Every live session for one user. What a password change should call."""
+        with self._db:
+            changed = self._db.execute(
+                "UPDATE session SET revoked_at = ? "
+                "WHERE user_id = ? AND revoked_at IS NULL",
+                (revoked_at, user_id),
+            ).rowcount
+        return int(changed)
 
     # ---- introspection, so the scoping rule is checked rather than trusted --
 
@@ -582,6 +777,8 @@ class MemoryStore:
                     _unrecorded_as_null(entry.actor),
                     _unrecorded_as_null(entry.previous_state),
                     entry.batch_id,
+                    _unrecorded_as_null(entry.tenant_id),
+                    _unrecorded_as_null(entry.user_id),
                 ),
             )
 
@@ -610,6 +807,8 @@ class MemoryStore:
                 actor=_null_as_unrecorded(row[11]),
                 previous_state=_null_as_unrecorded(row[12]),
                 batch_id="" if row[13] is None else str(row[13]),
+                tenant_id=_null_as_unrecorded(row[14]),
+                user_id=_null_as_unrecorded(row[15]),
             )
             for row in rows
         )
