@@ -55,7 +55,7 @@ from accountant.auth import (
     token_fingerprint,
     verify_password,
 )
-from accountant.extract.adapter import Extractor
+from accountant.extract.adapter import NOT_FOUND, ExtractedRecord, Extractor
 from accountant.extract.registry import default_extractor, guarded
 from accountant.memory.bootstrap import bootstrap
 from accountant.memory.company import CompanyMemory
@@ -81,6 +81,7 @@ from accountant.tallyio.factory import (
     real_tally,
 )
 from accountant.tallyio.real import RecordedBackups, TallyConfig
+from accountant.web import multipart
 
 # THE CONFIGURATION DEFAULT, AND NOTHING ELSE. D8, FIXED 2026-08-09.
 #
@@ -266,6 +267,68 @@ DECISION_ORDER_RULE = "decision_order"
 # durable row (`tests/test_idempotency.py`). Holding a lock across a request
 # that talks to Tally would put every customer behind the slowest one.
 _CACHE_LOCK = threading.Lock()
+
+# ---- giving this product a document, TASK 9, 2026-08-11 ---------------------
+#
+# THE MEASURED GAP. `grep -rn "multipart\|enctype\|type=file" accountant/`
+# returned NOTHING. Every route into this system was typed text, so a person
+# holding a paper bill had no way in at all, and the question "what does this
+# say about a document it cannot read" had never been asked over HTTP.
+#
+# WHAT IS AND IS NOT BUILT HERE. The route is built. The reader is not: the
+# third-party selection is the owner's (`artifacts/extraction_backends.md:3`,
+# `D-23` open), so an uploaded file meets
+# `accountant/extract/placeholder.py::PlaceholderReader` and comes back four
+# stated `not_found`s. `S2 = NOT_MEASURED` stays true and the question rate for
+# uploaded documents is neither zero nor measured.
+#
+# The upload goes through `Runtime.extractor` — the SAME seam typed text uses.
+# Not a second path with its own backend: a route that chose its own reader is
+# exactly the defect `Runtime.extractor` was created to close, and it took two
+# days to find the first time.
+
+#: The largest upload accepted, refused on the DECLARED length before a byte is
+#: read into memory.
+#:
+#: 10 MiB because that is a phone photograph of a bill with room to spare, and
+#: because the number has to be somewhere: with no limit, `self.rfile.read(n)`
+#: allocates whatever a caller says, and a single request can take the process
+#: down without a credential. The refusal is therefore made from the header,
+#: which is the only point at which a size limit can prevent anything.
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+#: How much of an oversized body is drained before the socket is closed.
+#:
+#: Answering without draining leaves the request half-sent, and the person sees
+#: a connection error instead of the sentence explaining the refusal — the
+#: exact reason `do_POST` reads its form before checking anything. The drain is
+#: BOUNDED, in fixed-size pieces that are never accumulated, so a caller who
+#: declares a gigabyte costs one refusal rather than a gigabyte of reading.
+UPLOAD_DRAIN_CAP = 2 * MAX_UPLOAD_BYTES
+
+#: One piece of a drained body. Never held, never joined, never logged.
+UPLOAD_DRAIN_CHUNK = 64 * 1024
+
+#: The form field the file arrives in. One name, used by the page and the route.
+UPLOAD_FIELD = "file"
+
+#: What may be uploaded. AN ALLOW-LIST, and short.
+#:
+#: `text/plain` is deliberately ABSENT even though the shipped backend is the
+#: one that reads it. A text part's bytes would be decoded into
+#: `ExtractedRecord.raw_text`, which `pipeline.build_draft` copies into
+#: `Voucher.narration` and which then reaches the page, the durable action log
+#: and — on a VALID entry — Tally. Allowing it would make "an uploaded file's
+#: bytes are never logged" a property of what people happen to upload. With the
+#: list below it is structural: no shipped backend decodes any of these three,
+#: so the bytes stop at the seam. A typed sentence has its own field on the
+#: home page and always did.
+UPLOAD_MEDIA_TYPES: frozenset[str] = frozenset(
+    {"application/pdf", "image/jpeg", "image/png"}
+)
+
+#: The one media type a browser posts a file form as.
+MULTIPART = "multipart/form-data"
 
 DRAFTS: dict[str, pipeline.Draft] = {}
 
@@ -2451,6 +2514,14 @@ def render_home(banner: str = "") -> bytes:
 &middot; <b>paid Verma Cement 900 for bags</b> (used two accounts, asks)
 &middot; <b>paid Gupta Hardware 1500 for tools</b> (never seen, asks)</p>
 
+<form class=entry method=post action=/upload enctype="{MULTIPART}">
+<input type=file name={UPLOAD_FIELD} accept="{",".join(sorted(UPLOAD_MEDIA_TYPES))}">
+<button>Upload a bill</button></form>
+<p class=hint>No document reader is chosen yet, so an uploaded file is read as
+nothing and you are asked to type it instead &mdash; this product does not guess
+at figures it did not read. Up to {MAX_UPLOAD_BYTES // (1024 * 1024)} MB,
+{", ".join(sorted(UPLOAD_MEDIA_TYPES))}. Nothing you upload is stored.</p>
+
 <h2>What we posted</h2>
 <table><tr><th>Party<th>Account<th class=num>Amount<th>Operation</tr>
 {posted_rows}</table>
@@ -2472,8 +2543,8 @@ you say yes on that page.</p>""")
 # ---- server -----------------------------------------------------------------
 
 
-def _run(text: str) -> pipeline.Draft:
-    """One typed entry, from text to a decision.
+def _run(data: bytes, mime: str) -> pipeline.Draft:
+    """One entry, whatever it arrived as, from bytes to a decision.
 
     `live.extractor`, NOT `default_extractor()`. This line used to build a
     backend of its own on every request, which had two costs. The visible one:
@@ -2482,6 +2553,22 @@ def _run(text: str) -> pipeline.Draft:
     for two days. The quieter one: the route decided what read the bill, so
     "which backend is this deployment on" had two answers — the one
     `configure()` was given and the one the handler made.
+
+    TWO ROUTES, ONE FUNCTION, 2026-08-11. This took `text: str` and encoded it
+    here. `/upload` arrives with the uploaded bytes and the media type the
+    browser declared, and `/entry` arrives with a typed sentence — and that is
+    the whole difference between them, so it is the whole of the signature.
+
+    A SECOND function for uploads was the obvious shape and is the wrong one:
+    it would have its own extractor call, its own `evaluate`, its own VALID
+    gate and its own log line, which is four places for the two routes to drift
+    apart. `tests/test_phase6_exits.py` counts the call sites of `evaluate` in
+    the package and requires exactly three; a second one here would have been a
+    fourth route nobody had reasoned about, and it would have said so.
+
+    `mime` is the caller's DECLARATION and is passed on unchanged. It is not
+    sniffed from the bytes: deciding what a file really is by looking inside it
+    is reading the document, which is the third-party backend's job.
     """
     live = runtime()
     company = live.company
@@ -2491,8 +2578,8 @@ def _run(text: str) -> pipeline.Draft:
         history = live.client.read_vouchers(company)
     d = pipeline.build_draft(
         company,
-        text.encode(),
-        "text/plain",
+        data,
+        mime,
         live.extractor,
         live.memory,
     )
@@ -2530,6 +2617,36 @@ def _run(text: str) -> pipeline.Draft:
 #: The metric reads this word and the handler writes it; two literals is how a
 #: counter reads zero for ever while the thing it counts keeps happening.
 REFUSED_REPLAY = observability.REFUSED_REPLAY
+
+
+def unread_document(d: pipeline.Draft) -> str:
+    """The banner for a document nothing could be read from, or "".
+
+    MEASURED OFF THE RECORD, never off a constant. The condition is "every one
+    of the four named fields came back not_found", which is a fact about what
+    this backend said about THIS file — so the day a real reader is selected
+    and reads three fields out of four, this banner stops appearing on its own,
+    with nobody remembering to delete it.
+
+    A banner and not a replacement for the page: the decision, the checks and
+    the per-field reasons are all still shown underneath. This says the one
+    thing the per-field table cannot, which is that the absence is the same
+    absence four times and its cause is a decision nobody has made yet.
+    """
+    evidence = d.record
+    unread = [
+        name
+        for name in ExtractedRecord.FIELDS
+        if evidence.per_field_source.get(name, "").startswith(NOT_FOUND)
+    ]
+    if len(unread) != len(ExtractedRecord.FIELDS):
+        return ""
+    return (
+        "<div class=warn data-unread=document><b>Nothing was read from that "
+        "file.</b> No document reader is configured yet, so this product will "
+        "not guess at a figure it did not read. Nothing was written to your "
+        "Tally. Type the entry in the box on the home page instead.</div>"
+    )
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -2760,6 +2877,155 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(n).decode()
         return {k: v[0] for k, v in urllib.parse.parse_qs(raw).items()}
 
+    # ---- an uploaded document ------------------------------------------------
+
+    def _declared_length(self) -> int | None:
+        """The body size the caller declared, or None when it did not declare one.
+
+        None rather than 0. A missing or unreadable `Content-Length` is not an
+        empty body — it is a body whose size we do not know, and a size limit
+        that treats "unknown" as "fine" is not a limit. Chunked bodies land
+        here too: `BaseHTTPRequestHandler` does not decode them, so reading
+        would hand the parser the chunk framing as if it were the file.
+        """
+        declared = self.headers.get("Content-Length")
+        if declared is None:
+            return None
+        try:
+            length = int(declared)
+        except ValueError:
+            return None
+        return length if length >= 0 else None
+
+    def _discard_body(self, length: int) -> None:
+        """Read the body away, in fixed pieces, keeping none of it.
+
+        Never accumulated and never decoded, so the peak cost is one chunk
+        whatever was sent. Bounded by `UPLOAD_DRAIN_CAP` so a caller who
+        declares a gigabyte is not answered with a gigabyte of reading — past
+        that the connection simply closes, which is the honest end for a
+        request that was refused before it started.
+
+        The read is best-effort: a caller that hangs up mid-body is exactly the
+        case this exists to survive, and a failure here must not replace the
+        refusal the person is waiting for.
+        """
+        left = min(length, UPLOAD_DRAIN_CAP)
+        with contextlib.suppress(OSError):
+            while left > 0:
+                piece = self.rfile.read(min(left, UPLOAD_DRAIN_CHUNK))
+                if not piece:
+                    return
+                left -= len(piece)
+
+    def _plain_refusal(self, code: int, sentence: str) -> None:
+        """One sentence, one status, no internals, no echo of what was sent."""
+        self._send(page(f"<div class=warn><b>{esc(sentence)}</b></div>"), code=code)
+
+    def _upload(self) -> None:
+        """One uploaded document, refused or decided. It never touches the disk.
+
+        THE ORDER IS THE POINT, so it is written down.
+
+        1. SIZE, from the declared length, BEFORE a byte is read into memory.
+           `self.rfile.read(n)` allocates whatever `n` says, so a check made
+           after the read is a check made after the damage. This is also why it
+           comes before authentication: a login screen that first buffers two
+           gigabytes for a stranger is a denial of service with a form on it.
+        2. WHO, through `_identify`, exactly like every other route. A refusal
+           here has already answered and must return immediately.
+        3. WHAT, an allow-list of media types, refused with 415.
+        4. THE SHAPE, parsed strictly by `accountant/web/multipart.py`. A
+           malformed body is answered with a sentence, never with a traceback.
+
+        NOTHING IS WRITTEN TO DISK, and there is no branch where it could be:
+        no path is built, no file is opened, no temporary directory is asked
+        for. The bytes live in one local and go straight to the extraction
+        seam. Nothing is logged either — the durable row records the DECISION,
+        and the shipped backends never decode any allowed type, so the bytes
+        do not reach `raw_text`, `narration`, the page or the log.
+        """
+        length = self._declared_length()
+        if length is None:
+            self._plain_refusal(
+                411,
+                "That upload did not say how big it is, so it was refused "
+                "before anything was read. Nothing was written to your Tally.",
+            )
+            return
+        if length > MAX_UPLOAD_BYTES:
+            # Drained first, then answered. The browser is still writing, and a
+            # refusal it never gets to read is a connection error rather than
+            # an explanation.
+            self._discard_body(length)
+            self._plain_refusal(
+                413,
+                f"That file is larger than the {MAX_UPLOAD_BYTES // (1024 * 1024)} "
+                f"MB this accepts, so it was refused before any of it was read. "
+                f"Nothing was written to your Tally.",
+            )
+            return
+
+        if not self._identify():
+            # Already answered with 401. The body is still on the socket, so it
+            # is drained for the same reason the oversize branch drains: an
+            # answer the caller cannot read is not an answer.
+            self._discard_body(length)
+            return
+
+        if self.headers.get_content_type() != MULTIPART:
+            self._discard_body(length)
+            self._plain_refusal(
+                415,
+                "That was not sent as a file upload, so nothing was read from "
+                "it. Use the upload button on the home page.",
+            )
+            return
+
+        # Read BEFORE `_confirm_company`, which raises the REFUSAL that
+        # `handle_one_request` turns into a 503. Answering with the body still
+        # unread leaves the request half-sent and the person gets a connection
+        # error instead of the sentence explaining it — the same reason
+        # `do_POST` drains before it checks anything. Bounded by the limit
+        # above, so this reads at most `MAX_UPLOAD_BYTES`.
+        body = self.rfile.read(length)
+        self._confirm_company()
+        boundary = self.headers.get_param("boundary")
+        try:
+            parts = multipart.parse(body, boundary if isinstance(boundary, str) else "")
+        except multipart.MalformedUpload as broken:
+            # 400 and not 503: the request is wrong, not the service. The
+            # sentence is the parser's own and names no internals.
+            self._plain_refusal(400, f"{broken}. Nothing was written to your Tally.")
+            return
+
+        files = [p for p in parts if p.name == UPLOAD_FIELD and p.is_file]
+        if not files or not files[0].data:
+            self._plain_refusal(
+                400,
+                "No file was attached to that upload, so there was nothing to "
+                "read. Choose a file and try again.",
+            )
+            return
+
+        sent = files[0]
+        if sent.media_type not in UPLOAD_MEDIA_TYPES:
+            self._plain_refusal(
+                415,
+                f"A {sent.media_type or 'file of an unstated kind'} cannot be "
+                f"read here. Accepted: " + ", ".join(sorted(UPLOAD_MEDIA_TYPES)) + ".",
+            )
+            return
+
+        d = _run(sent.data, sent.media_type)
+        self._send(
+            page(
+                unread_document(d)
+                + render_decision(d)
+                + '<p><a href="/">&larr; back</a></p>'
+            )
+        )
+
     def log_message(self, format: str, *args: object) -> None:  # quiet
         pass
 
@@ -2872,6 +3138,14 @@ class Handler(BaseHTTPRequestHandler):
         self._send(render_home())
 
     def do_POST(self) -> None:
+        # BEFORE `_form()`, and that is the whole reason this branch is first.
+        # `_form` reads `Content-Length` bytes into memory and decodes them as
+        # text; an upload has to be refused on its declared size BEFORE that
+        # read, and its bytes are never text. See `_upload`.
+        if self.path == "/upload":
+            self._upload()
+            return
+
         # The body is drained BEFORE the check, deliberately. Answering without
         # reading it leaves the request half-sent on the socket, so a person
         # whose company had closed got a connection error instead of the 503
@@ -2913,7 +3187,7 @@ class Handler(BaseHTTPRequestHandler):
             if not text:
                 self._send(render_home())
                 return
-            d = _run(text)
+            d = _run(text.encode(), "text/plain")
             self._send(page(render_decision(d) + '<p><a href="/">&larr; back</a></p>'))
             return
 
