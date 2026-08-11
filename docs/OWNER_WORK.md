@@ -214,6 +214,43 @@ enter" is the defect itself reintroduced as a default.
 `ACCOUNTANT_COMPANY`. They are two halves of one statement: which books, and
 whose. `docs/DEPLOY.md` lists it with the rest.
 
+### The repository is PUBLIC and 24 tracked lines carry your home path
+Found 2026-08-11 by a sweep of every tracked file.
+`gh repo view --json visibility` says **PUBLIC**, and `/Users/tanveersidhu/`
+appears 24 times across 8 files:
+
+```
+artifacts/detector_evidence.md              6
+docs/RUNBOOK_PHASE5_ACCEPTANCE.md           7
+artifacts/phase9_exit_audit.md              2
+artifacts/phase7_evidence.md                2
+artifacts/phase9_data_quality.md            2
+artifacts/realtally_readiness.md            2
+artifacts/phase9_error_coverage.md          1
+artifacts/phase9_reproducibility_manifest.json  1
+docs/CLAUDE_CONTEXT.md                      1
+```
+
+It leaks one thing: the macOS account name on the machine this was built on.
+No key, no token, no customer data — a sweep for those found nothing.
+
+**Not fixed here, deliberately.** Six of the eight are **evidence artefacts**,
+and the paths inside them are part of what was recorded — a reproducibility
+manifest that names a path nobody can check is a weaker artefact, not a safer
+one. Rewriting recorded evidence to tidy a cosmetic leak is the kind of edit
+this project has a rule against.
+
+**Needed: your decision, one of three.**
+1. Leave them. The exposure is a username on a public repository.
+2. Replace with `$HOME` or `~` in the two DOCS only
+   (`RUNBOOK_PHASE5_ACCEPTANCE.md`, `CLAUDE_CONTEXT.md`), leaving the six
+   artefacts exactly as measured. This is the smallest honest change.
+3. Rewrite all eight, and record in each artefact that its paths were
+   redacted after the fact and on what date.
+
+A guard test refusing new occurrences can be added under any of the three, and
+should be — the useful half of this is stopping the 25th, not the 24 that exist.
+
 ### Legal
 Privacy policy, terms of service, billing, refunds, and a support process. The
 product will hold vendor names and amounts from real books.
