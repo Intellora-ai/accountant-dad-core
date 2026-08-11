@@ -484,14 +484,19 @@ def test_the_id_the_decision_checks_is_the_id_the_form_sends_back(server: str):
 def test_a_replay_of_the_answer_that_posted_is_still_the_duplicate_refusal(
     server: str,
 ):
-    """The binding must not turn a 503 into a 400.
+    """The binding must not turn the duplicate refusal into a 400.
 
     A posted entry is not asking anything, so there is no question for an answer
-    to be bound to. The guard that owns that path is C5 — `pipeline.post`
-    refusing a duplicate operation id — and it answers 503 and leaves a durable
-    row saying the service would not do it twice. `tests/test_idempotency.py`
-    pins that. Replacing it with "that was not one of the questions" would trade
-    a refusal that names the real reason for one that does not.
+    to be bound to. The guard that owns that path is the duplicate-operation
+    refusal in `pipeline.post`, and it leaves a durable row saying the service
+    would not do it twice. `tests/test_idempotency.py` pins that. Replacing it
+    with "that was not one of the questions" would trade a refusal that names
+    the real reason for one that does not.
+
+    409 SINCE 2026-08-10, and it was 503 before. Both refuse and neither writes;
+    what changed is honesty. 503 says the service is unavailable, and it is not
+    — it worked and said no. 409 says the request conflicts with what has
+    already happened, which is exactly the case.
     """
     draft, problem, _ = ask_once(server)
     post(server, "/answer", draft=draft, problem=problem, value="Purchases")
@@ -505,7 +510,7 @@ def test_a_replay_of_the_answer_that_posted_is_still_the_duplicate_refusal(
 
     replay, _ = submit(server, "/answer", draft=draft, problem=FUNDING, value="Cash")
 
-    assert replay == 503, "the duplicate-operation refusal still owns this path"
+    assert replay == 409, "the duplicate-operation refusal still owns this path"
     assert tally.list_our_vouchers(app.COMPANY) == written
     assert tally.trial_balance(app.COMPANY) == balance
 

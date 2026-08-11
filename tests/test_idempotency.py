@@ -447,7 +447,13 @@ def test_a_write_whose_read_back_vanished_is_not_retried_into_a_second_voucher()
     with pytest.raises(DuplicateOperation):
         pipeline.post(draft, client, log=store, memory=memory, run_id=RUN)
 
-    assert client.write_count == 2, "asked twice"
+    assert client.write_count == 1, (
+        "the retry never reached Tally at all. Until 2026-08-10 it did, and "
+        "Tally's own duplicate guard turned it away - which worked, and meant "
+        "the safety of a retry depended on a round trip to somebody's "
+        "accounting software. The identity is now claimed in our own store "
+        "before the socket opens, so a replay is refused here"
+    )
     assert len(inner.list_our_vouchers(COMPANY)) == 1, "wrote once"
     assert inner.trial_balance(COMPANY) == after_the_lost_reply
     assert draft.posted_tally_id is None, "and nothing is recorded as posted"
@@ -553,7 +559,7 @@ def test_replaying_the_answer_that_posted_an_entry_writes_no_second_voucher(
         server, "/answer", draft=d, value="Cash", problem=FUNDING
     )
 
-    assert replay_code == 503, "the replay is refused, and legibly"
+    assert replay_code == 409, "the replay is refused, and legibly"
     assert tally.list_our_vouchers(app.COMPANY) == ours
     assert tally.trial_balance(app.COMPANY) == balance
     assert 'class="badge b-valid">posted<' not in replay
@@ -569,7 +575,7 @@ def test_the_refused_replay_is_recorded_and_reports_no_second_posting(server: st
 
     actions = actions_in(get(server))
     assert actions.count("posted") == 1, "one posting, however many clicks"
-    assert "failed" in actions, "and the refused replay left a row of its own"
+    assert app.REFUSED_REPLAY in actions, "and the refused replay left a row of its own"
 
 
 def test_the_same_answer_sent_twice_is_refused_and_recorded_once(server: str):
@@ -785,57 +791,99 @@ def test_dismissing_a_detector_that_never_fired_records_nothing(flagged_server: 
 # ---------------------------------------------------------------------------
 
 
-def test_an_operation_id_that_was_reversed_can_be_written_again_today() -> None:
-    """WHAT WAS MEASURED. This test PINS A DEFECT; see the xfail below.
+def test_an_operation_id_that_was_reversed_is_never_written_again() -> None:
+    """DEFECT I1, FIXED 2026-08-10. Was an xfail; now the behaviour.
 
-    C5 asks Tally whether the marker is already there. After a reversal it is
-    not, so the guard passes and the same operation id is written a second time
-    against a second Tally id. One identity, two vouchers over the life of the
-    books, and an audit trail in which `operation_id` has stopped being a key.
+    C5 asks TALLY whether the marker is already there, and after a reversal it
+    is not, because reversing DELETES the voucher. So the guard passed and the
+    same operation id was written a second time against a second Tally id. One
+    identity, two vouchers over the life of the books, and an audit trail in
+    which `operation_id` had stopped being a key.
 
-    The trial balance ends exactly where a single posting leaves it, which is
-    why nobody notices: the money is right and the identity is not.
+    The trial balance ended exactly where a single posting leaves it, which is
+    why nobody noticed: the money was right and the identity was not.
+
+    `docs/ARCHITECTURE.md` section 7 and `accountant/tallyio/client.py` both say
+    the operation id IS the identity — reads, duplicate detection and reversal
+    match on it and on nothing else. An identity that can be reused after a
+    delete is not an identity, it is a slot.
+
+    The fix is a write-once record in the store, keyed on
+    `(company_key, operation_id)`. The PRIMARY KEY is the guard rather than a
+    SELECT before the INSERT, because a read followed by a write has a window
+    between them and a constraint does not.
     """
     client, draft, store, memory = posted_once()
-    first_tally_id = draft.posted_tally_id
-    assert pipeline.reverse_operation(client, COMPANY, draft.operation_id).reversed_
+    assert pipeline.reverse_operation(
+        client, COMPANY, draft.operation_id, log=store
+    ).reversed_
     assert client.list_our_vouchers(COMPANY) == ()
 
-    again = pipeline.post(draft, client, log=store, memory=memory, run_id=RUN)
+    with pytest.raises(DuplicateOperation, match="already been written"):
+        pipeline.post(draft, client, log=store, memory=memory, run_id=RUN)
 
-    assert len(client.list_our_vouchers(COMPANY)) == 1
-    assert again.posted_tally_id != first_tally_id, "a DIFFERENT voucher"
-    assert again.operation_id == draft.operation_id, "wearing the SAME identity"
+    assert client.list_our_vouchers(COMPANY) == (), "and nothing was written"
 
 
-@pytest.mark.xfail(strict=True, reason="DEFECT I1 - accountant/pipeline.py:456")
-def test_an_operation_id_that_was_reversed_is_never_written_again() -> None:
-    """DEFECT I1. The behaviour the system should have, and does not.
+def test_a_reversal_marks_the_identity_spent_rather_than_freeing_it() -> None:
+    """Marking, never releasing.
 
-    `docs/ARCHITECTURE.md` §7 and `accountant/tallyio/client.py` both say the
-    operation id IS the identity: reads, duplicate detection and reversal match
-    on it and on nothing else. An identity that can be reused after a delete is
-    not an identity, it is a slot. Two `posted` rows naming one operation id and
-    two different Tally ids cannot afterwards be reconciled by the one thing
-    they have in common.
-
-    The fix is not in this file. Whatever shape it takes - a write-once record
-    of every operation id ever used, or minting a fresh id on a re-post - it is
-    a source change and the owner makes it.
+    Releasing the id on reversal would recreate the defect exactly: the reason a
+    reversed id must not be written again is that two vouchers would share one
+    identity, and that is as true after the reversal is recorded as before.
     """
     client, draft, store, memory = posted_once()
-    pipeline.reverse_operation(client, COMPANY, draft.operation_id)
+    op = draft.operation_id
+    key = memory.identity.key
+
+    assert store.operation_used(key, op)
+    assert store.operation_reversed_at(key, op) == "", "not reversed yet"
+
+    pipeline.reverse_operation(client, COMPANY, op, log=store)
+
+    assert store.operation_reversed_at(key, op), "the trail says when"
+    assert store.operation_used(key, op), "and the identity is still spent"
+    assert not store.claim_operation(key, op, "later")
+
+
+def test_one_companys_operation_id_does_not_block_anothers() -> None:
+    """The register is company-scoped like every other table here. Two companies
+    minting the same id would otherwise take turns refusing each other."""
+    store = MemoryStore(":memory:")
+    assert store.claim_operation("Nagpur Hardware Stores", "op-1", "t0")
+    assert store.claim_operation("Pune Auto Works", "op-1", "t0")
+    assert not store.claim_operation("Nagpur Hardware Stores", "op-1", "t1")
+
+
+def test_a_refused_replay_writes_no_write_attempted_row() -> None:
+    """A refused replay is not a write that started and ended unknown.
+
+    Nothing went out. Recording `write_attempted` would put a row whose meaning
+    is "a voucher may exist and must be checked by hand" against an attempt we
+    know wrote nothing — which is defect I2's mistake arriving from the other
+    direction.
+    """
+    client, draft, store, memory = posted_once()
+    pipeline.reverse_operation(client, COMPANY, draft.operation_id, log=store)
+    before = len(store.actions(COMPANY))
 
     with pytest.raises(DuplicateOperation):
         pipeline.post(draft, client, log=store, memory=memory, run_id=RUN)
 
-    assert client.list_our_vouchers(COMPANY) == ()
+    assert store.actions(COMPANY)[before:] == ()
 
 
-def test_the_reversed_then_replayed_defect_is_reachable_from_the_browser(server: str):
-    """I1 is not a library curiosity. Post, undo, then re-submit the form that
-    posted it: the activity log ends with TWO `posted` rows naming one operation
-    id, and the page shows that id beside a voucher Tally numbered differently.
+def test_a_reversed_then_replayed_entry_is_refused_in_the_browser(server: str):
+    """I1 over the surface a person actually touches.
+
+    Post, undo, then re-submit the form that posted it. It used to go through:
+    two `posted` rows naming one operation id, and a second voucher Tally
+    numbered differently. Now the replay is refused, nothing is written, and the
+    log still has exactly one `posted` row.
+
+    409, not 503. Nothing broke — the person asked for something that conflicts
+    with what has already happened, and answering that with "Accountant Dad
+    broke" would send them looking for a fault that is not there.
     """
     tally = app.runtime().client
     asked = submit(server, "/entry", text=UNKNOWN)[1]
@@ -843,18 +891,17 @@ def test_the_reversed_then_replayed_defect_is_reachable_from_the_browser(server:
     submit(server, "/answer", draft=d, value="Purchases", problem=PURPOSE)
     done = submit(server, "/answer", draft=d, value="Cash", problem=FUNDING)[1]
     op = operation(done)
-    first_ids = {v.tally_id for v in tally.list_our_vouchers(app.COMPANY)}
+    assert len(tally.list_our_vouchers(app.COMPANY)) == 1
 
     submit(server, "/reverse", op=op)
     assert tally.list_our_vouchers(app.COMPANY) == ()
 
     code, again = submit(server, "/answer", draft=d, value="Cash", problem=FUNDING)
 
-    assert code == 200 and operation(again) == op, "the same identity"
-    now = tally.list_our_vouchers(app.COMPANY)
-    assert len(now) == 1
-    assert {v.tally_id for v in now} != first_ids, "a different voucher"
-    assert actions_in(get(server)).count("posted") == 2
+    assert code == 409, again
+    assert "already been written" in again
+    assert tally.list_our_vouchers(app.COMPANY) == (), "nothing was written"
+    assert actions_in(get(server)).count("posted") == 1
 
 
 # ---------------------------------------------------------------------------
@@ -862,50 +909,58 @@ def test_the_reversed_then_replayed_defect_is_reachable_from_the_browser(server:
 # ---------------------------------------------------------------------------
 
 
-def test_a_duplicate_refusal_is_recorded_as_an_unknown_outcome_today() -> None:
-    """WHAT WAS MEASURED. This test PINS A DEFECT; see the xfail below.
-
-    `pipeline.post` writes its write-ahead row, calls `write_voucher`, and its
-    `except BaseException` arm records WRITE_OUTCOME_UNKNOWN for everything that
-    comes out. `DuplicateOperation` is raised BEFORE any import goes out, on
-    both backends, so at that instant there is positive evidence that this
-    attempt wrote nothing. The row says the opposite.
-    """
-    client, draft, store, memory = posted_once()
-    before = len(store.actions(COMPANY))
-
-    with pytest.raises(DuplicateOperation):
-        pipeline.post(draft, client, log=store, memory=memory, run_id=RUN)
-
-    added = store.actions(COMPANY)[before:]
-    assert [r.action for r in added] == [
-        pipeline.WRITE_ATTEMPTED,
-        pipeline.WRITE_OUTCOME_UNKNOWN,
-    ]
-    assert "DuplicateOperation" in added[-1].reason
-
-
-@pytest.mark.xfail(strict=True, reason="DEFECT I2 - accountant/pipeline.py:490")
 def test_a_duplicate_refusal_is_never_recorded_as_an_unknown_outcome() -> None:
-    """DEFECT I2. UNKNOWN means "a voucher may exist and must be checked by
-    hand", and a duplicate refusal is the one write failure where that is
-    knowably false.
+    """DEFECT I2, FIXED 2026-08-10. Was an xfail; now the behaviour.
 
-    `accountant/tallyio/real.py` argues the opposite direction at length: an
+    UNKNOWN means "a voucher may exist and must be checked by hand", and a
+    duplicate refusal is the one write failure where that is knowably false:
+    both backends raise it BEFORE any import goes out, so there is positive
+    evidence that this attempt wrote nothing. The row used to say the opposite.
+
+    `accountant/tallyio/real.py` argues the other direction at length - an
     UNKNOWN must never be flattened into a failure, because a retry after a
-    write that DID land makes two entries. The mirror costs less and is still
-    untrue - it sends somebody to look in Tally for a voucher we already know we
-    did not write, and it dilutes the row that means a person really is needed.
+    write that DID land makes two entries. That argument is about uncertainty.
+    This is the case where there is none.
+
+    Closed by I1's fix for the ordinary replay, which is refused before the
+    socket opens and writes no row at all. What is asserted here is the arm that
+    survives: OUR register says the id is free and TALLY says it is not.
     """
     client, draft, store, memory = posted_once()
+    # Our register does not know about it; Tally does. A database restored from
+    # a backup older than the books looks exactly like this.
+    forgetful = MemoryStore(":memory:")
     before = len(store.actions(COMPANY))
 
     with pytest.raises(DuplicateOperation):
+        pipeline.post(draft, client, log=forgetful, memory=memory, run_id=RUN)
+    with pytest.raises(DuplicateOperation):
         pipeline.post(draft, client, log=store, memory=memory, run_id=RUN)
 
-    added = store.actions(COMPANY)[before:]
-    assert pipeline.WRITE_OUTCOME_UNKNOWN not in [r.action for r in added]
+    added = [r.action for r in forgetful.actions(COMPANY)]
+    assert pipeline.WRITE_OUTCOME_UNKNOWN not in added
+    assert added == [pipeline.WRITE_ATTEMPTED, pipeline.WRITE_REFUSED_DUPLICATE]
     assert len(client.list_our_vouchers(COMPANY)) == 1
+    assert store.actions(COMPANY)[before:] == (), (
+        "and the ordinary replay - the one our own register catches - writes no "
+        "row at all, because nothing was attempted"
+    )
+
+
+def test_the_duplicate_row_says_the_older_voucher_is_the_real_one() -> None:
+    """A row that only says "refused" leaves somebody wondering which voucher
+    exists. This one says: nothing was written now, and the one carrying this id
+    was written earlier."""
+    client, draft, _store, memory = posted_once()
+    forgetful = MemoryStore(":memory:")
+
+    with pytest.raises(DuplicateOperation):
+        pipeline.post(draft, client, log=forgetful, memory=memory, run_id=RUN)
+
+    last = forgetful.actions(COMPANY)[-1]
+    assert last.action == pipeline.WRITE_REFUSED_DUPLICATE
+    assert "Nothing was written now" in last.reason
+    assert "written earlier" in last.reason
 
 
 # ---------------------------------------------------------------------------

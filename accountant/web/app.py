@@ -63,7 +63,11 @@ from accountant.memory.store import (
 )
 from accountant.rules.gst_rates import RateRule, official_corpus
 from accountant.schema import ActionLog, Outcome
-from accountant.tallyio.client import TallyClient, operation_id_in
+from accountant.tallyio.client import (
+    DuplicateOperation,
+    TallyClient,
+    operation_id_in,
+)
 from accountant.tallyio.factory import (
     BackendIdentity,
     LicenceMode,
@@ -1912,6 +1916,11 @@ def _run(text: str) -> pipeline.Draft:
     return d
 
 
+#: The action a refused replay writes. Its own name rather than `failed`,
+#: because a replay is not a failure of ours: the system worked and said no.
+REFUSED_REPLAY = "refused_replay"
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(
         self,
@@ -1990,6 +1999,28 @@ class Handler(BaseHTTPRequestHandler):
         """
         try:
             super().handle_one_request()
+        except DuplicateOperation as exc:
+            # 409 Conflict, and NOT the 503 "something broke" page. Nothing
+            # broke: the person asked to post an entry whose identity has
+            # already been used, the system refused, and it wrote nothing.
+            # Answering that with "Accountant Dad broke" would send somebody
+            # looking for a fault, and the honest answer is that this is a state
+            # the request conflicts with - which is what 409 means.
+            #
+            # Recorded, because a refusal nobody can find afterwards cannot be
+            # investigated - and this one is worth finding: it means somebody
+            # tried to post an entry twice. Best-effort like `_broke`, since a
+            # logging failure must not replace the answer the person is waiting
+            # for.
+            with contextlib.suppress(Exception):
+                note(REFUSED_REPLAY, "REFUSED", str(exc))
+            self._send(
+                page(
+                    f"<div class=warn><b>{esc(exc)}</b></div>"
+                    '<p><a href="/">&larr; back</a></p>'
+                ),
+                code=409,
+            )
         except RuntimeError as exc:
             if str(exc).startswith(REFUSAL):
                 self._send(page(f"<div class=warn><b>{esc(exc)}</b></div>"), code=503)

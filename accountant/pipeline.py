@@ -18,7 +18,7 @@ import datetime
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from accountant import checks, problems
 from accountant import questions as Q
@@ -44,7 +44,11 @@ from accountant.schema import (
     Outcome,
     Voucher,
 )
-from accountant.tallyio.client import TallyClient, new_operation_id
+from accountant.tallyio.client import (
+    DuplicateOperation,
+    TallyClient,
+    new_operation_id,
+)
 
 #: What `provenance` says about a leg that came out of this company's own books.
 #: A literal in three places until 2026-08-10, and one of them is now read as a
@@ -70,6 +74,27 @@ class ActionLogSink(Protocol):
     """
 
     def record_action(self, entry: ActionLog) -> None: ...
+
+
+@runtime_checkable
+class OperationRegister(Protocol):
+    """A durable record of every operation id this company has ever written.
+
+    Separate from `ActionLogSink` rather than folded into it, because they
+    answer different questions and a sink that can only append rows is still a
+    useful thing to pass. `MemoryStore` satisfies both.
+
+    `runtime_checkable` so `post` can ask. A `Protocol` check at runtime tests
+    for the METHODS and not for their behaviour, which is all that is wanted
+    here: the question is "can this store refuse a reused identity", and a
+    store that cannot must not silently look like one that can.
+    """
+
+    def claim_operation(self, company_key: str, operation_id: str, at: str) -> bool: ...
+
+    def mark_operation_reversed(
+        self, company_key: str, operation_id: str, at: str
+    ) -> bool: ...
 
 
 @dataclass
@@ -637,6 +662,37 @@ def post(
             f"different operation, {draft.decision.operation_id!r}"
         )
 
+    # DEFECT I1, FIXED 2026-08-10. THE IDENTITY IS CLAIMED BEFORE THE WRITE.
+    #
+    # Reversing a voucher DELETES it, so after a reversal Tally's answer to "is
+    # there a voucher carrying operation X" is no, and the id looked free. It
+    # was not free. `docs/ARCHITECTURE.md` section 7 and
+    # `accountant/tallyio/client.py` both say the operation id IS the identity
+    # of a write: reads, duplicate detection and reversal match on it and on
+    # nothing else. An identity that can be reused after a delete is not an
+    # identity, it is a slot, and two `posted` rows naming one operation id and
+    # two different Tally ids cannot afterwards be reconciled by the one thing
+    # they have in common.
+    #
+    # It was reachable from a browser. Post an entry, press undo, re-submit the
+    # form that posted it: same id, different voucher, two `posted` rows.
+    #
+    # BEFORE the write-ahead row, deliberately. A refused replay is not a write
+    # that started and ended unknown — nothing went out — and recording it as
+    # `write_attempted` would put a row meaning "a voucher may exist and must be
+    # checked by hand" against an attempt we know wrote nothing.
+    company_key = memory.identity.key if memory is not None else draft.company
+    if isinstance(log, OperationRegister) and not log.claim_operation(
+        company_key, draft.operation_id, datetime.datetime.now(datetime.UTC).isoformat()
+    ):
+        raise DuplicateOperation(
+            f"refusing to post {draft.operation_id!r}: that operation id has "
+            f"already been written in {draft.company!r}. Reversing a voucher "
+            f"does not free its identity - two vouchers carrying one operation "
+            f"id could never be told apart afterwards. Nothing was written. "
+            f"Start the entry again and it will get an identity of its own."
+        )
+
     _record_write(log, draft, memory, client, run_id, WRITE_ATTEMPTED, "")
 
     try:
@@ -668,6 +724,39 @@ def post(
                 f"is NOT in Tally's own register (tally_id {back.tally_id!r}). "
                 "Nothing is recorded as posted."
             )
+    except DuplicateOperation as exc:
+        # DEFECT I2, FIXED 2026-08-10, and reachable now only by one route.
+        #
+        # `WRITE_OUTCOME_UNKNOWN` means "a voucher may exist and must be checked
+        # by hand". A duplicate refusal is the one write failure where that is
+        # KNOWABLY FALSE: both backends raise it BEFORE any import goes out, so
+        # at this instant there is positive evidence that this attempt wrote
+        # nothing. Recording the opposite sends somebody to look in Tally for a
+        # voucher we already know we did not write, and it dilutes the row that
+        # means a person really is needed.
+        #
+        # `accountant/tallyio/real.py` argues the other direction at length: an
+        # UNKNOWN must never be flattened into a failure, because a retry after
+        # a write that DID land makes two entries. That argument is about
+        # uncertainty. This arm is about the case where there is none.
+        #
+        # The claim above catches the ordinary replay before the socket opens,
+        # so what reaches here is the disagreement case: our register says the
+        # id is free and TALLY says it is not - a database restored from a
+        # backup older than the books, or a write that predates this table. The
+        # voucher in Tally is the older one, and this row says so.
+        _record_write(
+            log,
+            draft,
+            memory,
+            client,
+            run_id,
+            WRITE_REFUSED_DUPLICATE,
+            f"Tally already holds operation {draft.operation_id!r} and refused "
+            f"this write before sending anything. Nothing was written now; the "
+            f"voucher that carries this id was written earlier. {exc}",
+        )
+        raise
     except BaseException as exc:
         # BaseException, not Exception. A KeyboardInterrupt or a SystemExit
         # arriving between the write and the read-back leaves exactly the
@@ -719,7 +808,13 @@ class Reversal:
     detail: str
 
 
-def reverse_operation(client: TallyClient, company: str, operation_id: str) -> Reversal:
+def reverse_operation(
+    client: TallyClient,
+    company: str,
+    operation_id: str,
+    *,
+    log: object | None = None,
+) -> Reversal:
     """Undo exactly one voucher by operation id, and PROVE the books moved back.
 
     The single doorway for undoing. `POST /reverse` used to call
@@ -741,6 +836,12 @@ def reverse_operation(client: TallyClient, company: str, operation_id: str) -> R
 
     A reversal that returns True and leaves the books unchanged is the worst of
     the three possible outcomes, because it is the one that gets believed.
+
+    `log` MARKS the operation id reversed; it never releases it. The id stays
+    spent, because the reason a reversed id must not be written again — two
+    vouchers sharing one identity — is as true after the reversal is recorded as
+    it was before. What the mark buys is a trail that can say "used, then
+    undone" rather than only "used".
     """
     voucher = client.read_by_operation_id(company, operation_id)
     if voucher is None:
@@ -778,6 +879,11 @@ def reverse_operation(client: TallyClient, company: str, operation_id: str) -> R
         voucher.debit_account: -voucher.amount_paise,
         voucher.credit_account: voucher.amount_paise,
     }
+    if isinstance(log, OperationRegister):
+        log.mark_operation_reversed(
+            company, operation_id, datetime.datetime.now(datetime.UTC).isoformat()
+        )
+
     if moved != expected:
         raise ReversalMismatch(
             f"reversing {operation_id!r} in {company!r} reported success, but "
@@ -867,6 +973,10 @@ def run(
 #: to say so or not.
 WRITE_ATTEMPTED = "write_attempted"
 WRITE_OUTCOME_UNKNOWN = "write_outcome_unknown"
+#: A write Tally refused as a duplicate. NOT an unknown outcome: the refusal
+#: happens before any import goes out, so this row states that nothing was
+#: written rather than that nobody can say.
+WRITE_REFUSED_DUPLICATE = "write_refused_duplicate"
 
 
 def _record_write(
