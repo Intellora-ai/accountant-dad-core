@@ -3880,3 +3880,14 @@ So no `permissions:` block at any level makes that assertion runnable from a
 pull request. It is not skipped, deleted or weakened; it fails, loudly, and
 `artifacts/gate_integrity_blocked.md` records the reason, the owner and the next
 required evidence.
+
+---
+
+**Owner and manual work items: see [`docs/OWNER_WORK.md`](./OWNER_WORK.md).**
+
+That file is the single place the list lives. It is not repeated here, and the
+reason is measured rather than stylistic: on 2026-08-10 `accountant/rules/` was
+recorded as "verified absent" in this file, in `ARCHITECTURE.md` and in
+`CONTROL_PLANE.yaml` simultaneously, days after it had merged in `7db7f45`. The
+three copies corroborated each other, so cross-checking the documents could not
+catch it. Only `ls` could.

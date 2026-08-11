@@ -1,0 +1,33 @@
+{
+  "pr": 38,
+  "title": "Five checks that could not fail, and the records that drifted behind them",
+  "branch": "fix/five-checks-that-could-not-fail",
+  "head": "dde6bad",
+  "base": "da573c1",
+  "recorded_before_merge": true,
+  "gates": {
+    "run": "31404391275",
+    "conclusion": "success",
+    "mergeStateStatus": "CLEAN"
+  },
+  "local_verification": "2782 passed, 5 xfailed. ruff clean. pyright 0 errors. CONTROL_PLANE.yaml parses, 17 keys. .github untouched.",
+  "codeant_status": "CLEAN",
+  "codeant_findings": [],
+  "codeant_note": "Zero review comments and zero reviews at this head. CLEAN means the bot ran and found nothing, distinct from NOT_OBSERVED.",
+  "what_it_fixed": [
+    "ci/readiness.py:500-501 - two gate conditions comparing a literal 0 to a literal 0, which could not fail",
+    "ci/readiness.py:509,512 - one measurement reported twice under two different names",
+    "ci/readiness.py:545 - a mismatch counter blind to run A, whose detail never contained the substring it grepped for",
+    "accountant/web/app.py:157 - a marker rendering 'accountant/rules/ not merged', false since 7db7f45 and pinned by a test",
+    "accountant/questions.py:122-133 - unmapped accounts silently omitted rather than reported, violating frozen plan #9.7",
+    "docs/CONTROL_PLANE.yaml, artifacts/phase_truth_table.md, artifacts/phase9_exit_audit.md - stale records, N1 re-measured from source"
+  ],
+  "mutation": "15 mutants on ci/readiness.py, one of which SURVIVED the first pass and needed four more tests. 2 on the UI marker, 3 on questions.py. All dead at merge.",
+  "noted_not_fixed": [
+    "pipeline.py:309-322 carries the unmapped-account defect a third time; different file, and the private helper would want promoting first",
+    "pipeline.evaluate never calls accountant.tax.decision, so no citation reaches the screen - Task 10 of the cloud plan",
+    "the guard no_document_contradicts_the_control_plane_on_a_metric_value inspects metric IDs that no tracked document quotes, so it has reported PASS throughout",
+    "artifacts/ is not scanned by the truth validator at all"
+  ],
+  "decision": "MERGE"
+}
