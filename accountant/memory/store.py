@@ -651,11 +651,23 @@ ERASED_BY_DELETION: tuple[str, ...] = (
 #:     session      revoked, not deleted. "This session was revoked at 14:02"
 #:                  stays answerable; a deleted row and a session that never
 #:                  existed are indistinguishable afterwards.
+#:     operation    the spent operation ids. Releasing one would recreate
+#:                  defect I1 exactly - two vouchers sharing one identity - and
+#:                  that is as true after a customer leaves as before. The
+#:                  vouchers those ids name are in the customer's OWN Tally and
+#:                  do not disappear because they closed an account here, so an
+#:                  id freed by a deletion could be minted again for a second
+#:                  voucher that could never afterwards be told from the first.
+#:
+#:                  Named here on 2026-08-11 when this table landed and
+#:                  `test_the_deletion_policy_names_every_table_in_the_live_schema`
+#:                  went red, which is exactly what that test exists to do.
 KEPT_BY_DELETION: tuple[str, ...] = (
     "action_log",
     "tenant",
     "app_user",
     "session",
+    "operation",
 )
 
 # The soft deletes. Each is `AND <column> IS NULL`, so a second deletion reports
@@ -1059,6 +1071,7 @@ class MemoryStore:
                 (at, normalise_company(company_key), operation_id),
             ).rowcount
         return bool(changed)
+
     # ---- deleting a customer ----------------------------------------------
     #
     # Task 13, 2026-08-11. Read `ERASED_BY_DELETION` and `KEPT_BY_DELETION`

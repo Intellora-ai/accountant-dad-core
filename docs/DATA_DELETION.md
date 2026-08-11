@@ -190,12 +190,18 @@ A table in neither list fails that test. That is the point: the next table
 anybody adds cannot be swept into a customer deletion by accident, and cannot be
 left out of one by accident either.
 
-**The operation register is the worked example.** The write-once
-`(company_key, operation_id)` row that closes defect I1 is not in this schema
-yet — it lands with the idempotency task. When it does, that test fails until
-somebody names it, and the answer is already decided: **KEPT**. Releasing a spent
-operation id would recreate I1 exactly, because two vouchers would then share one
-identity, and that is as true after a customer leaves as it was before.
+**The operation register is the worked example, and it has now happened.** The
+write-once `(company_key, operation_id)` row that closes defect I1 landed with
+the idempotency task on 2026-08-11. That test went red on the merge, exactly as
+it was written to, and stayed red until the table was named. The answer was
+already decided and is now recorded in the tuple: **KEPT**.
+
+Releasing a spent operation id would recreate I1 exactly, because two vouchers
+would then share one identity. The vouchers those ids name are in the customer's
+**own Tally** and do not disappear because they closed an account here, so an id
+freed by a deletion could be minted again for a second voucher that could never
+afterwards be told from the first. That is as true after a customer leaves as it
+was before.
 
 The erase list is also **the same tuple `forget()` already uses**, rather than a
 second copy of it. `forget()` runs on every rebuild and already answers *what of
