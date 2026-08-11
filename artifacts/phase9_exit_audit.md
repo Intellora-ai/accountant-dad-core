@@ -157,15 +157,17 @@ All five packages exist. Package existence is `BUILD_CORRECTNESS` and nothing mo
 
 | field | value |
 |---|---|
-| **exact requirement, quoted** | "N1 is inside its target on every slice that is reported." (`CONTROL_PLANE.yaml:423`) |
+| **exact requirement, quoted** | "N1 is inside its target on every slice that is reported." (`CONTROL_PLANE.yaml:555`; *was cited as `:423` — the line moved, the text did not*) |
 | **reported status** | **not met** |
 | **what decides it** | `COVERAGE_CORE=pytrace /Users/tanveersidhu/ACCOUNTANT/.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_n1.py::test_one_department_is_still_above_the_target_and_is_not_hidden` |
-| **evidence artifact** | `artifacts/detector_evidence.md` §7 and §12; `artifacts/detector_evidence.json` key `worst_department` |
-| **the four numbers** | **27.59** historical (MHCLG-only, pre-calibration, 8 of 29) · **6.29** aggregate (9 of 143) **PASS** · **2.90** held-out (2 of 69) **PASS** · **33.33** DHSC (7 of 21) **NOT_PASSED** |
+| **evidence artifact** | **The numbers below were re-measured directly, not read out of an artefact.** `artifacts/detector_evidence.md` §7/§12 and `artifacts/detector_evidence.json` key `worst_department` **predate Phase 8 PR-2 and still print the superseded figures** — treat them as historical until regenerated. |
+| **the four numbers** | **27.59** historical (MHCLG-only, pre-calibration, 8 of 29, *unchanged*) · **4.20** aggregate (6 of 143) **PASS** · **2.90** held-out (2 of 69) **PASS**, *unchanged* · **19.05** DHSC (4 of 21) **NOT_PASSED** |
+| **superseded, kept** | Until 2026-08-10 this row read: **6.29** aggregate (9 of 143) · **33.33** DHSC (7 of 21). Both moved when Phase 8 PR-2 (`d121574`) stopped `magnitude` counting rows not dated before an entry into that entry's ceiling (`accountant/detect/detectors.py:prior_amounts`). Same files, same split, same denominator, same target. **`N1_MAX_FALSE_ALARMS_PER_100` was not touched, no assertion was loosened, and the verdict on both slices is unchanged.** |
 | **label** | `PUBLIC_DATA_EVIDENCE` |
-| **limitation** | DHSC is **3.33 times** over target. It is also in the **calibration** half — the procedure had it in front of it the whole time and still could not bring it inside the target. And a seventh department, DBT, reports `NOT_PASSED (unmeasured)` on zero entries, so "every slice" is failed twice, for two different reasons. |
-| **gap** | 23.33 percentage points on DHSC. Six of DHSC's seven false alarms are **one account** — `Additions NCB PDC`, Public Dividend Capital — where `magnitude` bounds a lumpy capital injection by a ceiling taken from ten history entries (`artifacts/detector_evidence.md` §11). |
-| **FINAL STATUS** | **NOT_PASSED.** Unblocking it also needs **OWNER_DECISION_REQUIRED** — `D-22`, which slice is the gate. |
+| **limitation** | DHSC is **1.91 times** over target *(was 3.33 times)*. It is also in the **calibration** half — the procedure had it in front of it the whole time and still could not bring it inside the target. And a seventh department, DBT, reports `NOT_PASSED (unmeasured)` on zero entries, so "every slice" is failed twice, for two different reasons. |
+| **gap** | **9.05 percentage points on DHSC** *(was 23.33)*. Three of DHSC's four false alarms are still **one account** — `Additions NCB PDC`, Public Dividend Capital — where `magnitude` bounds a lumpy capital injection by a ceiling built from history entries (`artifacts/detector_evidence.md` §11). `magnitude` alone flags **3 of DHSC's 21**. The root cause named in the frozen plan (Q7) is therefore **narrowed, not removed**. |
+| **the fourth number nobody quotes** | Every figure above is for `ACTIVE_DETECTORS`, which is **three** detectors. On **all four** (`ALL_DETECTORS`) the aggregate is **34.27** (49 of 143) **FAIL**. The exit that Phase 8 must eventually meet — four detectors on the production path — is measured here and it is more than three times the target. |
+| **FINAL STATUS** | **NOT_PASSED.** `D-22` is now **ANSWERED** (option **B**, 2026-08-10): both the aggregate and the worst department count, and a failing department is never hidden. Under that rule this exit reads NOT_PASSED on the old numbers *and* on the new ones, so the re-measurement reopens nothing. |
 
 ---
 
@@ -202,8 +204,8 @@ history. **This table is the verdict to quote.**
 | E2 N1·N2·N3 each printed PASS or FAIL | **PASS** as a reporting requirement | and the two values behind it are **NOT_MEASURED**: N2 has no measured read-second or dismiss-second, N3 has no real-data answer key |
 | E3 coverage table | **PASS** | 12 types, `uncovered_count() == 10`, counted |
 | E4 cross-department pairs | **PASS** as a reporting requirement | 30 ≥ 3. The recorded evidence line is still wrong — A-2 is open |
-| E5 N1 inside its target on every reported slice | **FAIL** | measured: DHSC 33.33 against a target of ≤ 10. The DBT slice is a second, separate **FAIL** — source unusable: narration empty in all 28 committed rows, and the loader refuses the department with `DBT has 0 history and 0 entries`. Two slices fail, for two different reasons |
-| **Phase 9 overall** | **FAIL** | one exit was measured and missed. Closing it honestly is **BLOCKED** on two owner items: `D-22` (which slice is the gate) and one real book with an accountant's markup |
+| E5 N1 inside its target on every reported slice | **FAIL** | measured 2026-08-10: **DHSC 19.05** against a target of ≤ 10 *(superseded, kept: 33.33)*. The DBT slice is a second, separate **FAIL** — source unusable: narration empty in all 28 committed rows, and the loader refuses the department with `DBT has 0 history and 0 entries`. Two slices fail, for two different reasons |
+| **Phase 9 overall** | **FAIL** | one exit was measured and missed. `D-22` is now **ANSWERED** (B — both slices reported, a failing department never hidden), so one of the two owner items is cleared and the verdict is unchanged. Closing it honestly is still **BLOCKED** on the other: one real book with an accountant's markup |
 
 Where the older words appear above, they read: `PARTIALLY_VERIFIED` → **FAIL**;
 `NOT_PASSED` → **FAIL**; `NOT_PASSED (unmeasured)`, used only of DBT, →
@@ -259,6 +261,14 @@ Per-department within-accuracy, measured: MHCLG 86.21 · DWP 62.96 · DFT 50.00 
 DHSC 33.33 · DEFRA 5.26 · HMT 4.35. Aggregate 63 of 143 = 44.06%. **None of
 these is 53.08.** `53.08% == 69/130`, and no current configuration produces a
 denominator of 130.
+
+> **Do not "correct" the 33.33 on the line above.** It is a *within-department
+> accuracy* percentage from the cross-organisation experiment, and it happens to
+> equal the superseded N1 figure for the same department by coincidence. They are
+> different quantities with different denominators: N1 for DHSC is **19.05**
+> (4 false alarms of 21 clean entries); this 33.33 is how often DHSC's own memory
+> index predicted its own later half correctly. A find-and-replace on "33.33"
+> across this repository would silently corrupt this line.
 
 Where the stale numbers live:
 
@@ -366,10 +376,14 @@ labelled, not deleted: it is the number the three documents below actually quote
 | used as history | 140 | 0.87% |
 | **actually scored** | **143** | **0.89%** |
 
-Every N1 figure in this repository — 6.29, 2.90, 33.33 — has a denominator of at
-most **143**. Quoting 16,011 alongside them invites the reader to think the
-sample is 56 times larger than it is. On 143 entries, **one** entry changing side
-moves the aggregate rate by 0.70 points.
+Every N1 figure in this repository — **4.20, 2.90, 19.05** *(superseded, kept:
+6.29, 2.90, 33.33)* — has a denominator of at most **143**. Quoting 16,011
+alongside them invites the reader to think the sample is 56 times larger than it
+is. On 143 entries, **one** entry changing side moves the aggregate rate by 0.70
+points. **This is the sharpest thing on the page and the re-measurement makes it
+sharper, not softer:** the aggregate improved by 2.09 points, which is three
+entries. The denominator did not change, so the improvement is worth exactly
+three rows of a 311-row fixture set.
 
 **Not edited — outside this audit's ownership.**
 
@@ -391,10 +405,10 @@ Nine ways. Each is a real mechanism, not a worry.
 
 | # | mechanism | is it happening? | evidence | can this audit test it? |
 |---|---|---|---|---|
-| 1 | **The aggregate hides one disastrous department.** 6.29 PASS is an average over seven; DHSC alone is 33.33 | **YES** | `detector_evidence.md` §7 | tested — the repo does not hide it, `tests/test_n1.py` names the failure. Good practice |
+| 1 | **The aggregate hides one bad department.** 4.20 PASS is an average over seven; DHSC alone is 19.05 *(superseded, kept: 6.29 and 33.33)* | **YES, still** | re-measured 2026-08-10 | tested — the repo does not hide it, `tests/test_n1.py` names the failure. Good practice. Direction, stated so it is not read as a win: the worst department is **4.54×** the aggregate, where it was **5.30×**. The gap narrowed a little, and it narrowed because both numbers fell — not because the department was fixed |
 | 2 | **Synthetic truth is defined by detector names.** `generate/inject.py` corrupts into exactly `vendor_switch`, `first_use`, `magnitude`, `gst_anomaly` — the four detector names and no others | **YES, by construction** | `ARCHITECTURE.md:459` | tested by reading. N3 on synthetic data is a spelling test: the injector writes the answer key the detectors were written to read. The repo says so in every report it prints (`ARCHITECTURE.md:509-511`) |
 | 3 | **A midpoint split can leak history.** The "earlier" half is not earlier | **YES — 4 of 6 departments** | A-3 above, measured | detected and measured here; the effect on N1 is **unquantified**, and belongs to the harness owner |
-| 4 | **Flags can be double-counted.** | **NO at entry level, YES at cause level** | `detector_evidence.md` §3, §11 | N1 uses the union, so two detectors on one entry count once. But six of nine aggregate false alarms are **one wrong ceiling on one account** counted six times. Nine alarms is not nine problems; it is closer to four |
+| 4 | **Flags can be double-counted.** | **NO at entry level, YES at cause level** | re-measured 2026-08-10 from `gate_from_books(...).examples` | N1 uses the union, so two detectors on one entry count once. But **three of the six** aggregate false alarms are **one wrong ceiling on one account** — `Additions NCB PDC`, vouchers `DHSC-00035/36/37`, every one of them bounded by the same `largest is 21300000 paise` — counted three times. **Six alarms is not six problems; it is four**: one NCB PDC ceiling, one DEFRA ceiling (`DEFRA-00035`), and two unrelated `vendor_switch` flags (`DWP-00037`, `DHSC-00039`). *Superseded, kept: "six of nine … counted six times. Nine alarms is closer to four." The shape of the finding survived the re-measurement; only the counts moved* |
 | 5 | **A data source with no true positives cannot measure catch rate.** No real ledger here carries a labelled error | **YES** | pinned by `tests/test_ingest.py::test_the_score_harness_fails_n3_on_real_data_because_there_is_no_answer_key` | N3 on real data is `NOT_MEASURABLE`, and the repo pins the absence rather than papering over it |
 | 6 | **Empty narration silently removes a whole department.** DBT | **YES, but not silently** | `artifacts/phase9_data_quality.md` | DBT is counted, named and reported `NOT_PASSED (unmeasured)`. The loader is right. The *consequence* is under-stated: one seventh of the source set is outside every N1 number |
 | 7 | **A tiny denominator makes a rate look stable.** 143 scored entries quoted next to "16,011 rows" | **YES** | A-5 above | one entry moves the aggregate 0.70 points |
@@ -402,8 +416,24 @@ Nine ways. Each is a real mechanism, not a worry.
 | 9 | **The production path is not the measured path.** N1 is measured on `ACTIVE_DETECTORS` (3 detectors); `pipeline.evaluate` and `pipeline.run` default to `SLICE_4_DETECTORS` (**1** detector) | **YES** | `docs/TAXONOMY.md`, "What is actually wired into the production path" | **No N1 figure in this repository describes what a user would actually run.** The shipped default is one detector; every headline number is for three |
 
 **Number 9 is the one with no mitigation written anywhere.** All four preserved
-numbers — 27.59, 6.29, 2.90, 33.33 — describe a detector set that is not the
-production default.
+numbers — **27.59, 4.20, 2.90, 19.05** *(superseded, kept: 27.59, 6.29, 2.90,
+33.33)* — describe a detector set that is not the production default.
+
+**The re-measurement made number 9 worse, not better, and this is the single most
+useful sentence on the page.** Those four are `ACTIVE_DETECTORS`, three
+detectors. Measured on **all four** detectors — which is what Phase 8 exists to
+put on the production path — the aggregate is **34.27** (49 of 143), a **FAIL**
+at more than three times the target. So the repository now holds three different
+detector sets with three different answers:
+
+| detector set | count | what it is | aggregate N1 | verdict |
+|---|---|---|---|---|
+| `SLICE_4_DETECTORS` | 1 | **what actually ships today** (`accountant/pipeline.py:365`, `:811`) | never measured | — |
+| `ACTIVE_DETECTORS` | 3 | what every headline number in this repo describes | **4.20** | PASS |
+| `ALL_DETECTORS` | 4 | what Phase 8 must reach | **34.27** | **FAIL** |
+
+The shipped default has no N1 figure at all, and the target state fails by 3.4×.
+Neither of those is visible in any single number this project quotes.
 
 ---
 
@@ -419,9 +449,15 @@ Before concluding, the disconfirming evidence was looked for specifically.
 | the 53.08% figure reproducing under some other call | yes — best, aggregate, mean, per-department, 5- and 6-department subsets | none produce 53.08. `69/130` fits the arithmetic; no configuration produces 130 |
 | DBT's rejection being a loader bug | yes — every column counted directly from the CSV | no. The narration column resolves correctly and is empty in the file. See the companion report |
 
-The one thing that **could** overturn E5's status is `D-22`: if the owner rules
-that the aggregate is the gate, E5 is met at 6.29 and Phase 9 closes. That is a
-decision, not a measurement, and it is the owner's.
+The one thing that **could** overturn E5's status was `D-22`: if the owner ruled
+that the aggregate is the gate, E5 would be met on the aggregate and Phase 9
+would close. **That is now settled and it did not overturn anything.** The owner
+answered **B** on 2026-08-10 — both the aggregate and the worst department count,
+and a failing department is never hidden — so E5 stays **NOT_PASSED**. It stays
+NOT_PASSED on the superseded numbers (6.29 / 33.33) and on the re-measured ones
+(4.20 / 19.05) alike, which is the disconfirming check for this whole
+re-measurement: **had the numbers moved the verdict, that would have been the
+signal to distrust them.** They did not.
 
 ---
 
@@ -545,8 +581,10 @@ things unblock it, in order of value:
 | # | action | owner | unblocks |
 |---|---|---|---|
 | 1 | one real book with one accountant's markup of which entries are wrong | owner | N3, all 12 coverage rows, the first `REAL_COMPANY_EVIDENCE` in the repository |
-| 2 | rule on `D-22` — is the gate the aggregate, the held-out half, or the worst department? | owner | E5 either closes or stays open honestly |
-| 3 | sort by date before `split_point`, re-measure N1 | harness owner | A-3; tells us whether 6.29 and 2.90 survive contact with a real timeline |
+| 2 | ~~rule on `D-22`~~ — **DONE, 2026-08-10. Answer B**: both the aggregate and the worst department count, and a failing department is never hidden | owner | E5 stayed open honestly. No longer blocking |
+| 3 | sort by date before `split_point`, re-measure N1 | harness owner | A-3; tells us whether **4.20 and 2.90** survive contact with a real timeline *(superseded, kept: 6.29 and 2.90)* |
+| 4 | **regenerate `artifacts/detector_evidence.md` and `artifacts/detector_evidence.json`** — both predate Phase 8 PR-2 and still print 6.29 and 33.33, so they now disagree with the control plane | harness owner | removes the last in-repo source of the superseded numbers |
+| 5 | **correct `docs/LAUNCH_GATES.md:112`, which still reads "the worst department measures 33.33 … The aggregate (6.29)" and calls `D-22` open** | whoever owns that document | it is a tracked document and it is wrong on two counts — the numbers and the decision status |
 
 Correcting A-2 and A-5 is documentation work and changes no conclusion — the
 design invariant they support gets stronger, not weaker.

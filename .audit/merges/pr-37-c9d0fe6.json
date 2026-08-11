@@ -1,0 +1,46 @@
+{
+  "pr": 37,
+  "title": "The Ground-Truth Pack had never measured anything, and now it does",
+  "branch": "phase8/ground-truth-harness",
+  "head": "c9d0fe6",
+  "base": "6a5508c",
+  "recorded_before_merge": true,
+  "gates": {
+    "run": "31397298709",
+    "pr-fast": "SUCCESS",
+    "pr-full": "SUCCESS",
+    "ci-gate": "SUCCESS",
+    "mergeStateStatus": "CLEAN"
+  },
+  "local_verification": "2751 passed, 5 xfailed. ruff clean. format clean. pyright 0 errors. .github untouched.",
+  "codeant_status": "OBSERVED",
+  "codeant_findings": [
+    {
+      "path": "accountant/extract/adapter.py",
+      "line": 288,
+      "severity": "Major",
+      "claim": "Changing refused fields to STUB_NOT_FOUND makes run_s2's counter treat every refusal as a sourced field, because it compares the source with the exact NOT_FOUND sentinel. s2_extraction_scored can falsely pass.",
+      "verdict": "CONFIRMED, FIXED",
+      "measured_before_the_fix": {
+        "s2_extraction_scored": "PASS",
+        "legacy_per_field_hits": {"date": 100, "party": 100, "total_paise": 100, "tax_paise": 100},
+        "exit1_exact_per_field": {"date": 0, "party": 0, "total_paise": 0, "tax_paise": 0}
+      },
+      "measured_after_the_fix": {
+        "s2_extraction_scored": "FAIL",
+        "legacy_per_field_hits": {"date": 0, "party": 0, "total_paise": 0, "tax_paise": 0}
+      },
+      "fix": "run_ground_truth.py now uses startswith(NOT_FOUND), the rule tests/test_extract_outage.py has always used. The equality test was already wrong and was merely unreachable until the refusal string changed.",
+      "mutation": "Reverting to != turns test_a_refusal_that_states_a_reason_is_still_a_refusal red. A control test beside it keeps refusing-to-count-refusals from becoming refusing-to-count-values.",
+      "note": "This finding was against a defect introduced by this branch. It is the first time the controlled review caught a regression the author shipped rather than one already in main."
+    }
+  ],
+  "reanchoring_note": "GitHub moved the comment's commit_id forward from b2b2958 to c9d0fe6 while the review itself still records b2b2958. The verdict was reached by re-running the pack and reading the numbers, not from comment metadata.",
+  "what_this_pr_fixes": [
+    "run_ground_truth.py exited 2 (INVALIDATED) on every invocation: pack_validator accepted the generic name `main`, bound to main(argv), and was handed a Path. No number from the pack had ever been quotable.",
+    "The extraction section reported BLOCKED awaiting a file that was committed, because build_ground_truth.py had none of the names pack_loader looks for.",
+    "EXIT 1 and EXIT 2 are now scored separately and measured: EXIT 1 FAIL (0 of 80, required 76, owner Q4 = B), EXIT 2 PASS (20 of 20 explicit with a reason).",
+    "StubExtractor's bare not_found now states a reason, which EXIT 2 requires."
+  ],
+  "decision": "MERGE"
+}

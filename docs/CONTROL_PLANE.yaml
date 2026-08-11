@@ -311,7 +311,22 @@ phases:
     status: PARTIALLY_VERIFIED
     evidence: >-
       ci/readiness.py reports 3 of 3 runs and 30 of 30 voucher lifecycles, and
-      tests/test_phase5b_readiness.py (19 tests) pins the twelve conditions.
+      tests/test_phase5b_readiness.py (39 test functions, 45 collected) pins the
+      twelve conditions. CORRECTED 2026-08-10; superseded, kept: this read "(19
+      tests)". The old figure was NOT wrong when it was written - 19 is exactly
+      the `def test_` count at the committed baseline da573c1, measured
+      `/usr/bin/grep -c "^def test_" tests/test_phase5b_readiness.py` in a clean
+      worktree at that commit, where the file also collected 25. It went stale
+      because the file grew in UNCOMMITTED work that fixed three defects in
+      ci/readiness.py - two gate conditions that were literals and could never
+      fail, and a mismatch counter blind to run A. Measured on the working tree
+      of 2026-08-10 - `/usr/bin/grep -c "^def test_"` gives 39, and
+      `.venv/bin/python -m pytest tests/test_phase5b_readiness.py --collect-only
+      -q -p no:cacheprovider` gives "45 tests collected". CAVEAT, and it is the
+      important part - 39/45 is measured on a DIRTY working tree that other
+      agents are still editing, so unlike every other number in this file it is
+      not reproducible from any commit. It will need re-measuring when that work
+      lands.
       Every one of those passes is against FakeTally and the simulator, which
       is by design - a failure is never manufactured in real statutory books.
       It is PARTIALLY_VERIFIED and not PASSED for one structural reason - this
@@ -416,7 +431,10 @@ phases:
           takes ExtractedRecord, Extractor, NOT_FOUND; ingest/spend.py takes
           NOT_FOUND; web/app.py takes Extractor, default_extractor, guarded.
           The swap lever is DEFAULT_BACKEND at accountant/extract/registry.py.
-          tests/test_adapter_contract.py, 95 tests. Killed mutant MU3b - a
+          tests/test_adapter_contract.py, 69 test functions / 107 collected -
+          see test_count_audit at the foot of this file; the figure previously
+          written here was "95 tests", which reproduces as NEITHER unit and is
+          recorded there as UNVERIFIED rather than quietly replaced. Killed mutant MU3b - a
           WORKING web/app.py naming TypedTextExtractor turns 3 structural tests
           red while 91 behavioural tests in the same file stay green, which is
           the measured reason the structural guard exists.
@@ -449,25 +467,70 @@ phases:
 
   - id: "8"
     name: "Phase 8 - widen to the frozen criteria"
-    status: NOT_STARTED
+    status: PARTIALLY_VERIFIED
     evidence: >-
-      accountant/rules/ does not exist (verified 2026-08-10, no such
-      directory). The production detector set is still SLICE_4_DETECTORS, which
-      is one detector, not ALL_DETECTORS. S1 to S7 have never been measured -
-      PROJECT_STATE section 20, "S1-S7 - no product measurement has been taken".
+      CORRECTED 2026-08-10. The previous entry read NOT_STARTED on the evidence
+      "accountant/rules/ does not exist (verified 2026-08-10, no such
+      directory)". BOTH HALVES OF THAT WERE FALSE AT THE TIME THEY WERE READ
+      BACK, and the superseded wording is kept above rather than deleted.
+      accountant/rules/ is committed on main and carries six modules -
+      __init__.py, effective_dates.py, gst_rates.py, hsn_sac.py,
+      place_of_supply.py, provenance.py - measured with `git ls-files
+      accountant/rules/`. It arrived in 7db7f45, "Phase 8 PR-3", and five
+      Phase 8 pull requests are merged into main - d98adc3 PR-1, d121574 PR-2,
+      7db7f45 PR-3, b96f01b PR-4, 1b52bbe PR-5 (`git log --oneline`). Work that
+      has merged five times is not NOT_STARTED. What is STILL true from the old
+      entry, re-measured today and not softened - the production detector set is
+      still SLICE_4_DETECTORS, one detector, not ALL_DETECTORS. One exit of five
+      is met, so the honest status is PARTIALLY_VERIFIED, not PASSED.
     exit_criteria:
       - text: "All five input types accepted."
         met: false
-        evidence: "Only typed text. PROJECT_STATE section 8 - extraction adapter is a stub."
+        evidence: >-
+          Not re-adjudicated here and left as it stood - this auditor measured
+          the two claims below, not this one. Still true of the shipped
+          backend - accountant/extract/ selects no production reader. Partly
+          stale - artifacts/phase8_input_types.md (PR-1, d98adc3) records a
+          100-case corpus over the five types, so "no fixtures exist" would now
+          be wrong even though the exit is not met.
       - text: "ALL_DETECTORS replaces SLICE_4_DETECTORS on the production path."
         met: false
-        evidence: "accountant/pipeline.py:236 still defaults detector_set to detectors.SLICE_4_DETECTORS, which is (vendor_switch,)."
+        evidence: >-
+          STILL NOT MET, re-measured 2026-08-10. Line reference corrected - the
+          old entry said accountant/pipeline.py:236 and the defaults now sit at
+          accountant/pipeline.py:365 (evaluate) and accountant/pipeline.py:811
+          (run), both `detector_set: Sequence[detectors.Detector] =
+          detectors.SLICE_4_DETECTORS`. SLICE_4_DETECTORS is (vendor_switch,),
+          one detector; ACTIVE_DETECTORS is three; ALL_DETECTORS is four.
+          Command - `grep -n "SLICE_4_DETECTORS" accountant/pipeline.py`.
       - text: "accountant/rules/ exists and a rule with no source citation fails to load."
-        met: false
-        evidence: "The directory does not exist."
+        met: true
+        evidence: >-
+          CORRECTED 2026-08-10 from met: false, evidence "The directory does not
+          exist". Superseded, kept. Both halves measured today. Existence -
+          `git ls-files accountant/rules/` lists six modules. Citation
+          enforcement, measured twice rather than asserted. (a) A rule with no
+          source cannot be built at all - RateRule.source has no default, so
+          `RateRule(rule_id="X", ...)` without it raises `TypeError:
+          RateRule.__init__() missing 1 required positional argument:
+          'source'`. (b) A rule whose provenance is not good enough is refused
+          at load - flipping one of the 15 OFFICIAL_RULES to
+          RuleStatus.SOURCE_UNVERIFIED and rebuilding takes RuleCorpus.build
+          from 15 loaded / 0 rejected to 14 loaded / 1 rejected, with the
+          reason recorded as "rule status is source_unverified" against
+          rule_id gst.goods.2523.sch4-18.cgst.v1. Eight unverified sources are
+          carried as named gaps and never as numbers. Regression cover -
+          `.venv/bin/python -m pytest -q tests/test_gst_rules_corpus.py
+          tests/test_gst_rule_ground_truth.py` - 116 passed.
       - text: "S1 to S7 measured."
         met: false
-        evidence: "Never measured."
+        evidence: >-
+          Not re-adjudicated here - outside what this auditor measured, so it
+          is reported unverified rather than corrected. The blanket "Never
+          measured" is no longer safe to repeat as written -
+          artifacts/phase8_input_types.md reports S2 as PASS (100/100 records
+          complete, 100/100 carrying provenance). S1 and S3-S7 remain
+          unmeasured as far as this audit can show.
       - text: "Every account resolves to a plain-English description or is reported unmapped."
         met: false
         evidence: "Partly present in accountant/questions.py (unmapped accounts are reported, not shown as jargon) but never measured as a phase exit."
@@ -479,8 +542,13 @@ phases:
     evidence: >-
       Everything this phase was asked to REPORT, it reports. What it reports is
       not all passing, and that is the honest state. N1 is measured and passes
-      on the aggregate (6.29) and on the held-out half (2.90) but fails on the
-      worst single department (33.33, DHSC). N2 and N3 have never been measured
+      on the aggregate (4.20) and on the held-out half (2.90) but fails on the
+      worst single department (19.05, DHSC). RE-MEASURED 2026-08-10 at main
+      da573c1; the superseded reading of this sentence was "aggregate (6.29) …
+      worst single department (33.33, DHSC)" and it is kept here rather than
+      deleted. Phase 8 PR-2 (d121574) moved two of those three numbers; it did
+      NOT move the verdict, which was and remains a pass on the aggregate and a
+      fail on DHSC. N2 and N3 have never been measured
       on real data - there is no answer key in any real ledger this repository
       holds, and tests/test_ingest.py pins that absence rather than papering
       over it. The coverage table reports 12 published error types, 0 VERIFIED,
@@ -504,7 +572,15 @@ phases:
         evidence: "accountant/ingest/crossorg.py; 30 pairs; within-department best 53.08%, cross-department 0.00% on 29 of 30."
       - text: "N1 is inside its target on every slice that is reported."
         met: false
-        evidence: "N1 on DHSC is 33.33 against a target of 10. tests/test_n1.py::test_one_department_is_still_above_the_target_and_is_not_hidden."
+        evidence: >-
+          STILL NOT MET. N1 on DHSC is 19.05 against a target of 10, measured
+          2026-08-10 at da573c1 -
+          tests/test_n1.py::test_one_department_is_still_above_the_target_and_is_not_hidden
+          (30 passed in that file). Superseded, kept: this read 33.33 until
+          2026-08-10. A second slice fails for a separate reason - DBT reports 0
+          of 0 clean entries, which gate_from_books calls "has no clean entry to
+          fire on, which is not a pass - NOT_PASSED". The exit says EVERY
+          reported slice, so it is failed twice.
     blocker: null
 
   - id: "10"
@@ -627,20 +703,52 @@ phase7:
 metrics:
 
   # ---- N1, the false-alarm rate. Four slices, because one number cannot be acted on.
-  #      reproduction_status is PENDING on all four: a detector-measurement agent
-  #      is re-measuring them independently and its report is not in yet.
+  #      RE-MEASURED 2026-08-10 at main da573c1. The independent re-measurement
+  #      that reproduction_status: PENDING was waiting for has now been run, and
+  #      reproduction_status is REPRODUCED on all four. Two of the four moved,
+  #      because Phase 8 PR-2 (d121574) stopped `magnitude` counting rows that
+  #      are not dated before an entry into that entry's ceiling
+  #      (accountant/detect/detectors.py:prior_amounts). The superseded value is
+  #      kept on every metric it moved, never overwritten.
+  #
+  #      Every number below was reproduced by running the detectors, not copied:
+  #        .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_n1.py
+  #        -> 30 passed
+  #      and independently through the canonical gate,
+  #      accountant/score/harness.gate_from_books(books, held_out=...), which
+  #      returned: aggregate 6 of 143 = 420 PASS · held-out 2 of 69 = 290 PASS ·
+  #      worst department DHSC 4 of 21 = 1905 NOT_PASSED · DBT 0 of 0, "has no
+  #      clean entry to fire on, which is not a pass - NOT_PASSED" · overall
+  #      verdict NOT_PASSED. The gate verdict is unchanged by the re-measurement:
+  #      it was NOT_PASSED at 33.33 and it is NOT_PASSED at 19.05.
 
   - id: N1_AGGREGATE_CURRENT
-    current: 6.29
+    current: 4.20
+    superseded:
+      - value: 6.29
+        held_until: "2026-08-10"
+        reason: >-
+          9 flagged of 143 clean. Measured before Phase 8 PR-2 (d121574)
+          narrowed what `magnitude` may treat as prior evidence. Same files,
+          same split, same denominator; 3 of the 9 flags were raised on ceilings
+          built from rows that were not dated before the entry they bounded.
+          NOT a threshold change - N1_MAX_FALSE_ALARMS_PER_100 was not touched.
     target: 10
     comparison: "<="
     unit: "false alarms per 100 clean entries"
     formula: "clean entries carrying at least one flag, divided by clean entries, times 100. The union, not the sum - two detectors firing on one entry are one false alarm."
     command: "COVERAGE_CORE=pytrace .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_n1.py::test_n1_over_every_committed_department_is_within_the_target"
-    evidence: "artifacts/detector_evidence.json, key `aggregate` - 9 flagged of 143 clean, n1_hundredths 629. The companion artifacts/detector_evidence.md is not written yet."
+    evidence: >-
+      6 flagged of 143 clean, n1_hundredths 420. Reproduced 2026-08-10 by
+      running the command above (passes) and independently through
+      accountant/score/harness.gate_from_books, which reported the aggregate as
+      6 of 143 = 420. Superseded evidence, kept: artifacts/detector_evidence.json
+      key `aggregate` still records 9 flagged of 143 clean, n1_hundredths 629 -
+      that artefact predates PR-2 and has not been regenerated, so it and this
+      metric now disagree. The metric is the re-measured one.
     status: PASSED
-    measured_at_commit: "53dd60d plus the uncommitted working tree of 2026-08-10"
-    reproduction_status: PENDING
+    measured_at_commit: "da573c1 (main, clean working tree for accountant/ and tests/). Superseded, kept: 53dd60d plus the uncommitted working tree of 2026-08-10"
+    reproduction_status: REPRODUCED
     depends_on: null
 
   - id: N1_HELD_OUT_CURRENT
@@ -650,23 +758,50 @@ metrics:
     unit: "false alarms per 100 clean entries"
     formula: "The same union rate, measured only on the held-out half of the departments - the half no threshold was ever chosen on."
     command: "COVERAGE_CORE=pytrace .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_n1.py::test_n1_on_held_out_real_data_is_within_the_target"
-    evidence: "artifacts/detector_evidence.json, key `held_out` - 2 flagged of 69 clean, n1_hundredths 290. Split rule in accountant/score/calibration.py - sort by company name, take every other one."
+    evidence: >-
+      2 flagged of 69 clean, n1_hundredths 290. UNCHANGED by Phase 8 PR-2 and
+      re-measured anyway rather than assumed - reproduced 2026-08-10 by the
+      command above and independently through gate_from_books, which reported
+      the held-out half as 2 of 69 = 290. The held-out departments it resolved
+      are DEFRA, DWP and HM Treasury. Split rule in
+      accountant/score/calibration.py - sort by company name, take every other
+      one.
     status: PASSED
-    measured_at_commit: "53dd60d plus the uncommitted working tree of 2026-08-10"
-    reproduction_status: PENDING
+    measured_at_commit: "da573c1 (main, clean working tree for accountant/ and tests/). Superseded, kept: 53dd60d plus the uncommitted working tree of 2026-08-10"
+    reproduction_status: REPRODUCED
     depends_on: null
 
   - id: N1_WORST_DEPARTMENT_CURRENT
-    current: 33.33
+    current: 19.05
+    superseded:
+      - value: 33.33
+        held_until: "2026-08-10"
+        reason: >-
+          7 flagged of 21 clean on DHSC. Measured before Phase 8 PR-2 (d121574)
+          narrowed `magnitude`'s evidence rule. Three of those seven were raised
+          on ceilings built from rows not dated before the entry. The department
+          is the same, the target is the same, and the verdict is the same -
+          NOT_PASSED before and NOT_PASSED after. It went from 3.33 times over
+          target to 1.91 times over.
     target: 10
     comparison: "<="
     unit: "false alarms per 100 clean entries"
-    formula: "The same union rate, measured on the single worst department. Today that is DHSC - 7 flagged of 21 clean."
+    formula: "The same union rate, measured on the single worst department. Today that is still DHSC - 4 flagged of 21 clean."
     command: "COVERAGE_CORE=pytrace .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_n1.py::test_one_department_is_still_above_the_target_and_is_not_hidden"
-    evidence: "artifacts/detector_evidence.json, key `worst_department` - DHSC, n1_hundredths 3333. The failing detector on that department is `magnitude` (tests/test_n1.py line 294)."
+    evidence: >-
+      DHSC, 4 flagged of 21 clean, n1_hundredths 1905. Reproduced 2026-08-10 by
+      the command above and independently through gate_from_books, which named
+      the worst department as "Department of Health and Social Care", 4 of 21 =
+      1905, NOT_PASSED. Every department re-measured on the same run so the worst
+      one is derived and not asserted - MHCLG 0 of 29, DHSC 4 of 21, DFT 0 of 24,
+      DWP 1 of 27, DEFRA 1 of 19, HMT 0 of 23, DBT 0 of 0. The failing detector
+      on DHSC is still `magnitude`, which alone flags 3 of DHSC's 21. Superseded
+      evidence, kept: artifacts/detector_evidence.json key `worst_department`
+      still records n1_hundredths 3333 - that artefact predates PR-2 and has not
+      been regenerated.
     status: NOT_PASSED
-    measured_at_commit: "53dd60d plus the uncommitted working tree of 2026-08-10"
-    reproduction_status: PENDING
+    measured_at_commit: "da573c1 (main, clean working tree for accountant/ and tests/). Superseded, kept: 53dd60d plus the uncommitted working tree of 2026-08-10"
+    reproduction_status: REPRODUCED
     depends_on: null
 
   - id: N1_OLD_BEFORE
@@ -676,10 +811,22 @@ metrics:
     unit: "false alarms per 100 clean entries"
     formula: "HISTORICAL, kept so the improvement is auditable. The pre-calibration detectors measured on MHCLG only - 8 flagged of 29 clean. It is NOT the current number and must never be quoted as one."
     command: "COVERAGE_CORE=pytrace .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_n1.py::test_the_number_this_started_from_is_still_reproducible"
-    evidence: "artifacts/detector_evidence.json, key `historical.mhclg_pre_calibration` - n1_hundredths 2759. Several documents still print this as if it were current; see artifacts/document_contradictions.md row 3."
+    evidence: >-
+      8 flagged of 29 clean on MHCLG, n1_hundredths 2759. UNCHANGED and
+      re-measured 2026-08-10 rather than assumed - reconstructing the
+      pre-calibration detectors from their parameters (vendor_switch_at(1),
+      first_use, magnitude_at(1,100), gst_anomaly) and running them over MHCLG
+      reproduces 8 of 29 = 2759 exactly. The same reconstruction over all seven
+      departments gives 70 of 143 = 4895; note that the all-department "before"
+      figure DID move with PR-2 (it was 79 of 143 = 5524), because the
+      reconstruction is measured with today's evidence rule and yesterday's
+      thresholds. artifacts/detector_evidence.json, key
+      `historical.mhclg_pre_calibration` - n1_hundredths 2759, still in
+      agreement. Several documents still print 27.59 as if it were current; see
+      artifacts/document_contradictions.md row 3.
     status: NOT_PASSED
-    measured_at_commit: "53dd60d plus the uncommitted working tree of 2026-08-10"
-    reproduction_status: PENDING
+    measured_at_commit: "da573c1 (main, clean working tree for accountant/ and tests/). Superseded, kept: 53dd60d plus the uncommitted working tree of 2026-08-10"
+    reproduction_status: REPRODUCED
     depends_on: null
 
   # ---- N2 and N3, the two frozen acceptance criteria nobody has been able to measure.
@@ -1476,14 +1623,34 @@ decisions:
       denominator, the formula, and false-alarm examples.
     status: ANSWERED
     evidence_needed: >-
-      Measured, artifacts/detector_evidence.md and artifacts/detector_evidence.json -
-      aggregate 6.29 PASS, held-out 2.90 PASS, DHSC 33.33 NOT_PASSED, and DBT
-      has zero clean entries so it reports 'not measured', which is not a pass
-      either. All seven departments, per 100 clean entries - MHCLG 0.00,
-      DFT 0.00, HMT 0.00, DWP 3.70, DEFRA 5.26, DHSC 33.33, DBT not measured.
-      The failing detector on DHSC is `magnitude`. Note the headroom - the
-      calibration half has headroom of ZERO entries, so one more false alarm
-      there flips it.
+      RE-MEASURED 2026-08-10 at main da573c1, by running the detectors through
+      accountant/score/harness.gate_from_books and by
+      `.venv/bin/python -m pytest -q tests/test_n1.py` (30 passed). NOTE ON
+      SCOPE - the `question` and `owner_answer` fields above are left EXACTLY as
+      they were written. They quote the numbers the owner was shown at the time
+      and the owner's verbatim words, and neither may be edited to match a later
+      measurement. Only this evidence pointer is brought up to date.
+      CURRENT - aggregate 4.20 PASS, held-out 2.90 PASS, DHSC 19.05 NOT_PASSED,
+      and DBT has zero clean entries so it reports 'not measured', which is not
+      a pass either. All seven departments, per 100 clean entries - MHCLG 0.00
+      (0 of 29), DFT 0.00 (0 of 24), HMT 0.00 (0 of 23), DWP 3.70 (1 of 27),
+      DEFRA 5.26 (1 of 19), DHSC 19.05 (4 of 21), DBT not measured (0 of 0).
+      The failing detector on DHSC is still `magnitude`, 3 of DHSC's 21 on its
+      own. THE DECISION IS UNAFFECTED - under rule B the gate reads NOT_PASSED
+      on both the old numbers and the new ones, so nothing the owner decided is
+      reopened by this re-measurement.
+      SUPERSEDED, KEPT - until 2026-08-10 this read "aggregate 6.29 PASS,
+      held-out 2.90 PASS, DHSC 33.33 NOT_PASSED … MHCLG 0.00, DFT 0.00,
+      HMT 0.00, DWP 3.70, DEFRA 5.26, DHSC 33.33, DBT not measured", sourced
+      from artifacts/detector_evidence.md and artifacts/detector_evidence.json.
+      Those two artefacts predate Phase 8 PR-2 (d121574) and have NOT been
+      regenerated, so they still print 6.29 and 33.33 and now disagree with this
+      entry. Regenerating them is open work and is named in the report below.
+      The headroom note also moved and is restated rather than carried over -
+      it said the calibration half had headroom of ZERO entries. On today's
+      numbers the calibration half (MHCLG, DHSC, DFT, DBT) stands at 4 false
+      alarms of 74 clean, so that specific zero-headroom claim is NOT
+      reproducible as written and is marked UNVERIFIED rather than repeated.
     next_action: >-
       ANSWERED 2026-08-10. LG-20 is NOT_PASSED and now stays NOT_PASSED for a
       DECIDED reason rather than an undecided one. UNBLOCKED BY THIS ANSWER -
@@ -1895,8 +2062,12 @@ launch_gates:
     text: "N1 is inside its target on every reported slice, not only on the aggregate."
     test: "tests/test_n1.py::test_one_department_is_still_above_the_target_and_is_not_hidden"
     evidence: >-
-      artifacts/detector_evidence.md. DHSC measures 33.33 against a target of
-      10. Aggregate 6.29 PASS, held-out 2.90 PASS. THE REASON THIS GATE IS
+      RE-MEASURED 2026-08-10 at main da573c1. DHSC measures 19.05 against a
+      target of 10. Aggregate 4.20 PASS, held-out 2.90 PASS. Superseded, kept:
+      this read "DHSC 33.33 · aggregate 6.29 · held-out 2.90" until 2026-08-10,
+      sourced from artifacts/detector_evidence.md, which predates Phase 8 PR-2
+      (d121574) and has not been regenerated. The gate's status did not move -
+      it was NOT_PASSED at 33.33 and is NOT_PASSED at 19.05. THE REASON THIS GATE IS
       NOT_PASSED IS NOW A DECISION AND NOT AN ARGUMENT - D-22, answered
       2026-08-10 - both the aggregate and the worst department count, and a
       failing department is not hidden. The gate clears when DHSC is inside 10,
@@ -2030,11 +2201,15 @@ launch_gates:
 
   - id: "LG-40"
     text: "The production path runs every detector calibration kept, not just one."
-    test: "accountant/pipeline.py:236 - the default detector_set"
+    test: "accountant/pipeline.py:365 (evaluate) and :811 (run) - the default detector_set. Superseded pointer, kept: this read accountant/pipeline.py:236 until 2026-08-10; the line moved, the default did not."
     evidence: >-
-      The default is SLICE_4_DETECTORS, which is one detector. ACTIVE_DETECTORS
-      has three. ARCHITECTURE Phase 8 is where ALL_DETECTORS replaces
-      SLICE_4_DETECTORS, and Phase 8 is NOT_STARTED.
+      STILL NOT_PASSED, re-measured 2026-08-10 - the default is
+      SLICE_4_DETECTORS, which is one detector, and ACTIVE_DETECTORS has three.
+      Command - `grep -n "SLICE_4_DETECTORS" accountant/pipeline.py`. CORRECTED
+      in one respect: the closing clause of this entry read "and Phase 8 is
+      NOT_STARTED", which was false when written back. Superseded, kept. Phase 8
+      is PARTIALLY_VERIFIED with five PRs merged (see phase 8 above); this gate
+      is still not passed, but not for that reason.
     status: NOT_PASSED
 
 # ===========================================================================
@@ -2598,3 +2773,156 @@ gst_rules_engine:
     supply inside a State gets no rate either, because the SGST half has no
     citable source. Both are refusals, both are visible, and neither is a stale
     rate quietly applied.
+
+# ===========================================================================
+# TEST-COUNT AUDIT
+#
+# Added 2026-08-10. Appended at the end deliberately, for the same reason the
+# blocks above were: other agents hold earlier parts of this file, and
+# appending cannot collide with them.
+#
+# WHY THIS BLOCK EXISTS. A stale test count was found at phase 5B ("19 tests",
+# see above). Auditing that one number showed the real defect is not the
+# number, it is the UNIT. This file says "N tests" in fourteen places and means
+# two different things by it, with nothing saying which:
+#
+#     def test_    the number of test FUNCTIONS written in the file
+#     collected    what pytest actually runs, which is larger wherever
+#                  @pytest.mark.parametrize expands one function into many
+#     passed       collected minus skipped and xfailed - a THIRD unit, and the
+#                  one that caused the repo-wide disagreement recorded below
+#
+# For tests/test_extract_outage.py the first two are 39 and 147. Quoting "147
+# tests" and "39 tests" are both defensible and they differ by 3.8x, so a
+# reader cannot tell a shrinking suite from a change of convention.
+# ===========================================================================
+
+test_count_audit:
+  measured_on: "2026-08-10"
+  measured_at_commit: "da573c1, re-measured in a clean detached worktree so no other agent's uncommitted work is counted"
+  commands:
+    functions: '/usr/bin/grep -c "^def test_" tests/<file>.py'
+    collected: '.venv/bin/python -m pytest tests/<file>.py --collect-only -q -p no:cacheprovider'
+  convention_going_forward: >-
+    Write both, in the form "N test functions, M collected". A single number
+    called "tests" is ambiguous by construction and this audit found it being
+    used both ways in the same document.
+  files:
+    # cited_as is the wording this file used BEFORE the audit. It is kept on
+    # every row, including the rows where it turned out to be right.
+    - file: tests/test_gate_contract.py
+      cited_as: "18 tests"
+      functions: 18
+      collected: 18
+      unit_cited: either
+      verdict: AGREES
+    - file: tests/test_first_detector.py
+      cited_as: "16 tests"
+      functions: 16
+      collected: 16
+      unit_cited: either
+      verdict: AGREES
+    - file: tests/test_adversarial_write_path.py
+      cited_as: "37 tests"
+      functions: 37
+      collected: 53
+      unit_cited: functions
+      verdict: AGREES_ON_FUNCTIONS
+    - file: tests/test_acceptance_n10.py
+      cited_as: "21 tests"
+      functions: 21
+      collected: 26
+      unit_cited: functions
+      verdict: AGREES_ON_FUNCTIONS
+    - file: tests/test_flag_cap.py
+      cited_as: "16 tests"
+      functions: 16
+      collected: 28
+      unit_cited: functions
+      verdict: AGREES_ON_FUNCTIONS
+    - file: tests/test_extract_outage.py
+      cited_as: "147 tests"
+      functions: 39
+      collected: 147
+      unit_cited: collected
+      verdict: AGREES_ON_COLLECTED
+    - file: tests/test_no_reader.py
+      cited_as: "28 tests"
+      functions: 16
+      collected: 28
+      unit_cited: collected
+      verdict: AGREES_ON_COLLECTED
+    - file: tests/test_generate.py
+      cited_as: "60 tests"
+      functions: 51
+      collected: 60
+      unit_cited: collected
+      verdict: AGREES_ON_COLLECTED
+    - file: tests/test_bulk_reversal.py
+      cited_as: "41 tests"
+      functions: 28
+      collected: 41
+      unit_cited: collected
+      verdict: AGREES_ON_COLLECTED
+    - file: tests/test_adapter_contract.py
+      cited_as: "95 tests"
+      functions: 69
+      collected: 107
+      unit_cited: null
+      verdict: REPRODUCES_NEITHER
+      note: >-
+        UNVERIFIED, and deliberately NOT replaced by a guess. 95 is neither the
+        function count nor the collected count, at da573c1 or on the working
+        tree - both were checked and both give the same 69/107. No commit was
+        found at which 95 is either figure, and this audit did not search the
+        full history. Whoever wrote 95 should say what it counted. The prose
+        above now carries 69/107 and points here.
+    - file: tests/test_phase5b_readiness.py
+      cited_as: "19 tests"
+      functions: 39
+      collected: 45
+      functions_at_da573c1: 19
+      collected_at_da573c1: 25
+      unit_cited: functions
+      verdict: WAS_RIGHT_NOW_STALE
+      note: >-
+        19 was the exact function count at the committed baseline. It went
+        stale through UNCOMMITTED work fixing three defects in ci/readiness.py.
+        39/45 is therefore measured on a dirty tree and is NOT reproducible
+        from any commit; re-measure when that work lands.
+  repo_wide:
+    # Recorded because another audit quoted 2,781 collected across 73 files and
+    # this measurement does not reproduce it. The number is written as measured
+    # rather than reconciled.
+    at_commit_da573c1:
+      test_files_under_tests: 73
+      collected_under_tests: 2746
+      collected_whole_repo: 2756
+      note: "whole_repo adds ci/test_protection.py, which contributes 10."
+    on_working_tree_2026_08_10:
+      test_files_under_tests: 73
+      collected_under_tests: 2777
+      collected_whole_repo: 2787
+      passed_whole_repo: 2781
+      skipped_whole_repo: 1
+      xfailed_whole_repo: 5
+      full_run: '.venv/bin/python -m pytest -q -p no:cacheprovider -> "2781 passed, 1 skipped, 5 xfailed in 164.57s"'
+    disagreement_resolved: >-
+      A parallel audit reported "2,781 collected across 73 test files" and this
+      audit could not reproduce 2781 as a COLLECTED count anywhere - it measured
+      2777 under tests/ and 2787 whole-repo. Running the suite to completion
+      settled it, and the first guess written here was WRONG and is corrected
+      rather than quietly dropped. The guess was that the shared working tree
+      had moved between the two measurements. IT HAD NOT. 2781 is the number
+      that PASSED; 2787 is the number COLLECTED; the difference is exactly the
+      1 skipped and 5 xfailed. So 2781 is a correct number carrying the wrong
+      noun - "collected" - and the two audits never actually disagreed about
+      the repository. THE LESSON IS THE SAME DEFECT THIS WHOLE BLOCK IS ABOUT,
+      one level up: a bare count is ambiguous until it names its unit, and here
+      three units are in play - test functions, tests collected, tests passed.
+      Quote "N collected, M passed" or neither.
+    superseded_elsewhere: >-
+      Several documents outside this file still quote "682 tests across 14
+      files". That is 4x too small against every figure measured here. Those
+      documents are not owned by this audit and were not edited; they are named
+      so the gap is visible rather than silently inconsistent.

@@ -42,6 +42,7 @@ from accountant.memory.bootstrap import bootstrap
 from accountant.memory.company import CompanyMemory
 from accountant.memory.identity import normalise_company, same_company_name
 from accountant.memory.store import BootstrapReport, BootstrapStatus, MemoryStore
+from accountant.rules.gst_rates import RateRule, official_corpus
 from accountant.schema import ActionLog, Outcome
 from accountant.tallyio.client import TallyClient, operation_id_in
 from accountant.tallyio.factory import (
@@ -107,10 +108,10 @@ FLAG_CAP = 3
 # THE FAILURE MODE THIS SHAPE IS CHOSEN AGAINST
 # ---------------------------------------------
 # A blank cell and a field with no source look identical on a screen. So a slot
-# is NEVER blank: an absent source renders `NOT_RECORDED`, and the one slot that
-# cannot be filled at all today renders `NOT_AVAILABLE — accountant/rules/ not
-# merged`. The reader can tell "we did not record this" from "that half of the
-# system is not here yet", and neither can be mistaken for a value.
+# is NEVER blank: an absent source renders `NOT_RECORDED`, and a slot that
+# cannot be filled renders a `NOT_AVAILABLE` marker that says WHY it cannot.
+# The reader can tell "we did not record this" from "this could not be
+# established, for this named reason", and neither can be mistaken for a value.
 #
 # And the slots are a LIST, rendered by iteration, rather than four hand-written
 # rows. `dropped_flags` was computed correctly on the `Draft` and never rendered
@@ -147,14 +148,54 @@ SLOT_NOT_AVAILABLE = "not_available"
 #: A source this decision does not carry. NEVER an empty cell.
 NOT_RECORDED = "NOT_RECORDED"
 
-#: The rule's official source URL, which does not exist yet and is not invented.
+#: How a slot says "this could not be established". Every such marker starts
+#: with it, which is how `provenance_slots` knows the state without the reason
+#: having to be one fixed sentence — the reason varies, the vocabulary does not.
+NOT_AVAILABLE = "NOT_AVAILABLE"
+
+# THE RULES CORPUS, AND THE SENTENCE THAT WENT STALE ON THIS LINE
+# ---------------------------------------------------------------
+# Until 2026-08-10 this slot rendered `NOT_AVAILABLE — accountant/rules/ not
+# merged` on every decision, and `tests/test_ui_provenance.py` asserted it.
+# Commit 7db7f45 merged `accountant/rules/`. The sentence was then FALSE, on the
+# one panel in this product whose entire job is to be trusted about where a
+# number came from, and the test that should have caught it was the thing
+# holding it in place.
+#
+# It is loaded HERE, at import, on purpose. `official_corpus()` reads
+# module-level literals and opens no socket — owner decision Q1 = A forbids a
+# network call anywhere in that package — so there is nothing to fail at request
+# time and nothing to cache. A corpus fetched per request would also mean the
+# page could disagree with itself between two rows.
+RULES = official_corpus()
+
+#: Every loaded rule by its id, and the ONLY place this screen may get a URL.
 #:
-#: Q1 says a production rule is backed by an official CBIC or Income Tax
-#: Department notification, and those URLs live in `accountant/rules/` — PR-3 of
-#: the five, not merged at the time this was written. Neither `Decision` nor
-#: `Flag` carries a URL today. So the slot says exactly that, and says it in the
-#: `NOT_AVAILABLE` vocabulary the phase already uses.
-RULE_URL_UNAVAILABLE = "NOT_AVAILABLE — accountant/rules/ not merged"
+#: A citation is a CLAIM: it names a `rule_id` and carries a URL it says belongs
+#: to that rule. The claim is not repeated. The `rule_id` is resolved through
+#: this map and the corpus's own URL is what renders, so the worst a bad
+#: citation can do is name a rule that is not here — which is reported.
+RULES_BY_ID: dict[str, RateRule] = {rule.rule_id: rule for rule in RULES.loaded}
+
+#: No rule was cited for this decision. TRUE, and for the real reason.
+#:
+#: `accountant/rules/` is merged and this module loads it. What does not exist
+#: is the WIRING: `pipeline.evaluate` never calls `accountant.tax.decision`, so
+#: no `Citation` ever reaches a `Decision` or a `Flag` on this screen. "The
+#: corpus is not here" and "nothing on this screen cites it" are different
+#: statements and only the second one is true.
+#:
+#: The count is measured off the corpus rather than written down, so the
+#: sentence cannot drift from the thing it describes, and an app that stopped
+#: loading the corpus would print 0 instead of quietly reading the same words.
+RULE_URL_NOT_CITED = (
+    f"{NOT_AVAILABLE} — no rule cited: the merged corpus holds "
+    f"{len(RULES.loaded)} loaded rules and this decision cites none of them"
+)
+
+#: Why a citation was refused instead of being turned into a URL.
+NOT_IN_CORPUS = "the rule cited is not in the merged corpus"
+URL_DISAGREES = "the URL cited is not the corpus URL for the rule cited"
 
 #: The rule that decides an entry with nothing wrong with it.
 #:
@@ -1186,37 +1227,88 @@ def decision_rule_kind(d: pipeline.Draft) -> str:
     return "detector" if decision_rule(d) in fired else "rule"
 
 
+def decision_citations(d: pipeline.Draft) -> list[object]:
+    """Every citation the decision or its flags carry, in the order shown.
+
+    `getattr` rather than an attribute access because `schema.Decision` and
+    `schema.Flag` genuinely do not have this field: the corpus is merged, the
+    tax engine that builds `Citation`s is merged, and `pipeline.evaluate` does
+    not call it. A hard reference would not import, and inventing the field in
+    `accountant/schema.py` from a rendering module would be the web layer
+    deciding what a decision is.
+
+    Both shapes are read. `accountant.tax.decision.TaxDecision` carries
+    `citations`, one per rule that produced the answer; a carrier naming a
+    single rule may carry `citation`. Neither is required to exist.
+    """
+    found: list[object] = []
+    for carrier in (d.decision, *d.flags, *d.suppressed_flags):
+        if carrier is None:
+            continue
+        many = getattr(carrier, "citations", ()) or ()
+        found.extend(many)
+        one = getattr(carrier, "citation", None)
+        if one is not None:
+            found.append(one)
+    return found
+
+
+def cited_source(rule: RateRule) -> str:
+    """One rule's source, as the corpus holds it: the URL and the date read.
+
+    Both, in one cell, because the four slots are the owner-approved four and a
+    URL with no retrieval date does not say WHEN the rate was read — which is
+    the difference between a citation and a link. `RuleCorpus.build` rejects any
+    rule missing either, so a rule that got this far has both.
+    """
+    return f"{rule.source.url} · retrieved {rule.source.retrieval_date}"
+
+
+def uncorroborated_source(rule_id: str, why: str) -> str:
+    """A citation this screen refuses to turn into a URL, and the reason why.
+
+    The rule id is quoted back so the reader can see WHICH citation was refused;
+    it is escaped at the renderer like every other value here.
+    """
+    return f"{NOT_AVAILABLE} — {why}: {rule_id or '(unnamed rule)'}"
+
+
 def rule_source_url(d: pipeline.Draft) -> str:
     """The official source behind the rule that decided this entry.
 
-    THE ONE SLOT THAT CANNOT BE FILLED TODAY, AND IT SAYS SO.
-
     Q1 fixes the authority: a production rule stands on an official CBIC or
-    Income Tax Department notification, and those live in the rules corpus,
-    which is PR-3 of the five and not merged here. Neither `Decision` nor `Flag`
-    carries a URL, so there is nowhere honest to read one from.
+    Income Tax Department notification. Those live in `accountant/rules/`, which
+    IS merged, so this reads them — `RULES_BY_ID`, built once at import.
 
-    Three ways to render that, and two of them are the defect:
+    THE URL IS NOT READ OFF THE DECISION. A citation names a `rule_id` and
+    carries a URL it claims belongs to that rule; this takes the id, asks the
+    corpus, and renders what the CORPUS holds. Three outcomes, and the two
+    refusals matter more than the success:
 
-        blank            indistinguishable from a rule with no source, which is
-                         the exact thing this whole feature exists to expose
-        a plausible URL  an invented citation, which is worse than no citation
-                         because it survives review
-        NOT_AVAILABLE    what is actually true
+        the id is in the corpus       render the corpus's URL and retrieval date
+        the id is not in the corpus   render a marker naming the id. The claimed
+                                      URL is dropped: there is nothing here to
+                                      check it against, and a provenance panel
+                                      that repeats an unverifiable citation is
+                                      the exact failure it exists to catch
+        the two URLs disagree         the same fact recorded twice, disagreeing.
+                                      Reported, never resolved by preferring one
 
-    THE SEAM. The loop reads a `source_url` off whatever carries the decision.
-    Nothing carries one today, so it always falls through to the marker — and
-    when `accountant/rules/` lands and the corpus stamps its eight fields onto
-    the `Decision` or the `Flag`, this renders it and nothing else on this
-    screen changes. `getattr` rather than an attribute access because the field
-    genuinely is not there yet; a hard reference would not import.
+    Nothing on this screen cites a rule today, so every decision falls through
+    to `RULE_URL_NOT_CITED` — which says that, rather than saying the corpus is
+    missing. The gap is the wiring between `pipeline.evaluate` and
+    `accountant.tax.decision`, and naming the real gap is the whole point.
     """
-    carriers: list[object] = [d.decision, *d.flags, *d.suppressed_flags]
-    for carrier in carriers:
-        url = str(getattr(carrier, "source_url", "") or "").strip()
-        if url:
-            return url
-    return RULE_URL_UNAVAILABLE
+    for cite in decision_citations(d):
+        rule_id = str(getattr(cite, "rule_id", "") or "").strip()
+        rule = RULES_BY_ID.get(rule_id)
+        if rule is None:
+            return uncorroborated_source(rule_id, NOT_IN_CORPUS)
+        claimed = str(getattr(cite, "source_url", "") or "").strip()
+        if claimed and claimed != rule.source.url:
+            return uncorroborated_source(rule_id, URL_DISAGREES)
+        return cited_source(rule)
+    return RULE_URL_NOT_CITED
 
 
 def decision_evidence(d: pipeline.Draft) -> list[str]:
@@ -1283,13 +1375,19 @@ def provenance_slots(d: pipeline.Draft) -> dict[str, tuple[str, str]]:
     `PROVENANCE_SLOTS` that nothing computes renders `NOT_RECORDED` rather than
     raising while a page is being drawn, and a page that cannot be drawn is how
     the NOT_VALID screen once became the one screen the app could not show.
+
+    The NOT_AVAILABLE state is decided on the `NOT_AVAILABLE` prefix rather than
+    on one fixed sentence. There are three of those sentences now and the reason
+    varies with what was wrong; a state that had to equal a named constant would
+    silently downgrade a new refusal to `recorded` — a marker rendered as though
+    it were a value, which is the one thing this table must never do.
     """
     sources = provenance_sources(d)
     out: dict[str, tuple[str, str]] = {}
     for slot in PROVENANCE_SLOTS:
         text = sources.get(slot, "").strip()
-        if text == RULE_URL_UNAVAILABLE:
-            out[slot] = (SLOT_NOT_AVAILABLE, RULE_URL_UNAVAILABLE)
+        if text.startswith(NOT_AVAILABLE):
+            out[slot] = (SLOT_NOT_AVAILABLE, text)
         elif text:
             out[slot] = (SLOT_RECORDED, text)
         else:

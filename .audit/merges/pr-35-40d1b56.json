@@ -1,0 +1,52 @@
+{
+  "pr": 35,
+  "title": "Put the CodeAnt inspection inside the thing that merges",
+  "branch": "process/controlled-merge",
+  "head": "40d1b56",
+  "base": "7db7f45",
+  "recorded_before_merge": true,
+  "gates": {
+    "run": "31386890875",
+    "pr-fast": "SUCCESS",
+    "pr-full": "SUCCESS",
+    "ci-gate": "SUCCESS",
+    "mergeStateStatus": "CLEAN"
+  },
+  "gates_executed_individually": {
+    "measured_from": "run 31386890875 job steps, not from the three aggregate check names",
+    "pr-fast": ["lint", "format", "typecheck", "gate-contract", "no-stub-jobs", "workflow-lint", "workflow-security", "security-scan", "changed-tests", "changed-coverage"],
+    "pr-full": ["full-tests", "full-coverage", "dependency-audit", "package-build", "package-metadata", "full-mutation", "mutation-accounting"],
+    "ci-gate": ["ci-gate"],
+    "executed": 18,
+    "declared": 20,
+    "not_executed": {
+      "lockfile": "declared blocking, never wired to a step. The workflow uses `uv sync --frozen`, which SKIPS the lock check rather than performing it. ci/check_workflow_integrity.py warns about this and it is unchanged from main, so it is not a regression introduced here.",
+      "cached-mutation": "parked 2026-08-08 and documented in ci/gates.toml. A cached pytest-gremlins verdict carries no selected_tests; full-mutation and mutation-accounting still run on every authoritative path."
+    }
+  },
+  "codeant_status": "OBSERVED",
+  "codeant_findings": [
+    {
+      "path": "scripts/merge-pr-with-codeant",
+      "original_line": 843,
+      "severity": "Critical",
+      "claim": "The final head check is not atomic with the merge. A push between read_head_sha and the merge call means GitHub may merge a newer, unreviewed head.",
+      "verdict": "CONFIRMED, FIXED",
+      "fix": "--match-head-commit <inspected sha> passed to the merge, so the comparison happens inside the merge on the server. The local check is kept because it produces the readable refusal.",
+      "mutation": "Removing the flag turns 2 tests red."
+    },
+    {
+      "path": "scripts/merge-pr-with-codeant",
+      "original_line": 335,
+      "severity": "Major",
+      "claim": "reviews_on_head treats every review at the head as authorisation, ignoring `state`. A DISMISSED or PENDING review therefore authorises a merge.",
+      "verdict": "CONFIRMED, FIXED",
+      "fix": "Restricted to APPROVED, CHANGES_REQUESTED and COMMENTED. CodeAnt writes COMMENTED.",
+      "mutation": "Removing the state filter turns 2 tests red. A third test is the control, so narrowing to the empty set cannot pass by rejecting everything."
+    }
+  ],
+  "codeant_reanchoring": "Both comments sit on 8601278 with line=null after the rebase - GitHub marks them outdated. Each fix was verified against source at 40d1b56 rather than against comment metadata.",
+  "also_carried": "One .github line: claude.yml's SHA pin comment corrected from # v1 to # v1.0.187 after Anthropic moved the floating v1 tag. The SHA is unchanged. Without it zizmor's ref-version-mismatch audit fails workflow-security on every branch.",
+  "local_verification": "2544 passed, 5 xfailed. ruff clean. pyright 0 errors.",
+  "decision": "MERGE"
+}

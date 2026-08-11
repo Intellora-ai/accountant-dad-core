@@ -174,11 +174,87 @@ def test_there_is_always_an_escape_so_nobody_gets_stuck():
     assert any(a.value == Q.HANDOVER for a in Q.purpose_answers(ACCOUNTS))
 
 
+UNNAMED = "Suspense A/c 4412"
+ALSO_UNNAMED = "Provision for Doubtful Debts"
+
+
+def escape_label(answers: tuple[Q.Answer, ...]) -> str:
+    """The words on the "none of these" button.
+
+    `web/app.py:1415` renders `Question.text` and `web/app.py:1409` renders
+    `Answer.label`. Those two strings are the whole of what reaches the person,
+    so a report that lands anywhere else is not a report - it is a field with a
+    test for a reader, which is the defect this file is fixing.
+    """
+    return next(a.label for a in answers if a.value == Q.HANDOVER)
+
+
 def test_unmapped_accounts_are_reported_not_shown_as_jargon():
     """#9.7 - an account we have no words for is listed, never shown raw."""
-    weird = ("Purchases", "Suspense A/c 4412")
-    assert Q.unmapped(weird) == ["Suspense A/c 4412"]
-    assert "Suspense A/c 4412" not in {a.value for a in Q.purpose_answers(weird)}
+    weird = ("Purchases", UNNAMED)
+    assert Q.unmapped(weird) == [UNNAMED]
+    assert UNNAMED not in {a.value for a in Q.purpose_answers(weird)}
+
+
+def test_an_account_with_no_words_is_counted_where_the_person_can_see_it():
+    """The defect: these were dropped from the options and nothing said so.
+
+    Not offering the account is right - the label would have to be invented.
+    Saying nothing about it is not: the person is never told a correct answer is
+    missing, so an unreachable answer looks exactly like a complete list.
+
+    Same shape as the G6.2 overflow count in `web/app.py:1392` - the thing we
+    cannot show is reported as a number, never silently dropped.
+    """
+    weird = ("Purchases", UNNAMED, ALSO_UNNAMED)
+    label = escape_label(Q.purpose_answers(weird))
+    assert "2" in label, f"2 accounts vanished without a word: {label!r}"
+
+
+@pytest.mark.parametrize("n", [1, 2, 5])
+def test_the_number_reported_is_the_real_count(n: int):
+    """A fixed word like "some", or a hard-coded 1, is not a measurement."""
+    weird = ("Purchases", *(f"Suspense A/c 44{i}" for i in range(n)))
+    assert str(n) in escape_label(Q.purpose_answers(weird))
+
+
+def test_a_chart_we_have_words_for_says_nothing_extra():
+    """Nothing at zero. "0 things I have no words for" is noise on every entry."""
+    assert escape_label(Q.purpose_answers(ACCOUNTS)) == "something else"
+
+
+def test_reporting_an_unmapped_account_leaks_no_account_name():
+    """The hard part: report it without naming it.
+
+    Checked in BOTH channels the person reads, with the same whole-word,
+    jargon-only rule S7 already applies to question text.
+    """
+    weird = (*ACCOUNTS, UNNAMED)
+    q = Q.which_purpose(weird, "Sharma Traders")
+    assert q.mentions_any(weird) == []
+    probe = Q.Question(
+        problem_id="labels",
+        text=" ".join(a.label for a in q.answers),
+        answers=q.answers,
+    )
+    assert probe.mentions_any(weird) == []
+
+
+def test_the_label_probe_would_catch_a_leaked_name():
+    """Negative control for the line above - the probe really does detect one."""
+    leaky = (Q.Answer(label=UNNAMED, value=Q.HANDOVER),)
+    probe = Q.Question(
+        problem_id="labels",
+        text=" ".join(a.label for a in leaky),
+        answers=leaky,
+    )
+    assert probe.mentions_any((*ACCOUNTS, UNNAMED)) == [UNNAMED]
+
+
+def test_a_vendors_own_account_with_no_words_is_counted_too():
+    """`which_purpose_narrowed` dropped these silently as well."""
+    q = Q.which_purpose_narrowed(ACCOUNTS, "Verma Cement", ("Purchases", UNNAMED))
+    assert "1" in escape_label(q.answers)
 
 
 # ---- answerable vs not ------------------------------------------------------

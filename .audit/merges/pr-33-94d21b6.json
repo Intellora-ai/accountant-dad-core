@@ -1,0 +1,39 @@
+{
+  "pr": 33,
+  "title": "Phase 8 PR-3: official CBIC rules, a real rate conflict, and posting still off",
+  "branch": "phase8/gst-rules",
+  "head": "94d21b6",
+  "base": "4228d25",
+  "recorded_before_merge": true,
+  "gates": {
+    "mergeStateStatus": "CLEAN",
+    "run": "31383899307",
+    "pr-fast": "SUCCESS",
+    "pr-full": "SUCCESS",
+    "ci-gate": "SUCCESS"
+  },
+  "local_verification": "2689 passed, 5 xfailed. bandit at LOW clean. ruff clean. pyright 0 errors. .github diff empty on this branch.",
+  "codeant_status": "OBSERVED",
+  "codeant_findings": [
+    {
+      "path": "scripts/run_ground_truth.py",
+      "line": 489,
+      "severity": "Major",
+      "claim": "The runner never compares total_including_tax_paise with the committed expectation, though the case builder records it.",
+      "verdict": "CONFIRMED, FIXED",
+      "evidence": "grep for total_including_tax_paise returned the builder, the 60-case pack and the calculator, and nothing in the scorer.",
+      "fix": "Comparison added, GATED ON THE OUTCOME rather than read straight off decision.computation as the comment suggested.",
+      "why_not_the_literal_suggestion": "The arithmetic runs before the ledger check, so a refusing decision still carries a computed total. gt-rules-badrule-09 (a company with no IGST ledger) has computation.total_including_tax_paise == 128000 while the pack correctly expects None. Following the suggestion verbatim turned that case red. Gating on TaxOutcome.VALID mirrors what TaxDecision.total_tax_paise already does.",
+      "mutation": "Making the total drop the tax turns 40 of 40 valid cases red. Before the fix that mutant survived every one of them."
+    }
+  ],
+  "second_defect_fixed_in_this_pr": {
+    "found_by": "the pr-fast gate, not by review",
+    "path": "accountant/tax/decision.py:188",
+    "claim": "bandit B101: assert used. The line carried '# noqa: S101', which is ruff's code and suppresses nothing in bandit.",
+    "fix": "Replaced with a runtime fail-closed refusal rather than a '# nosec'. python -O strips asserts, so under -O the None reached compute() and failed with a message naming the arithmetic instead of the corpus.",
+    "proof": "Restoring the assert turns test_a_found_lookup_with_no_rule_attached_is_refused_at_runtime red with AssertionError at decision.py:192."
+  },
+  "noted_not_fixed": "python scripts/run_ground_truth.py with no arguments raises TypeError: 'PosixPath' object is not iterable at validate_ground_truth.py:423 - run_manifest passes a Path where argparse wants an argv list. Reproduced at the unmodified commit, so pre-existing. Out of scope, flagged rather than folded in.",
+  "decision": "MERGE"
+}
