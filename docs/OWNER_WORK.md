@@ -288,6 +288,63 @@ tidy a cosmetic leak is the thing this project has a rule against.
 part of the decision. Recorded here rather than added, so the choice is visible
 rather than taken quietly.
 
+### Destructive tests are opt-in now — DECIDED 2026-08-11, hard requirement
+
+`pyproject.toml` sets `testpaths = ["tests", "ci"]`, so `ci/test_protection.py`
+was in the DEFAULT suite. Four of its tests ask GitHub to disable the ruleset,
+delete the ruleset, enable force-push, and **delete the repository**. They pass
+because every call is refused, and the refusal IS the measurement — that design
+is unchanged and was not weakened.
+
+What was wrong is that a plain `pytest` fired them, against the real
+repository, as whoever `gh` happens to be authenticated as. Safe exactly as
+long as the token cannot do it, which is a property of somebody's credential
+rather than of this code.
+
+```
+pytest                              the four are SKIPPED
+RUN_DESTRUCTIVE_TESTS=1 pytest      the four run, and prove the refusal
+```
+
+Strictly `"1"` — not `"true"`, not `"yes"`, not `" 1"` — for the same reason
+`LOCAL_DEV_MODE` is strict: a loose reading turns a typo into a live
+delete-the-repository call.
+
+Two AST tests hold it: one finds every test that calls a destructive endpoint
+and fails if it is not gated, so a fifth added later cannot arrive ungated; the
+other is the control, asserting the scan finds exactly the four known ones, so
+a broken scan cannot pass by finding nothing.
+
+**Needed: set `RUN_DESTRUCTIVE_TESTS=1` in CI**, where the refusal is the thing
+being proved. That is a `.github` line and is not applied — see the lockfile
+entry above for why `.github/` cannot be written from here.
+
+### An acknowledgement now expires with its content — DECIDED 2026-08-11
+
+`ci/check_workflow_integrity.py`'s fingerprint was `CODE:location`. So an
+acknowledgement said *"somebody looked at the header of `pr-fast.yml` once"* and
+went on saying it for ever. The two lines shipped for one authorised two-line
+change permanently pre-authorised **every future rewrite** of the triggers,
+permissions, concurrency and env of the two most sensitive workflows here.
+
+Measured before the fix: `permissions:\n  contents: read` replaced by
+`permissions: write-all` in `pr-fast.yml`, nothing else touched, no ack added —
+and the checker returned **PASS**, consuming an ack written for a different
+change.
+
+The fingerprint is now `CODE:location:hash-of-the-acknowledged-content`, over
+all six acknowledgeable finding types. An ack dies the moment its content
+changes. Whitespace is collapsed first, so a reflow does not expire an approval
+and train people to re-add acks without reading.
+
+The checker prints the line to copy, because nobody can construct the hash by
+hand — that is the point.
+
+`ci/workflow_changes.ack` also **misdescribed what you authorised**: it said
+*"`administration: read` … and `GH_TOKEN` … Four added lines"*. The diff is TWO
+lines, both `GH_TOKEN`; `administration: read` is not in it and cannot be.
+Corrected in place.
+
 ### Legal
 Privacy policy, terms of service, billing, refunds, and a support process. The
 product will hold vendor names and amounts from real books.

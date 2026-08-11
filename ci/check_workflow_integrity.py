@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import json
 import os
 import re
@@ -372,13 +373,69 @@ class Finding:
     severity: str
     where: str
     detail: str
+    #: The exact text being acknowledged, when there is one. Empty for findings
+    #: that can never be acknowledged - a REMOVAL or a WEAKENING is refused
+    #: whatever the ack file says, so binding one to content buys nothing.
+    content: str = ""
 
     @property
     def fingerprint(self) -> str:
-        return f"{self.code}:{self.where}"
+        """`CODE:where:hash-of-what-was-acknowledged`.
+
+        THE HASH IS THE WHOLE POINT, ADDED 2026-08-11 BY OWNER DIRECTIVE.
+
+        This used to be `f"{code}:{where}"` - a LOCATION and nothing else. An
+        acknowledgement therefore said "somebody looked at the header of
+        pr-fast.yml once", and went on saying it for ever. Two ack lines shipped
+        for one authorised two-line change permanently pre-authorised EVERY
+        future rewrite of the triggers, permissions, concurrency and env of the
+        two most sensitive workflows in this repository.
+
+        Measured: `permissions:\n  contents: read` replaced by
+        `permissions: write-all` in pr-fast.yml, nothing else changed, no ack
+        line added - and the checker returned PASS, consuming an ack that had
+        been written for a completely different change.
+
+        With the content hashed in, an ack expires the instant the thing it
+        describes changes. It cannot be inherited by a later edit, because a
+        later edit has a different hash and therefore a different fingerprint.
+        """
+        return f"{self.code}:{self.where}:{acknowledged_hash(self.content)}"
 
     def __str__(self) -> str:
-        return f"[{self.severity}] {self.code}  {self.where}\n      {self.detail}"
+        # The FINGERPRINT is printed for a CHANGE, and only for a CHANGE.
+        #
+        # Since 2026-08-11 it carries a hash of the acknowledged content, so
+        # nobody can construct it by hand from the code and the path any more.
+        # A person acknowledging a change has to copy this line, which is the
+        # point: the string they paste is bound to the exact thing they read.
+        #
+        # Not printed for a REMOVAL or a WEAKENING. Those cannot be
+        # acknowledged at all, and printing something that looks like an
+        # acknowledgement beside them would invite somebody to try.
+        line = f"[{self.severity}] {self.code}  {self.where}\n      {self.detail}"
+        if self.severity == CHANGE:
+            line += f"\n      acknowledge with: {self.fingerprint}"
+        return line
+
+
+def acknowledged_hash(content: str) -> str:
+    """Twelve hex characters of SHA-256 over the acknowledged text.
+
+    TWELVE, not sixty-four, and the reason is that a person has to be able to
+    copy this line into `ci/workflow_changes.ack` by hand and read it back
+    later. Twelve hex characters is 48 bits; this is not a defence against
+    somebody CRAFTING a collision, and it is not asked to be. What it defends
+    against is an ack being silently inherited by an unrelated later change,
+    and any change at all moves it.
+
+    Whitespace is collapsed first, so a reflow that changes nothing does not
+    invalidate an acknowledgement and send somebody back to re-approve a change
+    they already approved. An ack that expires for no reason trains people to
+    re-add them without reading, which is the same hole with extra steps.
+    """
+    normalised = " ".join(content.split())
+    return hashlib.sha256(normalised.encode("utf-8")).hexdigest()[:12]
 
 
 class Report:
@@ -387,8 +444,10 @@ class Report:
         self.warnings: list[str] = []
         self.checked: list[str] = []
 
-    def add(self, code: str, severity: str, where: str, detail: str) -> None:
-        self.findings.append(Finding(code, severity, where, detail))
+    def add(
+        self, code: str, severity: str, where: str, detail: str, content: str = ""
+    ) -> None:
+        self.findings.append(Finding(code, severity, where, detail, content))
 
     def warn(self, message: str) -> None:
         self.warnings.append(message)
@@ -636,6 +695,7 @@ def _compare_workflows(
                         CHANGE,
                         f"{path}:{job_id}:{step.name}",
                         "the command this step runs is not the command main runs",
+                        content=mine.body,
                     )
             for step_name in sorted(set(our_steps) - set(main_steps)):
                 report.add(
@@ -644,11 +704,18 @@ def _compare_workflows(
                     f"{path}:{job_id}:{step_name}",
                     "a step main does not have. Adding is allowed; adding "
                     "silently is not.",
+                    content=our_steps[step_name].body,
                 )
 
         for job_id in sorted(set(our_jobs) - set(main_jobs)):
             report.add(
-                "JOB_ADDED", CHANGE, f"{path}:{job_id}", "a job main does not have"
+                "JOB_ADDED",
+                CHANGE,
+                f"{path}:{job_id}",
+                "a job main does not have",
+                # Every step this job runs. Acknowledging a job acknowledges
+                # what it does, not merely that it appeared.
+                content="\n".join(step.body for step in our_jobs[job_id].steps),
             )
 
         # everything above `jobs:` - on, permissions, concurrency, env
@@ -660,6 +727,10 @@ def _compare_workflows(
                 "the triggers, permissions, concurrency or workflow-level env "
                 "differ from main. None of these sit inside a step, so nothing "
                 "else in this check would see them.",
+                # THE HEADER ITSELF. This is the finding the location-only
+                # fingerprint made dangerous: one ack covered every future
+                # rewrite of the triggers and permissions of this file.
+                content=" ".join(preamble(ours_wf)),
             )
         for scope in sorted(write_scopes(ours_wf) - write_scopes(main_wf)):
             report.add(
@@ -693,6 +764,9 @@ def _compare_workflows(
                     CHANGE,
                     f"{path}:{action}",
                     f"main pins {pin}, this tree pins {mine}",
+                    # The SHA being moved TO. Acknowledging one bump must not
+                    # acknowledge every later bump of the same action.
+                    content=mine,
                 )
 
         # flags present on main must still be present
@@ -720,7 +794,17 @@ def _compare_workflows(
             )
 
     for path in sorted(set(ours) - set(theirs)):
-        report.add("WORKFLOW_FILE_ADDED", CHANGE, path, "a workflow main does not have")
+        report.add(
+            "WORKFLOW_FILE_ADDED",
+            CHANGE,
+            path,
+            "a workflow main does not have",
+            # THE WHOLE FILE. A new workflow is acknowledged as it stands, not
+            # as a name that may later hold anything at all - and a name-only
+            # ack on this finding is the worst of the six, because the thing it
+            # would wave through is an entire workflow nobody read.
+            content=ours[path].text,
+        )
 
 
 def _compare_gate_contract(

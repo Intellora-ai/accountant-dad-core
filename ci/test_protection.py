@@ -110,6 +110,7 @@ be taken.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -208,6 +209,83 @@ def missing_prerequisite() -> str | None:
             "tested."
         )
     return f"`gh api repos/{REPO}` failed: {probe.stderr.strip() or 'no output'}"
+
+
+#: Set to "1" to let the four TAMPER tests actually call GitHub.
+#:
+#: OWNER DIRECTIVE, 2026-08-11: a plain `pytest` must never delete a real
+#: repository.
+#:
+#: `pyproject.toml` sets `testpaths = ["tests", "ci"]`, so this file is in the
+#: DEFAULT suite. Four of its tests are tamper tests: they ask GitHub to disable
+#: the ruleset, delete the ruleset, enable force-push, and DELETE THE
+#: REPOSITORY. They pass because every call is refused, and the refusal is the
+#: measurement - that is the design and it is not being weakened here.
+#:
+#: What is being fixed is that they fired on every `pytest` run, against the
+#: real repository, as whoever `gh` happens to be authenticated as. That is
+#: safe exactly as long as the token cannot do it, which is a property of
+#: somebody's credential rather than of this code. The day `gh` is
+#: authenticated with admin rights, a routine test run deletes the repository.
+#:
+#: So they are now opt-in:
+#:
+#:     RUN_DESTRUCTIVE_TESTS=1 pytest ci/test_protection.py
+#:
+#: CI must set it, because in CI the refusal IS the thing being proved. The
+#: read-only tests in this file are unaffected and still run everywhere.
+ENV_DESTRUCTIVE = "RUN_DESTRUCTIVE_TESTS"
+
+#: The HTTP methods that change something on GitHub. Named here so the AST scan
+#: below and the reader are looking at one list.
+DESTRUCTIVE_METHODS = frozenset({"DELETE", "PUT", "PATCH", "POST"})
+
+
+def _destructive_allowed_for(environ: dict[str, str]) -> bool:
+    """The rule, over a mapping, so it can be tested without touching the real
+    environment. `destructive_allowed` is this applied to `os.environ`."""
+    return environ.get(ENV_DESTRUCTIVE, "") == "1"
+
+
+def destructive_allowed() -> bool:
+    """True only for exactly "1". Not "true", not "yes", not " 1".
+
+    Strict for the same reason `LOCAL_DEV_MODE` is strict in
+    `accountant/auth/identity.py`: a loose reading turns a typo into a live
+    delete-the-repository call, and the failure is silent right up until it
+    is not.
+    """
+    return _destructive_allowed_for(dict(os.environ))
+
+
+#: The FIXTURE every test that calls a destructive endpoint must request.
+#:
+#: A fixture, NOT `pytest.mark.skipif`, and that is not a style choice.
+#: `ci/check_workflow_integrity.py` raises PROTECTION_TEST_SKIPPABLE for a
+#: module-level `pytest.mark.skipif` in this file, because that is precisely how
+#: these tests came to pass on every hosted run without calling GitHub once. It
+#: caught my first version of this gate, which is the check doing its job — so
+#: the gate is built out of something that cannot be confused with it.
+#:
+#: The skipping happens in `live_github_or_an_honest_verdict` below, which
+#: already decides whether a test in this file may run, and which fails rather
+#: than skips in CI.
+#: A fixture rather than a mark for a second, duller reason: `request.node` is
+#: untyped in this pytest build, so reading a mark back needs a cast or a
+#: suppression, and a gate on a destructive call should not need either.
+#: Requesting this by name is visible in the signature and fully typed.
+@pytest.fixture
+def destructive() -> None:
+    """Skip unless the owner opted in. Requested by the four tamper tests."""
+    if destructive_allowed():
+        return
+    pytest.skip(
+        f"set {ENV_DESTRUCTIVE}=1 to run the tamper tests. They ask GitHub to "
+        "disable the ruleset, delete the ruleset, enable force-push and delete "
+        "the repository, and they PROVE those calls are refused - which needs "
+        "the calls to be made, against the real repository, as whoever `gh` is "
+        "authenticated as."
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -330,6 +408,7 @@ def test_reading_the_ruleset_is_allowed():
     assert gh("api", f"repos/{REPO}/rulesets").returncode == 0
 
 
+@pytest.mark.usefixtures("destructive")
 def test_disabling_the_ruleset_is_refused():
     rid = ruleset_id()
     before = canonical(rid)
@@ -347,6 +426,7 @@ def test_disabling_the_ruleset_is_refused():
     assert canonical(rid) == before, "the ruleset changed despite the refusal"
 
 
+@pytest.mark.usefixtures("destructive")
 def test_deleting_the_ruleset_is_refused():
     rid = ruleset_id()
     before = canonical(rid)
@@ -362,6 +442,7 @@ def test_deleting_the_ruleset_is_refused():
     assert canonical(rid) == before, "the ruleset changed despite the refusal"
 
 
+@pytest.mark.usefixtures("destructive")
 def test_enabling_force_push_is_refused():
     result = gh("api", "-X", "PATCH", f"repos/{REPO}", "-F", "allow_force_push=true")
     assert refused(result), (
@@ -370,6 +451,7 @@ def test_enabling_force_push_is_refused():
     )
 
 
+@pytest.mark.usefixtures("destructive")
 def test_deleting_the_repository_is_refused():
     result = gh("api", "-X", "DELETE", f"repos/{REPO}")
     assert refused(result), (
@@ -518,3 +600,89 @@ def test_claude_can_still_do_its_job():
         f"repos/{REPO}/actions/runs?per_page=1",
     ):
         assert gh("api", path).returncode == 0, f"cannot read {path}"
+
+
+# ---------------------------------------------------------------------------
+# the gate on the tamper tests, which must not quietly come off
+# ---------------------------------------------------------------------------
+
+
+def test_every_test_that_calls_a_destructive_endpoint_is_gated() -> None:
+    """AST, and enumerated from the source rather than from a list somebody
+    maintains by hand.
+
+    A fifth tamper test added later must not be able to arrive ungated and fire
+    `DELETE repos/...` on every developer's `pytest`. This finds the calls and
+    checks the decorator, so remembering is not part of the mechanism.
+
+    It reads the tree, not the text: this repository has twice had a substring
+    scan match a word inside the comment explaining why that word was safe.
+    """
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    ungated: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef) or not node.name.startswith("test_"):
+            continue
+        calls_destructive = False
+        for inner in ast.walk(node):
+            if not isinstance(inner, ast.Call):
+                continue
+            if not (isinstance(inner.func, ast.Name) and inner.func.id == "gh"):
+                continue
+            words = [a.value for a in inner.args if isinstance(a, ast.Constant)]
+            if "-X" in words and any(w in DESTRUCTIVE_METHODS for w in words):
+                calls_destructive = True
+        if not calls_destructive:
+            continue
+        gated = any(
+            isinstance(dec, ast.Call)
+            and isinstance(dec.func, ast.Attribute)
+            and dec.func.attr == "usefixtures"
+            and any(
+                isinstance(a, ast.Constant) and a.value == "destructive"
+                for a in dec.args
+            )
+            for dec in node.decorator_list
+        )
+        if not gated:
+            ungated.append(node.name)
+
+    assert ungated == [], (
+        "these tests ask GitHub to destroy something and do NOT request the "
+        f"`destructive` fixture, so a plain `pytest` fires them: {ungated}"
+    )
+
+
+def test_the_four_known_tamper_tests_are_all_found_by_that_scan() -> None:
+    """THE CONTROL. Without it the test above passes when the scan finds
+    nothing at all - which is exactly what a broken scan does."""
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    found = {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        for inner in ast.walk(node)
+        if isinstance(inner, ast.Call)
+        and isinstance(inner.func, ast.Name)
+        and inner.func.id == "gh"
+        and "-X" in [a.value for a in inner.args if isinstance(a, ast.Constant)]
+        and any(
+            a.value in DESTRUCTIVE_METHODS
+            for a in inner.args
+            if isinstance(a, ast.Constant)
+        )
+    }
+    assert found == {
+        "test_disabling_the_ruleset_is_refused",
+        "test_deleting_the_ruleset_is_refused",
+        "test_enabling_force_push_is_refused",
+        "test_deleting_the_repository_is_refused",
+    }, found
+
+
+def test_the_gate_is_strict_about_what_switches_it_on() -> None:
+    """Exactly "1". A loose reading turns a typo into a live delete call."""
+    for wrong in ("", "0", "true", "yes", "TRUE", " 1", "1 ", "on"):
+        assert not _destructive_allowed_for({ENV_DESTRUCTIVE: wrong}), wrong
+    assert _destructive_allowed_for({ENV_DESTRUCTIVE: "1"})
+    assert not _destructive_allowed_for({})

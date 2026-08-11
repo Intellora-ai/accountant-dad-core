@@ -27,11 +27,27 @@
 # DIFF B IS APPLIED. DIFF A IS NOT.
 #
 # The owner authorised Diff B and only Diff B, in writing, on 2026-08-10:
-# `administration: read` under `permissions:`, and `GH_TOKEN: ${{ github.token }}`
-# under the workflow-level `env:`, in pr-fast.yml and full.yml. Four added
-# lines across two files, no deletion, no step, no job, no gate, no threshold.
-# The two fingerprints below are what that produces, and they are the only
-# lines in this file that are live.
+# `GH_TOKEN: ${{ github.token }}` under the workflow-level `env:`, in
+# pr-fast.yml and full.yml. TWO added lines across two files, no deletion, no
+# step, no job, no gate, no threshold.
+#
+# CORRECTED 2026-08-11. This paragraph said "`administration: read` under
+# `permissions:`, and `GH_TOKEN` ... Four added lines". That was wrong twice
+# over: the diff is two lines, not four, and `administration: read` is not in
+# it and cannot be - actionlint v1.7.12 refuses it, because `administration` is
+# a fine-grained PAT scope and not a workflow permission scope
+# (artifacts/gate_integrity_blocked.md:38-47). This file exists to be the one
+# place a reader can find what was authorised, so a wrong description here is
+# worse than no file.
+#
+# THE FINGERPRINTS BELOW NOW CARRY A CONTENT HASH, owner directive 2026-08-11.
+# They used to be `CODE:location`, which acknowledged a PLACE - so these two
+# lines permanently pre-authorised every future rewrite of the triggers,
+# permissions, concurrency and env of the two most sensitive workflows here.
+# Measured: `contents: read` swapped for `write-all` in pr-fast.yml, nothing
+# else touched, no ack added, and the checker returned PASS by consuming one of
+# these lines. With the hash in, an ack dies the moment its content changes.
+# Run `python ci/check_workflow_integrity.py` and copy the line it prints.
 #
 # WHY IT WAS NEEDED. ci/test_protection.py's live protection tests call
 # `gh api`. No job set GH_TOKEN, so `gh` was unauthenticated on every hosted
@@ -52,6 +68,6 @@
 # STEP_ADDED:.github/workflows/watchdog.yml:ruleset-drift:live-protection-test
 #
 # Diff B - the token that lets the protection test actually run. APPLIED.
-WORKFLOW_HEADER_CHANGED:.github/workflows/pr-fast.yml:header
-WORKFLOW_HEADER_CHANGED:.github/workflows/full.yml:header
+WORKFLOW_HEADER_CHANGED:.github/workflows/pr-fast.yml:header:61a6892d56a3
+WORKFLOW_HEADER_CHANGED:.github/workflows/full.yml:header:1e28c333e269
 # ---------------------------------------------------------------------------

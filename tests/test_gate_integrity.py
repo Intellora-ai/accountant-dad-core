@@ -28,6 +28,7 @@ that - see artifacts/gate_integrity_audit.md, "remaining human configuration".
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -37,6 +38,7 @@ import sys
 from collections.abc import Callable
 from copy import deepcopy
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -419,7 +421,7 @@ def test_deleting_the_security_scan_step_names_the_step(
     candidate = make_copy(tmp_path / "candidate")
     f01_delete_security_scan_step(candidate)
     _, payload = run_checker(candidate, pristine, tmp_path / "report.json")
-    codes = {str(f["code"]) for f in payload["blocking"]}  # type: ignore[index]
+    codes = {f["code"] for f in cast("list[dict[str, str]]", payload["blocking"])}
     assert "STEP_REMOVED" in codes, payload
 
 
@@ -434,7 +436,7 @@ def test_the_lock_file_bypass_is_caught_by_comparing_with_main(
     candidate = make_copy(tmp_path / "candidate")
     f08_edit_workflow_and_lock_together(candidate)
     _, payload = run_checker(candidate, pristine, tmp_path / "report.json")
-    codes = {str(f["code"]) for f in payload["blocking"]}  # type: ignore[index]
+    codes = {f["code"] for f in cast("list[dict[str, str]]", payload["blocking"])}
     assert {"LOCK_NAME_REMOVED", "GATE_REMOVED"} <= codes, payload
 
 
@@ -481,6 +483,146 @@ def test_a_change_finding_can_be_acknowledged_but_a_removal_cannot(
     assert "STEP_REMOVED" in {str(f["code"]) for f in payload3["blocking"]}  # type: ignore[index]
 
 
+# ---------------------------------------------------------------------------
+# an acknowledgement is bound to what it acknowledged. Owner directive,
+# 2026-08-11.
+# ---------------------------------------------------------------------------
+#
+# The fingerprint was `CODE:location`. So an ack said "somebody looked at the
+# header of pr-fast.yml once", and went on saying it for ever - which meant the
+# two lines shipped for one authorised two-line change permanently
+# pre-authorised EVERY future rewrite of the triggers, permissions, concurrency
+# and env of the two most sensitive workflows in this repository.
+#
+# It now carries a hash of the acknowledged text, so an ack expires the moment
+# that text changes. The three tests below are the owner's stated acceptance
+# criteria: changing the content invalidates the ack, an old ack fails against
+# modified content, and - the control - an unchanged ack still works, because a
+# scheme that invalidates everything is not a scheme.
+
+
+def widen_permissions(tree: Path, rel: str) -> None:
+    """Turn `contents: read` into `write-all` in one workflow, changing nothing
+    else. The exact attack that succeeded against the location-only
+    fingerprint."""
+    text = read(tree, rel)
+    assert "permissions:\n  contents: read" in text, rel
+    write(
+        tree,
+        rel,
+        text.replace("permissions:\n  contents: read", "permissions: write-all", 1),
+    )
+
+
+def test_an_acknowledgement_does_not_survive_a_change_to_what_it_acknowledged(
+    pristine: Path, tmp_path: Path
+) -> None:
+    """THE DEFECT, as a test. Ack one header change, then make a DIFFERENT one.
+
+    Measured before the fix: the second change returned PASS, consuming an ack
+    written for the first. That is a workflow header rewritten with no finding,
+    no diff signal and nothing to grep for.
+    """
+    rel = ".github/workflows/pr-fast.yml"
+    tree = make_copy(tmp_path / "inherit")
+
+    # A first, innocuous header change, acknowledged properly.
+    write(tree, rel, read(tree, rel).replace("FORCE_COLOR:", "FORCE_COLOUR:", 1))
+    code, payload = run_checker(tree, pristine, tmp_path / "one.json")
+    assert code == 1
+    blocking = cast("list[dict[str, str]]", payload["blocking"])
+    first = [
+        f["fingerprint"] for f in blocking if f["code"] == "WORKFLOW_HEADER_CHANGED"
+    ]
+    assert first, payload
+    (tree / "ci" / "workflow_changes.ack").write_text(
+        "\n".join(first) + "\n", encoding="utf-8"
+    )
+    code, payload = run_checker(tree, pristine, tmp_path / "one_ok.json")
+    assert code == 0, f"the ack did not clear its own change: {payload}"
+
+    # Now a COMPLETELY different header change, with the same ack file.
+    widen_permissions(tree, rel)
+    code, payload = run_checker(tree, pristine, tmp_path / "two.json")
+
+    assert code == 1, (
+        "an ack written for one header change cleared a different one - the "
+        "fingerprint is not bound to its content"
+    )
+    codes = {f["code"] for f in cast("list[dict[str, str]]", payload["blocking"])}
+    assert "WORKFLOW_HEADER_CHANGED" in codes, payload
+
+
+def test_an_old_fingerprint_is_refused_against_modified_content(
+    pristine: Path, tmp_path: Path
+) -> None:
+    """The location-only form, offered by hand, must not be honoured.
+
+    Written this way on purpose: somebody with an old ack file, or copying a
+    line out of an old pull request, must not be able to clear a new change
+    with it. The refusal has to come from the fingerprint not matching, not
+    from anybody remembering to delete stale lines.
+    """
+    rel = ".github/workflows/full.yml"
+    tree = make_copy(tmp_path / "stale")
+    widen_permissions(tree, rel)
+
+    (tree / "ci" / "workflow_changes.ack").write_text(
+        f"WORKFLOW_HEADER_CHANGED:{rel}:header\n", encoding="utf-8"
+    )
+    code, payload = run_checker(tree, pristine, tmp_path / "stale.json")
+
+    assert code == 1, f"a location-only fingerprint was honoured: {payload}"
+
+
+def test_an_unchanged_acknowledgement_still_works(
+    pristine: Path, tmp_path: Path
+) -> None:
+    """THE CONTROL. Without it both tests above pass on a checker that refuses
+    every acknowledgement, which would measure nothing at all."""
+    tree = make_copy(tmp_path / "control")
+    f14_change_an_action_sha(tree)
+    code, payload = run_checker(tree, pristine, tmp_path / "c1.json")
+    assert code == 1
+    blocking = cast("list[dict[str, str]]", payload["blocking"])
+    prints = [f["fingerprint"] for f in blocking]
+    (tree / "ci" / "workflow_changes.ack").write_text(
+        "\n".join(prints) + "\n", encoding="utf-8"
+    )
+
+    code, payload = run_checker(tree, pristine, tmp_path / "c2.json")
+
+    assert code == 0, f"a correct, current acknowledgement was refused: {payload}"
+
+
+def test_every_acknowledgeable_finding_carries_a_content_hash() -> None:
+    """Enumerated, so a seventh CHANGE code added later cannot arrive without
+    one and quietly reintroduce the hole for itself."""
+    source = CHECKER.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    missing: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not (isinstance(func, ast.Attribute) and func.attr == "add"):
+            continue
+        if len(node.args) < 2:
+            continue
+        severity = node.args[1]
+        if not (isinstance(severity, ast.Name) and severity.id == "CHANGE"):
+            continue
+        code = node.args[0]
+        name = code.value if isinstance(code, ast.Constant) else "?"
+        if not any(kw.arg == "content" for kw in node.keywords):
+            missing.append(str(name))
+
+    assert missing == [], (
+        f"these CHANGE findings can be acknowledged but carry no content hash, "
+        f"so one ack covers every future instance of them: {missing}"
+    )
+
+
 def test_the_checker_cannot_survive_its_own_deletion(
     pristine: Path, tmp_path: Path
 ) -> None:
@@ -515,7 +657,7 @@ def test_the_checker_cannot_survive_its_own_deletion(
     # And for completeness: had it run, it would have objected. The problem is
     # not that the check is weak. The problem is that the check is optional.
     code, payload = run_checker(candidate, pristine, tmp_path / "report.json")
-    codes = {str(f["code"]) for f in payload["blocking"]}  # type: ignore[index]
+    codes = {f["code"] for f in cast("list[dict[str, str]]", payload["blocking"])}
     assert code == 1
     assert "ANCHOR_MISSING" in codes, payload
     assert "STEP_REMOVED" in codes, payload

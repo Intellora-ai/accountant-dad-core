@@ -37,6 +37,11 @@ include = ["accountant*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "ci"]
+# `destructive` marks the four tamper tests in ci/test_protection.py that ask
+# GitHub to delete things. They are skipped unless RUN_DESTRUCTIVE_TESTS=1.
+markers = [
+    "destructive: asks GitHub to destroy something; needs RUN_DESTRUCTIVE_TESTS=1",
+]
 
 # ---------------------------------------------------------------------------
 # ruff - lint and format. target-version is deliberately unset so ruff infers
