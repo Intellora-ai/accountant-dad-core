@@ -29,6 +29,7 @@ was not touched.
 | Tenant | `ACCOUNTANT_TENANT`. **No default, and no invented example.** The image declares it *empty*; empty means every request is refused 403. |
 | Host | None. Nothing in this repository knows a host name, and no line invents one. |
 | Domain | None. |
+| Reading service | Azure Document Intelligence, chosen 2026-08-11 (D-23). **No account exists.** `ACCOUNTANT_AZURE_ENDPOINT` and `ACCOUNTANT_AZURE_KEY` have no values, and until they do an uploaded document is refused in words rather than guessed at. |
 | Credentials | None, anywhere. Not in the image, not in the script. |
 
 Every example registry in this repository is under `.invalid`, which RFC 2606
@@ -100,6 +101,8 @@ The image sets `ACCOUNTANT_DB` to a real value and `ACCOUNTANT_TENANT` to an
 | `ACCOUNTANT_TALLY_PORT` | No | Defaults to 9000. A value that is not a number is a **refusal**, not a fallback: a typo must not connect to a different port. |
 | `ACCOUNTANT_COMPANY` | No | Defaults to the built-in company name. A wrong company is refused at startup by `runtime()`, in the terminal, before a socket is bound. |
 | `ACCOUNTANT_BACKED_UP_COMPANIES` | No | Empty, and **every write is refused**. This fails closed on purpose: nobody posts into books they have not said they have a backup of. Reads still work. |
+| `ACCOUNTANT_AZURE_ENDPOINT` | **Declared, empty** | The reading service is **unconfigured**, and an uploaded document is refused with a sentence naming this variable and the key. There is **no fallback** — a reader that quietly degrades to guessing is the failure the extraction package exists to prevent. A **typed** bill still works normally, so the product is not down. |
+| `ACCOUNTANT_AZURE_KEY` | **No, and it must stay that way** | Same refusal as above. This is a **credential**: a secret in a layer is a secret in every registry, cache and backup the image touches, so it is injected at run time only. `tests/test_deploy_artefacts.py` fails if the Dockerfile ever sets it. |
 | `LOCAL_DEV_MODE` | **No, and it must stay that way** | Unset means authentication is **required**. That is the point. Set to `1` it skips authentication entirely, every request runs as tenant `local-dev`, and anybody who can reach the port can read and write those books. A test fails if this variable ever appears in the Dockerfile. |
 | `ACCOUNTANT_CONNECTOR_SECRET` | No, and it does not belong here | This is the **connector's** secret. The connector runs on the customer's Windows machine, not in this image. |
 

@@ -155,10 +155,49 @@ same duplication failure the header of this file was written about.
 automatable), then the two paths as deployment configuration. Until then the
 server runs plain HTTP on loopback and says so loudly at every start.
 
-### Production reader selection
-No document reader is selected. `D-23` is open.
-`artifacts/extraction_backends.md:3` — *"third-party backend selection =
-OWNER_DECISION_REQUIRED"*.
+### Production reader selection — VENDOR CHOSEN AND BUILT, ACCOUNT STILL YOURS
+
+**2026-08-11: Azure Document Intelligence selected as the extraction backend**
+(Central India region, clearest retention terms of the three compared), and
+implemented in this commit. It is registered as `azure` and it is the default.
+
+**What is left for you, and it is short:**
+
+1. **Create the Azure Document Intelligence resource** and take its two values.
+   Nothing in this repository can do that — it needs a card.
+2. **Set `ACCOUNTANT_AZURE_ENDPOINT` and `ACCOUNTANT_AZURE_KEY`** wherever the
+   app runs. `docs/DEPLOY.md` lists both with their failure modes. The key is a
+   credential: it is injected at run time and never enters the image.
+3. **Run one real invoice through it** and record what came back. Until that
+   happens the evidence label is `UNVERIFIED_VENDOR_SHAPE` — see below.
+
+**Until you do, nothing is broken.** With no credentials an uploaded document is
+refused with a sentence naming both variables, a typed bill still works exactly
+as before, and nothing is guessed. There is no fallback and that is deliberate:
+a reader that quietly degrades to guessing is the failure the whole extraction
+package exists to prevent.
+
+**THE HONEST LIMIT, STATED PLAINLY.** No request in this repository has ever
+reached Azure. The parser was written from Azure's *documented* response shape,
+and its tests supply responses written by the same author. A green suite proves
+those two agree with each other — it does **not** prove either agrees with
+Azure. That is why `UNVERIFIED_VENDOR_SHAPE` is written down rather than a
+tidier-sounding word, and it can only be replaced by running a real bill.
+
+**`D-23` IS NOT CLOSED BY THIS.** `docs/DECISIONS.md:579` asks *which input
+types must work at first launch* — typed text, PDF, PNG, JPG, DOCX. Choosing a
+vendor makes the other four possible; it does not decide that they ship. That
+answer is still yours.
+
+**Two numbers here were chosen by the implementer, not by you**, and are
+recorded so you can overrule them: a 60-second overall deadline and a 1-second
+poll interval for Azure's asynchronous analysis
+(`accountant/reader/azure.py`). They are constructor arguments, so changing them
+does not mean editing that file.
+
+`artifacts/extraction_backends.md:3` recorded this as
+`OWNER_DECISION_REQUIRED`; the decision is now made and that line is history
+rather than a live block.
 
 **The seam is now BUILT — Task 9, 2026-08-11.** Before that day,
 `grep -rn "multipart\|enctype\|type=file" accountant/` returned nothing: there

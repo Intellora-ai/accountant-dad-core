@@ -470,11 +470,18 @@ def test_every_extractor_the_package_defines_returns_the_same_type() -> None:
 def test_the_registry_builds_every_backend_it_says_is_available() -> None:
     built = {name: registry.build(name) for name in registry.available()}
 
-    # `no_reader` joined 2026-08-11 with the upload routes. Still an EXACT
-    # equality and still four names spelled out: the assertion is not loosened
-    # to a subset, because the thing it is guarding is that a backend cannot
-    # appear in the registry without somebody writing its name down here.
-    assert registry.available() == ("no_reader", "stub", "typed_text", "unavailable")
+    # `no_reader` joined 2026-08-11 with the upload routes, and `azure` the
+    # same day with the vendor selection. Still an EXACT equality and still every name
+    # spelled out: the assertion is not loosened to a subset, because the thing
+    # it is guarding is that a backend cannot appear in the registry without
+    # somebody writing its name down here.
+    assert registry.available() == (
+        "azure",
+        "no_reader",
+        "stub",
+        "typed_text",
+        "unavailable",
+    )
     assert all(isinstance(b, Extractor) for b in built.values())
 
 
@@ -486,7 +493,18 @@ def test_the_registry_refuses_an_unknown_name_rather_than_returning_the_default(
     with pytest.raises(registry.UnknownBackend, match="no extraction backend named"):
         registry.build("typo_text")
 
-    assert isinstance(registry.build(), TypedTextExtractor)
+    # VENDOR SELECTED 2026-08-11: the default is now the media-type router, not
+    # `TypedTextExtractor` directly. The line this replaces asserted the class,
+    # but the property it was protecting was the TYPED-TEXT PATH — that a
+    # person's sentence still reaches the parser that understands it. So this
+    # asserts the behaviour rather than the class, which is strictly the
+    # stronger check: it would still fail if the router were wired backwards,
+    # and the old form would not.
+    default = registry.build()
+    assert isinstance(default, Extractor)
+    typed = default.extract(b"paid Sharma Traders 4200 for cement", "text/plain")
+    assert typed.backend == "typed_text"
+    assert typed.total_paise == 420000
 
 
 def test_the_registry_says_what_a_backend_still_needs_instead_of_unknown() -> None:
