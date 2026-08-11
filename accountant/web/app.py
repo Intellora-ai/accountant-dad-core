@@ -31,12 +31,13 @@ import datetime
 import html
 import json
 import os
+import time
 import urllib.parse
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
-from accountant import pipeline, reversal
+from accountant import observability, pipeline, reversal
 from accountant import questions as Q
 from accountant.auth import (
     ENV_LOCAL_DEV_MODE,
@@ -523,7 +524,11 @@ class Runtime:
             )
 
         try:
-            open_now = self.client.list_companies()
+            # Timed like every other call out to Tally. This one is the round
+            # trip EVERY request pays for "which books am I writing into" being
+            # a measurement, so it is the first place a slow Tally shows up.
+            with observability.tally_call("list_companies"):
+                open_now = self.client.list_companies()
         except Exception as exc:
             raise RuntimeError(
                 f"{REFUSAL}: no operation performed. Tally would not say which "
@@ -834,6 +839,55 @@ def health() -> dict[str, object]:
     }
 
 
+#: The route the counts are served on. Named so the test and the handler
+#: cannot disagree about the spelling.
+METRICS_PATH = "/metrics"
+
+#: The log event that mirrors ONE durable `action_log` row. See `_note_in_log`
+#: for why this line exists and why the request id is not a column on that
+#: table instead.
+AUDIT_ROW_EVENT = "audit_row"
+
+
+def metrics() -> str:
+    """The counts, read from the durable log. AUTHENTICATION IS REQUIRED.
+
+    WHY IT IS BEHIND THE CREDENTIAL, unlike `/health`.
+
+    This body carries BUSINESS COUNTS about a named company: how many bills
+    that company typed, how many we posted into their books, how many we had to
+    ask about, how many were undone. `/health` says whether the service can
+    receive work — useful to a load balancer and worth nothing to a competitor.
+    These numbers are a customer's trading volume, and the customer's name is on
+    line six. Nothing here is exposed unauthenticated; `do_GET` calls
+    `_identify` before it reaches this function, and
+    `tests/test_observability.py` drives an unauthenticated caller against the
+    route with LOCAL_DEV_MODE deleted to prove it.
+
+    NO COMPANY CONFIRMATION, and that is deliberate rather than an oversight.
+    `_confirm_company` makes a Tally round trip; this route does not take it,
+    for two reasons. A scrape runs every fifteen seconds and would otherwise
+    add a Tally call per scrape forever. And the moment a person most needs
+    these numbers is the moment Tally has stopped answering — an endpoint that
+    needs Tally to report on Tally reports nothing exactly when it matters,
+    which is the same defect `/health` had when it was a constant.
+
+    `runtime()` is still called, so a server with nothing connected refuses
+    here the way it refuses everywhere else, rather than serving zeros that
+    look like a quiet day.
+    """
+    live = runtime()
+    return observability.render_metrics(
+        # THE DURABLE STORE, not a counter this process has been keeping. A
+        # process-local counter resets on restart and then reports a number
+        # smaller than the truth, which is worse than no number because a
+        # person will act on it.
+        live.store.actions(live.company),
+        company=live.company,
+        uptime=observability.uptime_seconds(),
+    )
+
+
 # ---- "have we actually read this company's books?" --------------------------
 #
 # G6. A failure to read the books has to be visible to the PERSON, not only to
@@ -1096,6 +1150,55 @@ def record(draft: pipeline.Draft, action: str) -> None:
         tenant_id=who.tenant_id if who else NOT_RECORDED,
         user_id=who.user_id if who else NOT_RECORDED,
     )
+    # THE JOIN BETWEEN THE LOG AND THE AUDIT TRAIL, and the reason the request
+    # id is NOT a column on `action_log`. The durable row already carries the
+    # operation id; naming it here puts the same key on the log line, so a
+    # person holding a voucher can find every line of every request that made
+    # it. The join goes from the durable record OUT to the log, which is the
+    # direction that keeps working after the log has been rotated away.
+    _note_in_log(
+        action,
+        draft.operation_id,
+        draft.decision.outcome.value if draft.decision else NOT_RECORDED,
+    )
+
+
+def _note_in_log(action: str, operation_id: str, outcome: str) -> None:
+    """One log line for one durable row, carrying the key that joins them.
+
+    NOT THE REASON, and not any other prose. A reason is written for a person
+    reading the audit trail and can be several sentences of somebody's business
+    detail; the log gets the identifiers, and whoever needs the words reads the
+    row the identifiers point at.
+
+    WHY THE REQUEST ID IS NOT A COLUMN ON `action_log`, decided 2026-08-11.
+
+    `MemoryStore._migrate` would take it: it is additive-only, every existing
+    row would be left NULL, and NULL reads back as `NOT_RECORDED`. So the
+    question is not whether the migration is possible, it is whether the column
+    should exist, and the answer is no for three reasons.
+
+        it is a key into something that expires   a request id identifies a
+            line in a log file, and log files rotate. Six months later the
+            column names a line that no longer exists anywhere: a foreign key
+            to nothing, in a statutory record that cannot be edited.
+        the durable joins already exist           `run_id` says which process
+            and `operation_id` says which entry, and both are already on every
+            row and both outlive any log.
+        the join is needed in the other direction  the question asked is "given
+            this voucher, what happened", not "given this log line, which row".
+            That direction works from the row's own operation id, which is what
+            this function puts on the line.
+
+    An append-only record that a person may be asked to defend in front of a
+    tax officer is the last place to add a column on a hunch.
+    """
+    observability.log(
+        AUDIT_ROW_EVENT,
+        action=action,
+        operation=operation_id or NOT_RECORDED,
+        outcome=outcome or NOT_RECORDED,
+    )
 
 
 def note(action: str, outcome: str, reason: str, **fields: str) -> None:
@@ -1122,6 +1225,10 @@ def note(action: str, outcome: str, reason: str, **fields: str) -> None:
             **fields,
         )
     )
+    # The same join as `record()`. `fields` may carry an `operation_id` - the
+    # reversal, handover, retype and dismissal paths all pass one - so it is
+    # used when it is there and honestly reported absent when it is not.
+    _note_in_log(action, fields.get("operation_id", ""), outcome)
 
 
 # ---- rendering --------------------------------------------------------------
@@ -1811,8 +1918,10 @@ def render_home(banner: str = "") -> bytes:
     # ONE company, read once, used for all three reads below. Two calls to
     # `runtime()` used to sit here and both passed the module constant.
     company = live.company
-    ours = live.client.list_our_vouchers(company)
-    tb = live.client.trial_balance(company)
+    with observability.tally_call("list_our_vouchers"):
+        ours = live.client.list_our_vouchers(company)
+    with observability.tally_call("trial_balance"):
+        tb = live.client.trial_balance(company)
 
     posted_rows = (
         "".join(
@@ -1893,8 +2002,10 @@ def _run(text: str) -> pipeline.Draft:
     """
     live = runtime()
     company = live.company
-    accounts = live.client.read_accounts(company)
-    history = live.client.read_vouchers(company)
+    with observability.tally_call("read_accounts"):
+        accounts = live.client.read_accounts(company)
+    with observability.tally_call("read_vouchers"):
+        history = live.client.read_vouchers(company)
     d = pipeline.build_draft(
         company,
         text.encode(),
@@ -1902,15 +2013,28 @@ def _run(text: str) -> pipeline.Draft:
         live.extractor,
         live.memory,
     )
+    # THE EARLIEST MOMENT THIS REQUEST CAN KNOW WHICH ENTRY IT IS ABOUT, and
+    # therefore where it is set. Sited at the END of this function instead -
+    # which is where it went first - the write, the decision row and the
+    # posting all logged `entry=NOT_RECORDED`, and the one request that
+    # actually touched somebody's books was the one line nothing could join.
+    # The two reads above still cannot carry it: the draft did not exist yet,
+    # and saying so is better than guessing.
+    observability.set_entry_id(d.id)
     d = pipeline.evaluate(d, accounts, history, live.memory, flag_cap=FLAG_CAP)
     if d.outcome is Outcome.VALID:
-        d = pipeline.post(
-            d,
-            live.client,
-            log=live.store,
-            memory=live.memory,
-            run_id=live.identity.run_id,
-        )
+        # `post` is three Tally round trips - write, read back by marker, read
+        # the register - so it is timed as one named call rather than left out
+        # of the split. Leaving it out would put the slowest thing this app
+        # does into `app_ms` and blame us for Tally being slow.
+        with observability.tally_call("post_voucher"):
+            d = pipeline.post(
+                d,
+                live.client,
+                log=live.store,
+                memory=live.memory,
+                run_id=live.identity.run_id,
+            )
     record(d, ACTION_FOR[d.outcome])
     remember_draft(d)
     return d
@@ -1918,10 +2042,32 @@ def _run(text: str) -> pipeline.Draft:
 
 #: The action a refused replay writes. Its own name rather than `failed`,
 #: because a replay is not a failure of ours: the system worked and said no.
-REFUSED_REPLAY = "refused_replay"
+#:
+#: Imported from `accountant/observability.py` rather than spelled here as well.
+#: The metric reads this word and the handler writes it; two literals is how a
+#: counter reads zero for ever while the thing it counts keeps happening.
+REFUSED_REPLAY = observability.REFUSED_REPLAY
 
 
 class Handler(BaseHTTPRequestHandler):
+    #: The status this request answered with, for the one log line at the end.
+    #:
+    #: A class attribute so it exists before `handle_one_request` sets it: a
+    #: request whose line could not even be parsed never reaches the assignment
+    #: below, and 0 is the honest reading of "we never answered".
+    _status: int = 0
+
+    def send_response(self, code: int, message: str | None = None) -> None:
+        """Answer, and remember what we answered.
+
+        Overridden HERE rather than in `_send`, because `send_error` and
+        `_send_with_session` both answer without going through `_send`. A
+        status recorded in only one of the three places would make the log say
+        200 for a refusal, which is the exact opposite of what a log is for.
+        """
+        self._status = code
+        super().send_response(code, message)
+
     def _send(
         self,
         body: bytes,
@@ -1996,7 +2142,23 @@ class Handler(BaseHTTPRequestHandler):
         `BaseException` is deliberately NOT caught. A KeyboardInterrupt or a
         SystemExit is somebody stopping the process, and answering it with a
         tidy 503 would fight them.
+
+        THE CORRELATION ID AND THE CLOCK START HERE, 2026-08-11, and this is
+        the only place they could. One entry is several requests, and until now
+        nothing tied them together because nothing was logged at all — the
+        product's whole observable output was what `serve()` printed at
+        startup.
+
+        `begin_request` runs BEFORE `super()`, so every line written while the
+        request is being served already carries the id, including the ones
+        written by the two refusal paths below. The `finally` writes the one
+        line per request, so a request that raised is still timed: a request
+        that failed slowly and a request that failed instantly are different
+        problems and the duration is what tells them apart.
         """
+        observability.begin_request(observability.new_request_id())
+        self._status = 0
+        started = time.perf_counter()
         try:
             super().handle_one_request()
         except DuplicateOperation as exc:
@@ -2028,6 +2190,28 @@ class Handler(BaseHTTPRequestHandler):
             self._broke(exc)
         except Exception as exc:
             self._broke(exc)
+        finally:
+            observability.finish_request(
+                # `getattr`, because a malformed request line means neither
+                # attribute was ever set and the log line must still be
+                # written — an unparseable request is precisely the one
+                # somebody will come looking for.
+                method=getattr(self, "command", "") or NOT_RECORDED,
+                path=self._logged_path(),
+                status=self._status,
+                elapsed_ms=(time.perf_counter() - started) * 1000.0,
+            )
+
+    def _logged_path(self) -> str:
+        """The route, with any query string cut off.
+
+        A query string is caller-controlled and this app puts nothing in one,
+        so anything found there arrived from outside and must not be copied
+        into a file that gets mailed around. The route is the part that
+        identifies what was asked for, and it is all the log needs.
+        """
+        raw = getattr(self, "path", "") or NOT_RECORDED
+        return raw.split("?", 1)[0]
 
     def _broke(self, exc: BaseException) -> None:
         """Answer a failure of ours, and record what it was.
@@ -2145,6 +2329,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         if not self._identify():
             return
+        if self.path.startswith(METRICS_PATH):
+            # AFTER `_identify` and BEFORE `_confirm_company`, and both
+            # positions are the point. See `metrics()` for why.
+            self._send(metrics().encode(), content_type="text/plain; charset=utf-8")
+            return
         self._confirm_company()
         self._send(render_home())
 
@@ -2195,6 +2384,11 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if self.path == "/answer":
+            # BEFORE the lookup, so even a request naming a draft that expired
+            # is filed under the entry the person believes they are answering.
+            # Set after the lookup, the one request most worth investigating -
+            # the one that failed - would be the one with no entry id on it.
+            observability.set_entry_id(form.get("draft", ""))
             d = draft_for(form.get("draft", ""), runtime())
             if d is None:
                 self._send(render_home("<div class=warn>draft expired</div>"))
@@ -2247,8 +2441,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             live = runtime()
-            accounts = live.client.read_accounts(live.company)
-            history = live.client.read_vouchers(live.company)
+            with observability.tally_call("read_accounts"):
+                accounts = live.client.read_accounts(live.company)
+            with observability.tally_call("read_vouchers"):
+                history = live.client.read_vouchers(live.company)
 
             if value == Q.HANDOVER:
                 d.answers.extend((f"gave_up_{i}", "") for i in range(Q.QUESTION_CAP))
@@ -2316,13 +2512,14 @@ class Handler(BaseHTTPRequestHandler):
                 live.memory.record_correction(d.voucher.party, value)
 
             if d.outcome is Outcome.VALID:
-                d = pipeline.post(
-                    d,
-                    live.client,
-                    log=live.store,
-                    memory=live.memory,
-                    run_id=live.identity.run_id,
-                )
+                with observability.tally_call("post_voucher"):
+                    d = pipeline.post(
+                        d,
+                        live.client,
+                        log=live.store,
+                        memory=live.memory,
+                        run_id=live.identity.run_id,
+                    )
             record(d, ACTION_FOR[d.outcome])
             remember_draft(d)
             self._send(page(render_decision(d) + '<p><a href="/">&larr; back</a></p>'))
@@ -2337,10 +2534,11 @@ class Handler(BaseHTTPRequestHandler):
             # balance returns to its exact prior value in paise - was checked
             # only inside tests, never on the path a person actually uses.
             live = runtime()
-            result = pipeline.reverse_operation(live.client, live.company, op)
+            with observability.tally_call("reverse_operation"):
+                result = pipeline.reverse_operation(live.client, live.company, op)
             note(
-                "reversed",
-                "reversed" if result.reversed_ else "not_found",
+                observability.SINGLE_REVERSAL_ACTION,
+                observability.SINGLE_REVERSAL_DONE if result.reversed_ else "not_found",
                 f"the person asked to undo {op}: {result.detail}",
                 operation_id=op,
             )
@@ -2356,6 +2554,7 @@ class Handler(BaseHTTPRequestHandler):
             # post. A dismissal says the person saw the concern and chose not
             # to act on it. Treating that as approval is one line away and is
             # how a surprise nobody investigated ends up in somebody's books.
+            observability.set_entry_id(form.get("draft", ""))
             d = draft_for(form.get("draft", ""), runtime())
             detector = form.get("detector", "")
             if d is None:
@@ -2394,7 +2593,8 @@ class Handler(BaseHTTPRequestHandler):
             # was never shown.
             live = runtime()
             if form.get("confirm") != "yes":
-                batch = reversal.preview(live.client, live.company)
+                with observability.tally_call("reversal_preview"):
+                    batch = reversal.preview(live.client, live.company)
                 remember_batch(batch, current_principal())
                 self._send(render_bulk_preview(batch))
                 return
@@ -2413,27 +2613,30 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
 
-            result = reversal.execute(
-                # The log goes to `confirm` too, and it is the ONE transition in
-                # a batch whose actor is `operator`: a preview became an order
-                # because somebody pressed the button on this screen. Left out,
-                # the durable history starts at `reversing` and cannot say the
-                # confirmation happened at all. Owner decision Q8 = A.
-                #
-                # No backend is passed, and `confirm` no longer accepts one.
-                # Pressing this button touches no Tally, so naming the client
-                # here would put a false attribution in the audit trail.
-                reversal.confirm(
-                    shown,
+            with observability.tally_call("reversal_execute"):
+                result = reversal.execute(
+                    # The log goes to `confirm` too, and it is the ONE
+                    # transition in a batch whose actor is `operator`: a
+                    # preview became an order because somebody pressed the
+                    # button on this screen. Left out, the durable history
+                    # starts at `reversing` and cannot say the confirmation
+                    # happened at all. Owner decision Q8 = A.
+                    #
+                    # No backend is passed, and `confirm` no longer accepts
+                    # one. Pressing this button touches no Tally, so naming the
+                    # client here would put a false attribution in the audit
+                    # trail.
+                    reversal.confirm(
+                        shown,
+                        log=live.store,
+                        company_key=live.memory.identity.key,
+                        run_id=live.identity.run_id,
+                    ),
+                    live.client,
                     log=live.store,
                     company_key=live.memory.identity.key,
                     run_id=live.identity.run_id,
-                ),
-                live.client,
-                log=live.store,
-                company_key=live.memory.identity.key,
-                run_id=live.identity.run_id,
-            )
+                )
             note(
                 "bulk_reversed",
                 result.state.value,
@@ -2549,6 +2752,11 @@ def serve(
     the person finds out in the terminal in one second, not by opening a page
     that looks like an app and refuses everything they type.
     """
+    # FIRST, before anything can fail. A start-up that refuses is a thing
+    # somebody has to diagnose, and diagnosing it from a log with no lines in
+    # it is what this whole task exists to stop.
+    observability.install_logging()
+
     env_tally, env_company, env_backups, provenance = config_from_environment()
     tally = tally if tally is not None else env_tally
     company = company if company is not None else env_company
