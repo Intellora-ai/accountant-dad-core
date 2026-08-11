@@ -46,6 +46,44 @@ operation ID, then the trial balance is checked back to the exact paise. If the
 reversal or the restoration fails, the run reports FAIL and says so; it does not
 retry, and it does not clean up by guessing.
 
+IT USED TO BE A SECOND WRITE DOOR. FIXED 2026-08-11.
+-----------------------------------------------------
+Measured defect: line 233 of this file read `client.write_voucher(...)` and line
+301 read `client.reverse_by_operation_id(...)`. Both reached the connector
+DIRECTLY. `tests/test_runtime_backend.py` exists to keep the write door
+singular, and it only ever scanned `accountant/`, so this file was a second door
+standing wide open outside its field of view — and it is the one door that gets
+pointed at somebody's real, live TallyPrime.
+
+What the direct call skipped, and what going through `pipeline.post` restores:
+
+    the Valid gate + binding  a decision naming THIS operation authorises the
+                              write, and `pipeline.post` refuses an unnamed one
+    C6, properly              the old read-back here asked only "is something
+                              carrying our marker there". That is defect W1 —
+                              the presence check that accepted a DIFFERENT
+                              voucher as proof. `pipeline.post` compares amount,
+                              party, date and both legs and refuses on any
+                              difference
+    G3                        the row must appear in Tally's OWN unfiltered
+                              register, checked inside the write path rather
+                              than afterwards by this script's own goodwill
+
+and `pipeline.reverse_operation` replaces the bare boolean with a trial-balance
+comparison: a reversal that returns True and leaves the books unchanged is the
+worst of the three outcomes because it is the one that gets believed.
+
+Nothing this file measured was dropped. Two measurements were added, and three
+got stronger evidence sources — the identifier and the marker are now read out
+of what Tally STORED rather than out of the reply we composed ourselves.
+
+The one guard `pipeline.post` cannot supply here is the write-ahead audit row:
+it needs a log sink and a bootstrapped company memory, and this is a hand-run
+script whose output is JSON on a terminal. So the operation id is printed to
+stderr immediately before the socket opens, which is the only durable place a
+script like this has. A write whose id nobody knows is the one a person cannot
+afterwards go and find.
+
 Run:  python -m ci.educational_slice --host 192.168.64.2 --port 9000
 """
 
@@ -58,7 +96,9 @@ import json
 import sys
 import uuid
 
-from accountant.schema import Voucher
+from accountant import pipeline
+from accountant.extract.adapter import ExtractedRecord
+from accountant.schema import Decision, Outcome, Voucher
 from accountant.tallyio.client import new_operation_id, operation_id_in
 from accountant.tallyio.real import RealTally, RecordedBackups, TallyConfig
 
@@ -95,6 +135,63 @@ class Row:
 def _rows_to_json(rows: list[Row]) -> str:
     return json.dumps(
         [dataclasses.asdict(r) | {"passed": r.passed} for r in rows], indent=2
+    )
+
+
+def controlled_record(voucher: Voucher) -> ExtractedRecord:
+    """The provenance of a voucher that nobody extracted from anything.
+
+    `pipeline.Draft` requires an `ExtractedRecord`, and `ExtractedRecord`
+    refuses to construct unless every named field states where it came from
+    (S3). There is no document here — the voucher is a controlled fixture
+    written into this file — so the source is spelled out as exactly that.
+
+    Leaving the sources blank was never an option: the record would then read
+    as "extracted from something", which is the one thing it is not, and a
+    provenance that overstates itself is the failure this project keeps
+    rediscovering.
+    """
+    source = "controlled fixture in ci/educational_slice.py, not extracted"
+    return ExtractedRecord(
+        date=voucher.date,
+        party=voucher.party,
+        total_paise=voucher.amount_paise,
+        tax_paise=0,
+        raw_text=voucher.narration,
+        backend="none",
+        per_field_source=dict.fromkeys(ExtractedRecord.FIELDS, source),
+    )
+
+
+def controlled_draft(
+    company: str, voucher: Voucher, operation_id: str
+) -> pipeline.Draft:
+    """A draft `pipeline.post` will accept, and an honest account of why.
+
+    The outcome is stated VALID here rather than produced by `pipeline.evaluate`
+    because there is nothing for the decision order to judge: no extraction, no
+    memory, no detectors — a single controlled voucher chosen by the person
+    running the script, against ledgers this slice has already read back out of
+    Tally and refuses to create.
+
+    That is a real difference and it is not hidden: what the door adds to THIS
+    script is the operation-id binding, the field-by-field read-back and the
+    register check, not a judgement about a document there isn't one of.
+    """
+    return pipeline.Draft(
+        id=voucher.id,
+        company=company,
+        voucher=voucher,
+        record=controlled_record(voucher),
+        operation_id=operation_id,
+        decision=Decision(
+            outcome=Outcome.VALID,
+            reason=(
+                "controlled compatibility fixture: one voucher, both ledgers "
+                "read back from this company's own chart of accounts"
+            ),
+            operation_id=operation_id,
+        ),
     )
 
 
@@ -230,31 +327,45 @@ def run(host: str, port: int, company: str | None, debit: str, credit: str) -> i
         "tests/test_tally_contract.py:39",
     )
 
-    written = client.write_voucher(company, voucher, op)
+    # The id reaches the operator BEFORE the socket does. `pipeline.post`
+    # writes a durable `write_attempted` row when it is handed a log sink; this
+    # script has none, so stderr is the only record an interrupted run leaves.
+    print(f"about to write operation {op} into {company!r}", file=sys.stderr)
+
+    posted = pipeline.post(controlled_draft(company, voucher, op), client)
+    add(
+        "write_door",
+        # Read off the callable that actually ran, not written out as a literal
+        # on both sides. `Condition(x, 0, 0, ...)` - a row whose two operands
+        # are the same constant - is a measurement that reports a pass for
+        # every possible run, and this project has already been bitten by two
+        # of them in ci/readiness.py.
+        f"{pipeline.post.__module__}.{pipeline.post.__qualname__}",
+        "accountant.pipeline.post",
+        "the single sanctioned write door: Valid gate, operation-id binding, "
+        "field-by-field read-back (C6) and the register check (G3) all run "
+        "inside it. Asserted structurally by tests/test_write_door.py",
+        "pipeline.post.__qualname__ of the function this run called",
+    )
     add(
         "voucher_created",
-        # NOT `is not None` - WriteResult.tally_id is typed `str`, so that
-        # comparison can never be False and pyright says so. An empty string
-        # CAN happen and would mean Tally accepted the request without
-        # identifying what it created, which is the failure worth catching.
-        bool(written.tally_id),
+        # NOT `is not None` - posted_tally_id is typed `str | None` and
+        # `pipeline.post` has already refused a missing read-back, so what is
+        # left to catch is an EMPTY identifier: Tally accepting the request
+        # without identifying what it created.
+        bool(posted.posted_tally_id),
         True,
-        "Tally returned a non-empty identifier for the row it created",
-        "RealTally.write_voucher()",
+        "Tally returned a non-empty identifier for the row it created, taken "
+        "from the READ-BACK and not from the write reply - Tally's answer is "
+        "the evidence and ours is only a claim",
+        "pipeline.post() -> Draft.posted_tally_id",
     )
     add(
         "voucher_identifier",
-        written.tally_id,
-        written.tally_id,
+        posted.posted_tally_id,
+        posted.posted_tally_id,
         "reported",
-        "RealTally.write_voucher() -> WriteResult.tally_id",
-    )
-    add(
-        "voucher_carries_marker",
-        operation_id_in(written.narration),
-        op,
-        "every written voucher carries our marker and its operation id (C4)",
-        "WriteResult.narration",
+        "pipeline.post() -> Draft.posted_tally_id",
     )
 
     # -- read back, OUR filter and TALLY'S OWN register ----------------------
@@ -265,6 +376,37 @@ def run(host: str, port: int, company: str | None, debit: str, credit: str) -> i
         True,
         "HTTP 200 is not proof the voucher exists (C6)",
         "RealTally.read_by_operation_id()",
+    )
+    if back is None:
+        print(_rows_to_json(rows))
+        print(
+            f"FAIL: operation {op} wrote and then could not be read back; a "
+            f"voucher may exist in {company!r} and has to be checked by hand",
+            file=sys.stderr,
+        )
+        return 2
+
+    add(
+        "read_back_matches_field_by_field",
+        [
+            f
+            for f in pipeline.VERIFIED_FIELDS
+            if getattr(voucher, f) != getattr(back, f)
+        ],
+        [],
+        "amount, party, date and both legs came back unchanged. The direct "
+        "write this slice used until 2026-08-11 asked only whether SOMETHING "
+        "carrying our marker was there, which is defect W1",
+        "pipeline.VERIFIED_FIELDS vs RealTally.read_by_operation_id()",
+    )
+    add(
+        "voucher_carries_marker",
+        operation_id_in(back.narration),
+        op,
+        "every written voucher carries our marker and its operation id (C4), "
+        "read out of what TALLY STORED - the write reply only ever echoed the "
+        "narration we composed ourselves",
+        "RealTally.read_by_operation_id() -> Voucher.narration",
     )
 
     register_after = client.read_vouchers(company)
@@ -298,13 +440,26 @@ def run(host: str, port: int, company: str | None, debit: str, credit: str) -> i
     )
 
     # -- reversal and cleanup ------------------------------------------------
-    reversed_ok = client.reverse_by_operation_id(company, op)
+    # Through `pipeline.reverse_operation`, the single doorway for undoing. It
+    # reads the voucher, snapshots the trial balance either side, and raises
+    # ReversalMismatch rather than reporting a success the books do not support.
+    undone = pipeline.reverse_operation(client, company, op)
     add(
         "reversal_reported_success",
-        reversed_ok,
+        undone.reversed_,
         True,
         "reversal targets the operation id, never an amount or narration text",
-        "RealTally.reverse_by_operation_id()",
+        "pipeline.reverse_operation() -> Reversal.reversed_",
+    )
+    add(
+        "reversal_moved_exactly_this_voucher",
+        undone.moved,
+        {debit: -amount, credit: amount},
+        "both legs moved back by exactly this voucher and nothing else moved. "
+        "The bare boolean this slice used until 2026-08-11 could not tell a "
+        "reversal that worked from one that returned True and did nothing",
+        "pipeline.reverse_operation() -> Reversal.moved",
+        ledger=f"{debit}/{credit}",
     )
 
     restored = client.trial_balance(company)

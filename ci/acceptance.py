@@ -252,6 +252,28 @@ def run_acceptance(
             notes.append(failed_early)
 
     # 5-6. ten distinct operation ids, ten distinct vouchers.
+    #
+    # A DIRECT `write_voucher`, allow-listed in `tests/test_write_door.py` with
+    # this reason. Everywhere else the single door is `pipeline.post`, and this
+    # is the one harness that must not use it:
+    #
+    #   what it measures  the CONNECTOR. `pipeline.post` performs the read-back
+    #                     itself and RAISES on a mismatch, so conditions 5 and 7
+    #                     ("every voucher verified field by field", "a retry
+    #                     creates zero vouchers") would become one exception
+    #                     instead of two readings. This function's contract is
+    #                     that a Tally-shaped failure is a RESULT, not a crash:
+    #                     fifteen conditions get reported or none of them do.
+    #   what it cannot    a draft, a decision, a memory or an extraction. There
+    #     have            is no document and nothing for the Valid gate to
+    #                     judge; the ten vouchers are `controlled_voucher(i)`.
+    #
+    # It is not ungoverned. The read-back at step 7 below is the same
+    # field-by-field comparison `pipeline.post` runs, over `VERIFIED_FIELDS`
+    # imported from the pipeline rather than restated here, and the CLEANUP
+    # goes through `reversal.execute` -> `pipeline.reverse_operation`. This
+    # module contains zero direct `reverse_by_operation_id` calls and
+    # `tests/test_write_door.py` asserts that it stays that way.
     ops: list[str] = []
     tally_ids: list[str] = []
     read_back_ok = 0
