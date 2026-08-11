@@ -241,13 +241,19 @@ def https_cloud_call(
             "write access to anyone on the path."
         )
     body = json.dumps(dict(payload)).encode("utf-8")
-    request = urllib.request.Request(  # noqa: S310 - scheme checked above
+    # Two suppressions, one fact: the scheme was checked five lines up and
+    # anything but https already raised. Both linters have to be told
+    # separately - the ruff marker and the bandit marker are different words
+    # and neither tool reads the other's.
+    request = urllib.request.Request(  # nosec B310  # noqa: S310
         url,
         data=body,
         method="POST",
         headers={"Content-Type": "application/json", "Content-Length": str(len(body))},
     )
-    with urllib.request.urlopen(request, timeout=timeout) as answer:  # noqa: S310
+    with urllib.request.urlopen(  # nosec B310  # noqa: S310
+        request, timeout=timeout
+    ) as answer:
         raw = answer.read().decode("utf-8")
     parsed: object = json.loads(raw) if raw.strip() else {}
     if not isinstance(parsed, dict):

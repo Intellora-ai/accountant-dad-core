@@ -40,7 +40,7 @@ from accountant.tallyio.real import RecordedBackups, TallyConfig
 
 #: The variable NAME, not a secret. noqa because the linter matches on the
 #: word rather than on whether a value was assigned.
-ENV_SECRET = "ACCOUNTANT_CONNECTOR_SECRET"  # noqa: S105
+ENV_SECRET = "ACCOUNTANT_CONNECTOR_SECRET"  # nosec B105  # noqa: S105
 
 
 def build_parser() -> argparse.ArgumentParser:
