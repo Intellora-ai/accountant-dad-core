@@ -660,37 +660,62 @@ def test_serve_builds_a_threading_server_and_says_its_threads_are_daemons() -> N
     is the original defect back again, and a non-daemon thread pool means one
     request stuck on a Tally socket turns "stop the server" into "wait for
     Tally".
+
+    ASSERTED ON `start_server`, WHICH IS WHERE THEY MOVED, 2026-08-11. TLS made
+    that function the single binding site — it is what wraps the socket — and
+    threading then put the class and the daemon flag in the same place, so both
+    decisions are made once. This test follows the call rather than being
+    loosened to match: it still names both facts, AND it now pins the thing that
+    made them movable, which is that `serve()` binds through `start_server` and
+    constructs no server of its own.
     """
     tree = _tree("accountant/web/app.py")
-    serve = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "serve"
-    )
+    by_name = {
+        node.name: node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+    }
+    serve, start = by_name["serve"], by_name["start_server"]
 
-    built = {
+    # `serve()` builds nothing itself, so there is no second binding site for
+    # either decision to drift in.
+    serve_builds = {
         node.func.id
         for node in ast.walk(serve)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }
-    assert "ThreadingHTTPServer" in built, "serve() does not build a threading server"
-    assert "HTTPServer" not in built, (
+    assert "HTTPServer" not in serve_builds, (
         "serve() builds a plain HTTPServer, which handles one request at a time"
+    )
+    assert "ThreadingHTTPServer" not in serve_builds, (
+        "serve() builds its own server instead of going through start_server, "
+        "so the class and the TLS wrapping are decided in two places"
+    )
+    assert "start_server" in serve_builds, "serve() does not bind through start_server"
+
+    built = {
+        node.func.id
+        for node in ast.walk(start)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "ThreadingHTTPServer" in built, (
+        "start_server does not build a threading server"
+    )
+    assert "HTTPServer" not in built, (
+        "start_server builds a plain HTTPServer, which handles one request at a time"
     )
 
     daemons = [
         node
-        for node in ast.walk(serve)
+        for node in ast.walk(start)
         if isinstance(node, ast.Assign)
         and any(
             isinstance(t, ast.Attribute) and t.attr == "daemon_threads"
             for t in node.targets
         )
     ]
-    assert daemons, "serve() never states whether its request threads are daemons"
+    assert daemons, "start_server never states whether its request threads are daemons"
     assert all(
         isinstance(a.value, ast.Constant) and a.value.value is True for a in daemons
-    ), "serve() sets daemon_threads to something other than True"
+    ), "start_server sets daemon_threads to something other than True"
 
 
 def test_every_store_method_that_touches_the_database_holds_the_lock() -> None:
