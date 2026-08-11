@@ -569,7 +569,17 @@ def test_every_table_is_keyed_by_company() -> None:
     """
     store = st.MemoryStore()
 
-    lookups = {"company", "vendor_account", "phrase_account", "chart_account"}
+    lookups = {
+        "company",
+        "vendor_account",
+        "phrase_account",
+        "chart_account",
+        # Defect I1, 2026-08-10. A lookup in shape as well as in name: keyed on
+        # `company_key` first, and the composite PRIMARY KEY is what refuses a
+        # second claim on one operation id rather than a SELECT before an
+        # INSERT.
+        "operation",
+    }
     append_only = {"action_log"}
     tenancy = {"tenant", "app_user", "session"}
 
@@ -1038,7 +1048,7 @@ def test_the_package_exports_what_it_documents() -> None:
     assert memory.STEPS == STEPS
     # 5 tables + 1 index on the append-only log. Counted rather than
     # described, so a table added without a thought here fails.
-    assert len(memory.SCHEMA) == 11
+    assert len(memory.SCHEMA) == 12
 
 
 # ---------------------------------------------------------------------------

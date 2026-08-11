@@ -172,6 +172,35 @@ SCHEMA: tuple[str, ...] = (
     # would have meant rewriting five tables and every query that reads them,
     # to gain nothing the extra level does not already give.
     # ----------------------------------------------------------------------
+    # Every operation id this company has ever written, and whether it was
+    # later reversed. Defect I1, fixed 2026-08-10.
+    #
+    # WHY A TABLE AND NOT A LOOK IN TALLY. Reversing a voucher DELETES it, so
+    # after a reversal Tally's answer to "does operation X exist" is no, and the
+    # id looked free. It was not free: docs/ARCHITECTURE.md section 7 and
+    # accountant/tallyio/client.py both say the operation id IS the identity of
+    # a write. An identity that can be reused after a delete is not an
+    # identity, it is a slot, and two `posted` rows naming one operation id and
+    # two different Tally ids cannot afterwards be reconciled by the one thing
+    # they have in common.
+    #
+    # The PRIMARY KEY is the guard, not a SELECT before the INSERT. A read
+    # followed by a write has a window between them; a constraint does not, and
+    # SQLite refusing the second INSERT is the same answer whatever else is
+    # happening in the process.
+    #
+    # `reversed_at` is NULLABLE and records WHEN, not WHETHER: a row that is
+    # here at all already means the id is spent. The column exists so the trail
+    # can say "used, then undone" rather than only "used".
+    """
+    CREATE TABLE IF NOT EXISTS operation (
+        company_key   TEXT NOT NULL,
+        operation_id  TEXT NOT NULL,
+        first_used_at TEXT NOT NULL,
+        reversed_at   TEXT,
+        PRIMARY KEY (company_key, operation_id)
+    )
+    """,
     """
     CREATE TABLE IF NOT EXISTS tenant (
         tenant_id  TEXT NOT NULL PRIMARY KEY,
@@ -695,6 +724,70 @@ class MemoryStore:
                 (revoked_at, user_id),
             ).rowcount
         return int(changed)
+
+    # ---- operation ids, so an identity is never handed out twice ------------
+
+    def claim_operation(self, company_key: str, operation_id: str, at: str) -> bool:
+        """Take this operation id for this company. False if it is already taken.
+
+        The INSERT is the check. A `SELECT` first and an `INSERT` after has a
+        window between them, and the whole point of this record is that an
+        identity is handed out exactly once — including when two requests arrive
+        together, which is the ordinary case behind a double-clicked button.
+
+        Returns rather than raises, because the caller has a better sentence to
+        write than this function does: `pipeline.post` knows the draft, the
+        vendor and the amount.
+        """
+        try:
+            with self._db:
+                self._db.execute(
+                    "INSERT INTO operation "
+                    "(company_key, operation_id, first_used_at, reversed_at) "
+                    "VALUES (?, ?, ?, NULL)",
+                    (normalise_company(company_key), operation_id, at),
+                )
+        except sqlite3.IntegrityError:
+            return False
+        return True
+
+    def operation_used(self, company_key: str, operation_id: str) -> bool:
+        row = self._db.execute(
+            "SELECT 1 FROM operation WHERE company_key = ? AND operation_id = ?",
+            (normalise_company(company_key), operation_id),
+        ).fetchone()
+        return row is not None
+
+    def operation_reversed_at(self, company_key: str, operation_id: str) -> str:
+        """When it was reversed, or "". Never a bool: "not reversed" and "never
+        used" are different facts and `operation_used` answers the second."""
+        row = self._db.execute(
+            "SELECT reversed_at FROM operation "
+            "WHERE company_key = ? AND operation_id = ?",
+            (normalise_company(company_key), operation_id),
+        ).fetchone()
+        return "" if row is None or row[0] is None else str(row[0])
+
+    def mark_operation_reversed(
+        self, company_key: str, operation_id: str, at: str
+    ) -> bool:
+        """Record that this id's voucher was undone. The id STAYS SPENT.
+
+        Marking, never releasing. Releasing it would recreate defect I1 exactly:
+        the reason a reversed id must not be written again is that the two
+        vouchers would share one identity, and that is as true after the
+        reversal is recorded as it was before.
+
+        Returns whether a row changed, so a second reversal of the same id is
+        distinguishable from the first rather than silently identical.
+        """
+        with self._db:
+            changed = self._db.execute(
+                "UPDATE operation SET reversed_at = ? "
+                "WHERE company_key = ? AND operation_id = ? AND reversed_at IS NULL",
+                (at, normalise_company(company_key), operation_id),
+            ).rowcount
+        return bool(changed)
 
     # ---- introspection, so the scoping rule is checked rather than trusted --
 
