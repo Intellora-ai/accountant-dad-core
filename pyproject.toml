@@ -67,13 +67,15 @@ select = [
 # scripts it guards.
 "tests/*" = ["S101"]
 "ci/test_*.py" = ["S101"]
-# S105/S106 flag a string literal handed to something named like a password or
-# a token. `tests/test_auth.py` is the file whose whole subject IS passwords and
-# tokens, so every fixture in it trips the rule and none of them is a leak. The
-# exemption is this file only - the rule stays live for the other 60 test files,
-# which is where a real credential would actually get pasted by accident.
+# S105/S106 flag a string literal handed to something named like a password, a
+# secret or a token. The three files below are the ones whose SUBJECT is exactly
+# that - passwords and sessions, the destroying routes' credentials, and the
+# connector secret - so their fixtures trip the rule and none of them is a leak.
+# Scoped to these files only: the rule stays live for the other sixty test
+# files, which is where a real credential would actually get pasted by accident.
 "tests/test_auth.py" = ["S101", "S105", "S106"]
 "tests/test_reversal_guard.py" = ["S101", "S105", "S106"]
+"tests/test_connector.py" = ["S101", "S105", "S106"]
 
 # ---------------------------------------------------------------------------
 # pyright - the only type checker

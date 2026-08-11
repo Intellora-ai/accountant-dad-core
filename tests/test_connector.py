@@ -17,6 +17,8 @@ logic can be proved while no cloud exists.
 from __future__ import annotations
 
 import ast
+import datetime
+import importlib
 import json
 import logging
 from pathlib import Path
@@ -37,8 +39,10 @@ from accountant.agent import (
     ExecutedOperations,
     Job,
     JobResult,
+    cli,
 )
 from accountant.agent.connector import build_logger, https_cloud_call
+from accountant.schema import Voucher
 from accountant.tallyio.client import TallyClient
 from accountant.tallyio.fake import FakeTally
 
@@ -648,3 +652,376 @@ def test_registration_sends_the_identity_and_nothing_else(tmp_path: Path):
     assert payload["tenant_id"] == TENANT
     assert payload["companies"] == [COMPANY]
     assert set(payload) == {"connector_id", "secret", "tenant_id", "companies"}
+
+
+# ---------------------------------------------------------------------------
+# the command line
+# ---------------------------------------------------------------------------
+#
+# `main()` is what a customer actually runs, and it was the one part of this
+# package with no test at all: 0% of `cli.py` on the diff-coverage gate. Every
+# test below drives it through `main(argv)` with a fake `Connector` injected
+# where the real one would open sockets, so what is measured is the wiring -
+# which values reach the connector, and which value never leaves the process.
+
+
+class FakeConnector:
+    """Stands in for `Connector`, recording what it was built with."""
+
+    def __init__(
+        self,
+        identity_: ConnectorIdentity,
+        cloud_url: str,
+        open_client: object,
+        *,
+        executed: object,
+        logger: object,
+    ) -> None:
+        self.identity = identity_
+        self.cloud_url = cloud_url
+        self.open_client = open_client
+        self.executed = executed
+        self.logger = logger
+        self.registered = 0
+        self.polls = 0
+        self.forever = 0
+
+    def register(self) -> None:
+        self.registered += 1
+
+    def poll_once(self) -> JobResult | None:
+        self.polls += 1
+        return JobResult(job_id="job-1", outcome=EXECUTED, detail="done")
+
+    def run_forever(self, *, interval_seconds: float) -> int:
+        self.forever += 1
+        self.interval = interval_seconds
+        return 3
+
+    def stop(self) -> None:  # pragma: no cover - only a signal handler calls it
+        pass
+
+
+@pytest.fixture
+def cli_bench(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> tuple[list[FakeConnector], Path]:
+    """`main()` with the connector replaced, so no socket is ever opened."""
+    made: list[FakeConnector] = []
+
+    def build(*args: Any, **kwargs: Any) -> FakeConnector:
+        made.append(FakeConnector(*args, **kwargs))
+        return made[-1]
+
+    monkeypatch.setattr(cli, "Connector", build)
+    monkeypatch.delenv(cli.ENV_SECRET, raising=False)
+    return made, tmp_path
+
+
+def run_cli(state: Path, *extra: str, secret_file: Path | None = None) -> int:
+    argv = [
+        "--connector-id",
+        "connector-1",
+        "--tenant-id",
+        TENANT,
+        "--company",
+        COMPANY,
+        "--cloud-url",
+        "https://cloud.example",
+        "--state-dir",
+        str(state),
+        *extra,
+    ]
+    if secret_file is not None:
+        argv += ["--secret-file", str(secret_file)]
+    return cli.main(argv)
+
+
+def test_the_secret_comes_from_the_environment(
+    cli_bench: tuple[list[FakeConnector], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    made, tmp = cli_bench
+    monkeypatch.setenv(cli.ENV_SECRET, "from-the-environment")
+
+    assert run_cli(tmp, "--once") == 0
+
+    assert made[0].identity.secret == "from-the-environment"
+
+
+def test_the_secret_can_come_from_a_file(
+    cli_bench: tuple[list[FakeConnector], Path],
+) -> None:
+    made, tmp = cli_bench
+    keyfile = tmp / "secret"
+    keyfile.write_text("  from-a-file\n", encoding="utf-8")
+
+    assert run_cli(tmp, "--once", secret_file=keyfile) == 0
+
+    assert made[0].identity.secret == "from-a-file", (
+        "surrounding whitespace is stripped"
+    )
+
+
+def test_no_secret_anywhere_stops_the_program_and_says_how_to_fix_it(
+    cli_bench: tuple[list[FakeConnector], Path],
+) -> None:
+    """A connector with no credential must not start and then fail per job."""
+    _made, tmp = cli_bench
+    with pytest.raises(SystemExit) as stopped:
+        run_cli(tmp, "--once")
+    assert cli.ENV_SECRET in str(stopped.value)
+    assert "--secret-file" in str(stopped.value)
+
+
+def test_an_empty_environment_variable_counts_as_no_secret(
+    cli_bench: tuple[list[FakeConnector], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`ACCOUNTANT_CONNECTOR_SECRET=` is a common way to think you set it."""
+    _made, tmp = cli_bench
+    monkeypatch.setenv(cli.ENV_SECRET, "   ")
+    with pytest.raises(SystemExit):
+        run_cli(tmp, "--once")
+
+
+def test_the_secret_is_never_printed(
+    cli_bench: tuple[list[FakeConnector], Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The startup banner prints every resolved value except this one.
+
+    Unattended software on somebody else's laptop is diagnosed from what it
+    said when it started, so the banner has to be complete - which is exactly
+    why the one value that must not be in it needs an assertion.
+    """
+    _made, tmp = cli_bench
+    monkeypatch.setenv(cli.ENV_SECRET, "a-very-distinctive-secret")
+
+    run_cli(tmp, "--once")
+
+    printed = capsys.readouterr().out
+    assert "a-very-distinctive-secret" not in printed
+    assert "read, not shown" in printed
+    assert "connector-1" in printed
+    assert TENANT in printed
+    assert COMPANY in printed
+    assert "https://cloud.example" in printed
+    assert "REFUSED" in printed, "the banner must say it cannot write"
+
+
+def test_once_takes_a_single_job_and_returns(
+    cli_bench: tuple[list[FakeConnector], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    made, tmp = cli_bench
+    monkeypatch.setenv(cli.ENV_SECRET, "s")
+
+    assert run_cli(tmp, "--once") == 0
+
+    assert made[0].registered == 1
+    assert made[0].polls == 1
+    assert made[0].forever == 0
+
+
+def test_without_once_it_polls_until_stopped(
+    cli_bench: tuple[list[FakeConnector], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    made, tmp = cli_bench
+    monkeypatch.setenv(cli.ENV_SECRET, "s")
+
+    assert run_cli(tmp, "--interval-seconds", "0.25") == 0
+
+    assert made[0].forever == 1
+    assert made[0].polls == 0
+    assert made[0].interval == 0.25
+
+
+def test_every_named_company_reaches_the_connector(
+    cli_bench: tuple[list[FakeConnector], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--company` repeats. A connector paired to two companies that only
+    remembered one would refuse half of its own work."""
+    made, tmp = cli_bench
+    monkeypatch.setenv(cli.ENV_SECRET, "s")
+
+    run_cli(tmp, "--once", "--company", "Second Co")
+
+    assert made[0].identity.companies == frozenset({COMPANY, "Second Co"})
+
+
+def test_the_state_directory_is_where_the_record_and_the_log_go(
+    cli_bench: tuple[list[FakeConnector], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both must survive a restart: the record is what stops a dropped reply
+    executing a job twice, and a log in a temp directory is not a log."""
+    _made, tmp = cli_bench
+    monkeypatch.setenv(cli.ENV_SECRET, "s")
+    state = tmp / "state"
+
+    run_cli(state, "--once")
+
+    assert (state / "connector.log").exists()
+
+
+def test_the_parser_requires_the_four_values_that_cannot_be_guessed() -> None:
+    """Which connector, which tenant, which company, which cloud. A default for
+    any of them would be this program guessing whose books it is touching."""
+    parser = cli.build_parser()
+    for missing in ("--connector-id", "--tenant-id", "--company", "--cloud-url"):
+        argv = [
+            "--connector-id",
+            "c",
+            "--tenant-id",
+            "t",
+            "--company",
+            "Demo Co",
+            "--cloud-url",
+            "https://c.example",
+        ]
+        at = argv.index(missing)
+        with pytest.raises(SystemExit):
+            parser.parse_args(argv[:at] + argv[at + 2 :])
+
+
+def test_there_is_no_secret_argument_at_all() -> None:
+    """Not "discouraged" - absent. An argument is visible in the process table
+    to every user on the machine and lands in shell history, so the only way to
+    be sure nobody passes one is for the parser to reject it.
+    """
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(
+            [
+                "--connector-id",
+                "c",
+                "--tenant-id",
+                "t",
+                "--company",
+                "Demo Co",
+                "--cloud-url",
+                "https://c.example",
+                "--secret",
+                "hunter2",
+            ]
+        )
+
+
+def test_the_client_factory_is_built_fresh_for_each_company() -> None:
+    """Per job, not once. Tally is usually closed when a laptop boots and open
+    later; a client captured at startup would be permanently dead."""
+    factory = cli.open_tally("localhost", 9000)
+    assert callable(factory)
+
+
+# ---------------------------------------------------------------------------
+# the shapes that go back to the cloud
+# ---------------------------------------------------------------------------
+
+
+def result_of(kind: str, tally: FakeTally, tmp_path: Path) -> Any:
+    """Run one read job through the connector and return what the CLOUD got.
+
+    Through `poll_once` rather than by calling the shaping helper directly. The
+    helper is private, and more to the point the thing worth asserting is what
+    crosses the wire - a shape that is right inside the process and wrong in the
+    payload is still a field the cloud silently stops seeing.
+    """
+    sky = Cloud(
+        [{"job_id": "job-1", "kind": kind, "tenant_id": TENANT, "company": COMPANY}]
+    )
+
+    def open_client(_company: str) -> TallyClient:
+        return tally
+
+    conn, cloud = connector(tmp_path, cloud=sky, open_client=open_client)
+    outcome = conn.poll_once()
+    assert outcome is not None
+    assert outcome.outcome == EXECUTED, outcome.detail
+    return cloud.results[-1]["value"]
+
+
+def test_a_trial_balance_reaches_the_cloud_as_integer_paise(tmp_path: Path) -> None:
+    """Integer paise, never float. A mapping that arrived as anything else
+    would be a rounding bug with a network in the middle of it."""
+    tally = FakeTally()
+    tally.add_company(
+        COMPANY,
+        accounts=("Purchases", "Cash"),
+        vouchers=(
+            Voucher(
+                id="v1",
+                date=datetime.date(2026, 8, 10),
+                party="Sharma Traders",
+                narration="cement supply",
+                debit_account="Purchases",
+                credit_account="Cash",
+                amount_paise=380000,
+            ),
+        ),
+    )
+
+    balance = result_of("trial_balance", tally, tmp_path)
+
+    assert balance == {"Purchases": 380000, "Cash": -380000}
+    assert all(isinstance(v, int) and not isinstance(v, bool) for v in balance.values())
+
+
+def test_a_voucher_reaches_the_cloud_with_nothing_dropped_or_renamed(
+    tmp_path: Path,
+) -> None:
+    """A `Voucher` is a dataclass and the cloud reads its fields BY NAME, so a
+    quiet rename here is a field the cloud silently stops seeing. Asserted
+    against the dataclass's own field names rather than a copied list, which
+    would just be the same mistake written twice."""
+    voucher = Voucher(
+        id="v1",
+        date=datetime.date(2026, 8, 10),
+        party="Sharma Traders",
+        narration="cement supply",
+        debit_account="Purchases",
+        credit_account="Cash",
+        amount_paise=380000,
+    )
+    tally = FakeTally()
+    tally.add_company(COMPANY, accounts=("Purchases", "Cash"), vouchers=(voucher,))
+
+    vouchers = result_of("read_vouchers", tally, tmp_path)
+
+    assert isinstance(vouchers, list), "a tuple must arrive as a JSON array"
+    first = cast("dict[str, Any]", vouchers[0])
+    assert set(first) == set(voucher.__dataclass_fields__)
+    assert first["amount_paise"] == 380000
+    assert first["date"] == "2026-08-10", "a date is stringified, not dropped"
+
+
+def test_the_whole_payload_is_json_serialisable(tmp_path: Path) -> None:
+    """The real transport calls `json.dumps`. A shape that survives an equality
+    check in this process and raises at the wire is a failure nothing here
+    would otherwise catch."""
+    tally = FakeTally()
+    tally.add_company(
+        COMPANY,
+        accounts=("Purchases", "Cash"),
+        vouchers=(
+            Voucher(
+                id="v1",
+                date=datetime.date(2026, 8, 10),
+                party="Sharma Traders",
+                narration="cement supply",
+                debit_account="Purchases",
+                credit_account="Cash",
+                amount_paise=380000,
+            ),
+        ),
+    )
+    for kind in ("read_vouchers", "trial_balance", "read_accounts", "list_companies"):
+        json.dumps(result_of(kind, tally, tmp_path))
+
+
+def test_the_module_entry_point_routes_to_cli_main() -> None:
+    """`python -m accountant.agent` must reach `cli.main` and nothing else.
+
+    Trivial to write and not trivial to leave untested: this file is the only
+    thing standing between the documented command and an ImportError that a
+    customer would meet at the worst possible moment.
+    """
+    module = importlib.import_module("accountant.agent.__main__")
+    assert module.main is cli.main

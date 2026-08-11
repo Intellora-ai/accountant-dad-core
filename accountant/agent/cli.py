@@ -51,6 +51,11 @@ def build_parser() -> argparse.ArgumentParser:
             "one job at a time, and runs it against TallyPrime on this machine. "
             "It never listens on a port."
         ),
+        # No abbreviations. argparse accepts any unambiguous prefix by default,
+        # so `--secret hunter2` was silently accepted as `--secret-file hunter2`
+        # - the exact argument this program refuses to have, quietly reinstated
+        # as a typo. A test found it. An unknown flag must be an error.
+        allow_abbrev=False,
     )
     parser.add_argument("--connector-id", required=True)
     parser.add_argument("--tenant-id", required=True)
