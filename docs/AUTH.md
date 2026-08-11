@@ -104,6 +104,62 @@ The same argument applies to the login page: an unknown email and a wrong
 password return one identical sentence, because two different sentences let
 anybody with a browser enumerate which addresses have accounts.
 
+## DEFECT J1 — the guard existed and nothing called it
+
+Found 2026-08-11 by the end-to-end journey test, fixed the same day.
+
+`Principal.require` was written with this task. It has a passing unit test
+above. It had **no caller anywhere in `accountant/`** — an AST sweep found
+exactly one reference to it, the `owns()` call inside its own body.
+
+So `test_a_valid_session_is_refused_another_tenant_with_403_not_401` passed,
+and a live session belonging to tenant B, presented to a server serving the
+company tenant A had open, was authenticated and then allowed to read that
+company's vouchers and to reverse one.
+
+**A unit test of a guard proves the guard works. It says nothing about whether
+the guard is installed**, and that is the whole of this defect. It is the
+failure this document already had a sentence about — *a check every handler
+must remember is a check some handler will forget* — arriving in the one place
+that sentence was not applied.
+
+### The fix
+
+`_identify` now calls `who.require(served_tenant())` on every request, before
+any handler runs, **unconditionally**. 403, not 401: the credential is fine, it
+is for somebody else's books.
+
+`ACCOUNTANT_TENANT` names the customer this process serves. One process serves
+one company — `runtime()` binds it at startup and refuses on any disagreement —
+so it serves exactly one customer.
+
+It is a **stated** value, not one derived from the audit log, because deriving
+it would mean the first tenant to authenticate against a fresh database defines
+who owns the company. That is a land grab, not a check.
+
+It **fails closed**. Unset, in production, means refuse every request. The
+alternative — unset meaning "any tenant may enter" — is the defect itself
+reintroduced as a default. A deployment that forgets the variable is broken and
+says so on the first request; one that silently admits everybody is broken and
+does not.
+
+In `LOCAL_DEV_MODE` the served tenant is `local-dev`, which is also the tenant
+`authenticate` hands out, so the check runs and compares `local-dev` with
+`local-dev`. It is **not skipped** — a mutant that wrapped it in
+`if not local_dev_mode():` changed no test, and the test that now catches it
+reads the AST and refuses to find the call inside any conditional. Two code
+paths where one will do is how the two come to disagree, and the one that skips
+the guard is the one nobody measures.
+
+### Mutants
+
+```
+the guard is not called                DIED  (5 tests)
+an unset tenant lets everybody in      DIED
+require refuses with 401 not 403       DIED  (4 tests)
+dev mode skips the check entirely      SURVIVED -> 1 AST test written, DIED
+```
+
 ## Where the check sits
 
 `Handler._identify()` runs at the top of `do_GET` and `do_POST`, beside

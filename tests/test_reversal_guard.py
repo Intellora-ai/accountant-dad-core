@@ -62,6 +62,12 @@ def production_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     distinguishing anything.
     """
     monkeypatch.delenv(ident.ENV_LOCAL_DEV_MODE, raising=False)
+    # WHOSE books this server serves. Defect J1, 2026-08-11: without it the
+    # server admitted a session belonging to any tenant, because the guard that
+    # was written to stop that had no caller. It fails closed now, so a test
+    # that does not say who it is serving is refused - which is why this line
+    # is here rather than a default being invented in the product.
+    monkeypatch.setenv(app.ENV_TENANT, TENANT)
 
 
 def colleagues(*sessions: tuple[str, str]) -> Callable[[MemoryStore], None]:

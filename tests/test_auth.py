@@ -442,6 +442,12 @@ def production_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     set it back themselves.
     """
     monkeypatch.delenv(ident.ENV_LOCAL_DEV_MODE, raising=False)
+    # WHOSE books this server serves. Defect J1, 2026-08-11: without it the
+    # server admitted a session belonging to any tenant, because the guard that
+    # was written to stop that had no caller. It fails closed now, so a test
+    # that does not say who it is serving is refused - which is why this line
+    # is here rather than a default being invented in the product.
+    monkeypatch.setenv(app.ENV_TENANT, ALPHA)
 
 
 def seeding(*tokens: tuple[str, str]) -> Callable[[MemoryStore], None]:
@@ -730,3 +736,173 @@ def test_a_note_row_records_the_tenant_and_the_user_too(tmp_path: Path) -> None:
     assert rows, "the reversal attempt wrote no row at all"
     assert rows[-1].tenant_id == ALPHA
     assert rows[-1].user_id == f"user-{ALPHA}"
+
+
+# ---------------------------------------------------------------------------
+# DEFECT J1 - the guard existed and nothing called it
+# ---------------------------------------------------------------------------
+#
+# `Principal.require` was written with this task, has a passing test above, and
+# had NO CALLER anywhere in `accountant/`. An AST sweep found exactly one
+# reference: the `owns()` call inside its own body.
+#
+# So `test_a_valid_session_is_refused_another_tenant_with_403_not_401` passed,
+# and a live session belonging to tenant B, presented to a server serving the
+# company tenant A has open, was authenticated and then allowed to read that
+# company's vouchers and reverse one.
+#
+# A unit test of a guard proves the guard works. It says nothing about whether
+# the guard is installed, and that is the whole of this defect.
+
+
+def test_a_session_from_another_tenant_is_refused_at_the_door() -> None:
+    """The behavioural half that was missing. Over HTTP, not on the object.
+
+    Beta holds a perfectly valid session. The server serves Alpha's company.
+    Beta must not get past `_identify`, and the code must be 403 rather than
+    401: the credential is fine, it is for somebody else's books.
+    """
+    beta = auth.new_token()
+    with serving(demo_company(), fake_backend(), seed=seeding((beta, BETA))) as base:
+        status, body, _cookie = fetch(base, token=beta)
+
+    assert status == 403, body
+    assert ALPHA in body and BETA in body, "the refusal names both sides"
+
+
+def test_a_session_from_the_served_tenant_still_gets_in() -> None:
+    """The control. Without it the test above passes on a server that refuses
+    everybody, which measures nothing."""
+    alpha = auth.new_token()
+    with serving(demo_company(), fake_backend(), seed=seeding((alpha, ALPHA))) as base:
+        assert fetch(base, token=alpha)[0] == 200
+
+
+def test_every_route_refuses_a_foreign_tenant_not_merely_the_home_page() -> None:
+    """Enumerated, because a check every route must have is a check some route
+    will be missing - and two of these DESTROY vouchers."""
+    routes = ("/entry", "/answer", "/reverse", "/dismiss", "/reverse-all")
+    beta = auth.new_token()
+    with serving(demo_company(), fake_backend(), seed=seeding((beta, BETA))) as base:
+        for route in routes:
+            request = urllib.request.Request(  # noqa: S310
+                base + route, data=urllib.parse.urlencode({"op": "x"}).encode()
+            )
+            request.add_header("Cookie", f"{app.COOKIE}={beta}")
+            with pytest.raises(urllib.error.HTTPError) as refused:
+                urllib.request.urlopen(request, timeout=5)  # noqa: S310
+            assert refused.value.status == 403, route
+
+
+def test_a_foreign_session_cannot_reverse_a_voucher_it_can_never_see() -> None:
+    """The consequence, stated as money rather than as a status code.
+
+    Alpha posts. Beta asks to undo it by operation id. The books must be
+    untouched - and the trial balance is the assertion, because a 403 with a
+    reversed voucher behind it would be a passing test and a lost entry.
+    """
+    alpha, beta = auth.new_token(), auth.new_token()
+    with serving(
+        demo_company(), fake_backend(), seed=seeding((alpha, ALPHA), (beta, BETA))
+    ) as base:
+        request = urllib.request.Request(  # noqa: S310
+            base + "/entry",
+            data=urllib.parse.urlencode({"text": "paid Gupta Hardware 1500"}).encode(),
+        )
+        request.add_header("Cookie", f"{app.COOKIE}={alpha}")
+        with urllib.request.urlopen(request, timeout=5) as answer:  # noqa: S310
+            answer.read()
+
+        live = app.runtime()
+        before = live.client.trial_balance(live.company)
+        ours = live.client.list_our_vouchers(live.company)
+
+        status, _body, _cookie = fetch(base, token=beta)
+        assert status == 403
+
+        assert live.client.trial_balance(live.company) == before
+        assert live.client.list_our_vouchers(live.company) == ours
+
+
+def test_a_server_that_does_not_know_whose_books_it_serves_refuses_everybody(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS CLOSED, which is the half that decides whether this fix is real.
+
+    The alternative - treat an unset variable as "any tenant may enter" - is the
+    defect itself, reintroduced as a default. A deployment that forgets the
+    variable is broken and says so on the first request; one that silently
+    admits everybody is broken and does not.
+    """
+    monkeypatch.delenv(app.ENV_TENANT, raising=False)
+    alpha = auth.new_token()
+    with serving(demo_company(), fake_backend(), seed=seeding((alpha, ALPHA))) as base:
+        status, body, _cookie = fetch(base, token=alpha)
+
+    assert status == 403
+    assert app.ENV_TENANT in body, "the refusal names the variable to set"
+
+
+def test_local_development_needs_no_tenant_variable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One person, no customers, nothing to keep apart. The check still RUNS -
+    it compares local-dev against local-dev - so there is no second code path
+    that skips it."""
+    monkeypatch.setenv(ident.ENV_LOCAL_DEV_MODE, "1")
+    monkeypatch.delenv(app.ENV_TENANT, raising=False)
+    with serving(demo_company(), fake_backend(), seed=seeding()) as base:
+        assert fetch(base)[0] == 200
+
+
+def test_the_guard_is_called_from_the_one_place_every_request_passes() -> None:
+    """AST, and the test that would have caught J1 on the day it was written.
+
+    `Principal.require` had a passing unit test and no caller. This asserts the
+    CALL exists, in `_identify`, which is the single seam every route goes
+    through - the same argument `_confirm_company` is sited there on.
+
+    Reading the tree rather than the text on purpose: this project has twice
+    matched a word inside its own explanatory comment and called a defect
+    absent.
+    """
+    tree = ast.parse(Path(app.__file__).read_text(encoding="utf-8"))
+    identify = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "_identify"
+    )
+    calls = [
+        node.func.attr
+        for node in ast.walk(identify)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    ]
+    assert "require" in calls, (
+        "_identify does not call Principal.require, so a session belonging to "
+        "another customer is authenticated and then let through - which is "
+        "defect J1 exactly"
+    )
+
+    # AND IT IS NOT INSIDE A CONDITION. Written because a mutant survived:
+    # wrapping the call in `if not local_dev_mode():` changed no test, since in
+    # dev mode the principal's tenant and the served tenant are both
+    # `local-dev` and the check passes either way.
+    #
+    # It would still be wrong. Two code paths where one will do is how the two
+    # of them come to disagree, and the one that skips the guard is the one
+    # nobody measures. The check runs on every request and compares
+    # `local-dev` with `local-dev` in development, which costs a string
+    # comparison and keeps the paths at one.
+    guarded = [
+        node
+        for branch in ast.walk(identify)
+        if isinstance(branch, ast.If)
+        for node in ast.walk(branch)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "require"
+    ]
+    assert not guarded, (
+        "Principal.require is inside a conditional in _identify. It must run on "
+        "every request: a second path that skips it is a path nothing measures"
+    )

@@ -690,6 +690,35 @@ def runtime() -> Runtime:
     return live
 
 
+def served_tenant() -> str:
+    """The one customer this process serves. Defect J1, 2026-08-11.
+
+    FAILS CLOSED, and the two modes differ for a stated reason:
+
+        LOCAL_DEV_MODE=1   `local-dev`, the same tenant `authenticate` hands
+                           out in that mode, so the check passes and measures
+                           nothing. There is one person and no customers.
+        production         `ACCOUNTANT_TENANT` is REQUIRED. Unset means refuse
+                           every request rather than serve them all.
+
+    Refusing is the whole point. The alternative - treat unset as "any tenant
+    may enter" - is the defect this function exists to close, reintroduced as a
+    default. A deployment that forgets the variable is broken and says so on the
+    first request; one that silently admits everybody is broken and does not.
+    """
+    if local_dev_mode():
+        return LOCAL_DEV_TENANT
+    named = os.environ.get(ENV_TENANT, "").strip()
+    if not named:
+        raise AuthRefusal(
+            403,
+            f"this server does not know whose books it is serving, so it will "
+            f"not serve them to anybody. Set {ENV_TENANT} to the tenant id that "
+            f"owns this company",
+        )
+    return named
+
+
 def auth_store() -> MemoryStore:
     """Where sessions are looked up.
 
@@ -2277,6 +2306,25 @@ class Handler(BaseHTTPRequestHandler):
         """
         try:
             who = authenticate(self._token(), auth_store(), dev_mode=local_dev_mode())
+            # DEFECT J1, FIXED 2026-08-11. THE GUARD EXISTED AND NOTHING CALLED IT.
+            #
+            # `Principal.require` was written with Task 2, has its own passing
+            # test, and had NO CALLER anywhere in `accountant/`. An AST sweep
+            # found exactly one reference to it: the `owns()` call inside its own
+            # body. So a live session belonging to tenant B, presented to a
+            # server serving the company tenant A has open, was authenticated and
+            # then allowed to read that company's vouchers and to reverse one.
+            #
+            # It is the failure this file already had a sentence about, arriving
+            # in the one place that sentence was not applied: a check every
+            # caller must remember is a check some caller will forget, and the
+            # test that would have caught it is the one nobody wrote, because a
+            # unit test of a guard proves the guard works and says nothing about
+            # whether it is installed.
+            #
+            # 403, not 401. The credential is fine; it is for somebody else's
+            # books.
+            who.require(served_tenant())
         except AuthRefusal as refusal:
             self._refuse(refusal)
             return False
@@ -2671,6 +2719,17 @@ ENV_BACKED_UP = "ACCOUNTANT_BACKED_UP_COMPANIES"
 #: Where the audit trail is kept. A deployment points this at a mounted volume;
 #: a person on a laptop leaves it alone and gets `data/app.db` beside the app.
 ENV_DB = "ACCOUNTANT_DB"
+#: WHOSE books this process serves. Defect J1, 2026-08-11.
+#:
+#: One process serves ONE company - `runtime()` binds it at startup and refuses
+#: on any disagreement - so it also serves exactly one customer, and this names
+#: them. A session belonging to anybody else is refused 403 before a handler
+#: runs, however valid it is.
+#:
+#: It is a stated value rather than one derived from the audit log, because
+#: deriving it would mean the FIRST tenant to authenticate against a fresh
+#: database defines who owns the company. That is a land grab, not a check.
+ENV_TENANT = "ACCOUNTANT_TENANT"
 
 
 def config_from_environment() -> tuple[TallyConfig, str, RecordedBackups, list[str]]:
