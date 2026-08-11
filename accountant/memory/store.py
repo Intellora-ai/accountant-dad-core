@@ -33,6 +33,25 @@ cannot be written into another's scope even by mistake.
 
 A test reads the live schema back through `table_names`, `columns_of` and
 `primary_key_of` and asserts all of it. Enforced, not promised.
+
+`action_log` IS EXEMPT FROM LOG REDACTION, AND THAT IS AN OWNER DECISION
+------------------------------------------------------------------------
+Recorded 2026-08-11, when redaction arrived for the APPLICATION log
+(`accountant/redact.py`). That work took vendor names, amounts, credentials and
+session material out of diagnostic logs. **It deliberately stopped at this
+table, which keeps the vendor and keeps the amount.**
+
+`action_log` is the record of what this software did to a real business's
+statutory books. `docs/DATA_POLICY.md` Table B row 10 says of it *"it **is** the
+log"*, and row 8 says amounts *"appear in the local action log by design"*. An
+audit row that cannot say which party and how much is not an audit row, it is a
+timestamp.
+
+So this module imports nothing from `accountant.redact`, and
+`tests/test_redaction.py::test_nothing_in_the_memory_package_imports_the_redactor`
+reads the import graph and fails the day somebody helpfully adds it. If you are
+here to "finish the redaction work", this paragraph is the answer: it is
+finished, and this is where it stops. `docs/REDACTION.md` has the long version.
 """
 
 from __future__ import annotations
