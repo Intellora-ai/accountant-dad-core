@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# Build, tag and push the production image.
+#
+#   ACCOUNTANT_REGISTRY=registry.example.invalid/your-namespace ./scripts/deploy
+#
+# THERE IS NO DEFAULT REGISTRY, AND THERE WILL NOT BE ONE.
+#
+# A default is a value somebody receives without ever deciding it. The thing
+# being pushed is a container built to hold a real business's audit trail, and
+# pushing it to a registry nobody chose is not a convenience - it is a
+# disclosure. So the variable has no fallback, and an unset variable stops the
+# script before anything is built.
+#
+# IT ALSO DOES NOT DEPLOY. Nothing here talks to a host, because on 2026-08-11
+# there is no host, no cloud account and no domain (docs/OWNER_WORK.md). This
+# builds an artefact and puts it where it is told. docs/DEPLOY.md is the rest.
+
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+# Ours, so it is written here. The registry is the customer's decision; the
+# name of our own image is not, and one hardcoded name means two people cannot
+# push the same build under two names.
+IMAGE_NAME=accountant-dad
+
+# ---- the registry, which this script will not invent -----------------------
+
+if [ -z "${ACCOUNTANT_REGISTRY:-}" ]; then
+  cat >&2 <<'EOF'
+REFUSED: no operation performed. ACCOUNTANT_REGISTRY is not set.
+
+Nothing was built, nothing was tagged and nothing was pushed.
+
+This script will not guess a registry. Set it to the registry and namespace you
+have decided on:
+
+    ACCOUNTANT_REGISTRY=registry.example.invalid/your-namespace ./scripts/deploy
+
+That example cannot work on purpose - .invalid is reserved by RFC 2606 and can
+never resolve - because a copy-pasteable working example in an error message is
+the fastest possible way to push somebody's image somewhere they never chose.
+EOF
+  exit 2
+fi
+
+# ---- tools, named exactly, never assumed ------------------------------------
+
+need() {
+  if command -v "$1" >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "REFUSED: no operation performed. '$1' is not on PATH. $2" >&2
+  exit 2
+}
+
+need docker "Install Docker, or run this where a docker CLI exists."
+need git "The tag names the commit this image was built from. With no git there is no honest tag, and a made-up one is worse than none."
+
+# ---- the tag, which has to be able to name a dirty tree ---------------------
+
+# Twelve characters, not seven: seven-character prefixes collide in repositories
+# far smaller than people expect, and a collision here means two different
+# images with the same name.
+COMMIT=$(git rev-parse --short=12 HEAD)
+
+# A dirty tree does NOT stop the build, and it does not silently pass either.
+# Refusing would make this script unusable exactly when somebody is debugging a
+# deployment, which is when they need it most; staying quiet would tag an image
+# with a commit whose source is not what was built. So the tag says so out loud
+# and stays true either way.
+if [ -n "$(git status --porcelain)" ]; then
+  TAG="${COMMIT}-dirty"
+else
+  TAG="$COMMIT"
+fi
+
+# `%/` strips one trailing slash, so a registry written either way produces one
+# reference and not a `//` that some registries accept and others reject.
+REF="${ACCOUNTANT_REGISTRY%/}/${IMAGE_NAME}:${TAG}"
+
+# ---- say every resolved value before acting on any of it --------------------
+#
+# The same rule the app follows at startup: a resolved value with no provenance
+# is the same ambiguity as no value at all. Printed BEFORE the build, so a
+# registry typo is visible even when the push then fails.
+
+echo "Accountant Dad, deploy:"
+echo "  registry   ${ACCOUNTANT_REGISTRY}   (from ACCOUNTANT_REGISTRY)"
+echo "  image      ${IMAGE_NAME}"
+echo "  commit     ${COMMIT}"
+if [ "$TAG" != "$COMMIT" ]; then
+  echo "  tree       DIRTY - the tag says so, and this image is not reproducible"
+fi
+echo "  reference  ${REF}"
+
+# ---- build, tag, push -------------------------------------------------------
+
+docker build --file Dockerfile --tag "$REF" .
+
+# One immutable tag, and no `:latest`. A moving tag is how a host ends up
+# running a build nobody selected: `latest` names whatever was pushed last,
+# including the one somebody pushed to test something.
+docker push "$REF"
+
+cat <<EOF
+
+pushed ${REF}
+
+NOTHING WAS DEPLOYED. This script pushes an image. No host is configured, and
+none exists yet - docs/DEPLOY.md lists what the owner must supply, and what the
+image cannot do until they do.
+EOF

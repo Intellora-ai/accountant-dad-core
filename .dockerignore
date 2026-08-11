@@ -1,0 +1,65 @@
+# What never reaches the Docker daemon.
+#
+# The Dockerfile copies `accountant/` and nothing else, so most of this file is
+# not what makes the image small - it is what makes a FUTURE `COPY . .` safe.
+# The one-line change that turns a careful copy into a whole-tree copy is the
+# commonest way a secret, a database or a virtualenv ends up in a published
+# layer, and a .dockerignore is the only guard that survives that edit.
+#
+# It also stops the build context being sent at all: without the `.git` and
+# `.venv` lines below, every build uploads hundreds of megabytes to the daemon
+# before reading a single instruction.
+
+# THE DURABLE DATABASE. A real customer's audit trail, their vendor history and
+# their account history. .gitignore already refuses to commit it; this refuses
+# to build it into an image that then goes to a registry. Same file, second
+# door.
+data/
+*.db
+*.sqlite3
+
+# Virtualenvs. Platform-specific binaries compiled for the developer's machine,
+# and the single largest thing in the tree.
+.venv/
+venv/
+
+# Bytecode and tool caches. Stale, host-specific, and never wanted in an image.
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.testmondata*
+.gremlins_cache/
+.coverage
+.coverage.*
+coverage.xml
+coverage/
+htmlcov/
+
+# History and CI configuration. `.git` in particular carries every version of
+# every file ever committed, including anything later removed from the tip.
+.git/
+.github/
+.gitignore
+.pre-commit-config.yaml
+
+# Nothing here runs in production.
+tests/
+ci/
+docs/
+scripts/
+artifacts/
+.audit/
+reports/
+dist/
+build/
+.tools/
+
+# Build and deployment definitions themselves. They describe the image; they do
+# not belong inside it.
+Dockerfile
+.dockerignore
+
+# Editor and OS leavings.
+.DS_Store
