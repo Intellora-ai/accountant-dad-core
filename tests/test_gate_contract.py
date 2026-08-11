@@ -19,6 +19,8 @@ import tomllib
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 CONTRACT = ROOT / "ci" / "gates.toml"
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -225,7 +227,20 @@ def test_the_required_check_names_are_exactly_what_github_will_publish():
 
 
 def test_every_command_in_the_contract_appears_in_a_workflow():
-    """A gate declared but never run is worse than no gate: it reads as covered."""
+    """A gate declared but never run is worse than no gate: it reads as covered.
+
+    MATCHES THE FIRST TOKEN ONLY, and that is a known weakness rather than an
+    oversight. `uv lock --check` reduces to `uv`, which appears in every job in
+    every workflow, so this assertion cannot fail for any gate whose command
+    starts with `uv` — which is most of them.
+
+    It is left as it is because tightening it here would turn one measured
+    defect into a red build for every gate at once.
+    `test_the_lockfile_gate_is_actually_enforced` below is the narrow, honest
+    version: it names the one gate this weakness is hiding, and it is an xfail
+    rather than a deletion, so fixing the workflow turns it green rather than
+    leaving a passing test that proves nothing.
+    """
     if not WORKFLOWS.is_dir():
         return
     text = workflow_text()
@@ -234,6 +249,72 @@ def test_every_command_in_the_contract_appears_in_a_workflow():
         assert head in text, (
             f"gate {g['name']!r} runs {head!r}, which appears in no workflow"
         )
+
+
+def _sync_steps() -> list[str]:
+    """Every `uv sync` command line in every workflow, whitespace collapsed."""
+    if not WORKFLOWS.is_dir():
+        return []
+    return [
+        " ".join(line.split())
+        for line in workflow_text().splitlines()
+        if "uv sync" in line
+    ]
+
+
+def test_what_the_lockfile_gate_actually_runs_today() -> None:
+    """WHAT IS MEASURED. This test PINS A DEFECT; see the xfail below.
+
+    `ci/gates.toml` declares the `lockfile` gate as `uv lock --check`, threshold
+    0, required, active. No workflow runs that command. What runs instead is
+    `uv sync --extra dev --frozen`, under a comment claiming --frozen is the
+    gate.
+
+    It is the opposite. From uv's own CLI reference:
+
+        --frozen  "Run without updating the uv.lock file. Instead of checking
+                   if the lockfile is up-to-date, uses the versions in the
+                   lockfile as the source of truth."
+        --locked  "Assert that the uv.lock will remain unchanged. Requires that
+                   the lockfile is up-to-date. If the lockfile is missing or
+                   needs to be updated, uv will exit with an error."
+
+    --frozen is the one flag that guarantees the check is SKIPPED. So a pull
+    request may change pyproject.toml, leave uv.lock stale, and go green, with
+    CI resolving a dependency set nobody recorded.
+
+    The one-line fix is `--frozen` -> `--locked` in
+    `.github/workflows/pr-fast.yml`. It is recorded in `docs/OWNER_WORK.md`
+    because `.github/` is not writable from here.
+    """
+    steps = _sync_steps()
+    if not steps:
+        return
+    assert any("--frozen" in step for step in steps), (
+        "if no sync step passes --frozen any more, this pin is stale and the "
+        "xfail below should be green - remove this test and keep that one"
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="the lockfile gate is declared but not enforced; docs/OWNER_WORK.md",
+)
+def test_the_lockfile_gate_is_actually_enforced() -> None:
+    """The behaviour the contract promises, and the workflow does not deliver.
+
+    Strict, so the day somebody changes --frozen to --locked this stops being
+    an expected failure and becomes a hard failure if the test is not removed.
+    A defect pinned by an xfail is visible in a green run; a defect pinned by a
+    comment is not.
+    """
+    steps = _sync_steps()
+    assert steps, "no `uv sync` step exists at all, so nothing installs anything"
+    assert all("--locked" in step for step in steps), (
+        "every `uv sync` that stands in for the `lockfile` gate must pass "
+        "--locked. --frozen skips the very check the gate declares: "
+        f"{steps}"
+    )
 
 
 # ---- the migration guard ----------------------------------------------------

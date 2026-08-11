@@ -97,6 +97,72 @@ exist:
 
 **Needed:** a mail provider (reset), a decision on self-registration, and
 whichever of these you want before the first real customer.
+### The lockfile gate is declared and does not run — ONE LINE
+`ci/gates.toml` declares the `lockfile` gate as `uv lock --check`, threshold 0,
+required, active. No workflow runs that command. What runs instead, in
+`.github/workflows/pr-fast.yml`, is `uv sync --extra dev --frozen`, under a
+comment claiming `--frozen` is that gate.
+
+It is the opposite flag. From uv's own CLI reference:
+
+```
+--frozen   "Instead of checking if the lockfile is up-to-date, uses the
+            versions in the lockfile as the source of truth."
+--locked   "Requires that the lockfile is up-to-date. If the lockfile is
+            missing or needs to be updated, uv will exit with an error."
+```
+
+`--frozen` guarantees the check is SKIPPED. A pull request may therefore change
+`pyproject.toml`, leave `uv.lock` stale, and go green — with CI resolving a
+dependency set nobody recorded.
+
+**The change, in full. Nothing else in the diff.**
+`.github/workflows/pr-fast.yml`, job `pr-fast`, step
+`sync dependencies from the lockfile`, lines 63-66:
+
+```
+BEFORE
+      - name: sync dependencies from the lockfile
+        # --frozen fails if uv.lock does not match pyproject.toml, which is the
+        # `uv lock --check` gate.
+        run: uv sync --extra dev --frozen
+
+AFTER
+      - name: sync dependencies from the lockfile
+        # --locked, NOT --frozen. This step IS the `lockfile` gate declared in
+        # ci/gates.toml, and until now it did not check anything. uv's
+        # reference: --frozen skips the check, --locked requires the lockfile
+        # to be up to date.
+        run: uv sync --extra dev --locked
+```
+
+Only the `pr-fast` job, because that is the only job the gate names. No other
+`uv sync` step is touched. No gate is added or removed and no threshold moves.
+
+**Why it is not already done:** `.github/` is denied at the permission layer in
+this environment, so it cannot be edited from here.
+
+`tests/test_gate_contract.py::test_the_lockfile_gate_is_actually_enforced` pins
+it as a strict xfail, paired with a passing test recording what runs today. The
+day the workflow changes, the xfail turns green and fails loudly until it is
+removed — so the fix cannot land and leave a test that proves nothing.
+
+### The second dead gate is dead ON PURPOSE — no action wanted
+`cached-mutation` also never executes, and it should not. `ci/gates.toml`
+records it as PARKED on 2026-08-08 with the measurement: a cached
+pytest-gremlins verdict carries no `selected_tests`, because the mutant was not
+re-executed, so every cached mutant is indistinguishable from one that nothing
+ran against, and `ci/check_mutation.py` correctly reports `FAIL_INCOMPLETE`.
+Observed twice on real runs.
+
+The standing owner rule is "mutation-result cache only if proven correct" — and
+it is not. The cache restore and save steps remain in both workflows, so
+re-enabling is a one-flag change if a cached verdict ever carries its own
+mapping evidence. `full-mutation` and `mutation-accounting` still run and still
+enforce the 90 threshold.
+
+**Needed: nothing.** Listed only so "2 of 20 gates never execute" is not read
+as two defects when it is one.
 
 ### Legal
 Privacy policy, terms of service, billing, refunds, and a support process. The
