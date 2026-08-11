@@ -46,6 +46,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, cast
 
+from accountant import redact
 from accountant.tallyio.client import (
     CompanyNotBackedUp,
     DuplicateOperation,
@@ -103,7 +104,15 @@ class ConnectorIdentity:
     """Who this connector is, and what it is allowed to touch.
 
     `secret` is the shared credential presented on every outbound call. It is
-    never logged and never written into a job result — see `_redacted`.
+    never printed, and never written into a job result or a log line.
+
+    Constructing one REGISTERS the secret with `accountant.redact`, 2026-08-11.
+    Registration happens here, and not at each place a log line is written,
+    because there is no way to have a connector secret without building one of
+    these — so the redactor learns it whether or not anybody remembered. The
+    alternative was a `redact.learn_secret(...)` call in `cli.main`, which is
+    one line somebody deletes while refactoring startup, after which the guard
+    is silently off and every test still passes.
     """
 
     connector_id: str
@@ -124,6 +133,12 @@ class ConnectorIdentity:
                 "connector identity names no company, so every job it is ever "
                 "offered would be refused; pair it to at least one"
             )
+        # After the refusals, so a blank secret is never learned. The return
+        # value is deliberately ignored: a secret below `redact.MIN_LEARNABLE`
+        # is still caught by the key-name patterns, and refusing to construct
+        # an identity over it would be a new startup refusal introduced by a
+        # logging change. The reason for the floor is on the constant.
+        redact.learn_secret(self.secret)
 
 
 @dataclass(frozen=True)
@@ -279,6 +294,21 @@ def build_logger(
     `max_bytes` and `backups` bound the total at (backups + 1) * max_bytes,
     which is 4 MB by default. The numbers are stated here rather than left to a
     library default so the ceiling is a fact somebody can read.
+
+    REDACTION IS INSTALLED ON THE HANDLER, 2026-08-11
+    -------------------------------------------------
+    Not on the logger. `Logger.handle` applies only its own filters and then
+    walks its ancestors' HANDLERS, so a filter sitting on `accountant.agent`
+    would be skipped entirely for a record made by a child logger. The handler
+    is the object that writes bytes to somebody's disk, so the handler is where
+    the guard goes — and every line, from every logger that ever reaches it, is
+    scrubbed without one call site knowing this happened.
+
+    This file lives on a customer's laptop. `docs/DATA_POLICY.md` Table B row 3
+    says a connector key is "never logged, in any form"; until this filter
+    existed that was a sentence in a document with nothing enforcing it, and
+    `docs/DATA_POLICY.md` §4 listed "no secret is ever logged" as a test that
+    could exist and did not.
     """
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
@@ -291,6 +321,7 @@ def build_logger(
     handler.setFormatter(
         logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
     )
+    redact.guard(handler)
     logger.addHandler(handler)
     logger.propagate = False
     return logger

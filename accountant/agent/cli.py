@@ -16,6 +16,16 @@ WHY THE SECRET IS NOT A COMMAND-LINE ARGUMENT
 Arguments are visible in the process table to every user on the machine, and
 they land in shell history. `ACCOUNTANT_CONNECTOR_SECRET`, or a file whose
 path is given, keeps it out of both.
+
+WHY NOTHING HERE CALLS `print` DIRECTLY
+---------------------------------------
+Added 2026-08-11. The banner deliberately prints every resolved value, and
+"every resolved value" is a promise that will one day include something it
+should not — `--cloud-url https://user:hunter2@cloud.example` is a credential
+in a value this program is explicitly proud of printing. So stdout has a seam
+too: `_say` scrubs, and `tests/test_redaction.py` reads this module's AST and
+fails on any `print(` call outside it. A rule enforced by remembering is a rule
+that lasts until the next person.
 """
 
 from __future__ import annotations
@@ -28,6 +38,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from types import FrameType
 
+from accountant import redact
 from accountant.agent.connector import (
     Connector,
     ConnectorIdentity,
@@ -41,6 +52,16 @@ from accountant.tallyio.real import RecordedBackups, TallyConfig
 #: The variable NAME, not a secret. noqa because the linter matches on the
 #: word rather than on whether a value was assigned.
 ENV_SECRET = "ACCOUNTANT_CONNECTOR_SECRET"  # nosec B105  # noqa: S105
+
+
+def _say(line: str) -> None:
+    """Everything this program says to a person, redacted on the way out.
+
+    One function so there is one place to change, and so the AST test in
+    `tests/test_redaction.py` has something to point at. See the module
+    docstring for why a bare `print` is a defect here.
+    """
+    print(redact.scrub(line))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -146,15 +167,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     state = Path(args.state_dir)
     log = build_logger(state / "connector.log")
 
-    print("Accountant Dad connector, resolved configuration:")
-    print(f"  connector id  {identity.connector_id}")
-    print(f"  tenant        {identity.tenant_id}")
-    print(f"  companies     {sorted(identity.companies)}")
-    print(f"  cloud         {args.cloud_url}")
-    print(f"  tally         http://{args.tally_host}:{args.tally_port} (loopback)")
-    print(f"  state         {state.resolve()}")
-    print("  secret        read, not shown")
-    print("  writes        REFUSED - this connector forwards reads only")
+    _say("Accountant Dad connector, resolved configuration:")
+    _say(f"  connector id  {identity.connector_id}")
+    _say(f"  tenant        {identity.tenant_id}")
+    _say(f"  companies     {sorted(identity.companies)}")
+    _say(f"  cloud         {args.cloud_url}")
+    _say(f"  tally         http://{args.tally_host}:{args.tally_port} (loopback)")
+    _say(f"  state         {state.resolve()}")
+    _say("  secret        read, not shown")
+    _say("  writes        REFUSED - this connector forwards reads only")
 
     connector = Connector(
         identity,
@@ -165,7 +186,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     def stop(_signum: int, _frame: FrameType | None) -> None:
-        print("\nstopping after the job in hand")
+        _say("\nstopping after the job in hand")
         connector.stop()
 
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -174,10 +195,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     connector.register()
     if args.once:
         result = connector.poll_once()
-        print(f"  result        {result.outcome if result else 'NO WORK'}")
+        _say(f"  result        {result.outcome if result else 'NO WORK'}")
         return 0
     done = connector.run_forever(interval_seconds=args.interval_seconds)
-    print(f"  executed      {done} job(s)")
+    _say(f"  executed      {done} job(s)")
     return 0
 
 
