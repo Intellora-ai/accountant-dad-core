@@ -2618,6 +2618,7 @@ def _run(data: bytes, mime: str) -> pipeline.Draft:
 #: counter reads zero for ever while the thing it counts keeps happening.
 REFUSED_REPLAY = observability.REFUSED_REPLAY
 
+
 def unread_document(d: pipeline.Draft) -> str:
     """The banner for a document nothing could be read from, or "".
 
