@@ -1164,7 +1164,8 @@ class MemoryStore:
         account", which is a question a deletion has to be able to answer
         afterwards as well as before.
         """
-        rows = self._db.execute(_USERS_OF_TENANT, (tenant_id,)).fetchall()
+        with self._lock:
+            rows = self._db.execute(_USERS_OF_TENANT, (tenant_id,)).fetchall()
         return tuple(
             User(
                 str(row[0]),
@@ -1186,7 +1187,8 @@ class MemoryStore:
         Not filtered on `expires_at` — an expired session is still a live ROW
         that a clock change could revive, and revoking it costs nothing.
         """
-        rows = self._db.execute(_LIVE_SESSIONS_OF_TENANT, (tenant_id,)).fetchall()
+        with self._lock:
+            rows = self._db.execute(_LIVE_SESSIONS_OF_TENANT, (tenant_id,)).fetchall()
         return tuple(
             Session(
                 str(row[0]),
@@ -1206,7 +1208,8 @@ class MemoryStore:
         audit trail would otherwise be one query per line, and the marking is
         the thing that has to be cheap enough that nobody is tempted to skip it.
         """
-        rows = self._db.execute(_DELETED_TENANTS).fetchall()
+        with self._lock:
+            rows = self._db.execute(_DELETED_TENANTS).fetchall()
         return {str(row[0]): str(row[1]) for row in rows}
 
     def companies_of_tenant(self, tenant_id: str) -> tuple[str, ...]:
@@ -1218,7 +1221,8 @@ class MemoryStore:
         claim about what is owned — and a deletion scoped by a measurement
         cannot erase books this customer was never seen touching.
         """
-        rows = self._db.execute(_COMPANIES_OF_TENANT, (tenant_id,)).fetchall()
+        with self._lock:
+            rows = self._db.execute(_COMPANIES_OF_TENANT, (tenant_id,)).fetchall()
         return tuple(str(row[0]) for row in rows)
 
     def tenants_in_company(self, company_key: str) -> tuple[str, ...]:
@@ -1229,7 +1233,8 @@ class MemoryStore:
         recorded against the same key. What it must never mean is that one
         customer's deletion takes another customer's learning with it.
         """
-        rows = self._db.execute(_TENANTS_IN_COMPANY, (company_key,)).fetchall()
+        with self._lock:
+            rows = self._db.execute(_TENANTS_IN_COMPANY, (company_key,)).fetchall()
         return tuple(str(row[0]) for row in rows)
 
     def deletion_scope(self, tenant_id: str) -> tuple[tuple[str, ...], ...]:
@@ -1262,7 +1267,8 @@ class MemoryStore:
     def actions_of_tenant(self, tenant_id: str) -> tuple[RetainedAction, ...]:
         """This customer's audit rows, oldest first, each carrying the mark."""
         closed = self.deleted_tenants()
-        rows = self._db.execute(_ACTIONS_OF_TENANT, (tenant_id,)).fetchall()
+        with self._lock:
+            rows = self._db.execute(_ACTIONS_OF_TENANT, (tenant_id,)).fetchall()
         return tuple(
             RetainedAction(_row_to_action(row), closed.get(tenant_id, ""))
             for row in rows
@@ -1346,7 +1352,7 @@ class MemoryStore:
         # was shown there cannot be two different rules.
         erase, keep = self.deletion_scope(tenant_id)
 
-        with self._db:
+        with self._lock, self._db:
             users = self._db.execute(_USERS_CLOSE, (at, tenant_id)).rowcount
             sessions = self._db.execute(
                 _SESSIONS_REVOKE_BY_TENANT, (at, tenant_id)
@@ -1529,7 +1535,7 @@ class MemoryStore:
         """Drop everything this company knows. A rebuild starts from nothing,
         so a half-loaded index can never be mistaken for a whole one."""
         with self._lock, self._db:
-            for statement in _DELETES:
+            for statement in LEARNED_INDEX_DELETES:
                 self._db.execute(statement, (company_key,))
 
     def save_bootstrap(
@@ -1554,7 +1560,7 @@ class MemoryStore:
                     f"{o.company_key!r} under {key!r}"
                 )
         with self._lock, self._db:
-            for statement in _DELETES:
+            for statement in LEARNED_INDEX_DELETES:
                 self._db.execute(statement, (key,))
             self._db.executemany(_CHART_INSERT, [(key, a) for a in chart])
             self._db.executemany(

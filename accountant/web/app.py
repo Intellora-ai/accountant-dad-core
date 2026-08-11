@@ -562,9 +562,16 @@ DELETION_LIMIT = 20
 
 
 def remember_deletion(plan: DeletionPlan, who: Principal | None = None) -> None:
-    DELETIONS[plan.plan_id] = (plan, who.user_id if who else NOT_RECORDED)
-    while len(DELETIONS) > DELETION_LIMIT:
-        DELETIONS.pop(next(iter(DELETIONS)))
+    # Under `_CACHE_LOCK` like every other shared cache, 2026-08-11. Data
+    # deletion merged before the threaded server did, so this was written
+    # against a one-request-at-a-time process; evict-oldest is check-then-act
+    # over an iterator and two threads doing it at once raise on an id the
+    # other just popped. `test_every_shared_cache_in_the_web_app_is_written_
+    # under_the_lock` named it the moment the two met.
+    with _CACHE_LOCK:
+        DELETIONS[plan.plan_id] = (plan, who.user_id if who else NOT_RECORDED)
+        while len(DELETIONS) > DELETION_LIMIT:
+            DELETIONS.pop(next(iter(DELETIONS)))
 
 
 def deletion_plan(store: MemoryStore, who: Principal) -> DeletionPlan | None:
@@ -624,20 +631,26 @@ def deletion_for(plan_id: str) -> DeletionPlan | None:
     as a side effect of somebody else's request is the smaller version of the
     same mistake.
     """
-    held = DELETIONS.get(plan_id)
-    if held is None:
-        return None
-    plan, asked_by = held
+    # THE WHOLE LOOKUP IS ONE STEP, 2026-08-11. `get` then `pop` is
+    # check-then-act: two confirmations of one plan can both find it present
+    # and both proceed, which for a bulk reversal meant a double write to a
+    # customer's books and here would mean deleting an account twice. The lock
+    # makes the find-and-take atomic, exactly as it does for `batch_for`.
+    with _CACHE_LOCK:
+        held = DELETIONS.get(plan_id)
+        if held is None:
+            return None
+        plan, asked_by = held
 
-    who = current_principal()
-    mine = who.user_id if who else NOT_RECORDED
-    if asked_by != mine:
-        return None
-    if who is None or plan.tenant_id != who.tenant_id:
-        return None
+        who = current_principal()
+        mine = who.user_id if who else NOT_RECORDED
+        if asked_by != mine:
+            return None
+        if who is None or plan.tenant_id != who.tenant_id:
+            return None
 
-    DELETIONS.pop(plan_id, None)
-    return plan
+        DELETIONS.pop(plan_id, None)
+        return plan
 
 
 # How many log rows the page shows. The log itself is unbounded and append-only;
