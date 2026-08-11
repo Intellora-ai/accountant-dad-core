@@ -35,6 +35,21 @@ WHERE THE FAILURES ARE INJECTED, AND WHERE THEY ARE NOT
 `FakeTally` and the XML simulator only. A failure is NEVER manufactured in real
 statutory books to test a failure path. That is not caution, it is the
 difference between testing a system and damaging a customer.
+
+AND THAT IS NOW A TYPE, NOT A CONVENTION. 2026-08-11.
+------------------------------------------------------
+This module calls `write_voucher` and `reverse_by_operation_id` directly, which
+`tests/test_write_door.py` otherwise forbids outside `accountant/pipeline.py`.
+It is allow-listed there, and the allow-list is only honest if the promise
+above is enforceable rather than merely written down.
+
+Until 2026-08-11 `run_a`, `post_one` and `_retry_creates` were annotated
+`TallyClient`, so `run_a(client=RealTally(...))` type-checked - the paragraph
+above was the only thing standing between this gate and thirty injected
+failures in somebody's statutory books. They now name `FakeTally`, which is the
+one backend `tests/test_runtime_backend.py` proves the runtime cannot reach.
+Every caller in this repository already passed a `FakeTally`; nothing that was
+legitimate stopped working, and the illegitimate call now fails pyright.
 """
 
 from __future__ import annotations
@@ -48,7 +63,6 @@ from accountant import reversal
 from accountant.memory.store import MemoryStore
 from accountant.reversal import BatchState, VoucherState
 from accountant.schema import Voucher
-from accountant.tallyio.client import TallyClient
 from accountant.tallyio.fake import FakeTally
 from ci import acceptance
 from ci.acceptance import AcceptanceRun, N
@@ -137,7 +151,7 @@ def fresh_company(name: str = COMPANY, *, backed_up: bool = True) -> FakeTally:
 # ---- Run A — the normal lifecycle -------------------------------------------
 
 
-def run_a(client: TallyClient | None = None, company: str = COMPANY) -> RunResult:
+def run_a(client: FakeTally | None = None, company: str = COMPANY) -> RunResult:
     """Post ten, verify each, reverse ten, verify each, books back to the paise.
 
     The four measurements are lifted from the acceptance run rather than
@@ -496,7 +510,16 @@ def clean_room_install() -> tuple[bool, str]:
 # ---- helpers ------------------------------------------------------------------
 
 
-def post_one(client: TallyClient, company: str, n: int, when: datetime.date) -> str:
+def post_one(client: FakeTally, company: str, n: int, when: datetime.date) -> str:
+    """One controlled voucher, written straight at the fake.
+
+    A direct `write_voucher`, allow-listed in `tests/test_write_door.py`. The
+    reason is the parameter type: `FakeTally` is in-process, holds its vouchers
+    in a list, and opens no socket, so this call cannot reach TallyPrime at all.
+    Routing it through `pipeline.post` would add a Valid gate over a fixture
+    nobody judged and would put the pipeline between this gate and the connector
+    behaviour it is here to measure.
+    """
     from accountant.tallyio.client import new_operation_id
 
     op = new_operation_id()
@@ -504,7 +527,7 @@ def post_one(client: TallyClient, company: str, n: int, when: datetime.date) -> 
     return op
 
 
-def _retry_creates(client: TallyClient, company: str, operation_id: str) -> int:
+def _retry_creates(client: FakeTally, company: str, operation_id: str) -> int:
     """How many vouchers a duplicate retry created. Must be zero."""
     before = len(client.list_our_vouchers(company))
     try:
