@@ -3997,6 +3997,66 @@ tree on every run, and `argparse` was accepting `--secret hunter2` as an
 abbreviation of `--secret-file` — quietly reinstating the one argument the
 connector refuses to have.
 
+### §46.3a Four more, found while the sixteen were LANDING
+
+These are not in the list above because they were not there to find until the
+branches met each other. They are the argument for landing work in sequence
+rather than merging a batch.
+
+7. **DEFECT J1 — a cross-tenant authorization bypass, and it was mine.**
+   `Principal.require` was written with Task 2, has a passing unit test, and had
+   **no caller anywhere in `accountant/`**. An AST sweep found exactly one
+   reference: the `owns()` call inside its own body. A session issued to one
+   customer was authenticated against another customer's open books and let
+   through to read and reverse their vouchers.
+
+   *A unit test of a guard proves the guard works. It says nothing about whether
+   the guard is installed.* It is the failure `docs/AUTH.md` already had a
+   sentence about — a check every handler must remember is a check some handler
+   will forget — and I wrote both the sentence and the hole. Found by Task 16,
+   the end-to-end journey, at step 6, which is the one thing only an end-to-end
+   test can find: every piece had passing tests and the pieces did not connect.
+
+   Fixed the same day. `ACCOUNTANT_TENANT` is now **required in production**,
+   and unset refuses every request — unset meaning "any tenant may enter" is the
+   defect reintroduced as a default.
+
+8. **Nine store methods and two caches were written before the threaded server
+   existed.** `claim_operation`, `operation_used`, `operation_reversed_at`,
+   `mark_operation_reversed`, `users_of_tenant`, `live_sessions_of_tenant`,
+   `deleted_tenants`, `companies_of_tenant`, `tenants_in_company`,
+   `actions_of_tenant`, `delete_tenant`, plus `remember_deletion` and
+   `deletion_for`.
+
+   All correct on a one-request-at-a-time server. None written carelessly —
+   written **first**. `deletion_for` is the sharpest: `get` then `pop` is
+   check-then-act, so two confirmations of one plan can both find it present and
+   both proceed. The same shape in `batch_for` was measured at **29 doubles in
+   300 attempts** with the switch interval at `1e-6` — a double write to a
+   customer's books.
+
+   Named by two structural guards in `tests/test_concurrency.py` that walk the
+   source and ask *does every method touching the shared connection hold the
+   lock*. Neither was found by reading a diff.
+
+9. **TLS and threading both changed how the server is built**, and neither was
+   right alone. Taking either side would have produced a working app with the
+   other task silently dropped. They combine: `start_server` decides the class
+   **and** the wrapping, and `serve()` builds nothing.
+
+   The AST guard that caught it read `serve()` for both facts, and both had
+   moved. It follows the call now and gained a third assertion — that `serve()`
+   binds through `start_server` and constructs no server of its own — which pins
+   the thing that made them movable. The guard got stronger by chasing the code
+   rather than accommodating it.
+
+10. **A wheel-build race that had been green for weeks.** Two tests both ran
+    `python -m build` against the repository, and under `-n auto` one deleted a
+    file out of `build/` while the other was copying it. `pr-full` failed on a
+    file that is present in the tree and has been since the initial commit. Now
+    built from `git ls-files` into a temporary directory, which also makes the
+    clean room actually clean.
+
 ### §46.4 What is NOT claimed
 
 - **Everything is FAKETALLY.** Not one of the sixteen tasks produced
