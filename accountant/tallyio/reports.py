@@ -218,7 +218,24 @@ class Reports:
         request = build_voucher_list_request(self.company)
         with self.log.record(operation, company=self.company, **inputs) as entry:
             entry.request_xml = request
-            raw = self.transport.send(request, retry=True)
+            # The connector has its OWN exception tree (`real.TallyError`), and
+            # it is not this module's. A gateway that is down raises
+            # `real.TallyUnreachable`, which `except errors.TallyError` does not
+            # catch - so `mvp_real_tally.py`, which promises a code and a
+            # sentence for every failure this system understands, printed a raw
+            # traceback instead. Translated here, at the boundary, so every
+            # report gets it rather than only the write path's duplicate probe.
+            try:
+                raw = self.transport.send(request, retry=True)
+            except ConnectorError as unreachable:
+                entry.error_summary = str(unreachable)[:300]
+                raise errors.for_unreachable(unreachable) from unreachable
+            except OSError as unreachable:
+                # A transport that is not `HttpTransport` need not wrap its own
+                # socket errors, and an unwrapped one would walk straight past
+                # the handler above.
+                entry.error_summary = str(unreachable)[:300]
+                raise errors.for_unreachable(unreachable) from unreachable
             entry.response_xml = raw
             if not raw.strip():
                 raise errors.for_unusable_body(raw)

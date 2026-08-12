@@ -116,6 +116,15 @@ NOT_XML: Final = "NOT_XML"
 EMPTY_BODY: Final = "EMPTY_BODY"
 HTTP_STATUS: Final = "HTTP_STATUS"
 
+#: Nothing answered at all. Added 2026-08-12, because there was no code for the
+#: commonest failure a person actually meets: TallyPrime closed, or the port
+#: shut. `TallyConnectionError` existed with nothing that raised it, so a
+#: gateway that was down escaped this module entirely and reached callers as
+#: `real.TallyUnreachable` - a DIFFERENT exception tree that `except
+#: errors.TallyError` does not catch. The result was a raw traceback where a
+#: sentence was promised.
+UNREACHABLE: Final = "UNREACHABLE"
+
 
 @dataclass(frozen=True)
 class Pattern:
@@ -323,6 +332,16 @@ def for_status(status: int, body: str) -> TallyRequestError:
         HTTP_STATUS,
         f"Tally answered HTTP {status} rather than 200: {body[:300]}",
     )
+
+
+def for_unreachable(cause: BaseException) -> TallyConnectionError:
+    """Nothing answered. The cause is kept verbatim rather than summarised.
+
+    NOT a business error and never a data problem: nothing reached TallyPrime,
+    so nothing was committed. The connector's own message already names the
+    address and the remedy, and rewording it here would only lose detail.
+    """
+    return TallyConnectionError(UNREACHABLE, str(cause))
 
 
 def for_unusable_body(raw: str) -> TallyRequestError:
