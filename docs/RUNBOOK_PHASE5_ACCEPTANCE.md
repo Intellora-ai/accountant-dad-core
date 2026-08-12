@@ -1,10 +1,17 @@
 # Runbook — Phase 5 acceptance run (N = 10) against a real TallyPrime
 
-**Status: PREPARATION. Nothing in this file has been run against a real Tally.**
+**Status: PREPARATION. The N = 10 run in PARTS A–I has not happened.**
 
-Written 2026-08-10. Everything here is a plan for a run that has not happened.
-No live evidence is claimed anywhere in this document. When the run happens, the
-evidence is the JSON bundle the tool writes — not this file.
+Written 2026-08-10. Everything in PARTS A–I is a plan for a run that has not
+happened. No live evidence is claimed there. When the run happens, the evidence
+is the JSON bundle the tool writes — not this file.
+
+**One exception, added 2026-08-12: [PART J](#part-j--what-a-real-licensed-tally-has-already-shown-and-what-it-has-not).**
+A different, smaller run did reach a real licensed TallyPrime — one company, one
+voucher, read back. PART J records exactly which of the fifteen conditions that
+touched (four) and which it did not (eleven), because "we have written into a
+real Tally" and "the acceptance run passed" are different sentences and only one
+of them is true.
 
 ---
 
@@ -82,6 +89,37 @@ ledger is missing, because Tally will not create one on the fly
 (`real.py:2274-2297`).
 
 This is the single owner action that unblocks the whole phase.
+
+### A.0.1 This is a scope boundary, not a defect — owner decision 2026-08-12
+
+**Company creation is permanently outside this software's scope, and no XML
+workaround will be attempted.** Recorded here so the question is not reopened.
+
+The reasoning is about what the gateway is *for*, not about a missing feature.
+Tally's XML/HTTP gateway imports and exports **masters and transactions into a
+company that is already loaded**. Creating a company is an administrative flow
+in the TallyPrime window — Gateway of Tally → Create Company — and it is not on
+the documented integration surface at all. `Unknown Request, cannot be
+processed` is Tally answering correctly, not failing.
+
+So the split is fixed, and it is the same split for the acceptance run and for
+every future customer being onboarded:
+
+| Who | Does what |
+|---|---|
+| A person, in the TallyPrime window | creates the company, switches the HTTP gateway on, loads the company |
+| This software, over HTTP/XML | connects to that loaded company, creates ledgers, posts vouchers, reads reports back |
+
+Anything that reached across that line would be a workaround against an
+undocumented surface. It would break on a Tally release nobody controls, in a
+customer's live books, and it would be unsupportable when it did.
+
+**`Demo Co` is a name, not a requirement.** The company name is a parameter
+everywhere — `--company` on the command line, `COMPANY_NAME` in a script. This
+runbook uses `Demo Co` so that the pass conditions in PART C have something
+exact to compare against. The same steps work against any company a person has
+created and opened, which is why the run described in PART J counts as evidence
+of the pattern even though the company was called something else.
 
 ## A.1 Create the company `Demo Co`
 
@@ -181,7 +219,15 @@ connector lists open companies and refuses if `Demo Co` is not among them
 - [ ] Ledger `Cash` exists under Cash-in-Hand.
 - [ ] Ledger `Sharma Traders` exists under Sundry Creditors, bill-by-bill = No.
 - [ ] A real backup of `Demo Co` has been taken and its location noted.
+- [ ] **Tally's HTTP gateway is switched ON** — F1 → Settings → Advanced
+      Configuration → **HTTP Server: Yes**, port **9000**. Added 2026-08-12: the
+      list below asked only that the port be *known*, which is not the same as
+      it being *open*. A gateway that is off answers nothing at all, and until
+      2026-08-12 that arrived as a raw traceback rather than a sentence.
 - [ ] The VM's IP address and Tally's port are known (default port 9000).
+- [ ] The host can actually reach that port. On a VirtualBox NAT VM it cannot
+      without a port-forward rule — the guest's `10.0.2.15` is unreachable from
+      the host, measured 2026-08-12. See `PROJECT_STATE.md` §47.1.
 
 If any box is unticked, stop. Nothing below will work and some of it will fail
 in a way that is harder to read than "the company is not there".
@@ -858,6 +904,85 @@ as answering the second.
 2026-08-08, Option 2: Tally stays in Educational mode. Phase 2 is therefore
 `ENVIRONMENT-LIMITED`, and the 2026-08-07 fixture is never edited to make it
 pass. This runbook is written to work inside that decision, not around it.
+
+---
+
+# PART J — WHAT A REAL LICENSED TALLY HAS ALREADY SHOWN, AND WHAT IT HAS NOT
+
+Added 2026-08-12, after a run that was not this run.
+
+## J.1 What happened
+
+A licensed TallyPrime, a company a person had created in the GUI called
+`TANVEER SIDHU`, and `mvp_real_tally.py` driving `accountant/tallyio/`. Full
+account in `PROJECT_STATE.md` §47.
+
+- Ledgers created over XML: `Test Supplier` (Sundry Creditors), `Purchase`
+  (Purchase Accounts), `Bank Of Test`.
+- One Purchase voucher posted: 12-Aug-2026, ₹1,000, Purchase Dr / Test Supplier
+  Cr, narration `MVP end-to-end run`.
+- Read back out of the books afterwards and matched.
+
+Evidence class `LICENSED_REALTALLY` — a licensed Tally, not Educational and not
+a fake.
+
+## J.2 What it settles
+
+**The shape of the integration, end to end, against a real licensed Tally.**
+Connect to a company a human created → create ledgers that were not there →
+post a voucher → read it back. That is the whole loop this product depends on,
+and before 2026-08-12 no part of it had run outside a fake.
+
+It also settles the boundary in A.0.1 by demonstration rather than argument: a
+person made the company, the software did everything after that, and the company
+was not called `Demo Co`. The name is a parameter.
+
+## J.3 What it does NOT settle, condition by condition
+
+**This is not an acceptance pass and must never be recorded as one.** PART C
+requires all fifteen conditions and states plainly that there is no partial
+credit. Measured against that list:
+
+| # | Condition | Status after the §47 run |
+|---|---|---|
+| 1 | `vouchers_posted` = 10 | **NO** — one voucher, not ten |
+| 2 | `operation_ids_distinct` = 10 | **NOT RUN** |
+| 3 | `voucher_identities_distinct` = 10 | **NOT RUN** |
+| 4 | `correct_company` | **yes** — for `TANVEER SIDHU` |
+| 5 | `postings_read_back` | **yes, for one** — matched on read-back |
+| 6 | `duplicate_created_nothing` = 0 | **FAILED AT THE TIME.** The script was run twice and a second ₹1,000 voucher was created. Fixed in code since; see J.4 |
+| 7 | `no_user_voucher_selected` = 0 | **NOT RUN** |
+| 8 | `user_vouchers_untouched` | **NOT RUN** |
+| 9 | `reversals_succeeded` = 10 | **NOT RUN** — nothing was reversed |
+| 10 | `reversals_read_back` = 0 | **NOT RUN** |
+| 11 | `no_unknown_outcome` = 0 | **NOT RUN** |
+| 12 | `no_wrong_movement` = 0 | **NOT RUN** |
+| 13 | `cleanup_completed` | **NOT RUN** |
+| 14 | `trial_balance_restored` | **FAILS TODAY.** The duplicate from condition 6 is still in those books. The trial balance shows ₹2,000 against `Test Supplier` for one ₹1,000 bill |
+| 15 | `evidence_complete` | **NO** — no evidence bundle was written; this was a script, not `ci/acceptance.py` |
+
+Four of fifteen exercised, one of them failed, and one of them is **still
+failing right now in a real company's books**. Calling that a pass would mean
+writing "restored to the last paisa" over books that are ₹1,000 out.
+
+## J.4 What changed because of it, and what is still owed
+
+The duplicate was not shrugged off. Every `create_*_voucher` in
+`accountant/tallyio/vouchers.py` now requires an `operation_id`, asks TallyPrime
+whether that id is already posted, and sends nothing if it is. The check fails
+closed: a probe that cannot be answered posts nothing. Both behaviours are held
+down by tests in `tests/test_tallyio_idempotency.py`, and both were confirmed by
+mutation — the tests were watched failing before they were trusted.
+
+Still owed, and neither is code:
+
+1. **The duplicate voucher in `TANVEER SIDHU` has not been removed.** A deletion
+   in TallyPrime is not undoable and these are the owner's real books, so it is
+   the owner's call, not this software's.
+2. **The N = 10 run in PARTS A–I has still never happened.** J.2 is the pattern;
+   PARTS A–I are the proof. They are not substitutes for each other, and the
+   header of this file — *"Nothing in this file has been run against a real
+   Tally"* — remains true of everything above PART J.
 
 ---
 
