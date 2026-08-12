@@ -16,6 +16,24 @@ repository        = "Intellora-ai/accountant-dad-core"
 required_pr_check = "pr-fast"
 required_mq_check = "ci-gate"
 
+# WHICH APP is allowed to report the two required checks.
+#
+# A required status check is satisfied by whoever writes a status with that
+# exact string. Any GitHub App installed here with `commit statuses: write` can
+# write `pr-fast: success` and satisfy the requirement without a gate having
+# run. Pinning integration_id means only that app's reports count.
+#
+# This number is NOT chosen here. It was read live from ruleset 20557129 on
+# 2026-08-10, after the owner pinned both contexts at 06:51:46Z, and it is
+# recorded so ci/check_ruleset.py can tell "still pinned to Actions" apart from
+# "pinned to something else" and from "unpinned".
+#
+# 15368 is GitHub Actions. Verified rather than assumed: the check runs on
+# commit f22eace report app.slug "github-actions" with app.id 15368. This
+# repository has a second app that reports checks - "claude", app id 1236702 -
+# so the pin excludes something real.
+required_check_app_id = 15368
+
 # Workflows that deliberately have no gate behind them. Listed here, never
 # silently excluded. claude.yml is advisory: Claude may inspect failures and
 # propose fixes, but deterministic tools decide whether a gate passes, and

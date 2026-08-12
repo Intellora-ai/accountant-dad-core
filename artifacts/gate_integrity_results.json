@@ -1,0 +1,248 @@
+{
+  "generated": "2026-08-10T07:23:39Z",
+  "checker": "ci/check_workflow_integrity.py",
+  "trusted_policy_source": "a pristine copy of the post-repair tree, standing in for `git show origin/main:<path>`, which is what the checker uses by default",
+  "control": {
+    "name": "control: an untouched copy",
+    "injected": "nothing",
+    "exit_code": 0,
+    "verdict": "ACCEPTED",
+    "expected": "ACCEPTED",
+    "caught_by": [],
+    "warnings": [
+      "DECLARED BUT NOT EXECUTED IN ANY WORKFLOW STEP (unchanged from main, so not a regression - but not a gate either): ['cached-mutation', 'lockfile']"
+    ]
+  },
+  "fixture_count_tested": 17,
+  "fixture_count_in_mandate": 15,
+  "count_note": "The mandate said fifteen. The itemised list in the mandate has seventeen entries. Seventeen were built and seventeen were run. Nothing was dropped to reach a number and nothing was padded.",
+  "rejected": 17,
+  "accepted": 0,
+  "false_green": 0,
+  "fixtures": [
+    {
+      "n": 1,
+      "name": "delete security-scan step",
+      "exit_code": 1,
+      "verdict": "REJECTED",
+      "caught_by": [
+        "FLAG_REMOVED",
+        "STEP_REMOVED"
+      ],
+      "first_detail": ".github/workflows/pr-fast.yml:pr-fast:security-scan",
+      "finding_count": 3
+    },
+    {
+      "n": 2,
+      "name": "delete dependency-scan step",
+      "exit_code": 1,
+      "verdict": "REJECTED",
+      "caught_by": [
+        "FLAG_REMOVED",
+        "STEP_REMOVED"
+      ],
+      "first_detail": ".github/workflows/full.yml:security:dependency-audit",
+      "finding_count": 4
+    },
+    {
+      "n": 3,
+      "name": "delete mutation step",
+      "exit_code": 1,
+      "verdict": "REJECTED",
+      "caught_by": [
+        "FLAG_REMOVED",
+        "STEP_REMOVED"
+      ],
+      "first_detail": ".github/workflows/full.yml:mutation:full-mutation",
+      "finding_count": 5
+    },
+    {
+      "n": 4,
+      "name": "delete coverage step",
+      "exit_code": 1,
+      "verdict": "REJECTED",
+      "caught_by": [
+        "FLAG_REMOVED",
+        "GATE_UNWIRED",
+        "STEP_REMOVED"
+      ],
+      "first_detail": ".github/workflows/pr-fast.yml:pr-fast:changed-coverage",
+      "finding_count": 5
+    },
+    {
+      "n": 5,
+      "name": "rename required job",
+      "exit_code": 1,
+      "verdict": "REJECTED",
+      "caught_by": [
+        "JOB_ADDED",
+        "JOB_REMOVED",
+        "REQUIRED_CONTEXT_JOB_MISSING"
+      ],
+      "first_detail": ".github/workflows/pr-fast.yml:pr-fast",
+      "finding_count": 3
+    },
+    {
+      "n": 6,
+      "name": "rename required step",
+      "exit_code": 1,
+      "verdict": "REJECTED",
+      "caught_by": [
+        "STEP_ADDED",
+        "STEP_REMOVED"
+      ],
+      "first_detail": ".github/workflows/pr-fast.yml:pr-fast:security-scan",
+      "finding_count": 2
+    },
+    {
+      "n": 7,
+      "name": "edit ci/gate_names.lock",
+      "exit_code": 1,
+      "verdict": "REJECTED",
+      "caught_by": [
+        "LOCK_NAME_REMOVED"
+      ],
+      "first_detail": "ci/gate_names.lock:security-scan",
+      "finding_count": 1
+    },
+    {
+      "n": 8,
+      "name": "edit workflow and lock file together",
+      "exit_code": 1,
+      "verdict": "REJECTED",
+      "caught_by": [
+        "FLAG_REMOVED",
+        "GATE_REMOVED",
+        "LOCK_NAME_REMOVED",
+        "STEP_REMOVED"
+      ],
+      "first_detail": ".github/workflows/full.yml:security:security-scan",
+      "finding_count": 8
+    },
+    {
+      "n": 9,
+      "name": "change --check to --frozen only",
+      "exit_code": 1,
+      "verdict": "REJECTED",
+      "caught_by": [
+        "FLAG_REMOVED",
+        "GATE_UNWIRED",
+        "STEP_RUN_CHANGED"
+      ],
+      "first_detail": ".github/workflows/pr-fast.yml:pr-fast:format",
+      "finding_count": 3
+    },
+    {
+      "n": 10,
+      "name": "make the protection test skip in CI",
+      "exit_code": 1,
+      "verdict": "REJECTED",
+      "caught_by": [
+        "PROTECTION_TEST_SKIPPABLE"
+      ],
+      "first_detail": "ci/test_protection.py:pytest.mark.skipif",
+      "finding_count": 2
+    },
+    {
+      "n": 11,
+      "name": "replace a failure with continue-on-error",
+      "exit_code": 1,
+      "verdict": "REJECTED",
+      "caught_by": [
+        "CONTINUE_ON_ERROR_ADDED",
+        "STEP_RUN_CHANGED"
+      ],
+      "first_detail": ".github/workflows/pr-fast.yml:pr-fast:security-scan",
+      "finding_count": 2
+    },
+    {
+      "n": 12,
+      "name": "add a fake job with the required old name",
+      "exit_code": 1,
+      "verdict": "REJECTED",
+      "caught_by": [
+        "JOB_ADDED",
+        "STEP_ADDED",
+        "STEP_REMOVED"
+      ],
+      "first_detail": ".github/workflows/pr-fast.yml:pr-fast:checkout",
+      "finding_count": 18
+    },
+    {
+      "n": 13,
+      "name": "remove the fail-closed catch-all",
+      "exit_code": 1,
+      "verdict": "REJECTED",
+      "caught_by": [
+        "FAIL_CLOSED_BRANCH_REMOVED"
+      ],
+      "first_detail": "ci/check_aggregate.py",
+      "finding_count": 1
+    },
+    {
+      "n": 14,
+      "name": "change an action SHA",
+      "exit_code": 1,
+      "verdict": "REJECTED",
+      "caught_by": [
+        "ACTION_SHA_CHANGED",
+        "STEP_RUN_CHANGED"
+      ],
+      "first_detail": ".github/workflows/pr-fast.yml:pr-fast:checkout",
+      "finding_count": 4
+    },
+    {
+      "n": 15,
+      "name": "add an unpinned action",
+      "exit_code": 1,
+      "verdict": "REJECTED",
+      "caught_by": [
+        "ACTION_UNPINNED",
+        "STEP_ADDED"
+      ],
+      "first_detail": ".github/workflows/pr-fast.yml:pr-fast:extra setup",
+      "finding_count": 2
+    },
+    {
+      "n": 16,
+      "name": "add pull_request_target",
+      "exit_code": 1,
+      "verdict": "REJECTED",
+      "caught_by": [
+        "UNSAFE_TRIGGER",
+        "WORKFLOW_HEADER_CHANGED"
+      ],
+      "first_detail": ".github/workflows/pr-fast.yml:header",
+      "finding_count": 2
+    },
+    {
+      "n": 17,
+      "name": "expose a secret to PR code",
+      "exit_code": 1,
+      "verdict": "REJECTED",
+      "caught_by": [
+        "SECRET_ON_PR_PATH",
+        "STEP_RUN_CHANGED"
+      ],
+      "first_detail": ".github/workflows/pr-fast.yml:pr-fast:lint",
+      "finding_count": 2
+    }
+  ],
+  "negative_control": {
+    "name": "delete the security-scan step AND both checker anchors",
+    "checker_present_in_the_candidate_tree": false,
+    "what_actually_happens_in_ci": "NOT CAUGHT. The pull request supplies the workflow, so the step that would invoke the checker is gone, and it supplies the test suite, so the test that would invoke the checker is gone. Nothing runs, so nothing objects.",
+    "if_the_checker_had_run": [
+      "ANCHOR_MISSING",
+      "FLAG_REMOVED",
+      "GUARD_FILE_REMOVED",
+      "STEP_REMOVED"
+    ],
+    "verdict": "BLOCKED_ON_OWNER_ACTION",
+    "fix": [
+      "ruleset rule: file_path_restriction on .github/** and ci/**",
+      "CODEOWNERS + require_code_owner_review=true + required_approving_review_count>=1"
+    ]
+  },
+  "what_17_of_17_does_not_mean": "Every fixture above was applied with the checker left in place. The checker lives in the tree the fixture is editing, so a pull request that removes the gate AND the checker is not caught by anything in this repository. See negative_control."
+}

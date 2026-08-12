@@ -11,37 +11,60 @@ it.
 
 ## THE FOUR LINES ONLY YOU CAN APPLY
 
-Everything below this block is either done, decided, or genuinely waiting on a
-person. **This section is the short version: one secret and four lines, and they
-unblock four separate pieces of work at once.**
+**AUTHORISED BY YOU 2026-08-11, AND STILL BLOCKED BY THIS ENVIRONMENT.** You
+gave explicit permission for these exact edits. The file tool still answers
+*"File is in a directory that is denied by your permission settings"*, and the
+shell path is refused by the permission classifier. Your authorisation does not
+lift it: it is a harness setting on the directory, not a missing permission from
+you. Routing around it would be bypassing the intent of the denial, so it was
+not attempted. **These are paste-ready.**
 
-Every line below was read out of the file on `main` before being written here,
-and the line numbers are from that read. Correcting an earlier version of this
-block that said "beside the existing `GH_TOKEN`" in `pr-fast.yml`: there is no
-`GH_TOKEN` in that file at all. `full.yml` has one, twice, at step level; the
-workflow that runs on every pull request does not.
+### 1. The secret — DONE
 
-`.github/` is refused twice over in this environment — the file tool denies the
-directory, and the shell path is refused by the permission classifier. Both
-refusals stand even with your written authorisation, because they are a harness
-setting rather than a missing permission from you. Working around either would
-be bypassing the intent of the denial, so it was not attempted.
+`CLAUDE_AUDIT_TOKEN` exists as a repository secret, created 2026-08-11:
+fine-grained, `Administration: read` only, no expiration, scoped to this
+repository. Nothing further needed.
 
-### 1. Create the secret
+### 2. `pr-fast.yml` — REMOVE the audit token (lines 40-42)
 
-Repository secret, name exactly `CLAUDE_AUDIT_TOKEN`. A fine-grained personal
-access token with **`Administration: read` and nothing else**. Never send the
-value to anybody, including me — the code that uses it never needs to see it,
-and a test asserts it is never printed.
+It is currently in the workflow-level `env:` block and **it must come out.**
+`ci/check_workflow_integrity.py` reports it as
+`[WEAKENING] SECRET_ON_PR_PATH`, a finding that **cannot be acknowledged**, and
+that single finding is what keeps PR #34 red.
 
-### 2. One line at `pr-fast.yml:66`
-
-This is the `lockfile` gate, and it has never checked anything: `--frozen` is the
-one uv flag that guarantees the check is SKIPPED. The comment above the line
-already says this step IS the gate.
+The rule is right. `pr-fast` runs `pytest` over the code in the pull request, so
+a secret in that job sits in the environment of arbitrary PR code.
 
 ```
-BEFORE  (lines 63-66)
+BEFORE
+  GH_TOKEN: ${{ github.token }}  # Administration:read only. Separate from GH_TOKEN on purpose - the nine live
+  # protection tests measure what the DEFAULT identity can do.
+  CLAUDE_AUDIT_TOKEN: ${{ secrets.CLAUDE_AUDIT_TOKEN }}
+
+AFTER
+  # The DEFAULT identity, so the nine live protection tests actually run. They
+  # measure what the token CI runs as can do to branch protection, and the
+  # refusal IS the measurement. Unauthenticated, `gh` cannot even ask.
+  #
+  # NOT the audited identity, and that is not an omission. This workflow is
+  # triggered by `pull_request`, and ci/check_workflow_integrity.py refuses any
+  # `secrets.*` in a PR-triggered workflow: SECRET_ON_PR_PATH, a WEAKENING that
+  # cannot be acknowledged. This job runs pytest over the code in the pull
+  # request, so a secret here sits in the environment of arbitrary PR code.
+  # CLAUDE_AUDIT_TOKEN lives in watchdog.yml, which has no pull-request trigger.
+  GH_TOKEN: ${{ github.token }}
+```
+
+`RUN_DESTRUCTIVE_TESTS: "1"` and its comment **stay exactly as they are.** Not a
+secret, and the tamper tests need it.
+
+### 3. `pr-fast.yml` line 72 — the lockfile gate
+
+`--frozen` is the one uv flag that guarantees the check is SKIPPED. This step's
+own comment already says it IS the gate.
+
+```
+BEFORE  (lines 69-72)
       - name: sync dependencies from the lockfile
         # --frozen fails if uv.lock does not match pyproject.toml, which is the
         # `uv lock --check` gate.
@@ -56,68 +79,52 @@ AFTER
         run: uv sync --extra dev --locked
 ```
 
-**A second `--frozen` exists at `pr-fast.yml:243`, and five more in `full.yml`.**
-You authorised one change, to the gate step, so only line 66 is written out
-above. The others are named here rather than changed, because changing a line
-you did not name is how a diff stops being reviewable. Whether they should
-follow is your call, not mine.
+**This gate has never run once, so `uv.lock` may be stale.** If CI goes red here
+on the first run, that is the gate working, not a regression: run `uv lock`,
+commit the updated lockfile, push. `uv` is not installed in the agent
+environment, so that one command is yours.
 
-### 3. Three lines in the `pr-fast.yml` `env:` block
+The second `--frozen` at line 249 and the five in `full.yml` are **named here
+and deliberately not changed** — you authorised one change to one step.
 
-The block today ends at `FORCE_COLOR` (lines 32-39). All three lines are
-additions; nothing in it is removed or renamed.
+### 4. `watchdog.yml` — a NEW step, where the token is allowed
 
-```
-BEFORE  (last line of the block)
-  FORCE_COLOR: "1"
+`watchdog.yml` triggers on `schedule` and `workflow_dispatch` only. No
+pull-request trigger, so no PR code ever runs there and the checker permits a
+secret. It is also already the branch-protection auditor: its own header says
+*"Someone turns off a rule, or adds a bypass actor, and every gate downstream
+becomes decoration."*
 
-AFTER
-  FORCE_COLOR: "1"
-
-  # The DEFAULT identity, so the nine live protection tests actually run. They
-  # measure what the token CI runs as can do to branch protection, and a refusal
-  # is the measurement. Unauthenticated, `gh` cannot even ask, so every hosted
-  # run took the skip and measured nothing.
-  GH_TOKEN: ${{ github.token }}
-
-  # The audited identity, Administration:read only. Separate from GH_TOKEN
-  # ON PURPOSE - GH_TOKEN must stay exactly what it is, because the nine tests
-  # above measure the DEFAULT identity. Replacing it would destroy that.
-  CLAUDE_AUDIT_TOKEN: ${{ secrets.CLAUDE_AUDIT_TOKEN }}
-
-  # The four tamper tests are skipped by default so a plain `pytest` never asks
-  # GitHub to delete a repository. In CI the refusal IS the measurement, so CI
-  # opts in.
-  RUN_DESTRUCTIVE_TESTS: "1"
-```
-
-`GH_TOKEN` is also added by PR #34 itself. If you merge that PR the line arrives
-with it and you do not need to type it twice — but #34 cannot go green until the
-secret exists, so the secret comes first either way.
-
-### What those four lines unblock
+Step-level, not job-level, so only this step sees the value. Add it inside the
+`ruleset-drift` job, after the `audit branch protection` step:
 
 ```
-the secret + CLAUDE_AUDIT_TOKEN  ->  bypass_actors becomes readable, so the
-                                     honest three-state reporting stops turning
-                                     CI red
-GH_TOKEN                         ->  the nine live protection tests stop being
-                                     skipped on every hosted run
-both of those                    ->  ci/test_protection.py's module-level skipif
-                                     can go, and PR #34 replaces it with a
-                                     fixture that FAILS in CI rather than skips
-that skip going                  ->  ci/check_workflow_integrity.py can land,
-                                     since it correctly refuses to pass a tree
-                                     containing one
-the checker landing              ->  the ack-fingerprint content hash lands with
-                                     it - your decision of 2026-08-11, built and
-                                     waiting on PR #34
-line 66                          ->  the lockfile gate starts checking
-RUN_DESTRUCTIVE_TESTS            ->  the tamper tests measure the refusal in CI
+      - name: measure bypass_actors
+        # The one place in this repository where a secret is permitted: this
+        # workflow has no pull-request trigger, so no PR code runs beside it.
+        #
+        # ci/test_protection.py is the ONLY Python file allowed to read this
+        # variable - test_only_this_file_reads_the_audit_token enforces that -
+        # so the token is handed to the step that runs it and to nothing else.
+        env:
+          CLAUDE_AUDIT_TOKEN: ${{ secrets.CLAUDE_AUDIT_TOKEN }}
+          RUN_DESTRUCTIVE_TESTS: "1"
+        run: uv run pytest ci/test_protection.py -q
 ```
 
-**One action, four unblocked.** PR #34 goes green on its own once they are
-applied; nothing further needs writing.
+The other job's `GH_TOKEN: ${{ github.token }}` at line 60, and the audit step's
+at line 115, are **not touched**.
+
+### What these four unblock
+
+```
+2 (token out of pr-fast)  ->  SECRET_ON_PR_PATH clears, and PR #34 can go green
+4 (token into watchdog)   ->  bypass_actors is measured somewhere it is legal to
+                              measure it, instead of nowhere
+3 (--locked)              ->  the lockfile gate starts checking, first time ever
+```
+
+**One editing session, four things fixed.**
 
 ---
 
@@ -155,10 +162,70 @@ same duplication failure the header of this file was written about.
 automatable), then the two paths as deployment configuration. Until then the
 server runs plain HTTP on loopback and says so loudly at every start.
 
-### Production reader selection
-No document reader is selected. `D-23` is open.
-`artifacts/extraction_backends.md:3` — *"third-party backend selection =
-OWNER_DECISION_REQUIRED"*.
+### Production reader selection — CHOSEN AND BUILT, ACCOUNT AND VERIFICATION STILL YOURS
+
+**Launch scope (D-23): typed-text entry and uploaded documents (PDF/PNG/JPG)
+enabled at launch. Azure backend implemented; real-invoice verification required
+before general availability.** Recorded in full at `docs/DECISIONS.md`, D-23.
+
+The decision as recorded, verbatim:
+
+> D-23 (2026-08-11): First launch supports typed-text entry and uploaded documents (PDF/PNG/JPG) via Azure Document Intelligence. Azure backend is implemented; real-invoice verification is required before general availability.
+
+**Vendor: Azure Document Intelligence**, chosen 2026-08-11 for its Central India
+region and the clearest retention terms of the three compared. Registered as
+`azure`; it is the default. Implementation is on PR #61.
+
+**Azure extractor status: `UNVERIFIED_VENDOR_SHAPE` until real invoices are
+tested.** No request has yet reached Azure in production. Parser is based on
+documented shape; tests use synthetic responses. Real-invoice verification
+required before general availability.
+
+That label is not modesty and it is not a formality. The parser and the test
+fixtures were written by the same author from the same documentation, so a green
+suite proves they agree with each other. Nothing so far can tell you they agree
+with Azure. **Do not let anyone write "verified" until a real bill has gone
+through end to end.**
+
+**What is left for you, in order:**
+
+1. **Create the Azure Document Intelligence resource** and take its two values.
+   Nothing here can do that — it needs a card.
+2. **Set `ACCOUNTANT_AZURE_ENDPOINT` and `ACCOUNTANT_AZURE_KEY`** wherever the
+   app runs. `docs/DEPLOY.md` lists both with their failure modes. The key is a
+   credential: injected at run time, never in the image.
+3. **Run the real-invoice verification below** before you call it GA.
+
+**Until you do, nothing is broken.** With no credentials an uploaded document is
+refused with a sentence naming both variables, a typed bill still works exactly
+as before, and nothing is guessed. There is no fallback, deliberately: a reader
+that quietly degrades to guessing is the failure the extraction package exists
+to prevent.
+
+#### Real-invoice verification — REQUIRED BEFORE GA
+
+1. Configure real credentials in a test environment.
+2. Upload **10–20 real invoices** (PDF/PNG/JPG) — actual customer bills or
+   representative samples.
+3. Verify extracted fields against the paper: vendor, date, amount, GST
+   breakdown. Verify error handling too: malformed files, unsupported formats.
+4. Record the results in `docs/AZURE_VERIFICATION.md` — how many tested, the
+   accuracy rate, every issue found and what was done about it.
+5. Only then change the status here from `UNVERIFIED_VENDOR_SHAPE` to
+   `VERIFIED_ON_REAL_INVOICES`.
+
+**Until step 5 is done, the launch is beta or early access, not GA.** That is
+not a marketing choice; it is what the evidence currently supports.
+
+**Two numbers here were chosen by the implementer, not by you**, and are
+recorded so you can overrule them: a 60-second overall deadline and a 1-second
+poll interval for Azure's asynchronous analysis
+(`accountant/reader/azure.py`). Both are constructor arguments, so changing them
+does not mean editing that file.
+
+`artifacts/extraction_backends.md:3` recorded this as
+`OWNER_DECISION_REQUIRED`; the decision is made, and that line is history rather
+than a live block.
 
 **The seam is now BUILT — Task 9, 2026-08-11.** Before that day,
 `grep -rn "multipart\|enctype\|type=file" accountant/` returned nothing: there
@@ -400,6 +467,40 @@ tidy a cosmetic leak is the thing this project has a rule against.
 part of the decision. Recorded here rather than added, so the choice is visible
 rather than taken quietly.
 
+### Destructive tests are opt-in — DONE, landed separately
+
+Merged on its own so it did not have to wait on a secret. A plain `pytest` no
+longer asks GitHub to delete anything; `RUN_DESTRUCTIVE_TESTS=1` opts in.
+
+**Needed: nothing here.** Setting `RUN_DESTRUCTIVE_TESTS=1` in CI is listed
+under the lockfile entry above, because it is the same blocked `.github` edit.
+
+
+### An acknowledgement now expires with its content — BUILT, WAITING ON YOU
+
+The fingerprint was `CODE:location`, so an acknowledgement said *"somebody
+looked at the header of `pr-fast.yml` once"* and went on saying it for ever.
+Measured: `contents: read` swapped for `write-all`, nothing else touched, no ack
+added — and the checker returned **PASS**, consuming an ack written for a
+different change.
+
+It is now `CODE:location:hash-of-the-acknowledged-content`, over all six
+acknowledgeable finding types. An ack dies the moment its content changes.
+
+**Why it has not landed.** It ships with `ci/check_workflow_integrity.py`, which
+correctly flags `ci/test_protection.py`'s module-level `pytest.mark.skipif` as
+`PROTECTION_TEST_SKIPPABLE` — a module-level skip is how those tests once passed
+on every hosted run without calling GitHub. Removing that skip needs the live
+tests to actually run in CI, which needs `CLAUDE_AUDIT_TOKEN`.
+
+So the chain is: **secret → workflow line → the skip can go → the checker can
+land.** One action of yours unblocks all four.
+
+**Needed: create `CLAUDE_AUDIT_TOKEN` and apply the two workflow lines** (this
+entry and the lockfile entry above give both verbatim). Nothing else about it is
+undecided, and no further code is waiting to be written.
+
+
 ### Legal
 Privacy policy, terms of service, billing, refunds, and a support process. The
 product will hold vendor names and amounts from real books.
@@ -443,12 +544,51 @@ database this small is not the bottleneck for a handful of accountants.
 **Needed:** nothing yet. This is recorded so the ceiling is a known number
 rather than a surprise.
 
-### Connector audit token
-`CLAUDE_AUDIT_TOKEN` — a fine-grained token with `Administration: read` and
-nothing else, as a repository secret.
+### Connector audit token — STEP 1 BUILT, STEP 2 IS ONE LINE YOU MUST APPLY
 
-Without it `ci/test_protection.py::test_bypass_actors_are_still_empty` cannot
-run: `GITHUB_TOKEN` receives a ruleset body with `bypass_actors` **absent**, and
-actionlint v1.7.12 proves `administration` is not a workflow permission scope at
-all, so no `permissions:` block can grant it. The other nine protection tests
-pass. Details in `artifacts/gate_integrity_blocked.md`.
+`bypass_actors` is withheld from `GITHUB_TOKEN`. Reading it needs repository
+`Administration: read`, which exists only as a fine-grained
+personal-access-token permission — actionlint v1.7.12 rejects `administration`
+as a workflow `permissions:` scope, so no `permissions:` block can grant it.
+That is why `test_bypass_actors_are_still_empty` reports `NOT_MEASURED` and not
+a verdict.
+
+**STEP 1 — BUILT 2026-08-11.** `ci/test_protection.py` reads
+`CLAUDE_AUDIT_TOKEN` from the environment and runs every `gh` call as that
+identity. One reader, tested: the token is forwarded, a blank one does not
+clobber a working `GH_TOKEN`, the value is never printed, no other file reads
+it, and an AST test proves `gh()` actually *uses* the environment it computes —
+that last one exists because a mutant deleted `env=` and nothing noticed.
+
+**STEP 2 — YOURS.** Two parts, neither of which can be done from here.
+
+1. Create the repository secret. Fine-grained token, **`Administration: read`
+   and nothing else**, named `CLAUDE_AUDIT_TOKEN`. Never send the value to
+   anybody, including me; the mechanism above never needs to see it.
+2. Pass it to the job. In `.github/workflows/pr-fast.yml`, the `env:` block
+   currently reads:
+
+```
+  GH_TOKEN: ${{ github.token }}
+```
+
+   Add one line beside it:
+
+```
+  CLAUDE_AUDIT_TOKEN: ${{ secrets.CLAUDE_AUDIT_TOKEN }}
+```
+
+   `GH_TOKEN` stays. It is what the other nine live protection tests run as,
+   and they are measuring what the DEFAULT identity can do — replacing it would
+   destroy that measurement.
+
+**Until step 2 is applied the constant does nothing**, and that is the honest
+state: the mechanism is complete and the wire is not connected. `.github/` is
+denied at the permission layer in this environment — see the lockfile entry
+above.
+
+**When it is applied**, `bypass_actors` becomes readable, the `NOT_MEASURED`
+outcome turns into a real verdict on its own, and the strict-xfail pair around
+it fails loudly until somebody removes the now-passing half. Nothing else needs
+changing.
+
