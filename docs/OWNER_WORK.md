@@ -293,16 +293,34 @@ what the product says when they do not. A decision closes this as firmly as a
 purchase would.
 
 ### Real-Tally testing infrastructure
-No test in this repository touches a real TallyPrime.
-`tests/test_tally_contract.py:63` yields `FakeTally`; `tests/test_real_tally.py`
-drives a simulator and says so in its own header. `LICENSED_REALTALLY` evidence:
-**none, anywhere.**
+**No automated test in this repository touches a real TallyPrime**, and that is
+still true. `tests/test_tally_contract.py:63` yields `FakeTally`;
+`tests/test_real_tally.py` drives a simulator and says so in its own header.
 
-**Needed:** `Demo Co` and four ledgers (`Purchases`, `Sundry Expenses`, `Cash`,
-`Sharma Traders`) created **in the TallyPrime GUI** — the XML gateway refuses
+**Corrected 2026-08-12.** This entry used to end *"`LICENSED_REALTALLY`
+evidence: none, anywhere."* That is no longer true. `PROJECT_STATE.md` §47
+records a run against a licensed TallyPrime — the owner's `TANVEER SIDHU`
+company, ledgers created over XML, a Purchase voucher posted and read back. It
+was a script (`mvp_real_tally.py`), not a test, so the first sentence stands and
+the third did not.
+
+It is **not** an acceptance pass. Four of the fifteen conditions in
+`RUNBOOK_PHASE5_ACCEPTANCE.md` were touched, one of those four failed, and
+condition 14 (`trial_balance_restored`) is failing in those books today: the
+script ran twice and left a duplicate ₹1,000 voucher. Condition by condition in
+that runbook's PART J. The duplicate guard that prevents a repeat is in code and
+tested; **removing the existing duplicate is an owner action** — a deletion in
+TallyPrime cannot be undone and those are real books.
+
+**Needed, and settled as permanent 2026-08-12:** `Demo Co` and four ledgers
+(`Purchases`, `Sundry Expenses`, `Cash`, `Sharma Traders`) created **in the
+TallyPrime GUI**, with the HTTP gateway switched on. The XML gateway refuses
 company creation with `<RESPONSE>Unknown Request, cannot be processed</RESPONSE>`
-and retrying it wedged a live gateway once already. Then a Windows VM reachable
-from CI if those tests are ever to run automatically.
+because company creation is an administrative flow and is not on the documented
+integration surface at all — not because a workaround is missing. No XML
+workaround will be attempted; retrying wedged a live gateway once already. See
+`RUNBOOK_PHASE5_ACCEPTANCE.md` §A.0.1. Then a Windows VM reachable from CI if
+those tests are ever to run automatically.
 
 ### GST scope for launch
 Owner decision `Q3 = D`: GST posting is **not** implemented and that is

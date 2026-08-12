@@ -60,8 +60,32 @@ Purchases · Sundry Expenses · Cash · Sharma Traders
 A company **cannot** be created over the XML gateway — it was tried and Tally
 refused. This is a GUI action or it does not happen.
 
+**Settled 2026-08-12, so nobody asks again.** This is a permanent scope
+boundary, not a gap waiting to be closed. Tally's XML gateway imports and
+exports into a company that is *already loaded*; creating one is an
+administrative flow in the Tally window and is not on the documented integration
+surface. The same split applies to every future customer: a person creates and
+opens the company, the software does the rest. Full reasoning in
+`RUNBOOK_PHASE5_ACCEPTANCE.md` §A.0.1. **No XML workaround will be attempted** —
+the last search for one wedged a live gateway behind a dialog box nobody could
+close.
+
+**One thing to add while you are in there:** switch the HTTP gateway on — F1 →
+Settings → Advanced Configuration → **HTTP Server: Yes**, port **9000**. The
+checklist used to ask only that the port be *known*, which is not the same as it
+being open.
+
 **What it unsticks:** the live acceptance run has somewhere to run. On its own it
 is not enough — item 2 is the other half.
+
+**What is NOT waiting on this:** the integration pattern already ran against a
+real licensed TallyPrime on 2026-08-12 — your `TANVEER SIDHU` company, ledgers
+created over XML, a Purchase posted and read back (`PROJECT_STATE.md` §47).
+That is **not** an acceptance pass and is not written down as one: it touched
+four of the fifteen conditions, one of those four failed, and condition 14
+(`trial_balance_restored`) is failing in those books right now because of the
+duplicate ₹1,000 voucher. Condition by condition in
+`RUNBOOK_PHASE5_ACCEPTANCE.md` PART J.
 
 ---
 
