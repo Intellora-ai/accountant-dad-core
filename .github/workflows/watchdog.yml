@@ -118,6 +118,28 @@ jobs:
           uv run --no-project python ci/check_ruleset.py \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: measure bypass_actors
+        # THE ONE WORKFLOW WHERE A SECRET IS PERMITTED, and the reason is the
+        # trigger list above: schedule and workflow_dispatch only. No
+        # pull_request, so no pull-request code ever runs beside this step.
+        # ci/check_workflow_integrity.py refuses `secrets.*` in any
+        # PR-triggered workflow (SECRET_ON_PR_PATH, a WEAKENING that cannot be
+        # acknowledged), which is why this cannot live in pr-fast.yml.
+        #
+        # STEP-LEVEL, not job-level. ci/test_protection.py is the ONLY Python
+        # file permitted to read this variable - the test
+        # test_only_this_file_reads_the_audit_token enforces that across
+        # accountant/, ci/ and scripts/ - so the token goes to the step that
+        # runs it and to nothing else in this job.
+        #
+        # bypass_actors is withheld from the default token: measured 2026-08-10
+        # on hosted run 31386545513. Reading it needs repository
+        # `Administration: read`, which only a fine-grained PAT can carry.
+        env:
+          CLAUDE_AUDIT_TOKEN: ${{ secrets.CLAUDE_AUDIT_TOKEN }}
+          RUN_DESTRUCTIVE_TESTS: "1"
+        run: uv run pytest ci/test_protection.py -q
+
       - name: evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1

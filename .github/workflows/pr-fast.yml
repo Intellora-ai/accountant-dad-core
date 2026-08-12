@@ -37,9 +37,16 @@ env:
   # 87.92% instead of 94.34%. Measured on this repository 2026-08-07.
   COVERAGE_CORE: pytrace
   FORCE_COLOR: "1"
-  GH_TOKEN: ${{ github.token }}  # Administration:read only. Separate from GH_TOKEN on purpose - the nine live
-  # protection tests measure what the DEFAULT identity can do.
-  CLAUDE_AUDIT_TOKEN: ${{ secrets.CLAUDE_AUDIT_TOKEN }}
+  # The DEFAULT identity, so the nine live protection tests actually run. The
+  # refusal IS the measurement; unauthenticated, `gh` cannot even ask.
+  #
+  # NOT the audited identity, and that is not an omission. This workflow is
+  # triggered by pull_request, and ci/check_workflow_integrity.py refuses any
+  # `secrets.*` in a PR-triggered workflow: SECRET_ON_PR_PATH, a WEAKENING that
+  # cannot be acknowledged. This job runs pytest over the code in the pull
+  # request, so a secret here sits in the environment of arbitrary PR code.
+  # CLAUDE_AUDIT_TOKEN lives in watchdog.yml, which has no pull-request trigger.
+  GH_TOKEN: ${{ github.token }}
   # The four tamper tests are skipped by default so a plain pytest never asks
   # GitHub to delete this repository. In CI the refusal IS the measurement.
   RUN_DESTRUCTIVE_TESTS: "1"
@@ -67,9 +74,11 @@ jobs:
           cache-dependency-glob: uv.lock
 
       - name: sync dependencies from the lockfile
-        # --frozen fails if uv.lock does not match pyproject.toml, which is the
-        # `uv lock --check` gate.
-        run: uv sync --extra dev --frozen
+        # --locked, NOT --frozen. This step IS the `lockfile` gate declared in
+        # ci/gates.toml, and until now it checked nothing. uv's reference:
+        # --frozen skips the check, --locked requires the lockfile to be up to
+        # date.
+        run: uv sync --extra dev --locked
 
       - name: lint
         run: uv run ruff check .
