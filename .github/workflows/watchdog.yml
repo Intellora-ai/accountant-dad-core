@@ -1,51 +1,241 @@
-name: watchdog
+name: pr-fast
 
-# Two things that nothing else would notice.
+# The single required check for a pull request.
 #
-# 1. THE NIGHTLY STOPPED RUNNING. A nightly that silently stops is worse than
-#    one that fails: failure is loud, absence is silent. This checks that a
-#    scheduled run has happened since the last time the nightly cron was due.
+# One job, deliberately. Every separate hosted job pays GitHub's runner queue,
+# boot, checkout and dependency install again - roughly 35 seconds each. This
+# repository's whole test suite runs in 0.06s locally, so splitting the fast
+# path into per-tool jobs would cost far more in start-up than it saves in
+# parallelism. The expensive work lives in full.yml, off the pull-request path.
 #
-# 2. BRANCH PROTECTION DRIFTED. Someone turns off a rule, or adds a bypass
-#    actor, and every gate downstream becomes decoration. This reads the live
-#    ruleset and compares it with ci/gates.toml.
-#
-# The audit is READ-ONLY. It opens an issue; it never repairs the ruleset.
-# An auditor that can fix what it audits is a second way for protection to
-# change quietly. Repair needs the owner's own admin identity.
-#
-# Honest limit, recorded rather than hidden: GitHub disables scheduled
-# workflows on a repository with no activity for 60 days. A watchdog running
-# ON GitHub cannot catch GitHub switching itself off. Only an off-platform
-# ping could, and that is out of scope here.
+# There is no separate aggregate job here. pr-fast IS the required check, so an
+# aggregate would only wait on it and pay a second runner start-up for nothing.
 
 on:
-  schedule:
-    # One hour after full.yml's `0 2 * * *`, so the nightly has finished before
-    # this asks whether it ran. Derived from that cron, not chosen freely.
-    - cron: "0 3 * * *"
-  workflow_dispatch:
+  pull_request:
+    # `labeled` matters: applying `ready-to-merge` is what starts the full
+    # phase. `synchronize` matters just as much - a new commit must rerun
+    # everything, so evidence is never carried across commits.
+    types: [opened, reopened, synchronize, labeled, unlabeled, ready_for_review, converted_to_draft]
+  # The merge queue reruns this same required check against the temporary
+  # merge-group commit. One required check on both triggers, never two
+  # checks each waiting for the other.
+  merge_group:
 
 permissions:
   contents: read
 
 concurrency:
-  group: watchdog-${{ github.ref }}
-  cancel-in-progress: false
+  group: pr-fast-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  # Python 3.12+ defaults coverage to the sysmon core, which does not support
+  # dynamic contexts. pytest-gremlins maps tests to lines using dynamic
+  # contexts, so on the default core that mapping is silently incomplete:
+  # mutants run against as few as 1 test instead of 22, and the score reads
+  # 87.92% instead of 94.34%. Measured on this repository 2026-08-07.
+  COVERAGE_CORE: pytrace
+  FORCE_COLOR: "1"
+  GH_TOKEN: ${{ github.token }}  # Administration:read only. Separate from GH_TOKEN on purpose - the nine live
+  # protection tests measure what the DEFAULT identity can do.
+  CLAUDE_AUDIT_TOKEN: ${{ secrets.CLAUDE_AUDIT_TOKEN }}
+  # The four tamper tests are skipped by default so a plain pytest never asks
+  # GitHub to delete this repository. In CI the refusal IS the measurement.
+  RUN_DESTRUCTIVE_TESTS: "1"
 
 jobs:
-  nightly-watchdog:
-    name: nightly-watchdog
+  pr-fast:
+    name: pr-fast
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: read   # read ci/gates.toml
-      actions: read    # list scheduled runs of full.yml
-      issues: write    # raise the alarm when the nightly stopped
+    timeout-minutes: 15
     steps:
       - name: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
+          # diff-cover compares against the base branch, so history must be here.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          enable-cache: true
+          # Never an unqualified key: a cache shared across operating systems or
+          # lockfiles can restore an incompatible dependency set.
+          cache-suffix: ${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          cache-dependency-glob: uv.lock
+
+      - name: sync dependencies from the lockfile
+        # --frozen fails if uv.lock does not match pyproject.toml, which is the
+        # `uv lock --check` gate.
+        run: uv sync --extra dev --frozen
+
+      - name: lint
+        run: uv run ruff check .
+
+      - name: format
+        run: uv run ruff format --check .
+
+      - name: typecheck
+        run: uv run pyright
+
+      - name: gate-contract
+        run: uv run pytest tests/test_gate_contract.py -q
+
+      - name: no-stub-jobs
+        run: uv run python ci/check_stubs.py
+
+      - name: install actionlint
+        # NOT the rhysd/actionlint action. It is a Docker action, so GitHub
+        # rebuilds its container on every push: measured 2026-08-08, 25s of
+        # container build for a check that takes 1s. This installer downloads
+        # the pinned v1.7.12 release binary and verifies its SHA-256 - 3.5s
+        # cold locally. It fails closed on unknown platform, failed download
+        # or checksum mismatch. It never falls back to latest or to a warning.
+        run: ./scripts/install-actionlint
+
+      - name: workflow-lint
+        run: ./.tools/actionlint -color
+
+      - name: workflow-security
+        run: uv run zizmor --persona=pedantic --format=plain .
+
+      - name: security-scan
+        # Owner-set 2026-08-07: every severity blocks, LOW included. Target is
+        # accountant/ only - tests are not shipped and never run under -O.
+        run: >
+          uv run bandit -r accountant
+          --severity-level low --confidence-level low
+
+      - name: changed-tests
+        # Selection is an optimisation, never a reason a run can be green having
+        # tested nothing. A hosted runner starts with no testmon database, so in
+        # practice this runs the complete suite; the guard below proves that
+        # rather than assuming it.
+        run: |
+          set -euo pipefail
+          run_full() {
+            echo "::notice::running the complete suite"
+            uv run pytest -n auto --cov --cov-report=xml --junitxml=junit.xml -q
+          }
+          if [ -f .testmondata ]; then
+            uv run pytest --testmon -n auto --cov --cov-report=xml \
+              --junitxml=junit.xml -q
+          else
+            echo "no testmon database: selection would be a guess"
+            run_full
+          fi
+          # Read the count with a regex rather than an XML parser: stdlib XML
+          # parsers accept external entities, and a gate should not widen the
+          # attack surface it exists to protect.
+          ran=$(sed -n 's/.*<testsuite[^>]* tests="\([0-9]*\)".*/\1/p' \
+            junit.xml | head -1)
+          echo "tests executed: ${ran:-0}"
+          if [ "${ran:-0}" -lt 1 ]; then
+            echo "::error::zero tests ran - a green result here would mean nothing"
+            run_full
+          fi
+
+      - name: changed-coverage
+        # Owner-set 90, on the lines this change touched.
+        #
+        # github.base_ref is set on pull_request and EMPTY on merge_group, so it
+        # cannot be used alone: on a merge-queue run it would compare against
+        # "origin/" and compare nothing. Both forms are read here, and the
+        # repository default is the last resort.
+        #
+        # All three reach the shell through the environment, never through
+        # string interpolation into the script.
+        env:
+          PR_BASE: ${{ github.base_ref }}
+          MQ_BASE: ${{ github.event.merge_group.base_ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          base="${PR_BASE:-${MQ_BASE:-}}"
+          base="${base#refs/heads/}"
+          base="${base:-${DEFAULT_BRANCH}}"
+          echo "comparing against origin/${base}"
+          git rev-parse --verify "origin/${base}" >/dev/null
+          uv run diff-cover coverage.xml \
+            --compare-branch="origin/${base}" \
+            --fail-under=90
+
+      # Mutation testing is deliberately NOT here. Measured 2026-08-07: it was
+      # 69 of the 100 seconds of a warm pull-request run, while every other gate
+      # together took 18. A fresh runner has no gremlins cache, so "changed
+      # files only" was in fact re-running all 267 mutants every time. It now
+      # runs in full.yml with a persistent cache. The 90 percent threshold and
+      # the complete-inventory accounting are unchanged - authoritative, but not
+      # in the required pull-request path.
+
+      - name: reproducibility record
+        # A score nobody can reproduce is a rumour. Every version that could
+        # change the answer is written down beside the answer.
+        if: ${{ always() }}
+        env:
+          SHA: ${{ github.sha }}
+          RUNNER_OS_NAME: ${{ runner.os }}
+        run: |
+          set -euo pipefail
+          {
+            echo "commit           ${SHA}"
+            echo "runner           ${RUNNER_OS_NAME} $(uname -m)"
+            echo "python           $(uv run python -V)"
+            echo "uv               $(uv --version)"
+            echo "lockfile sha256  $(sha256sum uv.lock | cut -d' ' -f1)"
+            echo "workflow sha256  $(sha256sum .github/workflows/pr-fast.yml | cut -d' ' -f1)"
+            echo "coverage core    ${COVERAGE_CORE}"
+            echo "ruff             $(uv run ruff --version)"
+            echo "pyright          $(uv run pyright --version | head -1)"
+            echo "pytest           $(uv run pytest --version)"
+            echo "coverage         $(uv run coverage --version | head -1)"
+            echo "bandit           $(uv run bandit --version 2>&1 | head -1)"
+          } | tee reproducibility.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: evidence
+        # always(), not !cancelled(): a cancelled run still leaves whatever it
+        # managed to produce. A failed run with no evidence is a failure you
+        # cannot diagnose.
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: pr-fast-evidence
+          path: |
+            coverage.xml
+            junit.xml
+            reproducibility.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # The full phase. Runs only when the `ready-to-merge` label is present, which
+  # Claude applies as the first step of merging. The owner never applies it and
+  # never merges, so there is no human step to forget.
+  #
+  # The label is what makes this cheap: while iterating you pay the fast phase
+  # only. You pay the full phase once, when the change is actually landing.
+  # ---------------------------------------------------------------------------
+  pr-full:
+    name: pr-full
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: pr-fast
+    # Draft means still iterating: fast checks only, so a push costs seconds.
+    # Ready for review, or the ready-to-merge label, means the change is being
+    # put forward: everything runs, against the same merge commit. A later push
+    # to a ready pull request reruns both, so evidence is never carried across
+    # commits.
+    if: >
+      github.event_name == 'merge_group' ||
+      github.event.pull_request.draft == false ||
+      contains(github.event.pull_request.labels.*.name, 'ready-to-merge')
+    steps:
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: install uv
@@ -55,74 +245,152 @@ jobs:
           cache-suffix: ${{ runner.os }}-${{ hashFiles('uv.lock') }}
           cache-dependency-glob: uv.lock
 
-      - name: has the nightly run since it was last due?
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
+      - name: sync dependencies from the lockfile
+        run: uv sync --extra dev --frozen
+
+      - name: full-tests
+        run: uv run pytest -n auto --junitxml=junit-full.xml -q
+
+      - name: full-coverage
         run: |
           set -euo pipefail
-          # The window is derived from full.yml's own cron, never from a
-          # grace period nobody set. The nightly is due daily at 02:00 UTC, so
-          # a scheduled run must exist within the last 24 hours.
-          latest=$(gh api \
-            "repos/${REPO}/actions/workflows/full.yml/runs?event=schedule&per_page=1" \
-            --jq '.workflow_runs[0].created_at // ""')
+          uv run coverage run -m pytest -q
+          uv run coverage xml -o coverage-full.xml
+          uv run coverage report
 
-          if [ -z "${latest}" ]; then
-            echo "::warning::no scheduled run of full.yml has EVER happened"
-            uv run --no-project python ci/report_nightly.py \
-              --status failure --run-id "${RUN_ID}" \
-              --jobs "nightly-never-ran"
-            exit 1
-          fi
-
-          age=$(( $(date -u +%s) - $(date -u -d "${latest}" +%s) ))
-          echo "most recent scheduled run: ${latest} (${age}s ago)"
-
-          if [ "${age}" -gt 86400 ]; then
-            echo "::error::the nightly has not run for $(( age / 3600 )) hours"
-            uv run --no-project python ci/report_nightly.py \
-              --status failure --run-id "${RUN_ID}" \
-              --jobs "nightly-stopped-running"
-            exit 1
-          fi
-          echo "the nightly is running on schedule"
-
-  ruleset-drift:
-    name: ruleset-drift
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: read   # read ci/gates.toml
-      issues: write    # raise the alarm when protection changed
-    steps:
-      - name: checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: install uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
-        with:
-          enable-cache: true
-          cache-suffix: ${{ runner.os }}-${{ hashFiles('uv.lock') }}
-          cache-dependency-glob: uv.lock
-
-      - name: audit branch protection
-        # Read-only. Reports drift, repairs nothing.
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: dependency-audit
         run: |
           set -euo pipefail
-          uv run --no-project python ci/check_ruleset.py \
-            | tee -a "$GITHUB_STEP_SUMMARY"
+          uv export --format requirements-txt --no-emit-project --all-extras \
+            -q -o requirements-audit.txt
+          uv run pip-audit --strict --progress-spinner off \
+            -r requirements-audit.txt -f json -o pip-audit.json
+          uv run pip-audit --strict --progress-spinner off \
+            -r requirements-audit.txt
+
+      - name: package-build
+        run: uv run python -m build --outdir dist .
+
+      - name: package-metadata
+        run: uv run twine check --strict dist/*
+
+      - name: restore the gremlins cache
+        id: gremlins-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: .gremlins_cache
+          # The commit SHA is IN the key and there are NO restore-keys, so a
+          # verdict computed for one commit can never be reused for another.
+          # Owner rule: "Never reuse mutation or security evidence for a
+          # different commit or merge candidate."
+          #
+          # Measured 2026-08-08: with a looser key the cache restored the
+          # previous commit's verdicts, all 267 mutants came back with no tests
+          # selected, and ci/check_mutation.py correctly reported
+          # FAIL_INCOMPLETE. The cache was reusing evidence across commits,
+          # which is exactly what the rule forbids.
+          #
+          # COVERAGE_CORE is in the key too: a verdict computed on a core where
+          # the test-to-line mapping is broken must never be reused on one
+          # where it works.
+          key: >-
+            gremlins-${{ runner.os }}-${{ env.COVERAGE_CORE }}-${{
+            hashFiles('uv.lock') }}-${{ github.sha }}
+
+      - name: cache telemetry
+        # Proves the cache is used, rather than merely configured. A cache
+        # nobody measures is a cache nobody knows is broken.
+        env:
+          HIT: ${{ steps.gremlins-cache.outputs.cache-hit }}
+          MATCHED: ${{ steps.gremlins-cache.outputs.cache-matched-key }}
+        run: |
+          {
+            echo "### cache telemetry"
+            echo "gremlins cache hit     ${HIT:-false}"
+            echo "gremlins matched key   ${MATCHED:-none}"
+            echo "gremlins cache size    $(du -sh .gremlins_cache 2>/dev/null | cut -f1 || echo 0)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # NOTE 2026-08-08: --gremlin-cache is deliberately NOT passed.
+      #
+      # A cached pytest-gremlins verdict carries no selected_tests, because the
+      # mutant was not re-executed. ci/check_mutation.py requires every mutant
+      # to name the tests it was scored against - that check is what catches a
+      # broken test-to-line mapping, the 87.92-versus-94.34 failure. With the
+      # cache on, every cached mutant looks identical to a mutant nothing ran
+      # against, and the run reports FAIL_INCOMPLETE. Observed twice.
+      #
+      # Owner rule: "mutation-result cache: only if proven correct." It is not
+      # proven correct, so it is not on the authoritative path. The restore and
+      # save steps are kept, not deleted, so re-enabling is a one-flag change
+      # once a cached verdict can carry its own mapping evidence.
+      - name: full-mutation
+        run: >
+          uv run pytest --gremlins --gremlin-parallel
+          --gremlin-targets=accountant --gremlin-report=json -q
+
+      - name: mutation-accounting
+        run: uv run python ci/check_mutation.py
+
+      - name: save the gremlins cache
+        if: ${{ always() }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: .gremlins_cache
+          key: >-
+            gremlins-${{ runner.os }}-${{ env.COVERAGE_CORE }}-${{
+            hashFiles('uv.lock') }}-${{ github.sha }}
 
       - name: evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: watchdog-evidence
-          path: ruleset.json
-          if-no-files-found: ignore
+          name: pr-full-evidence
+          path: |
+            junit-full.xml
+            coverage-full.xml
+            pip-audit.json
+            coverage/gremlins/gremlins.json
+            dist
+          if-no-files-found: warn
           retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # The canonical required check. One name, event-specific behaviour.
+  #
+  # Fails on failed, missing, cancelled, skipped, stale or still-running. A
+  # missing result is not a pass, and a green fast phase alone is never enough
+  # to merge.
+  # ---------------------------------------------------------------------------
+  ci-gate:
+    name: ci-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    if: ${{ always() }}
+    needs: [pr-fast, pr-full]
+    steps:
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          enable-cache: true
+          cache-suffix: ${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          cache-dependency-glob: uv.lock
+
+      - name: ci-gate
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          LABELLED: >-
+            ${{ github.event_name == 'merge_group' ||
+                github.event.pull_request.draft == false ||
+                contains(github.event.pull_request.labels.*.name,
+                         'ready-to-merge') }}
+        run: |
+          set -euo pipefail
+          uv run --no-project python ci/check_aggregate.py \
+            --needs "${NEEDS_JSON}" \
+            --phase "$([ "${LABELLED}" = "true" ] && echo full || echo fast)"
