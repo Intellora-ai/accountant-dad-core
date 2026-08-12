@@ -751,7 +751,14 @@ def test_an_amount_tally_changed_under_us_is_also_accepted_in_silence() -> None:
 #                        not surviving to update a field. A `write_attempted`
 #                        with no partner row is the in-flight marker; the
 #                        partner is `posted` or `write_outcome_unknown`.
-#   POSTED               NOT A STATE. `Draft.posted_tally_id is not None`.
+#   POSTED               EXISTS SINCE 2026-08-13 as a real state value:
+#                        `cage.state.State.POSTED`, terminal, reached only by
+#                        `WriteConfirmed` from POSTING. Before the cage it was
+#                        `Draft.posted_tally_id is not None` - a field being
+#                        non-None, which cannot say whether the write was
+#                        confirmed or merely attempted. The field is still
+#                        there and still means what it meant; the state is the
+#                        thing that now has a transition into it.
 #   READ_BACK_VERIFIED   DOES NOT EXIST as a state value, but since 2026-08-09
 #                        it is a real VERDICT: `real.ReadBackVerdict`, with
 #                        `outcome`, the differing `fields`, and `confirmed`.
@@ -773,7 +780,12 @@ INVENTED_STATE_NAMES = (
     # "POSTING" was here until 2026-08-09. It is no longer invented: W2's
     # write-ahead row gives it a durable representation, and this list is only
     # honest while it names things that really are absent.
-    "POSTED",
+    #
+    # "POSTED" was here until 2026-08-13, and left for the same reason:
+    # `cage.state.State.POSTED` is a real, terminal state value with a real
+    # transition into it. This test failed the moment the state machine landed,
+    # which is what it is for - the map above was updated and the count below
+    # lowered together, per the instruction in this file's own error message.
     "READ_BACK_VERIFIED",
     "READ_BACK_FAILED",
     "CLEANED",
@@ -807,11 +819,13 @@ def test_eight_of_the_thirteen_state_names_do_not_exist_in_the_shipped_package()
         f"a state this file reports as absent now exists: {found}. Update the "
         "map at the top of PART B rather than deleting the assertion."
     )
-    # EIGHT since 2026-08-09. "POSTING" left this list when W2's write-ahead
-    # row gave it a durable representation. The count is asserted so the list
-    # cannot be quietly shortened to make a failure go away - shortening it is
-    # allowed, but only together with this number and the map above it.
-    assert len(INVENTED_STATE_NAMES) == 8
+    # SEVEN since 2026-08-13. "POSTING" left on 2026-08-09 when W2's
+    # write-ahead row gave it a durable representation; "POSTED" left when
+    # `cage.state.State.POSTED` gave it a real one. The count is asserted so
+    # the list cannot be quietly shortened to make a failure go away -
+    # shortening it is allowed, but only together with this number and the map
+    # above it, which is exactly the procedure both removals followed.
+    assert len(INVENTED_STATE_NAMES) == 7
 
     # The four that DO exist, pinned so the absence above cannot be vacuous.
     for present in ("READY", "EMPTY_SOURCE", "NOT_VALID", "UNCLEAR"):
