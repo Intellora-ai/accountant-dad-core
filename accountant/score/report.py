@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import textwrap
 
+from accountant.money import format_inr
 from accountant.score.calibration import Calibration, CleanMeasurement
 from accountant.score.harness import (
     DetectorGate,
@@ -367,7 +368,12 @@ def _example(index: int, e: FalseAlarmExample) -> list[str]:
         f"  {index:>2}  {e.voucher_id}  {e.scope}  {e.detector}  severity {e.severity}",
         f"      {e.party}",
         f"      to {e.account}",
-        f"      {e.amount_paise:,} paise",
+        # FIXED 2026-08-13: was `f"{e.amount_paise:,} paise"` - a raw paise
+        # count, grouped in threes. Two things wrong for the person reading a
+        # false alarm: the grouping, and a unit nobody thinks in. The reason
+        # line below still quotes the detector's own paise figures, which are
+        # its evidence and are left as the detector stated them.
+        f"      {format_inr(e.amount_paise)}",
         *_wrapped(e.reason, indent="      "),
     ]
 

@@ -281,9 +281,16 @@ def test_a_huge_amount_asks_rather_than_refuses():
 
 
 def test_the_huge_amount_question_shows_both_numbers():
+    """GROUPING AND PAISE CORRECTED 2026-08-13, owner decision.
+
+    This pinned `₹2,000,000` - Python's grouping in threes, and the paise
+    floored away. Both were wrong for the only market this product has: ₹20
+    lakh is written `₹20,00,000.00`, and a question that drops the paise asks
+    a person to confirm a number the screen never showed them.
+    """
     q = Q.is_that_amount_right("Sharma Traders", 200_000_000, 380000)
-    assert "₹2,000,000" in q.text
-    assert "₹3,800" in q.text
+    assert "₹20,00,000.00" in q.text
+    assert "₹3,800.00" in q.text
 
 
 def test_only_an_internal_type_error_refuses():

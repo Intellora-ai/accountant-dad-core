@@ -18,6 +18,8 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from accountant.money import format_inr
+
 QUESTION_CAP = 5  # owner-set 2026-08-07: "5 non overlapping questions"
 
 
@@ -175,8 +177,14 @@ def purpose_answers(accounts: Sequence[str]) -> tuple[Answer, ...]:
 
 
 def rupees(paise: int) -> str:
-    whole = paise // 100
-    return f"₹{whole:,}"
+    """FIXED 2026-08-13. Was `f"₹{paise // 100:,}"` - two defects in one line.
+
+    It grouped in threes, so a ₹20 lakh payment was read back as `₹2,000,000`.
+    And it floored to whole rupees, so the question asked about `₹3,800` for an
+    amount the same screen showed as `₹3,800.47` - a person answering "yes,
+    that's right" was confirming a number nobody had shown them.
+    """
+    return format_inr(paise)
 
 
 def which_purpose(accounts: Sequence[str], party: str) -> Question:

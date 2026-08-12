@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import textwrap
 
+from accountant.money import group_indian
 from accountant.taxonomy.coverage import (
     COVERAGE,
     PROPOSALS,
@@ -36,12 +37,24 @@ WIDTH = 74
 
 
 def crore(amount_paise: int | None) -> str:
-    """1719440000000 -> '1,719.44 crore'. Integers only, no float."""
+    """1719440000000 -> '1,719.44 crore'. Integers only, no float.
+
+    GROUPING FIXED 2026-08-13: the whole part was `f"{whole:,}"`, Python's
+    grouping in threes. Every figure in this report today is four or five
+    digits, where the two conventions agree, so nothing visible changed - which
+    is exactly why it needed fixing rather than watching. The first six-digit
+    crore figure to reach it would have printed `1,234,567.00 crore` to an
+    Indian reader.
+
+    The unit stays `crore` and the symbol stays off: this report quotes audit
+    paragraphs that are themselves written in crore, and restating them as
+    `₹1,23,45,60,00,000.00` would make them unmatchable against the source.
+    """
     if amount_paise is None:
         return "amount not stated in the source"
     whole = amount_paise // PAISE_PER_CRORE
     hundredths = (amount_paise % PAISE_PER_CRORE) // PAISE_PER_HUNDREDTH_CRORE
-    return f"{whole:,}.{hundredths:02d} crore"
+    return f"{group_indian(str(whole))}.{hundredths:02d} crore"
 
 
 def _wrapped(text: str, indent: str) -> list[str]:

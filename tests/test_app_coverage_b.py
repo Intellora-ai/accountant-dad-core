@@ -38,12 +38,19 @@ Anything about real TallyPrime, or about HTTP. Nothing here binds a socket and
 nothing here reaches 127.0.0.1: every subject is a function taking a value and
 returning a string.
 
-That the renderings below are the RIGHT ones. Two of them are pinned as
-MEASURED and are argued against in their own docstrings — thousands are grouped
-`1,000,000.00` rather than the Indian `10,00,000.00`, and a negative prints
-`₹-4,200.50` rather than `-₹4,200.50`. Those are observations about a product
-sold to Indian accountants, recorded here and reported to the owner, not fixed
-by a test file.
+That every rendering below is the RIGHT one. Two were pinned here as
+MEASURED-NOT-ENDORSED and argued against in their own docstrings — thousands
+grouped `1,000,000.00` rather than the Indian `10,00,000.00`, and a negative
+printing `₹-4,200.50` rather than `-₹4,200.50`. Both were reported. ONE of them
+came back: the owner ruled on 2026-08-13 that INR is grouped the Indian way,
+and that assertion now pins the corrected rendering. `accountant/money.py` is
+where the decision lives.
+
+The sign position is STILL only measured. It was reported in the same breath
+and not ruled on, so it stays exactly as it was and stays argued against in its
+own docstring. A test file does not get to take the owner's silence for
+agreement, and a change that was authorised to fix the commas does not get to
+carry a second opinion along with it. It is open in `docs/OWNER_WORK.md`.
 
 EVIDENCE CLASS
 --------------
@@ -250,16 +257,17 @@ def test_both_boolean_values_render_as_the_integers_they_are() -> None:
     assert app.rupees(False) == "0.00"
 
 
-def test_thousands_are_grouped_in_the_western_style_and_not_the_indian_one() -> None:
-    """MEASURED, NOT ENDORSED. ₹10 lakh renders `10,00,000.00` in India.
+def test_thousands_are_grouped_in_the_indian_style_and_not_the_western_one() -> None:
+    """DECIDED 2026-08-13. ₹10 lakh renders `10,00,000.00` in India.
 
-    `f"{whole:,}"` is Python's western grouping, so this product shows an
-    Indian accountant `1,000,000.00`. Recorded here because a rendering nobody
-    has measured is a rendering nobody can decide about; it is reported to the
-    owner rather than changed from a test file.
+    This assertion used to pin the opposite, as MEASURED-NOT-ENDORSED:
+    `f"{whole:,}"` is Python's western grouping, so the product showed an
+    Indian accountant `1,000,000.00`. That was reported rather than changed,
+    because a test file does not get to decide what a product looks like. The
+    owner decided, and the assertion turns round with the decision.
     """
-    assert app.rupees(100_000_000) == "1,000,000.00"
-    assert app.rupees(100_000_000) != "10,00,000.00"
+    assert app.rupees(100_000_000) == "10,00,000.00"
+    assert app.rupees(100_000_000) != "1,000,000.00"
 
 
 # ---- money: the page's formatter, which is never allowed to raise -----------
@@ -268,7 +276,13 @@ def test_thousands_are_grouped_in_the_western_style_and_not_the_indian_one() -> 
 def test_the_rupee_sign_goes_in_front_of_the_minus_sign() -> None:
     """MEASURED, NOT ENDORSED, and the second of the two. A negative balance
     prints `₹-4,200.50`; the convention on an Indian statement is
-    `-₹4,200.50`. Same objection as the grouping above, same disposition."""
+    `-₹4,200.50`. Same objection as the grouping above, same disposition.
+
+    STILL UNRULED as of 2026-08-13. The grouping beside it was decided and
+    changed; this was not, so it did not move. `accountant/money.py::format_inr`
+    is now the one place that would have to change, which makes the open
+    question cheaper to answer, not answered.
+    """
     assert app.money(-420_050) == "₹-4,200.50"
     assert app.money(420_050) == "₹4,200.50"
 
