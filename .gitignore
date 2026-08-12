@@ -52,3 +52,19 @@ data/
 
 # Agent worktrees. Nested git repositories, never part of a commit.
 .claude/worktrees/
+
+# The Tally audit trail. Same reasoning as `data/` above, and the same danger:
+# every request and response XML under here carries a REAL COMPANY NAME, real
+# supplier names and real amounts. Measured 2026-08-12: 21 files, all naming the
+# live company. This repository is PUBLIC.
+#
+# The log is evidence, and it is meant to live on the machine that produced it.
+# `ACCOUNTANT_LOG_DIR` and `ACCOUNTANT_XML_LOG_DIR` move it elsewhere.
+logs/
+
+# Superseded scratch client, kept locally because it works and it was asked for.
+# NOT committed: it imports `requests`, and `pyproject.toml` declares
+# `dependencies = []`. Committing it would make that declaration false and give
+# the package its first runtime dependency by accident rather than by decision.
+# `accountant/tallyio/` is the supported path and uses urllib.
+tally_client.py

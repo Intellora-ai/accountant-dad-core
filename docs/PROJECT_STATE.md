@@ -4091,3 +4091,339 @@ self-registration.
 and as **no action wanted**, because it is parked deliberately with a measured
 reason and a standing owner rule. It is listed only so "2 of 20 gates never
 execute" is not read as two defects when it is one.
+
+## §47 The first write into a real, licensed TallyPrime
+
+Dated 2026-08-12. **§46.4 opens with "Everything is FAKETALLY." That sentence is
+now out of date, for this one area, and for nothing else.**
+
+§46.4 is left standing rather than edited. It was true on 2026-08-11 and the
+record of what was true then is worth more than a tidy document; this section is
+what supersedes it, and a reader who arrives at §46.4 first should arrive here
+second. Every other bullet in §46.4 — nothing deployed, `S2` not measured, GST
+posting off — is unchanged by anything below.
+
+The evidence class for this run is `LICENSED_REALTALLY`, and it is the third
+piece of live Tally evidence in this document after §21 and §28.
+
+**READ THIS BEFORE FOLLOWING ANY `logs/` PATH BELOW.** This section cites files
+under `logs/` as evidence. **Those files are deliberately not committed** —
+`logs/` was added to `.gitignore` on 2026-08-12, alongside `data/` and for the
+same reason: measured, every one of the 21 files named the live company, and
+this repository is public. The paths are exact and the files are real; they are
+on the machine that produced them, not in a clone. `ACCOUNTANT_LOG_DIR` and
+`ACCOUNTANT_XML_LOG_DIR` move them.
+
+This is a genuine weakness in the evidence and is named rather than smoothed: a
+reader who did not run it cannot check these citations. A redacted evidence
+bundle would fix it and does not exist yet.
+
+### §47.1 The channel, and the address that does not work
+
+```
+Mac  ->  VirtualBox NAT port forward  ->  Windows 11  ->  TallyPrime XML gateway
+```
+
+The VM's own address is **unreachable from the host**. Measured 2026-08-12:
+`10.0.2.15:9000` answers with `TimeoutError`, because under VirtualBox NAT that
+address is private to the guest. This is worth writing down because it is the
+address the guest itself reports, so it is the address a person copies.
+
+The address that works is `127.0.0.1:9000`, via a forwarding rule:
+
+```
+VBoxManage controlvm "Windows 11" natpf1 "tally9000,tcp,127.0.0.1,9000,,9000"
+```
+
+Recorded in the tree at `tally_client.py:19-24`, beside the constant it
+explains, rather than only here.
+
+**Round trip: median 30.8 ms over 10 reads; 100 sequential round trips in about
+2.8 s.** The retained audit log corroborates the order of magnitude on a
+different run — `logs/audit.jsonl` records reads at 13 ms and 32 ms and the
+voucher import at 542 ms. A write costs an order of magnitude more than a read,
+which is the number that matters for any future batching decision.
+
+### §47.2 What makes this `LICENSED_REALTALLY` is a licence, not a code change
+
+The owner confirmed on 2026-08-12 that the TallyPrime behind that port is a
+**licensed installation on a free trial, not Educational**. Nothing in this
+repository could have established that: §25.5 records licence mode as
+**unreadable over the gateway**, and that probing for it wedged the live
+TallyPrime.
+
+So the class is owner-attested. That is a weaker provenance than a measurement
+and it is stated as such. It matters because it is the whole difference between
+this run and `EDUCATIONAL_TALLY` — Educational mode accepts vouchers only on the
+1st, 2nd or 31st of a month, and this voucher is dated the 12th.
+
+### §47.3 What shipped
+
+Six modules under `accountant/tallyio/`, plus one script at the repository
+root. Line counts measured 2026-08-12; these files were still being edited on
+the day this section was written, so the counts are a snapshot and the file
+names are the durable part.
+
+| File | Lines | What it is |
+|---|---|---|
+| `accountant/tallyio/errors.py` | 336 | Tally's complaints, classified into codes and sentences |
+| `accountant/tallyio/writedoor.py` | 187 | the RUNTIME allow-list — every write this system may perform, with a written reason each |
+| `accountant/tallyio/audit.py` | 234 | one JSON line and two raw XML files per operation, written before the result is reported |
+| `accountant/tallyio/masters.py` | 548 | ledgers: exists, `create_ledger`, `ensure_ledger` |
+| `accountant/tallyio/vouchers.py` | 373 | the direct Purchase write path |
+| `accountant/tallyio/reports.py` | 236 | reading the books back out |
+| `mvp_real_tally.py` | 141 | the end-to-end run: masters → voucher → read back → audit |
+
+Covered by `tests/test_tallyio_mvp.py` and `tests/test_tallyio_reports.py` —
+**72 tests, all passing**, measured 2026-08-12. Those run against fakes; the
+live evidence is §47.5.
+
+### §47.4 No guard was widened, and that is checkable
+
+The static write-door scanner was **not touched**. It already permitted this
+work, for reasons written into it before this work existed:
+
+- `tests/test_write_door.py:405` — `test_nothing_outside_the_connector_builds_a_tally_import_envelope` skips any path with `CONNECTOR` among its parents (`:415`), and `CONNECTOR` is `accountant/tallyio` (`:67`). A `<TALLYREQUEST>Import` envelope built **inside** the connector was always allowed; the guard exists to stop one being built outside it.
+- `ALLOWED` (`:124`) keys on `write_voucher` and `reverse_by_operation_id` only (`:56`). `vouchers.py` calls neither — it builds its own envelope inside the connector — so it needs no permit and got none.
+
+Measured: `tests/test_write_door.py` is **37 tests, all passing**, with no edit
+to the file.
+
+That is the honest reading, and it cuts both ways. The static guard proves
+nobody built a *third* connector-bypassing path. It does not prove
+`vouchers.py` is safe, because `vouchers.py` is inside the boundary the guard
+draws. What holds `vouchers.py` is `writedoor.allow_write`, called at
+`accountant/tallyio/vouchers.py:263` and `accountant/tallyio/masters.py:459` —
+a different mechanism, described in `docs/ARCHITECTURE.md` §4.2. Two call
+sites, two permits, and `writedoor.ALLOWED_WRITES` holds exactly two entries.
+
+### §47.5 What is in the books now
+
+Company **TANVEER SIDHU**, on a live TallyPrime:
+
+```
+ledgers   Test Supplier    under Sundry Creditors
+          Purchase         under Purchase Accounts
+          Bank Of Test     under Bank Accounts
+voucher   Purchase, 12-Aug-2026, Rs 1,000.00
+          narration "MVP end-to-end run"
+```
+
+Verified two ways, neither of which is the response to the write: by
+`RealTally.read_vouchers`, and by `trial_balance` reporting **Purchase
++1,000.00 / Test Supplier -1,000.00** — equal and opposite, which is the
+conservation check §46 keeps reaching for, and it needs no expert to read.
+
+Two provenance notes, because a record that overstates its own evidence is the
+thing §44 was written about:
+
+- The retained `logs/audit.jsonl` is from a **re-run**, and holds four
+  operations, none of them a ledger creation. `masters.ensure_ledger`
+  (`accountant/tallyio/masters.py:507`) returns early with `already_existed=True`
+  and writes no row when the ledger is already there. The creations happened; the
+  log of them is not in this tree.
+- Only two of the three ledgers are named by anything retained here
+  (`mvp_real_tally.py:50-53`). `Bank Of Test` appears in no file in the
+  repository. It exists in the company; the evidence for it is the owner's
+  screen, not this tree.
+
+The write response itself is retained at
+`logs/xml/2026-08-12/create_purchase_voucher_2bbedf2838fa_response.xml`:
+`STATUS 1`, `CREATED 1`, `LASTVCHID 1`.
+
+### §47.6 Three defects, all found by running it against something real
+
+Each is recorded because it is a lesson about a *kind* of check.
+
+1. **`errors.ERROR_ELEMENTS` contained `DESC`, and it turned two successful
+   writes into reported failures.** A successful ledger import answers with
+   `CREATED 1` and a `<DESC>` holding `<CMPINFO>` — a long row of zero counters,
+   `"0 0 1 0 0 …"`. `DESC` is a generic container that appears in *requests*
+   too, so scraping it read the counter row as a complaint nobody could
+   classify. **Two ledgers were genuinely created while this code reported
+   `success=False`.**
+
+   A false negative on a write is worse than a false positive on a read: it
+   makes a caller retry something that already happened, in a customer's books.
+   Fixed twice over at `accountant/tallyio/errors.py:228` — `DESC` removed from
+   the list — and at `:266`, where whitespace is stripped before the all-digits
+   test, because `str.isdigit()` answers False for `"0 0 1"` and the spaces were
+   doing the damage. The reason is written into the module at `:219-227` rather
+   than only here.
+
+2. **A successful response containing nothing was read as a successful
+   read-back.** The first `reports.py` asked for reports the obvious way,
+   `<TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>Day Book</ID>`.
+   TallyPrime answered `STATUS 1` and `<DATA>  </DATA>` — two spaces. Not an
+   error, not a refusal: a successful response containing nothing, while a real
+   Rs 1,000 Purchase sat in the company and `real.read_vouchers` could see it
+   perfectly well. Retained verbatim at
+   `logs/xml/2026-08-12/get_day_book_c9825b73a0f9_response.xml`.
+
+   The `Ledger Vouchers` report was worse, because it was not empty. It answers
+   in a **display shape** — `<DSPVCHDATE>`, `<DSPVCHLEDACCOUNT>`,
+   `<DSPVCHCRAMT>`, with the `1000.00` plainly there and **no `<VOUCHER>`
+   element at all**
+   (`logs/xml/2026-08-12/get_ledger_vouchers_8d28e0dbdb67_response.xml`). The
+   parser iterated `VOUCHER`, found none, and returned an empty tuple with no
+   error. A shape that answers a different question than the one asked, without
+   saying so, is harder to catch than a refusal.
+
+   `create_purchase_voucher` confirms its OWN write with that same query
+   (`accountant/tallyio/vouchers.py:324-340`), so it reported `confirmed=False`
+   for a voucher that had posted — visible in `logs/audit.jsonl` as
+   `"confirmed": false` on a row whose `"status"` is `"success"`.
+
+   Fixed: `reports.py` no longer builds its own request. It calls
+   `real.build_voucher_list_request` (`accountant/tallyio/reports.py:218`) — an
+   Export COLLECTION, the shape TallyPrime actually answers — and parses with
+   `real.parse_vouchers` (`:229`), the pair `RealTally` has used since §21 and
+   the pair that read the voucher back in §47.5. Date and ledger filtering moved
+   into Python, which is a real limitation and is listed in §47.7. The whole
+   measurement is written into the module's own docstring at
+   `accountant/tallyio/reports.py:13-48`, beside the code it explains.
+
+3. **A NO-BREAK SPACE (U+00A0) was sitting invisibly inside a string literal**
+   in `reports.py`, caught by `ruff` RUF001. It is the *right* character to
+   strip — TallyPrime uses it as a thousands separator in some locales — so the
+   code is correct and the bug is that nobody could see it. An invisible
+   character in a literal does not appear in a diff, which means it cannot be
+   reviewed. Written as the escape `\u00a0`, it is greppable, reviewable and
+   survives a copy-paste.
+
+   That literal is gone from `reports.py` now, because the amount parsing went
+   with defect 2 — `real.parse_vouchers` does the conversion, and the
+   connector's own stripper already had it written correctly, as
+   `_STRIP_FROM_AMOUNT` at `accountant/tallyio/real.py:415`. Measured
+   2026-08-12: **no literal U+00A0 remains anywhere under `accountant/`.** The
+   defect is recorded anyway, because the lesson is not about this character —
+   it is that `ruff` RUF001 is the only reviewer in this repository that can
+   see one.
+
+   This paragraph had the same bug while it was being written: a real NO-BREAK
+   SPACE was pasted into the sentence describing NO-BREAK SPACES, and only a
+   scan for non-ASCII found it. That is the argument for the escape, restated
+   by accident.
+
+### §47.7 What is NOT claimed
+
+- **Only Purchase is implemented.** Sales, Payment, Receipt, Journal and Contra
+  are not. `writedoor.ALLOWED_WRITES` (`accountant/tallyio/writedoor.py:85-110`)
+  holds exactly two permits, and that list is the whole of it.
+- **Only ledgers.** Stock items, godowns and cost centres are not implemented.
+- **GST posting is still off.** Owner decision `Q3 = D`, unchanged by any of
+  this. Nothing in these six modules touches the rules engine.
+- **The reports fetch the whole voucher collection and filter in Python.** That
+  is the wrong shape for a company with a hundred thousand entries, and it is
+  the wrong shape now, not later — it is recorded here so it is not discovered
+  as a surprise.
+- **One voucher, one company, one machine.** Nothing here says anything about
+  scale, about concurrency, or about another person's Tally. A single Rs 1,000
+  Purchase on a trial licence, on the owner's own laptop, is one data point.
+- **The read-back has not been re-run against the live gateway since it was
+  fixed.** Defect 2's fix is proved against fakes by
+  `tests/test_tallyio_reports.py`. The retained `logs/audit.jsonl` still shows
+  `"confirmed": false`, because it is from the run that found the defect. The
+  live confirmation in §47.5 came from `RealTally`, by hand — not from the
+  module that is now supposed to do it.
+
+### §47.8 Three existing guards caught this work, and none was written for it
+
+Measured 2026-08-12 with `.venv/bin/python -m pytest -q -n auto`. The six
+modules arrived red and finished green:
+
+```
+first run, modules as written    2 failed, 3286 passed, 6 skipped, 4 xfailed
+the same tree with them stashed  0 failed, 3288 passed, 6 skipped, 4 xfailed
+after the three fixes            0 failed, 3360 passed, 6 skipped, 4 xfailed
+```
+
+The interesting number is the middle one. Stashing the new modules made the
+suite green, which is how it was established that the failures were **caused by
+this work** rather than inherited — a two-minute measurement that replaces an
+argument.
+
+Each failure was one line, and none of the three guards was touched:
+
+1. **`audit.py` imported `accountant.redact`**, reaching above the connector
+   boundary. Only `__main__.py` may, because nothing imports `__main__.py`.
+   Caught by `tests/test_reverse_all_cli.py:280`. Fixed: the scrubber is
+   **injected**, not imported, so the boundary holds and the behaviour does not
+   change.
+2. **A working-tree check failed under `-n auto`.**
+   `audit.JsonLineAuditLogger` defaults its directory to `logs/`, relative to
+   the current directory, so a code path that logs writes into the repository
+   itself. Caught by
+   `tests/test_upload.py::test_an_upload_writes_nothing_to_the_working_tree_or_a_data_directory`
+   — the same shape as the `data/app.db` defect in §46.3, found by the same
+   kind of check. It only failed in parallel, which is the argument for running
+   `-n auto` rather than a serial suite.
+3. **A docstring heading read as a state name.** `vouchers.py` carried
+   `` `STATUS 1` IS NOT `POSTED` ``, which put the whole word `POSTED` into
+   `accountant/` for the first time. Caught by
+   `tests/test_adversarial_amounts_and_states.py:806`, which scans the shipped
+   package on whole words and cannot tell a heading from an identifier.
+
+The third is worth a sentence on its own. It is a guard firing on prose, and
+the reflex is to call that a false positive and loosen the scan. That would
+remove the check that named eight invented states in the first place, to save
+one word in a comment. The heading was reworded instead — the cheap side of the
+trade was the docstring, not the test.
+
+**`logs/` is still untracked in the working tree**, written by the live runs
+that produced §47.5's evidence. It is the record of the first real write and it
+is not in version control.
+
+### §47.9 Owner work created by this section
+
+Nothing new is added to `docs/OWNER_WORK.md` by §47.
+
+One of the two questions this run raised — whether `logs/` is evidence worth
+committing or scratch worth ignoring — **is now answered and was not the owner's
+to be asked.** It is neither: it is a customer's accounting data, and the
+repository is public. `logs/` is in `.gitignore`. See the note under §47.
+
+The other stands: whether the Python-side report filtering is fixed before or
+after a book large enough to make it hurt. It blocks nothing today.
+
+### §47.10 The other five voucher types, and the duplicate that made them wait
+
+Dated 2026-08-12, after §47.9. `vouchers.py` shipped with Purchase alone. Sales,
+Payment, Receipt, Journal and Contra now exist, on one shared builder and one
+shared balance check rather than six copies. Seven permits in
+`writedoor.ALLOWED_WRITES`, all `destructive=False`, all naming one company.
+
+**They waited on idempotency, and the reason is in the books.** §47.5 records a
+Purchase of ₹1,000. The trial balance showed **₹2,000** against `Test Supplier`,
+because `mvp_real_tally.py` was run twice and nothing in the write path could
+tell the second run from the first. Adding five more write paths on that
+foundation would have multiplied one defect by six.
+
+So `operation_id` is now **required** on every `create_*_voucher`, TallyPrime is
+asked before writing, and the result carries `already_posted`. Verified offline
+against a transport that answers reads from what the writes actually put in:
+same id twice → **one** Import sent, the repeat reporting `already_posted=True`.
+
+The check **fails closed**: a probe that cannot be answered posts nothing.
+Verified with a transport whose reads raise and whose writes would succeed —
+**zero** Imports sent. Returning "not found" on an unreadable probe would have
+rebuilt the original defect exactly.
+
+`mvp_real_tally.py` derives its id from the day and amount rather than
+generating a fresh one, so re-running it finds the existing voucher instead of
+adding another. A fresh id would have left the ₹2,000 bug in place behind a
+mechanism built to prevent it.
+
+**One rename.** `create_contra_voucher`'s first account parameter was
+`from_account` and is now `debit_account`. On `create_payment_voucher`,
+`from_account` is the *credited* side — the account money leaves. On Contra it
+was the *debited* side. The same name meant opposite sides on two neighbouring
+methods, so a caller writing "from Cash to Bank" would have inverted a real
+transfer between two real accounts. A warning comment was written first and was
+not enough; the name itself was the defect.
+
+**Still not claimed:** none of this ran against live TallyPrime. The evidence
+class for §47.10 is offline verification against a fake transport, not
+`LICENSED_REALTALLY`. Only the Purchase path in §47.5 has touched real books,
+and the duplicate voucher it created is still there — removing it is the owner's
+call, because a deletion in TallyPrime is not undoable.

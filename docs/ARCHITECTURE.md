@@ -158,6 +158,28 @@ definition.**
 | `client.py` | **present** | `TallyClient` Protocol, 9 methods; `new_operation_id`, `marker_for`, `stamp`, `operation_id_in`; `DuplicateOperation`, `CompanyNotBackedUp`; `WriteResult` |
 | `fake.py` | **present** | in-memory Tally implementing all 9 methods |
 | `real.py` | **present** | `RealTally`, all 9 methods. XML over HTTP, host and port configurable via `TallyConfig`. Stdlib only. |
+| `errors.py` | **present** | Tally's complaints turned into codes and sentences. `classify`, `describe`, `ERROR_ELEMENTS`. |
+| `writedoor.py` | **present** | the **runtime** write allow-list. `Permit`, `ALLOWED_WRITES`, `allow_write`, `posting_enabled`, `safe_mode`. |
+| `audit.py` | **present** | one JSON line plus request and response XML per operation, written **before** the result is reported |
+| `masters.py` | **present** | ledgers: exists, `create_ledger`, `ensure_ledger` |
+| `vouchers.py` | **present** | the direct write path for **six** voucher types: Purchase, Sales, Payment, Receipt, Journal, Contra. One builder, one balance check, one post path. `purchase_xml`, `validate_purchase`, `Vouchers.create_*_voucher`. |
+| `reports.py` | **present** | reading the books back: `ledger_vouchers`, `day_book`. Amounts as integer paise, `Decimal` never `float`. |
+
+The last six landed 2026-08-12 with the first write to a licensed TallyPrime —
+[`PROJECT_STATE.md` §47](./PROJECT_STATE.md#47-the-first-write-into-a-real-licensed-tallyprime).
+
+**Every write takes a required `operation_id`, and that is not a convenience.**
+Before building an envelope, `Vouchers` asks TallyPrime whether a voucher
+already carries that id (`client.stamp` writes it into the narration,
+`client.operation_id_in` reads it back). If one is there, nothing is sent and
+the result says `already_posted=True`. Measured 2026-08-12: three calls with two
+distinct ids sent **one** Import for the repeated id.
+
+The check **fails closed**. If the probe cannot be answered — gateway down,
+response unreadable — nothing is posted and the failure says so. Returning "not
+found" on an unreadable probe would rebuild the exact defect this guards: a
+retry that cannot tell itself apart from a first attempt. This repository has
+already put ₹2,000 into a real company for one ₹1,000 bill that way.
 
 **The interface — the single most important contract in the system:**
 
@@ -204,6 +226,77 @@ network: plain HTTP, no auth, never routable.
 memory, detectors and the web app, and the connector cannot be stubbed. With it,
 the entire system is testable against `FakeTally`, and `real.py` drops in with no
 change anywhere else.
+
+#### There are TWO write paths, and they are not the same door
+
+This is the thing a reader gets wrong, so it is stated before anything else
+about either one. **`vouchers.py` is not a second copy of `pipeline.post`, and
+it does not pretend to be.**
+
+| | `pipeline.post` | `accountant/tallyio/vouchers.py` |
+|---|---|---|
+| **For** | a voucher **the product decided** to post | a caller who **already knows** what it wants posted — a CSV row, a script, an operator |
+| **Valid-outcome gate** | yes | no such thing — there is no extraction to judge |
+| **Decision / operation-id binding** | yes | no — no decision exists to bind |
+| **Write-ahead audit row** | yes | yes, via `audit.py`, request and response XML retained |
+| **Read-back** | field by field | the voucher only — found again, or not |
+| **Register check** | yes | no |
+| **Asks `writedoor.allow_write` first** | not applicable — it *is* the door | **yes**, before any bytes leave |
+
+The difference is real and the two are not interchangeable. `pipeline.post`
+exists because an amount that came out of a document has to be *judged* before
+it reaches a customer's books: the gate, the binding and the register check are
+all about a number nobody typed. `vouchers.py` has no such problem and so has no
+such machinery — a person who typed `1000` has already made that judgement.
+
+What `vouchers.py` does have is the two checks that apply either way: **ask
+permission before sending**, and **read the voucher back before reporting
+success**. `STATUS 1` from the gateway is not `posted`; this repository has
+already measured a write TallyPrime accepted and did not keep.
+
+The case that made this worth writing down is the one recorded at
+`ci/educational_slice.py:51-52`: on 2026-08-11 that file constructed a
+`RealTally` and called `write_voucher` on it directly, at what was then line
+233, so none of `pipeline.post`'s gates applied. It has been fixed, and the
+measurement is kept in the file beside the code it explains. A path that skips
+those gates is not automatically wrong — `vouchers.py` skips them on purpose —
+but a path that skips them *without saying so* is.
+
+#### The runtime door and the static scanner are different things
+
+Two files have similar names and do opposite jobs. Both are needed.
+
+```
+accountant/tallyio/writedoor.py   RUN time   refuses or permits this write
+tests/test_write_door.py          TEST time  proves nobody built a third path
+```
+
+- **`writedoor.py` is an allow-list of sentences, not a boolean.**
+  `POSTING_ENABLED=True` answers "may anything be written". The question worth
+  asking is "may **this** be written, to **this** company, and who decided" —
+  so each `Permit` carries a paragraph a reviewer reads in the diff. The company
+  is matched exactly, because TallyPrime's gateway serves whichever company is
+  open on screen, and a permit that does not name one authorises writing into
+  somebody else's books.
+- **`tests/test_write_door.py` walks the AST** and asserts no module outside the
+  allow-list calls `write_voucher` or `reverse_by_operation_id`, and that no
+  module outside `accountant/tallyio/` builds a `<TALLYREQUEST>Import` envelope.
+
+**Why the runtime guard cannot live in `tests/`:** `tests/` is not part of the
+installed distribution. Shipped code importing from it would fail on any machine
+that installed the package rather than cloning the repository. That is the whole
+reason `writedoor.py` exists as its own module rather than as a fixture.
+
+**Why the static scanner is still needed:** a runtime guard is skipped by any
+new module that simply does not call it. A static guard alone cannot stop a
+write already happening in front of a customer's books. Neither one covers the
+other's failure.
+
+One consequence, stated plainly because it reads as a gap otherwise: the static
+scanner **excludes** `accountant/tallyio/` from its import-envelope check, since
+building that envelope is what this package is for. So the scanner does not
+constrain `vouchers.py` at all. What constrains `vouchers.py` is
+`writedoor.allow_write`, and that is the only thing that does.
 
 #### What Tally's wire format forces on this package
 
