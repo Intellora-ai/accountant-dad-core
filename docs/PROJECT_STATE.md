@@ -126,7 +126,7 @@ re-enters the decision order and can still come out Not valid.
 |---|---|---|
 | Unique `operation_id` generated **before** posting, attached to draft, decision, narration, action log and reversal request | correction C5 | VERIFIED in code — `accountant/tallyio/client.py:31` `new_operation_id()` |
 | Accountant Dad marker on every written voucher — `[ACCOUNTANT_DAD:<op>]` | correction C4 | VERIFIED — `client.py:27-56`, asserted by contract test |
-| A duplicate `operation_id` cannot create a second voucher | C5 | VERIFIED against the fake; **still UNVERIFIED against real Tally** — the contract test that proves it is licence-blocked (§21) |
+| A duplicate `operation_id` cannot create a second voucher | C5 | VERIFIED against the fake; **still UNVERIFIED against real Tally** — and on 2026-08-12 it was DISPROVED in real books: `mvp_real_tally.py` ran twice and left a duplicate (§47.10). The write path now requires an `operation_id` and asks Tally first; the contract test that would prove it on real Tally is **no longer licence-blocked** (§48) but has still not been run |
 | Every write is read back from Tally, not trusted from an HTTP 200 | C6 | **VERIFIED against real Tally** (§21) |
 | Reversal tested against the **exact prior trial balance**, in paise | #6.5 | **VERIFIED against real Tally** — exact restore `True`, voucher gone `True` (§21) |
 | **Memory must be bootstrapped from an existing company's own Tally history before the first proposal is shown** | measured cross-organisation result, §22 | **PRODUCT INVARIANT — NOT YET ENFORCED.** An empty memory for an existing company is a **product failure**, not a neutral state. Design rule in [`ARCHITECTURE.md` §4.3](./ARCHITECTURE.md#43-memory-index--accountantmemoryindexpy--present); exit criteria in [`ARCHITECTURE.md` §11](./ARCHITECTURE.md#11-mvp-completion-checklist) |
@@ -221,8 +221,9 @@ total, is [`artifacts/phase_truth_table.md`](../artifacts/phase_truth_table.md).
 
 | | |
 |---|---|
-| **Stopped by** | a **non-Educational TallyPrime licence**. Educational mode rejects voucher dates outside the 1st, 2nd and 31st, so the client-fixture tests in `tests/test_tally_contract.py` — which post on `2026-08-07` — cannot run unmodified. Blocker `B-02`. |
-| **Owner decision, 2026-08-08** | **Option 2 — Educational-mode exception.** No licence is to be purchased, activated, bypassed or simulated. See §24 and decision `D-26`. The separate question of which of two contradictory licence instructions is live is `D-01`, and it is still open. |
+| **Stopped by** | **nobody having run it.** `B-01` — the company `Demo Co` and its four ledgers must be made in the TallyPrime window — plus the acceptance run itself, which has still never been executed. Neither is waiting on a decision. |
+| **No longer stopped by: THE LICENCE.** Superseded 2026-08-12 | The licence is **not a blocker any more.** The TallyPrime on the owner's machine is a **licensed free trial, not Educational** — and that is measured, not just attested: the §47 voucher is dated the **12th** of the month, and Educational mode accepts only the 1st, 2nd and 31st. A voucher that posted on the 12th could not have been posted by an Educational instance. `B-02` is satisfied for as long as the trial lasts. **No expiry date is recorded here** — see §48. |
+| **What that unblocks, and what it does not** | The `2026-08-07` fixture in `tests/test_tally_contract.py` **can now run unmodified**. It has **not** been run. A licence being available and a test having passed are different sentences. The fixture is still never edited (§24). |
 | **No longer stopped by** | the Windows VM. TallyPrime is installed and answering. The earlier "Windows VM + TallyPrime — NOT INSTALLED — the single blocker" is **superseded** (§17, §21). |
 
 > **Audit note, 2026-08-10 — the largest single correction in this file.**
@@ -344,7 +345,7 @@ proved it. Evidence cross-references §9 (gates), §10 (runs), §16 (security).
 | Tally connector — real impl | **BUILT AND RUN AGAINST REAL TALLY** | `accountant/tallyio/real.py`, 63.5 KB. First real read HTTP 200, 1,594 bytes, 65 ms (§21). *The earlier evidence line "`grep … → nothing`" was drift and is superseded.* | fix `trial_balance()` derived head — [`BOTTLENECKS.md` A4](./BOTTLENECKS.md#a4--trial_balance-includes-a-derived-figure) |
 | Tally read | **VERIFIED on real Tally** | companies, chart of accounts, vouchers, trial balance — all read (§21) | — |
 | Tally write | **VERIFIED on real Tally** | Rs 5,000 posted, trial balance moved by exactly that amount (§21) | — |
-| Idempotency (C5) | **UNVERIFIED on real Tally** | passes against fake; the contract test that proves it is licence-blocked (§21) | needs a non-Educational licence |
+| Idempotency (C5) | **UNVERIFIED on real Tally** | passes against fake. Guarded in code and tested since §47.10, after a real duplicate | **no longer needs a licence (§48)** — needs somebody to run it |
 | Read-back (C6) | **VERIFIED on real Tally** | `read_by_operation_id()` returned the written voucher, then `None` after reversal (§21) | — |
 | Reversal (#6.5) | **VERIFIED on real Tally** | `reverse_by_operation_id()` → `True`; trial balance restored to the exact prior paise (§21) | — |
 | Memory index #2 | **CODE EXISTS, NOT AUDITED** | `accountant/memory/index.py` | audit vs #2.1–#2.7. **Company-local only; every customer is a permanent cold start** (§22) |
@@ -1599,6 +1600,29 @@ rule.
 ---
 
 ## 24. Tally licensing — OWNER DECISION, 2026-08-08
+
+> ## ⚠ SUPERSEDED ON THE LICENCE, 2026-08-12. READ §48 FIRST.
+>
+> **"Educational mode only" and "a legitimate non-Educational Tally licence is
+> unavailable" are no longer true.** The machine now runs a **licensed
+> TallyPrime on a free trial**. `B-02` is not a blocker.
+>
+> This section is left standing rather than rewritten, exactly as §46.4 was left
+> standing for §47. It was true from 2026-08-08 to 2026-08-11 and the record of
+> what was true then is worth more than a tidy document.
+>
+> **Two of its standing instructions survive the change and are NOT superseded:**
+>
+> - **`2026-08-07` is still never edited.** The licence removes the *reason* the
+>   fixture could not run. It does not license changing the fixture, and the
+>   whole point of freezing it was that it must pass unaltered or not at all.
+> - **`ENVIRONMENT_LIMITED` is still never converted into `PASS` by decision.**
+>   A test passes by running. The 2026-08-07 contract **has still not been run**
+>   against the licensed instance.
+>
+> The instruction that does lapse is *"do not purchase, activate, bypass or
+> simulate a non-Educational licence"* — a free trial was activated by the
+> owner, which is the "activate" case, and it was the owner's call to make.
 
 **Option 2 selected: Educational-mode exception.**
 
@@ -3465,7 +3489,7 @@ Group D is deliberately last and the reason is not cosmetic.
 ```
 GROUP A - unblocks the most, no side effects, do first
   B-01 / H-03   create Demo Co + 4 ledgers in the TallyPrime GUI
-  B-02 / H-04   obtain a non-Educational licence
+  B-02 / H-04   DONE 2026-08-12 - free trial licence active, see 48
 
 GROUP B - one decision in two halves, decide together
   H-01          approve a production extraction backend
@@ -3860,7 +3884,7 @@ Everything else in Phase 8 that had an answer has been built, tested and merged.
 |---|---|---|---|
 | H-06 | Create repository secret `CLAUDE_AUDIT_TOKEN` — fine-grained, **Administration: read**, nothing else | PR #34, and with it `test_bypass_actors_are_still_empty` | Credentials are the one thing that is never created on the owner's behalf |
 | B-01 / H-03 | Create `Demo Co` and four ledgers in the TallyPrime GUI | the 19 RealTally contract tests | The XML gateway refuses: `<RESPONSE>Unknown Request, cannot be processed</RESPONSE>` |
-| B-02 / H-04 | Obtain a non-Educational licence, **or decide not to** | `LICENSED_REALTALLY` | Educational accepts vouchers only on the 1st, 2nd and 31st, and the `2026-08-07` fixture is never edited to fit. **A decision closes this as well as a purchase does** |
+| ~~B-02 / H-04~~ | **DONE 2026-08-12 — a free trial licence is active.** Nothing to obtain and nothing to decide. Proof is the §47 voucher dated the **12th**: Educational accepts only the 1st, 2nd and 31st, so an Educational instance would have refused it. See §48. **Not recorded anywhere: when the trial expires** | nothing any more |  |
 | — | Confirm `claude.yml`'s pin comment `# v1` → `# v1.0.187` stays | nothing; already applied | A `.github` edit outside the authorised token diff |
 
 **H-06 in detail, because the reason is structural.** The workflow token *can*
@@ -4427,3 +4451,89 @@ class for §47.10 is offline verification against a fake transport, not
 `LICENSED_REALTALLY`. Only the Purchase path in §47.5 has touched real books,
 and the duplicate voucher it created is still there — removing it is the owner's
 call, because a deletion in TallyPrime is not undoable.
+
+---
+
+## §48 The licence stopped being a blocker
+
+Dated 2026-08-12. **§24 says "Educational mode only" and calls a non-Educational
+licence "unavailable". Both stopped being true. This section is what supersedes
+it, and §24 is left standing rather than edited — the same treatment §46.4 got
+from §47.**
+
+### §48.1 What changed
+
+The owner activated a **free TallyPrime trial licence**. The installation behind
+port 9000 is licensed, not Educational.
+
+### §48.2 It is measured, not just attested — and this is the part that matters
+
+§47.2 records the owner's word for it, and says plainly that owner-attestation
+is weaker provenance than a measurement. That caveat can now be strengthened,
+because the run itself contains the proof.
+
+**The §47 Purchase voucher is dated 12-Aug-2026.**
+
+Educational mode accepts vouchers dated **only the 1st, 2nd or 31st** of a
+month. That is not a guess: it was measured on this project against this
+gateway, and §30.3 records the refusal directly — `2026-08-07` REJECTED,
+`2026-08-31` ACCEPTED, with Tally's own words retained.
+
+An Educational instance would have refused a voucher dated the 12th. It
+accepted one. So:
+
+```
+voucher accepted on the 12th  ->  not Educational
+```
+
+This is the strongest licence evidence the project has, and it arrived sideways
+— from a run that was not looking for it. It does **not** read the licence
+mode. §25.5 stands: licence mode is unreadable over the gateway, probing for it
+wedged a live Tally, and `read_licence()` still returns `UNKNOWN` by design.
+What is established is narrower and sufficient: **whatever this instance is, it
+is not Educational.**
+
+### §48.3 What is unblocked
+
+| | |
+|---|---|
+| `B-02` — a non-Educational licence | **SATISFIED**, for as long as the trial lasts |
+| The `2026-08-07` contract fixture | **CAN NOW RUN unmodified.** The date restriction that refused it is gone |
+| `LICENSED_REALTALLY` as an evidence class | already produced once, in §47 |
+
+### §48.4 What is NOT unblocked, and this is the longer list
+
+- **The `2026-08-07` fixture has not been run.** A licence being available and a
+  test having passed are different sentences. Nothing may be relabelled on the
+  strength of this section.
+- **`2026-08-07` is still never edited.** The licence removes the reason the
+  fixture could not run; it does not license changing it. Freezing it was the
+  whole point.
+- **`B-01` is untouched** — `Demo Co` and its four ledgers are still a GUI
+  action, permanently, and that is a scope boundary rather than a gap
+  (`RUNBOOK_PHASE5_ACCEPTANCE.md` §A.0.1).
+- **The N = 10 acceptance run has still never happened.** It is now waiting on
+  nobody's decision — only on somebody doing it.
+- **`ci/acceptance_cli.py` will still refuse the `LICENSED_REALTALLY` label**,
+  because it requires a MEASURED `licence_mode == licensed` and the licence read
+  is `UNKNOWN` by design. That refusal is not a bug and is not to be loosened to
+  match this section: it exists so the last open question in the project cannot
+  be closed by whoever writes the report. The §47 label is owner-attested and is
+  marked as such.
+- **The UI still shows `real-licence-unknown`**, and correctly. It fails closed
+  on an unreadable licence, which is right, and §25.7 already records that a
+  genuinely Educational user would see the same warning.
+
+### §48.5 The one thing nobody has written down
+
+**No expiry date is recorded anywhere in this repository.** It is a free trial,
+so it ends. Nothing here knows when.
+
+Until that date is supplied, every claim in this section carries an unstated
+condition — that the trial is still live on the day the claim is read. A run
+dated after expiry would silently be an Educational run again, and the only
+thing that would give it away is the same accident that gave this away: a
+voucher date outside the 1st, 2nd and 31st being refused.
+
+**Owner action, small and not optional:** record the trial's expiry date. One
+line in `docs/OWNER_WORK.md` is enough.

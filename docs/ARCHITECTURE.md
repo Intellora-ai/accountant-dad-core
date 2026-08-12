@@ -1711,6 +1711,11 @@ This is the distinction that keeps an environment limitation from being reported
 as a product failure, and it runs the other way too: no amount of adapter or
 detector work turns into live evidence without the two human actions.
 
+**Updated 2026-08-12 — it is one action now, not two.** `B-02` is **satisfied**:
+the machine runs a licensed TallyPrime on a free trial (§20.3, `PROJECT_STATE.md`
+§48). `B-01` remains, and it is two minutes of clicking in the Tally window.
+The line above still holds — what is left blocks `LICENSED_REALTALLY` only.
+
 ---
 
 ## 18. Phase 8 scope — frozen, and what it means for the design
@@ -2057,7 +2062,25 @@ Recorded at `accountant/tallyio/real.py:1181` and `ci/educational_slice.py:35`.
 **What it unblocks.** The live-evidence track — every guarantee currently
 proven only against a simulator (see [`TESTING.md`](./TESTING.md) §3).
 
-### 20.3 `B-02` — a non-Educational licence
+### 20.3 `B-02` — a non-Educational licence · **SATISFIED 2026-08-12**
+
+> **This blocker is closed.** The machine runs a **licensed TallyPrime on a free
+> trial**, not Educational. Full record in
+> [`PROJECT_STATE.md` §48](./PROJECT_STATE.md#48-the-licence-stopped-being-a-blocker).
+>
+> **It is measured, not merely attested.** The §47 voucher is dated the **12th**
+> of the month. Educational mode accepts only the 1st, 2nd and 31st — measured
+> against this gateway, not assumed. A voucher that posted on the 12th cannot
+> have come from an Educational instance. This does not read the licence mode
+> (§15 stands: that read is `UNKNOWN` by design and probing for it wedged a live
+> Tally); it establishes the narrower and sufficient fact that **whatever this
+> is, it is not Educational**.
+>
+> **No expiry date is recorded anywhere.** A trial ends. Every statement here
+> carries the unstated condition that it is still live on the day it is read.
+
+The original entry, left standing because it was true from 2026-08-08 to
+2026-08-11:
 
 **Dependency.** TallyPrime must not be running in Educational mode.
 
@@ -2069,6 +2092,16 @@ the fixture measures. Buying a licence is a commercial act.
 
 **What it unblocks.** With `B-01`, the `LICENSED_REALTALLY` evidence class,
 which is empty today. **Neither blocks code, tests, or merges.**
+
+**What actually changed, and what did not.** The `2026-08-07` fixture **can now
+run unmodified** — the date restriction that refused it is gone. It **has not
+been run**, and it is **still never edited**: the licence removes the reason it
+could not run, not the reason it was frozen. `B-01` is untouched and is now a
+permanent scope boundary rather than a gap
+(`RUNBOOK_PHASE5_ACCEPTANCE.md` §A.0.1). `ci/acceptance_cli.py` still refuses to
+apply the `LICENSED_REALTALLY` label without a MEASURED `licence_mode ==
+licensed`, and **that refusal is not loosened to match this note** — it exists
+precisely so this question cannot be closed by whoever writes the report.
 
 ### 20.4 `H-01` and `N-1` — one decision in two halves
 
