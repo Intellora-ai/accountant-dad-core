@@ -36,12 +36,11 @@ It now has three outcomes, not two:
     absent, and a developer laptop   skip, reported as
                                      LOCAL_ENVIRONMENT_UNAVAILABLE
 
-WARNING TO WHOEVER APPLIES THIS: the CI branch fails today, because no workflow
-job supplies a token. The Python change and the workflow step that supplies
-`GH_TOKEN` must be applied together, or every pull request goes red. The
-recommended workflow diff is stated in artifacts/gate_integrity_audit.md and is
-deliberately NOT applied here - editing .github/** needs the owner's yes for
-that specific change.
+APPLIED 2026-08-12. That warning is history now, and is kept because the shape
+of it recurs. `pr-fast.yml` supplies `GH_TOKEN: ${{ github.token }}` at the
+workflow level, so the nine live tests run rather than skip on every hosted run.
+The owner applied it after authorising that specific change; editing .github/**
+still needs their yes each time.
 
 WHY 401 IS NO LONGER PROOF
 --------------------------
@@ -99,13 +98,37 @@ tests pass, so a strict xfail would XPASS and turn a developer's run red for
 doing nothing wrong, while xfailing in CI. Same code, opposite verdicts. An
 xfail here would be a coin toss wearing a gate's clothing.
 
-WHAT WAS DELIBERATELY NOT DECIDED HERE
---------------------------------------
-Whether an unreadable `bypass_actors` should stop blocking pull requests is
-owner option 2 in `artifacts/gate_integrity_blocked.md`, and it is unchosen. So
-CI still goes red. Only the sentence it goes red with has changed - from a
-false statement about bypass to a true one about a measurement that could not
-be taken.
+DECIDED BY THE OWNER 2026-08-12: IT NO LONGER BLOCKS PULL REQUESTS
+-------------------------------------------------------------------
+Whether an unreadable `bypass_actors` should stop blocking pull requests was
+owner option 2 in `artifacts/gate_integrity_blocked.md`, and it was unchosen.
+It is now chosen, and the reason is stronger than convenience.
+
+The field can only be read as the audited identity, and that identity is
+FORBIDDEN in `pr-fast.yml`: `ci/check_workflow_integrity.py` reports any
+`secrets.*` in a pull-request-triggered workflow as
+`[WEAKENING] SECRET_ON_PR_PATH`, which cannot be acknowledged - correctly, since
+that job runs pytest over the code in the pull request. So in `pr-fast` this
+measurement is not merely unavailable, it is one the repository's own rules
+refuse to allow, and a test that fails for being forbidden teaches nobody
+anything.
+
+`test_bypass_actors_are_still_empty` therefore SKIPS when `CLAUDE_AUDIT_TOKEN`
+is absent, and runs for real in `watchdog.yml`, which has no pull-request
+trigger and supplies the token to that one step.
+
+THE ASSERTION IS NOT WEAKENED, AND TWO CONTROLS SAY SO. Where the identity is
+present the original path is untouched: a broken read still fails, an unreadable
+field still reports NOT_MEASURED, and `[]` is still the only value that passes.
+`test_the_bypass_test_still_fails_when_it_can_actually_look` hands it an
+identity and a real bypass actor and requires the accusation;
+`test_the_bypass_test_skips_only_when_the_identity_is_absent` requires the skip
+to fire for exactly one reason. A skip nobody has watched NOT happen is not a
+skip, it is a hole.
+
+The other nine live tests are unchanged and still FAIL in CI when their
+prerequisites are missing. Only this one test, and only for the one reason
+above.
 """
 
 from __future__ import annotations
@@ -116,11 +139,13 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
 from typing import Any, NoReturn
 
 import pytest
+from _pytest.outcomes import Skipped
 
 ROOT = Path(__file__).resolve().parent.parent
 CONTRACT = ROOT / "ci" / "gates.toml"
@@ -536,7 +561,49 @@ def test_bypass_actors_are_still_empty():
     that same accusation carrying `None`, reporting a bypass that had never been
     measured. It now reports NOT_MEASURED and names the owner action instead.
     See the module docstring for the measurement behind that.
+
+    WHY THIS ONE TEST SKIPS WITHOUT THE AUDIT IDENTITY, 2026-08-12
+    --------------------------------------------------------------
+    `bypass_actors` is withheld from the default token, so this test can only
+    measure anything as the audited identity. That identity is deliberately NOT
+    in `pr-fast.yml`: `ci/check_workflow_integrity.py` reports any `secrets.*`
+    in a pull-request-triggered workflow as `[WEAKENING] SECRET_ON_PR_PATH`, a
+    finding that cannot be acknowledged - and it is right, because that job runs
+    pytest over the code in the pull request.
+
+    So in `pr-fast` the measurement is not merely unavailable, it is FORBIDDEN,
+    and a test that fails for being forbidden is a red square that teaches
+    nobody anything. It runs in `watchdog.yml`, which has no pull-request
+    trigger and where the token IS supplied.
+
+    THE ASSERTION IS NOT WEAKENED, AND THAT IS CHECKABLE. The skip is reached
+    only when the variable is absent. With the identity present - which is the
+    only place the answer means anything - the original path runs untouched: a
+    broken read still fails, an unreadable field still reports NOT_MEASURED
+    through `unread_bypass_actors`, and `[]` is still the only value that
+    passes. `test_the_bypass_test_still_fails_when_it_can_actually_look` below
+    is the control that says so.
+
+    A conditional skip inside the function, never `pytest.mark.skipif` and never
+    `pytestmark`: `check_workflow_integrity.unconditional_skips` refuses both of
+    those as PROTECTION_TEST_SKIPPABLE, because a module-level skip makes the
+    whole file pass on every hosted run without calling GitHub once.
     """
+    if not os.environ.get(ENV_AUDIT_TOKEN, "").strip():
+        # The NAME is written out as a literal rather than interpolated from
+        # `ENV_AUDIT_TOKEN`. `test_the_audit_token_is_never_written_anywhere_it
+        # _could_be_read_back` refuses that variable inside any call that
+        # prints, and it is right to: the discipline it enforces is that the
+        # variable and a printing call never sit together, because that is one
+        # edit away from printing the value.
+        pytest.skip(
+            "PROTECTION_TEST_BYPASS_ACTORS_NOT_MEASURED: CLAUDE_AUDIT_TOKEN is "
+            "not set, so `bypass_actors` cannot be read here. Expected in "
+            "pull-request workflows, where a secret on the PR path is a "
+            "WEAKENING that cannot be acknowledged. The measurement runs in "
+            "watchdog.yml, which has no pull-request trigger."
+        )
+
     rid = ruleset_id()
     data = json.loads(gh("api", f"repos/{REPO}/rulesets/{rid}").stdout)
 
@@ -551,6 +618,89 @@ def test_bypass_actors_are_still_empty():
         unread_bypass_actors(data)
 
     assert data["bypass_actors"] == [], f"{BYPASS_FOUND}: {data['bypass_actors']}"
+
+
+def test_the_bypass_test_still_fails_when_it_can_actually_look(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE CONTROL ON THE SKIP ADDED 2026-08-12.
+
+    Without this, the skip above is indistinguishable from a test that has
+    quietly stopped measuring anything: both are green, and the one that matters
+    is green for the wrong reason. This repository has shipped that exact defect
+    twice - a `Condition(0, 0)` that could never fail, and a contract test that
+    matched a word inside its own comment.
+
+    So: hand it an identity, hand it a ruleset carrying a real bypass actor, and
+    require it to fail with the accusation. If the skip ever swallows the whole
+    test, this goes green while the assertion is dead, and it is the one that
+    turns red.
+    """
+    monkeypatch.setenv(ENV_AUDIT_TOKEN, "an-identity-that-can-look")
+
+    # Every marker present, so the broken-read guard passes and the test reaches
+    # the assertion under examination. `bypass_actors` is NOT one of the
+    # markers - pyright caught a dead `marker == "bypass_actors"` branch here -
+    # so it is added on its own line, carrying a real actor.
+    body: dict[str, Any] = dict.fromkeys(RULESET_MARKERS, "present")
+    body["bypass_actors"] = [{"actor_id": 1, "actor_type": "OrganizationAdmin"}]
+    answer = subprocess.CompletedProcess[str](
+        args=[], returncode=0, stdout=json.dumps(body), stderr=""
+    )
+
+    def answering(
+        *_args: object, **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        return answer
+
+    here = sys.modules[__name__]
+    monkeypatch.setattr(here, "ruleset_id", lambda: "1")
+    monkeypatch.setattr(here, "gh", answering)
+
+    # `Skipped` is caught FIRST and turned into a failure. WRITTEN BY A MUTANT,
+    # 2026-08-12: changing the guard to `if True:` - a skip that fires whatever
+    # the environment says - left this control GREEN, because `pytest.skip`
+    # raises `Skipped`, `pytest.raises(AssertionError)` does not catch it, and
+    # an escaping `Skipped` skips the control rather than failing it. A control
+    # that skips is not a control, and that mutant is precisely the failure this
+    # test exists to catch.
+    try:
+        with pytest.raises(AssertionError, match=BYPASS_FOUND):
+            test_bypass_actors_are_still_empty()
+    except Skipped as skipped:  # pragma: no cover - only a mutant reaches this
+        pytest.fail(
+            "the bypass test SKIPPED while an identity was present. The skip "
+            f"must fire only when the variable is absent. Reason given: {skipped}",
+            pytrace=False,
+        )
+
+
+def test_the_bypass_test_skips_only_when_the_identity_is_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other half of the control: the skip fires for exactly one reason.
+
+    A skip that fires whatever the environment says is a test that never runs,
+    which is the failure `PROTECTION_TEST_SKIPPABLE` exists to catch.
+    """
+    monkeypatch.delenv(ENV_AUDIT_TOKEN, raising=False)
+
+    with pytest.raises(Skipped, match="CLAUDE_AUDIT_TOKEN"):
+        test_bypass_actors_are_still_empty()
+
+
+def test_a_blank_audit_token_counts_as_absent_and_not_as_an_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`CLAUDE_AUDIT_TOKEN=` is a common way to think you unset something.
+
+    Set-but-empty must take the skip, not attempt a read as nobody. The same
+    `.strip()` reasoning `gh_environment` already applies to this variable.
+    """
+    monkeypatch.setenv(ENV_AUDIT_TOKEN, "   ")
+
+    with pytest.raises(Skipped, match="CLAUDE_AUDIT_TOKEN"):
+        test_bypass_actors_are_still_empty()
 
 
 def test_an_unread_bypass_actors_field_is_never_reported_as_a_bypass(
