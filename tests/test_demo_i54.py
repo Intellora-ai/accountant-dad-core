@@ -216,6 +216,34 @@ def test_nothing_that_was_refused_produced_something_postable() -> None:
     assert [r.number for r in stopped if r.entry is not None] == []
 
 
+def test_the_control_the_three_posted_bills_each_produced_a_real_entry() -> None:
+    """THE CONTROL on the test above, and it only became possible to write when
+    `accountant.cage.decision` landed.
+
+    Until then nothing in the demo could legitimately cross the wall, `entry`
+    was `None` on all twenty rows, and "no refusal produced one" was true of a
+    run that produced none at all.
+    """
+    posted = [r for r in demo.run_demo() if r.actual is demo.Outcome.POST]
+
+    assert len(posted) == 3
+    assert all(r.entry is not None for r in posted)
+
+
+def test_each_posted_entry_carries_the_amount_that_was_on_its_own_bill() -> None:
+    """Per row, not summed. Three entries totalling the right amount can still
+    be three entries with the wrong amounts on them."""
+    posted = [r for r in demo.run_demo() if r.actual is demo.Outcome.POST]
+
+    written = [(r.entry.amount_paise, r.entry.party) for r in posted if r.entry]
+
+    assert written == [
+        (120_000, demo.PARTY_ONE),
+        (250_000, demo.PARTY_TWO),
+        (99_999, demo.PARTY_ONE),
+    ]
+
+
 def test_nothing_that_was_refused_reached_the_books() -> None:
     """Measured in the register rather than inferred from the code path."""
     tally = FakeTally()
@@ -297,7 +325,7 @@ def test_the_cap_the_demo_enforces_is_the_one_the_product_ships() -> None:
 
 
 def test_the_one_paisa_error_is_named_to_the_paisa_in_the_sentence() -> None:
-    """"Does not add up" is not actionable. "Out by 1" is, and one paisa is the
+    """ "Does not add up" is not actionable. "Out by 1" is, and one paisa is the
     smallest disagreement arithmetic can see.
 
     The wording is `conservation.py`'s own and says "out by 1 paise" where a
@@ -322,11 +350,17 @@ def test_a_bill_carrying_tax_is_refused_because_posting_tax_is_switched_off() ->
 
 def test_the_unknown_party_refusal_never_offers_to_invent_a_name() -> None:
     """We never create a ledger the accountant did not create. The sentence says
-    so and hands the person the two things that would work."""
+    so and hands the person the two things that would work.
+
+    It does NOT name the party. That is the cage's own wording and it is a real
+    gap - a person with four bills in flight cannot tell which one this is about
+    - but it is reported to the owner rather than patched from this file.
+    """
     said = demo.run_demo()[7].sentence.lower()
 
-    assert "kumar & sons" in said
+    assert "never add a new name" in said
     assert "tally" in said
+    assert "kumar & sons" not in said
 
 
 def test_the_impossible_date_is_quoted_back_so_the_person_can_see_it() -> None:
@@ -362,7 +396,9 @@ def test_the_duplicate_is_refused_and_the_books_hold_one_copy_not_two() -> None:
     the first one is already in."""
     tally = FakeTally()
     results = demo.run_demo(tally)
-    written = [v for v in tally.read_vouchers(demo.COMPANY) if v.party == demo.PARTY_ONE]
+    written = [
+        v for v in tally.read_vouchers(demo.COMPANY) if v.party == demo.PARTY_ONE
+    ]
 
     assert results[16].actual is demo.Outcome.BLOCK
     assert results[16].stage == "duplicate"
@@ -378,12 +414,78 @@ def test_the_empty_file_and_the_random_bytes_are_told_apart() -> None:
     assert results[14].detected != results[13].detected
 
 
+# ---- where the cage and the owner's criterion disagree ----------------------
+
+
+def test_the_decision_layer_never_said_post_about_anything_that_was_refused() -> None:
+    """THE SAFETY PROPERTY, and the one that survives the disagreement.
+
+    The demo overrides the cage's LABEL on four rows. It may never override it
+    towards the books. Row 17 is the one exception and it is the honest kind:
+    the cage cleared a bill it had no way to know was already posted, and a
+    guard the cage does not contain is what stopped it.
+    """
+    results = demo.run_demo()
+
+    cleared = [
+        r.number
+        for r in results
+        if r.cage_action is demo.Action.POST and r.actual is not demo.Outcome.POST
+    ]
+
+    assert cleared == [17]
+
+
+def test_the_disagreeing_rows_are_exactly_the_ones_written_down() -> None:
+    """A disagreement about what "refuse" means may not live in a comment.
+
+    This fails the day either side changes without the other, which is the only
+    way an owner ever finds out that one of them moved.
+    """
+    results = demo.run_demo()
+    cage = {r.number: r.cage_action for r in results if r.diverged}
+
+    assert set(cage) == set(demo.DIVERGENCE)
+    assert cage == {
+        5: demo.Action.ASK,
+        6: demo.Action.ASK,
+        7: demo.Action.ASK,
+        17: demo.Action.POST,
+        20: demo.Action.BLOCK,
+    }
+
+
+def test_the_control_every_other_row_that_reached_the_cage_agrees_with_it() -> None:
+    """THE CONTROL on the test above.
+
+    Twelve rows get as far as having a bill to decide about; the other eight are
+    refused over bytes, before there is anything for `decide` to read. Five of
+    the twelve disagree and seven agree, and pinning both halves is what stops
+    the divergence list quietly growing to cover a demo that ignored the cage.
+    """
+    results = demo.run_demo()
+
+    reached = [r for r in results if r.cage_action is not None]
+
+    assert len(reached) == 12
+    assert len([r for r in reached if not r.diverged]) == 7
+
+
+def test_the_disagreement_is_printed_in_the_demo_the_owner_watches() -> None:
+    """Not only recorded. An owner reading the table has to see that two parts
+    of this system label the same bill differently."""
+    printed = demo.divergence_report(demo.run_demo())
+
+    assert all(f"row {n:>2}" in printed for n in demo.DIVERGENCE)
+    assert "Nothing is posted either way" in printed
+
+
 # ---- the script a person actually runs --------------------------------------
 
 
 def test_the_demo_script_runs_on_its_own_and_exits_zero() -> None:
     """The script IS the demo. A demo that only runs inside pytest is a test."""
-    done = subprocess.run(  # noqa: S603
+    done = subprocess.run(
         [sys.executable, "demo_safety_cage.py"],
         cwd=demo.REPO,
         capture_output=True,
@@ -438,3 +540,33 @@ def test_the_printed_table_carries_every_input_and_its_sentence() -> None:
 #    and one funding ledger, so a bug that posted every bill to the same wrong
 #    pair would not be visible here. Covering it needs a second chart, which is
 #    a second demo rather than a longer one.
+#
+# Re-read again after `accountant/cage/decision.py` landed mid-task and the demo
+# was rewired to call it. Three more, and the first two were real holes.
+#
+# 6. IMPLEMENTED. `test_nothing_that_was_refused_produced_something_postable`
+#    was vacuous while the decision layer did not exist: `entry` was `None` on
+#    all twenty rows, so "no refusal produced one" was true of a run that
+#    produced none at all.
+#    `test_the_control_the_three_posted_bills_each_produced_a_real_entry` is the
+#    control that makes it mean something, and it is only writable now.
+#
+# 7. IMPLEMENTED. Every amount assertion was a SUM. Three entries adding up to
+#    469,999 paise can be three entries with the wrong amounts on them, and the
+#    swap of two parties would not move the total at all.
+#    `test_each_posted_entry_carries_the_amount_that_was_on_its_own_bill` pins
+#    each row to its own bill and its own party.
+#
+# 8. IMPLEMENTED. The divergence test asserted only WHICH rows disagree, so the
+#    cage flipping from ASK to POST on a failed conservation law would still
+#    have been "row 5 disagrees" and passed. It now asserts what the cage
+#    actually said on each of the five, which is the fact that matters: four of
+#    them may move, and row 17 moving to anything other than POST would mean the
+#    cage had grown a duplicate guard nobody told this file about.
+#
+# 9. NOT IMPLEMENTED. `stage_for` in the demo re-derives which rule fired rather
+#    than reading it off `Decided`, because `Decided` carries reasons as
+#    sentences and not as identifiers. The two orders are pinned to each other
+#    by comment and by this file's stage column, and that already caught one
+#    disagreement - but the real fix is a reason id on `Decided`, which is a
+#    change to somebody else's module and not this task's to make.

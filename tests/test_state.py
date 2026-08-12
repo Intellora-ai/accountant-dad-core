@@ -84,6 +84,7 @@ from accountant.cage.state import (
     Gate,
     Invariant,
     Payload,
+    Precondition,
     Proposal,
     RejectedTransition,
     State,
@@ -547,9 +548,19 @@ def test_a_write_cannot_be_claimed_straight_out_of_checked() -> None:
 
 
 def test_a_band_cannot_be_assigned_before_both_checks_have_passed() -> None:
-    half = apply(_observed(), Event.CONSERVATION_PASSED, at=_tick(1), actor=SYSTEM)
     with pytest.raises(RejectedTransition):
-        _send(half, Event.CONFIDENCE_HIGH)
+        _send(_half_gated(), Event.CONFIDENCE_HIGH)
+
+
+def test_the_control_a_band_is_only_assigned_where_both_gates_passed() -> None:
+    """THE CONTROL, for the same reason as the write-permission one below: the
+    test above is satisfied by `ConfidenceHigh` having no door from `observed`,
+    which says nothing about the gates. This fires the predicate itself."""
+    both = _precondition_of(Event.CONFIDENCE_HIGH, "conservation and validation")
+    score = Payload(event=Event.CONFIDENCE_HIGH, at=_tick(9), actor=SYSTEM)
+    assert both.holds(_checked().audit, score) is True
+    assert both.holds(_half_gated().audit, score) is False
+    assert both.holds(_observed().audit, score) is False
 
 
 def test_an_answer_to_a_question_nobody_asked_is_refused() -> None:
@@ -588,9 +599,7 @@ def test_a_write_claimed_without_an_operation_id_is_refused() -> None:
         apply(_decided(), Event.WRITE_CLAIMED, at=_tick(4), actor=SYSTEM)
 
 
-def test_a_medium_band_with_no_answer_may_not_claim_a_write() -> None:
-    """Reached by hand rather than through `asking`, because the point is the
-    precondition and not the route: a band below high needs a person."""
+def test_a_write_cannot_be_claimed_while_a_question_is_still_outstanding() -> None:
     with pytest.raises(RejectedTransition):
         apply(
             _asking(),
@@ -599,6 +608,42 @@ def test_a_medium_band_with_no_answer_may_not_claim_a_write() -> None:
             actor=SYSTEM,
             operation_id="op-3",
         )
+
+
+def test_the_control_a_write_needs_a_high_band_or_a_persons_answer() -> None:
+    """THE CONTROL on the test above, and it was needed.
+
+    That test looks like it proves a medium band cannot post. It does not - it
+    proves `WriteClaimed` has no door from `asking`, which is a fact about the
+    state and not about the band. A mutant that widened the precondition to "any
+    band at all" survived the entire suite because of exactly that gap.
+
+    So the predicate is fired directly here, on three histories that differ only
+    in what they know about certainty."""
+    permits = _precondition_of(Event.WRITE_CLAIMED, "the band is high, or a person")
+    claim = Payload(
+        event=Event.WRITE_CLAIMED, at=_tick(9), actor=SYSTEM, operation_id="op-9"
+    )
+    assert permits.holds(_decided().audit, claim) is True
+    assert permits.holds(_answered_proposal().audit, claim) is True
+    assert permits.holds(_asking().audit, claim) is False
+
+
+def test_no_path_into_posting_skips_a_high_band_or_a_persons_answer() -> None:
+    """The same claim read off the table rather than off one predicate. Every
+    reachable way to be in `posting` has passed through `ConfidenceHigh` or
+    `Answered` on the way."""
+    permitting = {Event.CONFIDENCE_HIGH, Event.ANSWERED}
+    seen = {(INITIAL_STATE, False)}
+    frontier = [(INITIAL_STATE, False)]
+    while frontier:
+        state, permitted = frontier.pop()
+        for rule in (r for r in RULES if state in r.frm):
+            step = (rule.to, permitted or rule.event in permitting)
+            if step not in seen:
+                seen.add(step)
+                frontier.append(step)
+    assert not [s for s, allowed in seen if s is State.POSTING and not allowed]
 
 
 def test_blocking_a_proposal_without_a_written_reason_is_refused() -> None:
@@ -746,6 +791,22 @@ def test_a_row_with_a_legal_event_but_the_wrong_destination_is_refused() -> None
         Proposal(proposal_id="p-1", amount_paise=118_000, audit=(forged,))
 
 
+def test_a_row_whose_before_column_lies_is_refused_though_the_move_is_legal() -> None:
+    """The hardest forgery to see, and the only one the chain check catches on
+    its own. `ValidationPassed` from `observed` with conservation already
+    recorded really does land in `checked`, so the rule replay is perfectly
+    happy - and the column a person reads still says this row started somewhere
+    the proposal had never been.
+
+    Found by mutation: with the chain check removed the whole file stayed
+    green, because every other forgery test was also being caught by the
+    replay."""
+    honest = _checked().audit
+    liar = dataclasses.replace(honest[1], before=State.CHECKED)
+    with pytest.raises(UnrecordedMutation, match="started from"):
+        Proposal(proposal_id="p-1", amount_paise=118_000, audit=(honest[0], liar))
+
+
 def test_something_that_is_not_an_audit_row_at_all_is_refused() -> None:
     """A tuple of dicts loaded back out of JSON is the ordinary way this
     arrives. Reading `.before` off it would raise an AttributeError three frames
@@ -852,6 +913,16 @@ def test_the_control_the_posting_invariant_refuses_an_unchecked_claim() -> None:
     invariant = _invariant("a write is never claimed by something unchecked")
     assert invariant.holds(_decided(), _posting()) is True
     assert invariant.holds(_observed(), _posting()) is False
+
+
+def _precondition_of(event: Event, starts_with: str) -> Precondition:
+    """The named precondition of the rule for this event, so a control test can
+    fire the predicate itself rather than a whole transition around it."""
+    for rule in RULES:
+        for pre in rule.pre:
+            if rule.event is event and pre.name.startswith(starts_with):
+                return pre
+    raise AssertionError(f"{event.value} has no precondition like {starts_with!r}")
 
 
 def _invariant(name: str) -> Invariant:
@@ -1022,33 +1093,50 @@ def test_a_proposal_with_no_id_is_refused() -> None:
 
 # ---- REVIEW NOTES ------------------------------------------------------------
 #
-# Read back adversarially, as somebody who did not write it.
+# Read back adversarially, as somebody who did not write it. Eleven mutants were
+# run against `state.py`; the two that survived are findings 4 and 5 below and
+# both are now dead.
 #
-# 1. FIXED - the rejection matrix could have passed against a machine that
-#    refused every transition. `test_the_control_every_pair_the_table_declares_
-#    actually_goes_through` fires all fifteen declared edges and requires each
-#    to move, which is the control the matrix needed.
+# 1. FIXED - the rejection matrix could have passed perfectly against a machine
+#    that refused EVERY transition. `test_the_control_every_pair_the_table_
+#    declares_actually_goes_through` fires all fifteen declared edges and
+#    requires each to move. That is the control the matrix had to have.
 #
 # 2. FIXED - `test_blocked_is_terminal...` and `test_posted_is_terminal...` both
-#    depend on `_blocked()` and `_posted()` genuinely being in those states. If
-#    a builder quietly returned an `observed` proposal the tests would still
-#    pass on most events. `test_no_rule_in_the_table_leaves_a_terminal_state`
-#    reads the same claim off the table with no builder involved.
+#    lean on `_blocked()` and `_posted()` genuinely being in those states. A
+#    builder that quietly returned an `observed` proposal would leave both
+#    green. `test_no_rule_in_the_table_leaves_a_terminal_state` reads the same
+#    claim off the table with no builder involved.
 #
-# 3. FIXED - the three invariants that can never fire through `apply` (id,
-#    amount, blocked-terminal, unchecked-claim) were originally asserted only by
-#    walking a happy path, which proves nothing about the predicate. Each now
-#    has a control that hands the predicate the pair it exists to refuse.
+# 3. FIXED - the four global invariants cannot fire through `apply` as the table
+#    stands, so asserting them by walking a happy path proves nothing about the
+#    predicates. Each now has a control that hands the predicate the pair it
+#    exists to refuse, built by force where the constructor would not allow it.
 #
-# 4. NOT DONE - `test_at_most_one_rule_ever_matches_a_state_and_an_event` checks
-#    that rules sharing a (state, event) have distinct destinations. It does NOT
-#    prove their preconditions are mutually exclusive; two rules with the same
-#    precondition and different destinations would still resolve by table order.
-#    Proving exclusivity needs the precondition predicates enumerated over every
-#    reachable history, which is a bigger fixture than this file should carry.
-#    The four gate rules are the only ones that share a pair today.
+# 4. FIXED, and it was a real hole - `test_a_medium_band_with_no_answer_may_not_
+#    claim_a_write` read like a test of the write-permission precondition and
+#    was in fact a test of the ROUTE: `WriteClaimed` has no door from `asking`
+#    at all, so the assertion held with the precondition gutted. A mutant
+#    widening it to "any band will do" survived the entire suite. It is renamed
+#    for what it does, and the precondition now has a control that fires the
+#    predicate on three histories plus a walk over every path into `posting`.
+#    The same gap existed for "both gates passed" and has the same control.
 #
-# 5. NOT DONE - nothing here tests a walk longer than five transitions, and
-#    `_replay` is O(n^2) in the number of rows. At the lengths this machine
-#    produces (at most eight) that is not worth measuring, but if a proposal
-#    ever accumulated hundreds of rows the constructor would be the cost.
+# 5. FIXED - deleting the chain-join check from `_replay` left all 88 tests
+#    green, because every forgery in the file was also being caught by the rule
+#    replay. `test_a_row_whose_before_column_lies_is_refused_though_the_move_is_
+#    legal` is the case only the chain check sees: a legal walk whose `before`
+#    column - the one a person reads - was edited.
+#
+# 6. NOT DONE - `test_at_most_one_rule_ever_matches_a_history_and_an_event` runs
+#    over the nine histories this file can build, not over every reachable one.
+#    Two rules sharing a (state, event) with overlapping preconditions on some
+#    history nobody built here would still resolve by table order. The four gate
+#    rules are the only ones sharing a pair today, and their preconditions are
+#    each other's negation, so the risk is a future edit rather than this table.
+#
+# 7. NOT DONE - nothing here walks more than five transitions, and `_replay` is
+#    O(n^2) in the number of rows because it re-selects a rule from every
+#    prefix. At the lengths this machine produces - eight rows at the very most
+#    - that is not worth measuring. It is the constructor that would pay if a
+#    proposal ever accumulated hundreds.

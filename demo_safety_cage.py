@@ -387,7 +387,9 @@ def said(question: Question) -> str:
 # ---- the guards this file owns, in order ------------------------------------
 
 
-def result_for(row: Input, outcome: Outcome, stage: str, sentence: str, **extra: object)-> Result:
+def result_for(
+    row: Input, outcome: Outcome, stage: str, sentence: str, **extra: object
+) -> Result:
     return Result(
         number=row.number,
         name=row.name,
@@ -523,7 +525,9 @@ def observed(seen: dict[str, str], scores: dict[str, float]) -> Observation:
 
     def one(name: str, value: object) -> Field:
         score = scores[name] if name in seen else 0.0
-        return Field(value=value if name in seen else None, confidence=score, source="typed text")
+        return Field(
+            value=value if name in seen else None, confidence=score, source="typed text"
+        )
 
     return Observation(
         date=one("date", datetime.date.fromisoformat(seen.get("date", "2026-01-01"))),
@@ -534,7 +538,9 @@ def observed(seen: dict[str, str], scores: dict[str, float]) -> Observation:
     )
 
 
-def laws_for(seen: dict[str, str], before: int) -> tuple[conservation.ConservationResult, ...]:
+def laws_for(
+    seen: dict[str, str], before: int
+) -> tuple[conservation.ConservationResult, ...]:
     """All four, in `LAWS` order, because `decide` refuses anything else.
 
     The fourth is asked against a PREDICTED balance and is therefore vacuous
@@ -560,22 +566,32 @@ def laws_for(seen: dict[str, str], before: int) -> tuple[conservation.Conservati
 
 
 def stage_for(
-    seen: dict[str, str], laws: tuple[conservation.ConservationResult, ...], watched: Observation
+    seen: dict[str, str],
+    laws: tuple[conservation.ConservationResult, ...],
+    watched: Observation,
 ) -> str:
     """Which guard the cage stopped on. A LABEL for the table, not a decision.
 
-    The outcome is `decide`'s and only `decide`'s. This names it, in `decide`'s
-    own `_blocking` order, so the table can say WHICH rule fired - a thing the
-    `Decided` type does not carry and a thing an acceptance demo has to show.
+    The outcome is `decide`'s and only `decide`'s. This names it, so the table
+    can say WHICH rule fired - a thing the `Decided` type does not carry and a
+    thing an acceptance demo has to show.
+
+    THE ORDER IS `decide`'S, NOT A CONVENIENT ONE. Everything `_blocking` looks
+    at comes before everything `_asking` looks at, so tax, period and party are
+    ahead of a failed law even though a failed law feels more serious. Ordering
+    it the other way round was the first version and it lied on exactly one row:
+    a bill carrying tax AND a broken sum was labelled `arithmetic` while the
+    cage had refused it, correctly, for the tax. A label that disagrees with the
+    reason is the defect the stage column exists to catch, so it may not be one.
     """
-    if any(law.verdict is conservation.Verdict.FAIL for law in laws):
-        return "arithmetic"
     if int(seen.get("tax", 0)) != 0:
         return "tax"
     if datetime.date.fromisoformat(seen["date"]) < BOOKS_OPEN_FROM:
         return "period"
     if seen.get("party", "") not in KNOWN_PARTIES:
         return "party"
+    if any(law.verdict is conservation.Verdict.FAIL for law in laws):
+        return "arithmetic"
     if watched.lowest_confidence < AUTO_POST_FLOOR:
         return "confidence"
     return "posted"
@@ -652,7 +668,9 @@ def settle(
     if [n for n in FIELDS if n not in seen] and len(seen) > 1:
         # DIVERGENCE. Absent is not wrong - it is unknown, and unknown is a
         # question. The cage calls it "too little to even ask about".
-        return result_for(row, Outcome.ASK, "confidence", asked[0], questions=asked, **extra)
+        return result_for(
+            row, Outcome.ASK, "confidence", asked[0], questions=asked, **extra
+        )
 
     if stage == "arithmetic":
         # DIVERGENCE, the other way. The cage asks; the owner refuses a bill
@@ -660,7 +678,13 @@ def settle(
         return refuse(row, stage, f"{decided.said} {NEXT_STEP[stage]}", **extra)
 
     if outcome is not Outcome.POST:
-        onward = NEXT_STEP.get(stage, "")
+        # On an ASK the question IS the next step, and the cage does not build
+        # one - `_NOT_SURE_ENOUGH` says it needs to check with you and stops
+        # there. So the question goes in the same sentence rather than into a
+        # column nobody reads.
+        onward = (
+            asked[0] if outcome is Outcome.ASK and asked else NEXT_STEP.get(stage, "")
+        )
         return result_for(
             row,
             outcome,
@@ -707,7 +731,9 @@ def post(
 
     moved = conservation.balance_delta_equals_entry(before, after, entry.amount_paise)
     if moved.verdict is not conservation.Verdict.PASS:
-        return refuse(row, "posted", f"{moved.said} Check the register in Tally.", **extra)
+        return refuse(
+            row, "posted", f"{moved.said} Check the register in Tally.", **extra
+        )
     return result_for(
         row,
         Outcome.POST,
@@ -769,7 +795,9 @@ RANDOM_BYTES = b"\xde\xad\x00\xbe\xef\xfe\xff\x11\x7f\x80\x91\xa2\xb3\xc4"
 def the_twenty() -> tuple[Input, ...]:
     """The twenty, rebuilt fresh every run so no counter carries over."""
     return (
-        Input(1, "clean typed bill", Outcome.POST, "posted", bill(), operation_id="op-01"),
+        Input(
+            1, "clean typed bill", Outcome.POST, "posted", bill(), operation_id="op-01"
+        ),
         Input(
             2,
             "clean bill, another party and amount",
@@ -820,14 +848,12 @@ def the_twenty() -> tuple[Input, ...]:
             "net plus tax does not equal the total",
             Outcome.BLOCK,
             "arithmetic",
-            bill(
-                party=PARTY_TWO,
-                net="100000",
-                tax="18001",
-                total="118000",
-                paid="118000",
-                lines="118000",
-            ),
+            # Tax is ZERO on purpose. A non-zero tax makes this a GST bill, and
+            # the cage refuses a GST bill for the tax before it ever weighs the
+            # sum - so the row would have demonstrated the tax rule twice and
+            # `net + tax != gross` not at all. The disagreement is between the
+            # stated net and the stated total, which is what the law compares.
+            bill(net="100000", total="118000", paid="118000", lines="118000"),
             operation_id="op-06",
         ),
         Input(
@@ -879,8 +905,22 @@ def the_twenty() -> tuple[Input, ...]:
             declared_mime="image/png",
             operation_id="op-12",
         ),
-        Input(13, "a Word document", Outcome.BLOCK, "classify", Body(A_DOCX), operation_id="op-13"),
-        Input(14, "an empty file", Outcome.BLOCK, "classify", Body(b""), operation_id="op-14"),
+        Input(
+            13,
+            "a Word document",
+            Outcome.BLOCK,
+            "classify",
+            Body(A_DOCX),
+            operation_id="op-13",
+        ),
+        Input(
+            14,
+            "an empty file",
+            Outcome.BLOCK,
+            "classify",
+            Body(b""),
+            operation_id="op-14",
+        ),
         Input(
             15,
             "random bytes",

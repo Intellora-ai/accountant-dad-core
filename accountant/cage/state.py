@@ -477,6 +477,16 @@ AN_OPERATION_ID: Final = Precondition(
     lambda _rows, payload: bool(payload.operation_id.strip()),
 )
 
+#: The rule that says WHY a write may be claimed at all, and the reason `asking`
+#: is not a dead end: a high band posts on its own, a medium band needs a
+#: person, and the person's answer is what supplies the missing certainty.
+#:
+#: It cannot fire through the table as it stands, because the only two doors
+#: into `decided` are `ConfidenceHigh` and `Answered`. That was measured, not
+#: assumed - a mutant that widened it to "any band at all" survived the whole
+#: suite until `tests/test_state.py` began firing the predicate directly and
+#: walking every path into `posting`. It is kept rather than deleted because it
+#: is the guard that bites the day somebody adds a third door.
 A_HIGH_BAND_OR_A_PERSON: Final = Precondition(
     "the band is high, or a person answered",
     lambda rows, _payload: _band_of(rows) is Band.HIGH or _answered_in(rows),
