@@ -4537,3 +4537,77 @@ voucher date outside the 1st, 2nd and 31st being refused.
 
 **Owner action, small and not optional:** record the trial's expiry date. One
 line in `docs/OWNER_WORK.md` is enough.
+
+---
+
+## §49 The safety cage
+
+Dated 2026-08-12/13, branch `cage/safety-layer`.
+
+### §49.1 What landed
+
+| Module | Tests | Mutants run / killed |
+|---|---|---|
+| `accountant/cage/conservation.py` | 31 | 4 / 4 |
+| `accountant/cage/wall.py` | 23 | 5 / 5 |
+| `accountant/cage/confidence.py` | 24 | 5 / 5 |
+| `accountant/cage/classify.py` | 27 | 4 / 4 |
+
+**18 mutants run, 18 killed.** Every module test-first: the test was written,
+run, and **watched failing** for the intended reason before any implementation
+existed. Four pages in `docs/interfaces/`.
+
+### §49.2 A claim in this document was wrong, and is corrected here
+
+This build began from "`accountant/web/app.py` is 28% covered, 846 statements,
+560 missed; whole repo 86%." **Both numbers were false.** They came from the
+repository's gitignored `.coverage` artefact, last written 2026-08-11 15:33 by a
+partial run whose line numbers no longer matched the file — it reported
+module-level assignments as unexecuted, which is impossible if the module
+imported at all.
+
+Measured fresh, after deleting the artefact and running the whole suite:
+
+```
+accountant/web/app.py    846 stmts, 0 missed, 220 branch, 0 partial   100%
+whole repo               7394 stmts, 136 missed                        98%
+```
+
+**The coverage gate was never failing.** Two agents found this independently and
+it was then verified from scratch rather than taken on trust. What was genuinely
+missing was seven statements and a handful of branch arcs — guards no request had
+ever reached — and those are now covered.
+
+### §49.3 Three defects the discipline caught in this work
+
+1. **A vacuous guard.** The AST scan asserting only `wall.py` constructs a
+   `LedgerEntry` was asserting over an empty set, because `decided()` used
+   `cls(...)`. A control test caught it. `wall.py` now constructs by name.
+2. **A blank audit row.** A `PASS` conservation verdict returned an empty
+   sentence, so a log row could not answer *passed on what numbers* months
+   later. The code changed, not the test.
+3. **Two of my own tests were wrong.** They asserted a truncated `%PD` header
+   classifies as `UNSUPPORTED`. Three printable ASCII bytes *are* plain text —
+   "not a PDF" was right, "therefore unsupported" did not follow. Corrected to
+   the true claim, with a new test using a *binary* prefix where the answer
+   really is a refusal. The docstring records that the test was wrong.
+
+### §49.4 Found in existing source, deliberately not fixed
+
+Each is a decision, not a cleanup, and each is recorded rather than quietly
+patched:
+
+- `decision_rule_kind` joins multiple problem ids with `"; "` then asks whether
+  the joined string is a detector name, so any decision driven by two or more
+  detectors is labelled `rule` on the provenance panel.
+- The retype arm writes a durable audit row `outcome="abandoned"`, reason *"the
+  entry was thrown away"*, then returns **before** `remember_draft`. Measured:
+  the draft survives byte-identical and can still be answered. The audit trail
+  says abandoned while the entry is neither abandoned nor unanswerable.
+- `remember_draft` defaults its principal; `remember_batch` and
+  `remember_deletion` do not and silently record `NOT_RECORDED` — and those two
+  guard a bulk reversal and an account deletion.
+- Cache eviction does not refresh a re-remembered entry: a dict keeps an existing
+  key in its original slot on update.
+- Line 2918 showed covered in one `-n auto` run and missed in the next with no
+  source change. Worth a look before anyone tightens the coverage gate.

@@ -151,6 +151,61 @@ ActionLog     frozen           ts, action, voucher_id, detail
 Hallucinate definition measurable: **a field with no source is a hallucination by
 definition.**
 
+### 4.1b The safety cage — `accountant/cage/` · **present**
+
+| File | Existence | Implementation |
+|---|---|---|
+| `conservation.py` | **present** | four laws that need no labels: debits=credits, lines=total, net+tax=gross, balance delta=entry. Three verdicts, and `INDETERMINATE` blocks |
+| `wall.py` | **present** | `Observation` (what we think) and `LedgerEntry` (what we write). `LedgerEntry` is constructible only by the decision layer, enforced at run time AND by an AST scan |
+| `confidence.py` | **present** | `min(word_conf)/100 × format_valid × consistency` — the proxy that turns per-word OCR scores into a per-field number |
+| `classify.py` | **present** | magic bytes over declared MIME, always. Never raises, never unzips, never executes |
+
+Landed 2026-08-12/13. One page per module in [`docs/interfaces/`](./interfaces/).
+
+**Why the cage exists.** Before it, one type carried a field from the moment it
+was guessed to the moment it was written into a customer's books. That single
+fact is the root cause of six of the sixteen recorded failure modes — a misread
+amount, a wrong party, a flipped sign, a nonsense entry, a photo of a cat and a
+wrong voucher type all reach the books by the same route, because nothing in the
+type system says which of them has been checked.
+
+```
+  any file, <= 100 MB
+        |
+   [ CLASSIFIER ]        magic bytes; unsupported -> a sentence, never a crash
+        v
+   [ READER ]         -> Observation   every field: value | None + confidence
+        |                              NOTHING here can be posted
+        v
+   [ CONSERVATION ]      pure arithmetic. no labels, no model, no network
+        v
+   [ VALIDATION ]        the 8 existing checks + party known + period open
+        v
+   [ DECISION ]          bands + hard rules -> post | ask | block
+        v
+   [ GATE ]           -> LedgerEntry   constructible ONLY inside decision.py
+        v
+   [ WRITE DOOR ]        unchanged, existing
+```
+
+**The cage only adds.** Per the replacement rule at §19.4, no existing check is
+weakened, removed, or made conditional on a confidence score. A high score never
+unlocks a failed conservation check, and a test asserts exactly that.
+
+**Two guards, not one, and the reason is defect J1.** *A unit test of a guard
+proves the guard works and says nothing about whether the guard is installed.*
+So every runtime guard in the cage has a paired AST guard proving the call site
+exists. When `wall.py` was first written this caught a real defect: `decided()`
+built its result with `cls(...)`, invisible to a scan looking for
+`LedgerEntry(`, so the scan was asserting over an **empty set** and would have
+kept passing after the wall was deleted.
+
+**Three things the cage does not claim.** It cannot see a bill misread
+*consistently* — every figure scaled by ten still sums (F-02). It cannot see a
+*confidently* misread digit — OCR reporting 96 on a character it got wrong.
+It cannot tell whether a file is a bill at all; a photo of a cat is a valid JPEG.
+Each module's docstring says so in its own words.
+
 ### 4.2 Tally connector — `accountant/tallyio/` · **present**
 
 | File | Existence | Implementation |
