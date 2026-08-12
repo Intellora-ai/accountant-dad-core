@@ -71,3 +71,6 @@
 WORKFLOW_HEADER_CHANGED:.github/workflows/pr-fast.yml:header:61a6892d56a3
 WORKFLOW_HEADER_CHANGED:.github/workflows/full.yml:header:1e28c333e269
 # ---------------------------------------------------------------------------
+STEP_RUN_CHANGED:.github/workflows/pr-fast.yml:pr-fast:sync dependencies from the lockfile:779447263fe4
+WORKFLOW_HEADER_CHANGED:.github/workflows/pr-fast.yml:header:bae3af9003be
+STEP_ADDED:.github/workflows/watchdog.yml:ruleset-drift:measure bypass_actors:759881b8b312
