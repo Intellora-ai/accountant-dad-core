@@ -60,9 +60,12 @@ That either rung reads a bill well. It grades nothing. Accuracy is
 number that matters there is not the score.
 
 That a picture rung exists on the machine this runs on. It needs the `tesseract`
-binary, which the container image deliberately does not install, and a machine
-without one meets `freeocr.ENGINE_MISSING` — a refusal in plain words, not a
-crash. Registering the rung did not install anything.
+binary, and registering the rung installs nothing. CORRECTED 2026-08-13: this
+said the container image deliberately does not install it. The owner reversed
+that the same day and the image now installs `tesseract-ocr` and
+`tesseract-ocr-eng`. Every OTHER machine is still its own question, and one
+without the binary meets `freeocr.ENGINE_MISSING` — a refusal in plain words,
+not a crash.
 
 That a document this refuses is unreadable. It says only that no rung here
 declares that media type.

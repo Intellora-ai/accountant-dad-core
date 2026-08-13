@@ -44,11 +44,15 @@ That any reader is accurate. It grades nothing. `docs/EXTRACTION_MEASURED.md`
 and the Ground-Truth Pack carry the numbers, and the picture rung's numbers on
 the corpus are poor and stated.
 
-That a photograph is read on the deployed machine. The container image installs
-no `tesseract` binary on purpose — `tests/test_deploy_artefacts.py` asserts that
-— so there the picture rung answers `freeocr.ENGINE_MISSING`, which is a refusal
-in plain words and not a crash. Routing to a rung that says "install this" is
-still routing, and it is still better than a regex inventing a number.
+That a photograph is read on the deployed machine. CORRECTED 2026-08-13: this
+said the container image installs no `tesseract` binary on purpose. The owner
+reversed that the same day, so the image installs `tesseract-ocr` and
+`tesseract-ocr-eng` and `tests/test_deploy_artefacts.py` asserts THAT instead.
+What the image can now do is run the engine; how well it reads is the corpus
+number in `docs/EXTRACTION_MEASURED.md`, and it is poor. On any machine without
+the binary the picture rung still answers `freeocr.ENGINE_MISSING`, a refusal
+in plain words and not a crash — routing to a rung that says "install this" is
+still routing, and still better than a regex inventing a number.
 """
 
 from __future__ import annotations

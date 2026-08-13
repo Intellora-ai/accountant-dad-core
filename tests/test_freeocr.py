@@ -43,12 +43,23 @@ TWICE. This backend WAS in `registry._NEEDS_WIRING` for want of a page reader;
 is asserted to be exactly SEVEN names and this is one of them, and the picture
 rung of `ladder.py` is wired to it.
 
-What still stands between it and a real upload is two decisions nobody here
-can make: `registry.DEFAULT_BACKEND` is still `typed_text`, so the running
-application does not route a document to the ladder at all; and the container
-image deliberately installs no `tesseract` binary, so on the deployed machine
-this backend answers `ENGINE_MISSING` — a refusal in plain words, not a crash.
-Both are owner decisions and neither is a test change.
+CORRECTED AGAIN, 2026-08-13. This paragraph named two owner decisions that
+stood between this backend and a real upload. BOTH HAVE SINCE BEEN MADE, and
+this docstring went on describing the world before them:
+
+- `registry.DEFAULT_BACKEND` is `ladder`, not `typed_text`, so the running
+  application DOES route an uploaded document to the ladder, and every image to
+  this backend.
+- the container image installs `tesseract-ocr` and `tesseract-ocr-eng`
+  (`Dockerfile`, asserted by `tests/test_deploy_artefacts.py`), so on the
+  deployed machine this backend no longer answers `ENGINE_MISSING` for want of
+  an engine.
+
+What still stands between it and a bill somebody trusts is accuracy, which is
+not a decision anyone can take: the corpus numbers are poor and are stated in
+`docs/EXTRACTION_MEASURED.md`. On a machine with no binary this backend still
+answers `ENGINE_MISSING` — a refusal in plain words, not a crash — and that is
+the property the tests below measure.
 
 NO NETWORK. The only test here that starts a program is the one that measures
 the real engine, and it is SKIPPED WITH A STATED REASON when the engine is not

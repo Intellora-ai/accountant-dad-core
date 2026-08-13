@@ -165,11 +165,14 @@ from accountant.extract.service import MALFORMED, reason_for
 #: claim that a photograph reads. `H-02` stays open and no real photographed
 #: bill has been through this.
 #:
-#: A reader on the deployed machine. The container image installs no `tesseract`
-#: binary on purpose, so there a photograph meets `freeocr.ENGINE_MISSING` — a
-#: sentence telling somebody what is missing, not a crash. That is an owner
-#: decision recorded in `tests/test_deploy_artefacts.py`, and this line did not
-#: make it.
+#: CORRECTED 2026-08-13. This said the container image installs no `tesseract`
+#: binary on purpose, so a photograph met `freeocr.ENGINE_MISSING` there. The
+#: owner reversed that the same day — the image installs `tesseract-ocr` and
+#: `tesseract-ocr-eng`, and `tests/test_deploy_artefacts.py` asserts it — so the
+#: engine is no longer what a deployed photograph is short of. Accuracy is, and
+#: the paragraph above is that number. On a machine WITHOUT the binary this
+#: still refuses in words rather than crashing, which is the property
+#: `freeocr._REFUSAL_FOR` exists for and is unchanged by any of this.
 DEFAULT_BACKEND: Final = "ladder"
 
 

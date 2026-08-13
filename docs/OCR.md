@@ -305,13 +305,25 @@ by which one flatters the corpus is fitted to the corpus, and interpolation
 invents ink that was never on the page. Page segmentation mode was tried too —
 `--psm 4`, `6` and `11` give byte-identical field results to the default.
 
-### What is still not wired, and it is not a code change
+### What is wired — CORRECTED 2026-08-13
 
-`registry.DEFAULT_BACKEND` is still `typed_text`, so **nothing reaches this code
-by uploading a document to the running application**. Moving it is an owner
-decision about which bytes the customer-facing process hands to a third-party
-parser, and the reason is written under that constant.
+This section read "What is still not wired, and it is not a code change", and
+said two things that had both stopped being true:
 
-The container image installs no `tesseract` binary, on purpose and by a test
-that says so. On a machine without one this backend answers
-`freeocr.ENGINE_MISSING` — a refusal in plain words, not a crash.
+- `registry.DEFAULT_BACKEND` is **`ladder`**, not `typed_text`. Uploading a
+  document to the running application does reach this code, and every image
+  goes to it. The reason is written under that constant.
+- **The container image installs the engine.** `tesseract-ocr` and
+  `tesseract-ocr-eng`, owner decision 2026-08-13, recorded in the `Dockerfile`
+  and asserted by `tests/test_deploy_artefacts.py`. The old sentence — "installs
+  no `tesseract` binary, on purpose and by a test that says so" — was true until
+  that day and is now the opposite of what the test asserts.
+
+On a machine without the binary this backend still answers
+`freeocr.ENGINE_MISSING` — a refusal in plain words, not a crash. That property
+is unchanged and is what makes the engine a requirement of the *deployment*
+rather than of the *code*.
+
+What is still not settled is not wiring: it is accuracy. The corpus numbers
+above are poor, `H-02` is open, and no real photographed bill has been through
+this.
