@@ -93,10 +93,21 @@ the honest fix is geometry, which is a change to what a `Word` is.
 WHAT THIS FILE DOES NOT PROVE
 ------------------------------
 That anything it points at was read CORRECTLY. MEASURED on the twenty corpus
-PNGs, which are rendered in a 5x7 bitmap font: five of them yield a supplier
-name and two of those are exactly right. The other three are wrong - `IVER.
-ELECTRICALS` for `IYER ELECTRICALS`. They are wrong at the confidence the
-engine stated, which is the entire point of stating one.
+PNGs, which are rendered in a 5x7 bitmap font, through the wired product path:
+
+    4 of 80 fields come back with a value, and all four are the supplier
+    2 of those 4 are exactly right, at 0.48 and 0.61
+    2 are wrong - `IVER. ELECTRICALS` for `IYER ELECTRICALS` - at 0.37 and 0.08
+    76 are refused
+
+A fifth page matches the `SUPPLIER:` label and still comes back with nothing:
+on GT-0051 the engine reported `COMMISSION` at confidence 0, and a field is
+carried only where a confidence above zero can be stated for it. That is
+`freeocr`'s rule working, not a reading being lost.
+
+`GT-0041.png` reads NOTHING, and the reason is worth writing down because it is
+not a reader defect: the engine returns its `SUPPLIER:` as `SUPPLIER?`, so no
+label matched. The colon is one character and it is the whole of the field.
 
 That an amount it points at survives. Usually it does not, and that is the cage
 working: on GT-0041 scaled up, the engine read a total of 1,626.70 against a

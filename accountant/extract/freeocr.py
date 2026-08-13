@@ -56,21 +56,28 @@ Two seams, not one, and they are different jobs:
     PageReader      bytes -> a `Reading`, which says WHICH words make up the
                     total, the tax, the date and the party. Injected.
 
-WHAT IS DELIBERATELY NOT BUILT, AND WHY IT IS NOT AN OVERSIGHT
----------------------------------------------------------------
-The second seam is empty. Nothing in this repository turns a list of words into
-"this one is the total", and this file does not either.
+WHAT THE SECOND SEAM IS FOR, AND WHY IT IS STILL NOT FILLED HERE
+-----------------------------------------------------------------
+`accountant/extract/pagereader.py` fills it, as of 2026-08-13. This file still
+does not, and the split is the point rather than an accident of history.
 
-That is field detection, and it is the one part of reading a bill that cannot
-be checked without labelled data. `H-02` - a pile of invoices where somebody
-already knows the right answer - does not exist here. A heuristic written
-without it would be unmeasured, unfalsifiable and confident, which is the exact
-combination this whole cage exists to keep away from a customer's books. The
-engine's own confidence would not catch it either: `field_confidence` scores
-how legible a word was, not whether it was the right word to look at.
+Field detection is the one part of reading a bill that cannot be checked
+without labelled data, and a heuristic written without it would be unmeasured,
+unfalsifiable and confident - the exact combination this cage exists to keep
+away from a customer's books. The engine's own confidence would not catch it
+either: `field_confidence` scores how legible a word was, not whether it was
+the right word to look at. So whatever fills the seam has to be MEASURED
+against known answers, separately from this file, and swappable without
+touching the engine call.
 
-So the gap is stated rather than filled. `docs/OCR.md` carries it as the next
-piece of work and names what it needs first.
+What actually landed does not fill it with a heuristic at all. It runs the
+label logic `textlayer.py` already uses - `TOTAL`, `GRAND TOTAL`, `AMOUNT
+PAYABLE`, the same vocabulary in `labels.py` - over the words this file
+reports. An unlabelled number is still not a total, on a photograph exactly as
+in a PDF, and it is measured against `artifacts/ground_truth/`: 4 of 80 fields
+on the twenty corpus PNGs come back with a value and 2 of those are exactly
+right. `H-02` - real customer bills - is still open and that number is not a
+claim about them.
 
 WHAT IS ACTUALLY GUARDED HERE, SO THE INJECTION IS NOT AN EXCUSE
 -----------------------------------------------------------------

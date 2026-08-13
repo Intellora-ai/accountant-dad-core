@@ -33,10 +33,12 @@ THE FOUR THINGS THAT WOULD BE WORTH SHIPPING A BUG FOR
 WHAT THIS FILE DOES NOT PROVE
 ------------------------------
 That the engine reads a bill correctly. It does not, on this corpus, mostly.
-The measurement below reports how many corpus PNGs yield a field and how many
-of those are RIGHT, and the second number is small. It is reported rather than
-asserted upward, because tuning anything here to move it would be fitting a
-reader to twenty synthetic pictures.
+MEASURED through the wired path: 4 of 80 fields come back with a value, all
+four the supplier, and 2 of those are exactly right. The number is reported
+rather than asserted upward, because tuning anything to move it would be
+fitting a reader to twenty synthetic pictures. What IS asserted is the thing
+that would cost real money: nothing comes back WRONG at a confidence that
+would auto-post.
 
 That real customer photographs read at all. `SYNTHETIC_EVIDENCE`, `H-02` open.
 
@@ -163,6 +165,17 @@ def test_a_word_the_engine_reported_with_no_characters_is_not_a_column_gap() -> 
     assert texts(read_page(engine_said).party) == ["SHARMA"]
 
 
+def test_a_label_with_nothing_printed_after_it_produces_no_field_at_all() -> None:
+    """A party field holding `"   "` is a silent blank wearing a label, which is
+    the single thing `ExtractedRecord` exists to make impossible. The engine
+    reporting a heading and then losing the line under it is ordinary on a
+    photograph, so this is the common case rather than a contrived one."""
+    reading = read_page((said("SUPPLIER:"), said("TOTAL:")))
+
+    assert reading.party == ()
+    assert reading.total == ()
+
+
 def test_a_split_tax_is_left_unread_rather_than_added_up_from_two_places() -> None:
     """A bill printing CGST and SGST states its tax as two figures in two
     lines. There is no set of words on that page that IS the tax, and this
@@ -246,8 +259,9 @@ def test_two_different_pictures_do_not_come_back_with_identical_fields() -> None
 @NEEDS_THE_ENGINE
 def test_a_corpus_png_reaches_the_four_fields_through_the_whole_reader() -> None:
     """End to end on real bytes: engine, line rebuild, label match, confidence.
-    GT-0052 is one of the five corpus PNGs whose `SUPPLIER:` label survives the
-    5x7 bitmap font well enough to be matched at all."""
+    GT-0052 is one of the four corpus PNGs that come back with a supplier at
+    all: the 5x7 bitmap font destroys the `SUPPLIER:` label on fifteen of the
+    twenty, and on a sixteenth the engine reports a word at confidence 0."""
     read = page_reader(deadline_seconds=DEADLINE)
     observed = FreeReader(read).observe((DOCUMENTS / "GT-0052.png").read_bytes(), PNG)
 

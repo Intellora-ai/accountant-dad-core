@@ -320,6 +320,18 @@ def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
     stopped reaching the ledger. If a later change makes `exit1_exact` rise
     while these zeros hold, that is a reader improving. If the zeros rise, it
     is this defect coming back.
+
+    CORRECTED A THIRD TIME 2026-08-13, when the picture rung was wired. `party`
+    exact went 20 -> 22 and `party` wrong went 0 -> 2, and BOTH halves of that
+    are the point. Two of the twenty corpus PNGs now have their supplier read
+    exactly; two more come back with a value that is not the truth - `IVER.
+    ELECTRICALS` for `IYER ELECTRICALS`. The wrong count rising is not the
+    defect the paragraph above describes, and the difference is worth being
+    precise about: that one was a reader stating a source for a number it had
+    no business reading at all. This one is an engine misreading a letter on a
+    5x7 bitmap font and saying so - it comes back at confidence 0.37 and 0.08,
+    nowhere near the 0.95 that would post it. A reader that reads nothing is
+    never wrong, and it is also never useful.
     """
     section = runner.Section(name="s2_extraction")
     runner.run_s2(section)
@@ -337,7 +349,7 @@ def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
     assert names["exit1_generated_truth_extraction"].status == runner.FAIL
     assert section.facts["exit1_exact_per_field"] == {
         "date": 14,
-        "party": 20,
+        "party": 22,
         "total_paise": 20,
         "tax_paise": 20,
     }
@@ -349,17 +361,38 @@ def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
     # source is what the cage is for, and this is the line that would go red.
     assert section.facts["exit1_wrong_per_field"] == {
         "date": 0,
-        "party": 0,
+        "party": 2,
         "total_paise": 0,
         "tax_paise": 0,
     }
-    assert section.facts["exit1_wrong_examples"] == []
+    # PINNED BY NAME AND NOT COUNTED. A count going from 0 to 2 says a number
+    # moved; these two say WHICH bill, WHICH field and WHICH backend, which is
+    # the difference between noticing a regression and being able to act on it.
+    # Both are the engine misreading a letter and stating that it did.
+    assert section.facts["exit1_wrong_examples"] == [
+        "GT-0056 PNG party: '\"NARHAGR PACKAGING CO' sourced 'free_ocr'",
+        "GT-0058 PNG party: 'IVER. ELECTRICALS' sourced 'free_ocr'",
+    ]
 
     # The tier split, so one number cannot hide four different stories.
     assert section.facts["s2_rung_that_answered"] == {
-        "ladder": 60,
+        "free_ocr": 40,
+        "ladder": 20,
         "pdf_text_layer": 20,
         "typed_text": 20,
+    }
+    # The picture rung, answering for all forty images: twenty PNGs it can see
+    # and twenty JPEGs that hold no picture at all. The twenty still counted
+    # under `ladder` are the DOCX and the empty media type, which reach no rung.
+    assert section.facts["s2_by_input_type"]["PNG"]["party"] == {
+        "exact": 2,
+        "refused": 16,
+        "wrong": 2,
+    }
+    assert section.facts["s2_by_input_type"]["JPG"]["party"] == {
+        "exact": 0,
+        "refused": 20,
+        "wrong": 0,
     }
     assert section.facts["s2_by_input_type"]["PDF"]["party"] == {
         "exact": 20,
@@ -407,13 +440,19 @@ def test_a_refusal_that_states_a_reason_is_still_a_refusal():
     stopped answering, which is the intended change and not a regression. The
     gate below still FAILS, which is what keeps this test honest: a comparison
     broken the CodeAnt way would report 100.
+
+    CORRECTED A THIRD TIME 2026-08-13, when the picture rung was wired: `party`
+    20 -> 24, the four corpus PNGs whose supplier the engine speaks to at all.
+    A RISE here is the opposite event to the drop above - a backend that started
+    answering - and it is only good news alongside `exit1_wrong_per_field` in
+    the test above, which says how many of those answers were not the truth.
     """
     section = runner.Section(name="s2_extraction")
     runner.run_s2(section)
 
     assert section.facts["s2_per_field"] == {
         "date": 14,
-        "party": 20,
+        "party": 24,
         "total_paise": 20,
         "tax_paise": 20,
     }

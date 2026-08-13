@@ -248,11 +248,11 @@ _READY: Final[dict[str, Callable[[], Extractor]]] = {
 #: against those answers rather than asserted about, and a table entry that
 #: exists to say "nobody has decided this" stopped being true of it.
 #:
-#: What is measured, and it is not flattering: on the twenty corpus PNGs the
-#: engine yields a supplier on five and is exactly right on two. The other
-#: fifteen are refused. That is a reading with a number on it, which is what
-#: this table was holding out for; it is not an accuracy claim about anybody's
-#: real bills, and `H-02` stays open for those.
+#: What is measured, and it is not flattering: on the twenty corpus PNGs, 4 of
+#: 80 fields come back with a value, all four of them the supplier, and 2 of
+#: those 4 are exactly right. 76 are refused. That is a reading with a number on
+#: it, which is what this table was holding out for; it is not an accuracy claim
+#: about anybody's real bills, and `H-02` stays open for those.
 _NEEDS_WIRING: Final[dict[str, str]] = {
     "reader_service": (
         "it needs a transport; construct "

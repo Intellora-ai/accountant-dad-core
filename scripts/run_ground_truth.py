@@ -334,7 +334,9 @@ EXIT1_MATCHES_REQUIRED = 76
 #: statement about a backend it did not score.
 #:
 #: WHY IT IS NOT A STUB ANY MORE. It was `StubExtractor()` until 2026-08-13,
-#: which was the honest answer while no reader existed. Two do now.
+#: which was the honest answer while no reader existed. THREE do now: the
+#: picture rung was wired the same day, so this number covers the PNGs and the
+#: JPEGs as well, and `free_ocr` appears in `s2_rung_that_answered`.
 #:
 #: Annotated `str` and not left to infer `Literal["ladder"]`, so that the two
 #: comparisons against `registry.DEFAULT_BACKEND` below stay real comparisons.
@@ -539,9 +541,11 @@ def run_s2(section: Section) -> None:
                 else "NOT the backend scored here. "
             )
             + "GENERATED_TRUTH from canonical JSON, SYNTHETIC_EVIDENCE, and never "
-            "evidence about real-world reader accuracy. 40 of the 80 renderable "
-            "cases reach no rung that can read them at all: 20 DOCX, which no "
-            "reader here opens, and 20 PNG, whose tier is not wired. "
+            "evidence about real-world reader accuracy. 20 of the 80 renderable "
+            "cases reach no rung that can read them at all: the DOCX, which no "
+            "reader here opens. The 20 PNG now reach the picture rung, which was "
+            "wired on 2026-08-13, and it reads their supplier exactly on 2 of "
+            "them - the corpus is rendered in a 5x7 bitmap font. "
             "docs/EXTRACTION_MEASURED.md carries the split per input type and "
             "the count of fields that came back WRONG rather than unread."
         ),
@@ -565,8 +569,10 @@ def run_s2(section: Section) -> None:
         (
             f"{S2_BACKEND} backend, {scored} cases, per-field hits {per_field}. "
             "This asks whether every field was SPOKEN TO, which two of the five "
-            "input types cannot be: a DOCX and a pixel-free JPEG reach no rung, "
-            "and a refusal is the correct answer rather than a hit."
+            "input types cannot be: a DOCX reaches no rung, and a pixel-free "
+            "JPEG reaches the picture rung and is refused by it because there "
+            "is no picture in the file. A refusal is the correct answer there "
+            "rather than a hit."
         ),
         measured=json.dumps(per_field, sort_keys=True),
     )
