@@ -407,10 +407,28 @@ def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
         "wrong": 0,
     }
 
-    # And the run says out loud that it did not score the running application.
+    # And the run says out loud WHICH backend it scored and whether that is the
+    # one the application runs.
+    #
+    # CORRECTED 2026-08-13. These read `is False` and `== "typed_text"`, and
+    # both were true while `registry.DEFAULT_BACKEND` was `typed_text`: the pack
+    # scored `ladder` by name and had to say, on every gate line, that it was
+    # NOT measuring the shipped product. That is the sentence a benchmark writes
+    # when the readers it grades are not the readers a person meets.
+    #
+    # The default became `ladder` that day, so the two are now the same backend
+    # and the harness says so instead — `run_s2` has carried both branches of
+    # that sentence since it was written, so the flip cost no change there. THE
+    # SCORES ABOVE DID NOT MOVE, and that is what makes this a fact about
+    # exposure rather than about accuracy: the same readers, the same corpus,
+    # the same numbers, now reachable from `/upload`.
+    #
+    # Still pinned rather than derived from `registry.DEFAULT_BACKEND`. Written
+    # as a comparison it would pass whatever either side became, which is the
+    # one thing this assertion exists to stop.
     assert section.facts["s2_backend"] == runner.S2_BACKEND
-    assert section.facts["s2_backend_is_the_application_default"] is False
-    assert section.facts["s2_application_default"] == "typed_text"
+    assert section.facts["s2_backend_is_the_application_default"] is True
+    assert section.facts["s2_application_default"] == "ladder"
 
     # EXIT 2 is about safety, not accuracy, and it holds.
     assert names["exit2_unrenderable_input_is_explicit"].status == runner.PASS

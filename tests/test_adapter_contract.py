@@ -508,11 +508,27 @@ def test_the_registry_refuses_an_unknown_name_rather_than_returning_the_default(
     None
 ):
     """A typo that silently returns the default is a machine reading bills with
-    something other than what the deployment asked for."""
+    something other than what the deployment asked for.
+
+    THE SECOND ASSERTION PINS THE DEFAULT'S IDENTITY, and it was corrected on
+    2026-08-13 rather than deleted. It read `TypedTextExtractor` and the default
+    became `ladder` that day, because `typed_text` reads a sentence somebody
+    typed and refuses everything else — so the product accepted a PDF and a
+    photograph on `/upload` and then handed both to a regex that could not read
+    either. Measured before the change, through the call `app.py:1444` makes: a
+    corpus PDF, PNG and JPG all came back four `not_found`s; through the ladder,
+    the same PDF came back with its date, supplier, total and tax.
+
+    Kept rather than removed because a test that pins WHICH backend a bare
+    `build()` returns is the only thing standing between "the default changed
+    for a reason" and "the default changed because somebody edited a dict".
+    Pointed at the new one, it still fails the day it moves again.
+    """
     with pytest.raises(registry.UnknownBackend, match="no extraction backend named"):
         registry.build("typo_text")
 
-    assert isinstance(registry.build(), TypedTextExtractor)
+    assert isinstance(registry.build(), Ladder)
+    assert not isinstance(registry.build(), TypedTextExtractor)
 
 
 def test_the_registry_says_what_a_backend_still_needs_instead_of_unknown() -> None:

@@ -8,11 +8,19 @@ holding a paper bill had no way in at all, and one question had never been
 asked over the surface a person actually touches: what does this say about a
 document it cannot read?
 
-It cannot read one. The third-party selection is the owner's
-(`artifacts/extraction_backends.md:3`, `D-23` open), so an uploaded file meets
-`accountant/extract/placeholder.py::PlaceholderReader` and comes back four
-stated `not_found`s carrying the reason. That is the whole product behaviour
-being asserted here, and it is deliberately NOT "the upload works".
+It could not read one until 2026-08-13. `registry.DEFAULT_BACKEND` became
+`ladder` that day, so an uploaded PDF now meets the text-layer rung and a
+photograph meets the reading engine — and the fixtures in this file are
+deliberately NOT readable documents, so what they still assert is the same
+thing they always did: that a file nothing can read comes back as four stated
+`not_found`s carrying the reason, over a real socket, without a crash.
+
+`PDF` below has a `%PDF-` header and no structure, so it is now REFUSED BY A
+PARSER rather than ignored by a regex. The observable behaviour this file pins
+is unchanged and its cause is not, which is why two of the tests below were
+renamed rather than deleted: the sentences on the page had to stop saying no
+reader existed. `tests/test_live_routing.py` is where a document that CAN be
+read is driven through this same route.
 
 WHAT IS PROVED HERE
 -------------------
@@ -30,10 +38,10 @@ WHAT IS PROVED HERE
 
 WHAT THIS FILE DOES NOT PROVE
 -----------------------------
-That any document was read. Nothing read anything. `S2 = NOT_MEASURED` stays
-true, the question rate for uploaded documents is not zero and is not measured,
-and the placeholder's output is not extraction evidence — it is the recorded
-absence of a decision the owner has not made.
+That any document was read. Nothing here reads anything: every fixture is
+unreadable on purpose, so this file measures the REFUSAL path and only that.
+The reading path is `tests/test_live_routing.py`, which drives a real PDF
+through the same route and asserts the figures come back.
 
 That a real vendor reader behaves this way. None is connected. What is proved
 is that the ROUTE is safe whatever backend it is given, which is a claim about
@@ -186,18 +194,38 @@ def test_the_home_page_offers_a_file_input_so_the_route_is_reachable(
     assert "/upload" in body
 
 
-def test_the_home_page_says_plainly_that_no_reader_is_chosen_yet(
+def test_the_home_page_says_what_is_read_and_still_that_nothing_is_guessed(
     uploading: str,
 ) -> None:
-    """The limitation is stated BEFORE the person spends time on a scan.
+    """What the upload box promises is stated BEFORE the person spends time on
+    a scan. Telling them only afterwards is technically honest and practically
+    useless.
 
-    Telling them only after they have uploaded is technically honest and
-    practically useless.
+    RENAMED AND CORRECTED 2026-08-13, and the old name is the finding. It was
+    `test_the_home_page_says_plainly_that_no_reader_is_chosen_yet`, and it
+    asserted the page said `no document reader is chosen yet`. That sentence
+    went on the page when no reader WAS chosen. `registry.DEFAULT_BACKEND`
+    became `ladder` that day, so an uploaded PDF now comes back with its date,
+    total and tax — and this test went on passing, because a static string
+    cannot notice that it stopped being true.
+
+    MEASURED on the day, over a real socket: a readable PDF returned
+    `total 123456, tax 18832` from `pdf_text_layer` while the home page was
+    still telling the person an uploaded file `is read as nothing` and that
+    they should type it in instead. The page was talking somebody out of the
+    feature underneath it.
+
+    `does not guess` is deliberately KEPT. It is the promise that did not
+    change, and it is the one the readers make this product more able to break,
+    not less.
     """
     body = get(uploading)
 
-    assert "no document reader is chosen yet" in body.lower()
+    assert "a pdf is read from the text in it" in body.lower()
     assert "does not guess" in body.lower()
+    assert "no document reader is chosen yet" not in body.lower(), (
+        "the page is telling a person nothing reads their upload, and a reader does"
+    )
 
 
 def test_a_real_multipart_upload_is_answered_rather_than_dropped(
@@ -236,20 +264,39 @@ def test_an_uploaded_document_leaves_every_named_field_explicitly_not_found(
     ) == (None, None, None, None)
 
 
-def test_the_page_tells_the_person_in_one_sentence_that_no_reader_is_configured(
+def test_the_page_tells_the_person_in_one_sentence_that_nothing_was_read(
     uploading: str,
 ) -> None:
     """The banner is the claim. Four provenance rows are the evidence for it.
 
     A per-field table alone cannot say the thing that matters here: that the
-    four absences have ONE cause and the cause is a decision nobody has made.
+    four absences are one absence, not four separate ones to chase.
+
+    RENAMED AND CORRECTED 2026-08-13, for the same reason as the home-page test
+    above and with a sharper edge on it. The banner said `No document reader is
+    configured yet`, and the flip to `ladder` left the CONDITION correct — it
+    is measured off the record, so a readable PDF makes the banner disappear on
+    its own — while the SENTENCE became false. MEASURED on the day: `PDF` below
+    is not a real PDF, so it now reaches `pdf_text_layer` and is refused, and
+    the banner claimed no reader was configured while the provenance row two
+    inches beneath it read
+
+        not_found: this PDF could not be parsed (PdfStreamError)
+
+    The page contradicted its own evidence and sent a person to check a setting
+    for a problem in their file. The banner now says a reader looked and got
+    nothing, which is what is true whenever the condition holds.
     """
     _status, body = send(uploading, multipart_body())
 
     assert "data-unread=document" in body
     assert "Nothing was read from that file." in body
-    assert "No document reader is configured" in body
+    assert "A reader looked at it and could not get" in body
     assert "Nothing was written to your Tally" in body
+    assert "No document reader is configured" not in body, (
+        "the banner blames a missing reader for a file a reader read and "
+        "refused; the per-field rows below it say otherwise"
+    )
 
 
 def test_the_placeholder_reaches_the_person_through_the_same_seam_typed_text_uses(

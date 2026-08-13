@@ -27,11 +27,11 @@ Each case goes through three stages, and each stage is the shipped one:
 
     classify    `accountant/cage/classify.py`, with the declared MIME type the
                 browser or phone would have sent
-    read        the reader the wired path would hand those bytes to -
-                `TypedTextExtractor` for text, `TextLayerReader` for a PDF,
-                and `PlaceholderReader` otherwise, which is the honest answer
-                for an image today (`registry._READY` registers `no_reader`
-                and `artifacts/extraction_backends.md` says why)
+    read        `registry.default_extractor()`, handed the DECLARED media type -
+                which is the call `accountant/web/app.py:1444` makes and the
+                type `app.py:3043` passes it. Not a table describing that: this
+                file kept one until 2026-08-13 and it had drifted, and
+                `read_with` below carries the measurement of how far
     decide      `accountant/cage/gate.py`, asked on the most PERMISSIVE posture
                 a caller can take
 
@@ -64,20 +64,28 @@ Run on all 200, on the permissive posture described above:
     entries carried by a refusal        0
 
 And how deep the corpus actually reaches, which is the number that says
-whether the three zeros mean anything:
+whether the three zeros mean anything. RE-MEASURED 2026-08-13 when `read_with`
+stopped describing the routing and started resolving it:
 
-    a total read off the document      46
-    a supplier read off the document    5
-    a date read off the document        4
-    all four fields read                2
+    a total read off the document      19    was 26
+    a supplier read off the document    5    unchanged
+    a date read off the document        4    unchanged
+    all four fields read                2    unchanged
 
-Those last four are small ON PURPOSE and are the honest shape of the corpus:
-195 of these files die at the classifier or at the first unread field, which
-is what a chaos corpus is mostly made of. The depth lives in the five
+The seven totals that went are files whose DECLARED type no rung reads and
+whose BYTES looked like text - `application/octet-stream` carrying a bill. The
+old harness sniffed and read them; the product declares and refuses them, so
+losing them is this file getting more honest rather than a reader getting
+worse. The rung split over the 200 is `typed_text` 53, `ladder` 61 (refused,
+no rung reads that type), `pdf_text_layer` 41, `free_ocr` 45.
+
+Those numbers are small ON PURPOSE and are the honest shape of the corpus: most
+of these files die at the classifier or at the first unread field, which is
+what a chaos corpus is mostly made of. The depth lives in the five
 `NEAR_MISSES` - readable bills with exactly one thing wrong - and they are what
 carry the run past the reader into conservation, the confidence band and the
 wall. `test_the_near_miss_bills_are_read_deeply_enough_to_reach_the_safety
-_layer` is the assertion that keeps them there.
+_layer` is the assertion that keeps them there, and it did not move.
 
 WHAT THIS FILE DOES NOT PROVE
 ------------------------------
@@ -91,14 +99,19 @@ generated cat exercises is a NON-DOCUMENT IMAGE arriving at the input layer,
 not camera noise, lens blur or JPEG artefacts. Real-photograph behaviour is
 NOT_MEASURED.
 
-That an OCR tier is safe. `accountant/extract/freeocr.py` shells out to a
-tesseract binary, and driving two hundred images through a subprocess would
-measure the machine it ran on rather than this repository. It is not on the
-default path (`registry.DEFAULT_BACKEND` is `typed_text`) and it is not
-exercised here.
+That the OCR tier is FAST, or that it read anything. It is on the default path
+since 2026-08-13, so the 45 image cases now reach `freeocr.FreeReader` and it
+does shell out to a `tesseract` binary. What that adds is measured rather than
+feared: the whole 200 take 2.8 seconds against a 300-second budget, and the
+three slowest cases are text files, not pictures. What it does NOT make
+machine-independent is the REASON an image was refused — a machine with no
+binary gets `freeocr.ENGINE_MISSING` instead. Every assertion here is about the
+outcome (no crash, no post, a sentence), and all three hold either way; none is
+about which sentence.
 
-NO NETWORK, NO SUBPROCESS, NO FIXTURE FILES. Every byte is generated in memory
-by the corpus builder, which reads no clock and no random source.
+NO NETWORK, NO FIXTURE FILES. Every byte is generated in memory by the corpus
+builder, which reads no clock and no random source. There IS a subprocess now,
+and it is the one the shipped default starts.
 """
 
 from __future__ import annotations
@@ -119,9 +132,8 @@ import pytest
 from accountant.cage.classify import Classified, FileKind, classify
 from accountant.cage.decision import Action, Decided, Moment
 from accountant.cage.gate import gate
+from accountant.extract import registry
 from accountant.extract.adapter import ExtractedRecord, TypedTextExtractor
-from accountant.extract.placeholder import PlaceholderReader
-from accountant.extract.textlayer import TextLayerReader
 from accountant.pipeline import Draft
 from accountant.schema import Voucher
 from scripts import build_chaos_corpus as chaos
@@ -177,19 +189,42 @@ class Ran:
     crashed: str
 
 
-def read_with(kind: FileKind, data: bytes, declared_mime: str) -> ExtractedRecord:
-    """The reader the wired path would hand these bytes to.
+def read_with(declared_mime: str, data: bytes) -> ExtractedRecord:
+    """The reader the wired path hands these bytes to. Resolved, not described.
 
-    `PlaceholderReader` for everything that is not text or a PDF, including the
-    files `classify` refused. A refused file has no reader in production, but
-    running one anyway is the stronger claim: it says the refusal is not the
-    ONLY thing standing between a zip archive and a ledger.
+    THIS WAS A HAND-COPIED TABLE UNTIL 2026-08-13 and it had drifted, which is
+    the whole argument for it not being one:
+
+        if kind is FileKind.TEXT:  TypedTextExtractor
+        if kind is FileKind.PDF:   TextLayerReader
+        otherwise:                 PlaceholderReader
+
+    Two things were wrong with it by then and only one was new. The new one:
+    `registry.DEFAULT_BACKEND` became `ladder`, so an image reaches
+    `freeocr.FreeReader` in production and reached a reader that reads NOTHING
+    here — which made `test_no_image_in_the_corpus_ever_produces_an_amount`
+    vacuous. It asserted that a backend returning `None` for everything returned
+    `None`, and it would have passed against any image reader at all.
+
+    The older one: this routed on `classify`'s verdict, which is read off the
+    BYTES. Production does not. `app.py:3043` passes `sent.media_type` — the
+    caller's declaration — into `_run`, and `ladder` states at the top of its
+    own module why it will not sniff. So a file declared
+    `application/octet-stream` carrying bill text was read here and refused
+    there, and this harness was measuring a routing the product does not have.
+
+    Both go away by asking the registry instead of describing it. MEASURED on
+    the swap, over all 200: crashes 0 -> 0, posts 0 -> 0, and the depth moved
+    26 -> 19 totals read, 5 -> 5 suppliers, 4 -> 4 dates, 2 -> 2 read
+    completely. The seven that stopped being read are the sniffed ones, and
+    losing them is the correction rather than a regression.
+
+    Every case is still driven through a reader, INCLUDING the 72 `classify`
+    refuses. A refused file has no reader in production, but running one anyway
+    is the stronger claim: it says the refusal is not the ONLY thing standing
+    between a zip archive and a ledger.
     """
-    if kind is FileKind.TEXT:
-        return TypedTextExtractor().extract(data, "text/plain")
-    if kind is FileKind.PDF:
-        return TextLayerReader().extract(data, "application/pdf")
-    return PlaceholderReader().extract(data, declared_mime)
+    return registry.default_extractor().extract(data, declared_mime)
 
 
 def draft_of(record: ExtractedRecord) -> Draft:
@@ -260,7 +295,7 @@ def drive(case: chaos.ChaosCase) -> Ran:
     crashed = ""
     try:
         seen = classify(case.data, case.declared_mime)
-        record = read_with(seen.kind, case.data, case.declared_mime)
+        record = read_with(case.declared_mime, case.data)
         decided = most_permissive_gate(record)
     # Broad on purpose: the count of what escapes IS the measurement, so
     # narrowing this to the exceptions we already know about would silently

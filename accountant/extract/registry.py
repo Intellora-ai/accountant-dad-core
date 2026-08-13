@@ -109,32 +109,60 @@ from accountant.extract.service import MALFORMED, reason_for
 
 #: The backend the application runs with. Change THIS to swap it.
 #:
-#: STILL `typed_text` ON 2026-08-13, THE DAY THE READERS LANDED, AND ON PURPOSE.
-#: `ladder` is registered below and is strictly wider: `text/plain` routes to
-#: the same `TypedTextExtractor` and reads byte-identically, which
+#: `ladder` SINCE 2026-08-13. It was `typed_text` until that day, and what that
+#: meant in the running product was measured rather than reasoned about, through
+#: `default_extractor()` — the call `accountant/web/app.py:1444` makes:
+#:
+#:     GT-0041.png   image/png          all four fields not_found
+#:     GT-0061.jpg   image/jpeg         all four fields not_found
+#:     GT-0021.pdf   application/pdf    all four fields not_found
+#:
+#: and through `build("ladder")`, the same three files:
+#:
+#:     GT-0021.pdf   date 2026-09-21, party BALFOUR BEATTY VINCI JV - HS2 (N2),
+#:                   total 58410 paise, tax 8910 paise
+#:
+#: `app.py:340` `UPLOAD_MEDIA_TYPES` has accepted `application/pdf`,
+#: `image/jpeg` and `image/png` since the upload routes landed. So the product
+#: ACCEPTED all three kinds and then handed them to a regex written for a
+#: sentence somebody typed. Registering a reader and not routing to it is a
+#: reader nobody has.
+#:
+#: `text/plain` DID NOT MOVE. `ladder` routes it to the same
+#: `TypedTextExtractor` object this line used to name, and
 #: `test_the_router_hands_typed_text_to_the_rung_that_already_read_it` asserts
-#: field by field.
+#: the two records equal field by field and source by source. The only route
+#: that changed is the route that was returning nothing.
 #:
-#: MEASURED, so that "it breaks the tests" cannot be offered as the reason it
-#: did not move: with `DEFAULT_BACKEND = "ladder"` the suite is 4114 passed, 1
-#: failed, and the one failure is
-#: `test_the_registry_refuses_an_unknown_name_rather_than_returning_the_default`
-#: asserting `build()` is a `TypedTextExtractor` — a test that PINS THE
-#: DEFAULT'S IDENTITY and would simply be corrected in the same commit. Nothing
-#: behavioural broke.
+#: WHAT THIS COSTS, AND IT IS NOT NOTHING
+#: --------------------------------------
+#: `pypdf` and `Pillow` now parse bytes that arrived from outside, in the web
+#: process, on the upload route. `D-30` named that risk and accepted the two
+#: dependencies — but `D-30` approved MODULES, and this line is what puts them
+#: on a route. Both readers are built for it: `textlayer` refuses anything not
+#: beginning `%PDF-`, decrypts nothing and follows no action, and
+#: `freeocr._reading` turns every exception out of the page reader into one of
+#: seven plain sentences. Neither of those is evidence on its own, because a
+#: guard that exists is not a guard that fires, so the firing is measured:
+#: `tests/test_live_routing.py` drives malformed PDFs, pictures with no picture
+#: in them, empty bodies and a 60000x60000 decompression bomb through THIS
+#: constant and asserts a refusal with a sentence on it, bounded in time, and a
+#: 200 rather than a 503 over a real socket.
 #:
-#: The reason is that moving it changes what the RUNNING APPLICATION does with
-#: an uploaded PDF: `pypdf` would then parse bytes that arrived from outside, in
-#: the web process, on the upload route. `textlayer.py` is built for exactly
-#: that — it refuses anything not beginning `%PDF-`, decrypts nothing, follows
-#: no action and turns every parse failure into a refusal — and `D-30` names the
-#: risk and accepts the dependency. But `D-30` approved a MODULE, not a route,
-#: and which bytes the customer-facing process hands to a third-party parser is
-#: an exposure decision with an owner, not a consequence of a registration.
+#: WHAT IT DOES NOT BUY
+#: --------------------
+#: Accuracy. `docs/EXTRACTION_MEASURED.md` and the Ground-Truth Pack carry the
+#: numbers and the picture rung's are poor: on the twenty corpus PNGs it reads
+#: the supplier exactly twice and refuses the rest. A refusal from a reader that
+#: looked is still a better answer than a regex that invented one, and it is the
+#: only claim this line makes.
 #:
-#: So both halves are true and both are written down: the swap now costs one
-#: word here, and that word is the owner's to write.
-DEFAULT_BACKEND: Final = "typed_text"
+#: A reader on the deployed machine. The container image installs no `tesseract`
+#: binary on purpose, so there a photograph meets `freeocr.ENGINE_MISSING` — a
+#: sentence telling somebody what is missing, not a crash. That is an owner
+#: decision recorded in `tests/test_deploy_artefacts.py`, and this line did not
+#: make it.
+DEFAULT_BACKEND: Final = "ladder"
 
 
 class UnknownBackend(LookupError):

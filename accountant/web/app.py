@@ -2519,10 +2519,12 @@ def render_home(banner: str = "") -> bytes:
 <form class=entry method=post action=/upload enctype="{MULTIPART}">
 <input type=file name={UPLOAD_FIELD} accept="{",".join(sorted(UPLOAD_MEDIA_TYPES))}">
 <button>Upload a bill</button></form>
-<p class=hint>No document reader is chosen yet, so an uploaded file is read as
-nothing and you are asked to type it instead &mdash; this product does not guess
-at figures it did not read. Up to {MAX_UPLOAD_BYTES // (1024 * 1024)} MB,
-{", ".join(sorted(UPLOAD_MEDIA_TYPES))}. Nothing you upload is stored.</p>
+<p class=hint>A PDF is read from the text in it, and a photograph or a scan is
+read by the text reading program if this machine has one. Anything either of
+them cannot read is shown to you as unread and you are asked to type it in
+&mdash; this product does not guess at figures it did not read. Up to
+{MAX_UPLOAD_BYTES // (1024 * 1024)} MB, {", ".join(sorted(UPLOAD_MEDIA_TYPES))}.
+Nothing you upload is stored.</p>
 
 <h2>What we posted</h2>
 <table><tr><th>Party<th>Account<th class=num>Amount<th>Operation</tr>
@@ -2630,10 +2632,27 @@ def unread_document(d: pipeline.Draft) -> str:
     and reads three fields out of four, this banner stops appearing on its own,
     with nobody remembering to delete it.
 
+    That day was 2026-08-13, and the CONDITION did exactly what this paragraph
+    promised while the SENTENCE did not. `registry.DEFAULT_BACKEND` became
+    `ladder`, so a readable PDF now reads its date, total and tax and this
+    banner correctly disappears — and on a PDF that will not parse, it kept
+    appearing and kept saying "no document reader is configured yet", which had
+    stopped being true. MEASURED on the day: on a truncated PDF the banner said
+    no reader was configured while the provenance row two inches below it said
+    `not_found: this PDF could not be parsed (PdfStreamError)`. The page
+    contradicted its own evidence, and it sent a person to check a setting for a
+    problem in their file.
+
+    So the sentence now says the thing that is true whenever the condition
+    holds: a reader looked and got nothing off THIS file. It deliberately does
+    not repeat the reason — the per-field rows carry it, and each rung's reason
+    is different — and it still says what to do next, because a refusal a person
+    cannot act on is a dead end.
+
     A banner and not a replacement for the page: the decision, the checks and
     the per-field reasons are all still shown underneath. This says the one
     thing the per-field table cannot, which is that the absence is the same
-    absence four times and its cause is a decision nobody has made yet.
+    absence four times.
     """
     evidence = d.record
     unread = [
@@ -2645,9 +2664,11 @@ def unread_document(d: pipeline.Draft) -> str:
         return ""
     return (
         "<div class=warn data-unread=document><b>Nothing was read from that "
-        "file.</b> No document reader is configured yet, so this product will "
-        "not guess at a figure it did not read. Nothing was written to your "
-        "Tally. Type the entry in the box on the home page instead.</div>"
+        "file.</b> A reader looked at it and could not get the date, the "
+        "supplier or the amounts off it &mdash; the reason for each is in the "
+        "table below. This product will not guess at a figure it did not read. "
+        "Nothing was written to your Tally. Type the entry in the box on the "
+        "home page instead.</div>"
     )
 
 
