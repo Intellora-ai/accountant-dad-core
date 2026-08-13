@@ -48,6 +48,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
+# The one rupee renderer. Same exception, same reasoning as `conservation.py`:
+# this module is meant to depend on nothing, and `money` is a pure int -> str
+# function whose only import is `__future__`. It touches no network, no
+# filesystem and no Tally, so the purpose of the rule survives. What would make
+# the exception unsafe is `money` acquiring a dependency of its own.
+from accountant.money import format_inr
+
 #: The only module permitted to build a `LedgerEntry`. Written once, here, so
 #: there is one place to read and one place a reviewer sees it change.
 DECIDING_MODULE: Final = "accountant.cage.decision"
@@ -182,10 +189,16 @@ class LedgerEntry:
                 f"{type(amount_paise).__name__}."
             )
         if amount_paise <= 0:
+            # The amount is formatted, not printed raw, and the reason is that
+            # this text does not stay in a traceback. `decision.py` catches this
+            # ValueError and puts it verbatim into the sentence a person reads,
+            # so "got -5 paise" reached a screen. Its author guarded that branch
+            # against LEDGER names leaking and did not think of amounts.
             raise ValueError(
-                f"an entry must be for a positive amount, got {amount_paise} "
-                "paise. A zero or negative entry is a correction, and this "
-                "system does corrections by reversal, never by sign."
+                f"an entry must be for a positive amount, got "
+                f"{format_inr(amount_paise)}. A zero or negative entry is a "
+                "correction, and this system does corrections by reversal, "
+                "never by sign."
             )
         if not party.strip():
             raise ValueError("an entry must name a party.")

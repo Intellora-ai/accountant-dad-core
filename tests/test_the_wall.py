@@ -323,3 +323,48 @@ def test_no_module_outside_the_cage_imports_the_ledger_entry_type() -> None:
             ):
                 importers.add(str(path.relative_to(CAGE.parent)))
     assert importers == set()
+
+
+def test_a_refused_amount_reaches_a_person_as_rupees_and_not_as_raw_paise() -> None:
+    """The message in this ValueError does NOT stay in a traceback.
+
+    `decision.py` catches it and puts it verbatim into the sentence a person
+    reads, so `got -500 paise` reached a screen. That branch's author guarded it
+    against LEDGER names leaking and did not think of amounts - which is why a
+    guard that lists what it protects against is worth less than one tested from
+    the far end, where the text actually arrives.
+
+    THIS ASSERTION WAS WRONG WHEN FIRST WRITTEN and looked for `₹5.00`. The sign
+    sits INSIDE the rupee symbol - `₹-5.00` - which is the convention
+    `test_the_rupee_sign_goes_in_front_of_the_minus_sign` pins deliberately, and
+    which a separate change was reverted for moving. The test was corrected; the
+    code was right.
+    """
+    with pytest.raises(ValueError) as refused:
+        LedgerEntry.decided(
+            DECIDING_MODULE,
+            party="Test Supplier",
+            amount_paise=-500,
+            debit_account="Purchases",
+            credit_account="Cash",
+        )
+
+    said = str(refused.value)
+    assert "₹-5.00" in said
+    assert "-500 paise" not in said
+
+
+def test_the_control_a_refusal_that_names_no_amount_is_left_alone() -> None:
+    """THE CONTROL. A fix that ran every message through a formatter would pass
+    the test above while proving nothing about whether the amount specifically
+    was reached."""
+    with pytest.raises(ValueError) as refused:
+        LedgerEntry.decided(
+            DECIDING_MODULE,
+            party="   ",
+            amount_paise=100,
+            debit_account="Purchases",
+            credit_account="Cash",
+        )
+
+    assert str(refused.value) == "an entry must name a party."
