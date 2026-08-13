@@ -105,7 +105,28 @@ if [ "$STAGED" -eq 1 ]; then
     run "lint"      "$PY/ruff" check $files
     # shellcheck disable=SC2086
     run "format"    "$PY/ruff" format --check $files
-    run "typecheck" "$PY/pyright"
+    # STAGED FILES ONLY, and the omission of `$files` here was a real defect.
+    #
+    # This block's own comment says "changed files only, aiming at a couple of
+    # seconds", and .pre-commit-config.yaml says "staged mode is kept to a
+    # couple of seconds on purpose. A hook slow enough to be worth bypassing is
+    # a hook that gets bypassed." Bare `pyright` typechecks the WHOLE project,
+    # so staged mode was neither.
+    #
+    # What that cost, twice on 2026-08-13: `prek` stashes all unstaged changes
+    # to a patch file before running hooks and restores them afterwards. The
+    # project-wide run exceeded the two-minute commit timeout, the run was
+    # killed, the restore never happened, and the working tree LOST the changes.
+    # It ate three tests out of tests/test_decision.py and 77 lines of
+    # docs/OCR.md. Nothing failed and nothing warned - the suite went green
+    # because the deleted tests were the ones that would have complained.
+    #
+    # A cross-file type error that only a whole-project run would catch is
+    # still caught: `full` mode below runs it, and so does CI, which is what
+    # actually blocks the merge. This hook says at the top of its own config
+    # that it is AN ACCELERATOR, NOT A GATE.
+    # shellcheck disable=SC2086
+    run "typecheck" "$PY/pyright" $files
     run "tests"     "$PY/python" -m pytest --testmon -q
   else
     pass "lint" "no Python staged"
