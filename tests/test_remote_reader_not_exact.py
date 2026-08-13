@@ -64,7 +64,12 @@ from dataclasses import replace
 from accountant.cage.confidence import EXACT
 from accountant.cage.decision import NUMBERS_DO_NOT_ADD_UP, Action, Decided, Moment
 from accountant.cage.gate import gate
-from accountant.extract.adapter import ENTITLED_TO_EXACT, LineItem
+from accountant.extract.adapter import (
+    ENTITLED_TO_EXACT,
+    NOT_FOUND,
+    ExtractedRecord,
+    LineItem,
+)
 from accountant.extract.service import DOCUMENT_KEY, ServiceExtractor, document_key
 from accountant.extract.textlayer import SOURCE as TEXT_LAYER
 from accountant.extract.textlayer import TextLayerReader
@@ -221,6 +226,58 @@ def test_the_control_a_text_layer_party_at_full_confidence_still_names_one() -> 
     assert draft.record.per_field_source["party"] == TEXT_LAYER
     assert draft.voucher.party == BOOKED
     assert draft.voucher.debit_account == "Purchases"
+
+
+class _Prepared:
+    """A backend that hands over one record it was given. Reads nothing."""
+
+    name = "prepared"
+
+    def __init__(self, record: ExtractedRecord) -> None:
+        self._record = record
+
+    def extract(self, _data: bytes, _mime: str) -> ExtractedRecord:
+        return self._record
+
+
+def test_an_entitled_tier_that_states_no_confidence_still_names_no_supplier() -> None:
+    """SILENCE IS NOT CERTAINTY, and after this file's change nothing else pins it.
+
+    MEASURED, NOT ARGUED. The test that used to hold this line -
+    `test_adapter_contract.py::test_a_backend_that_states_no_confidence_does_not_
+    name_the_supplier` - held it with a `reader_service` record. The moment
+    `reader_service` came off `ENTITLED_TO_EXACT` that test started passing on
+    the TIER check alone, and the mutation "read an unstated confidence as
+    `EXACT`" survived all 4,432 tests. A safety property that is only tested
+    through a source that now fails an earlier check is not tested.
+
+    So this record is on an ENTITLED tier and says nothing about how sure it is.
+    `read_exactly` wants a STATED `EXACT`, never the absence of a doubt.
+
+    The score is OMITTED rather than passed as an empty map, which is not
+    tidiness: passing `{}` exercises a caller's empty dict and omitting it
+    exercises the dataclass DEFAULT, and the default is the thing that has to
+    fail safe.
+    """
+    record = ExtractedRecord(
+        date=DATE,
+        party=BOOKED,
+        total_paise=TOTAL,
+        tax_paise=None,
+        raw_text="",
+        backend=TEXT_LAYER,
+        per_field_source=dict.fromkeys(("date", "party", "total_paise"), TEXT_LAYER)
+        | {"tax_paise": f"{NOT_FOUND}: no tax on this bill"},
+    )
+
+    assert record.per_field_source["party"] in ENTITLED_TO_EXACT
+    assert record.confidence_of("party") is None
+    assert not record.read_exactly("party")
+
+    draft = build_draft(COMPANY, BILL, "text/plain", _Prepared(record), _memory())
+
+    assert draft.voucher.party == ""
+    assert draft.voucher.debit_account == ""
 
 
 def test_the_believed_sources_are_exactly_these_three() -> None:
