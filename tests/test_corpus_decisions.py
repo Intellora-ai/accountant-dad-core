@@ -1,4 +1,4 @@
-"""A thousand decisions: five hundred that must not post, five hundred that must.
+"""A thousand decisions: the ones that must not post, and the ones that must.
 
 WHY THIS FILE EXISTS
 --------------------
@@ -19,16 +19,16 @@ half and is worthless. So there are five hundred clean non-GST purchases as
 well, and if the cage refuses those, the refusal rate on the other half means
 nothing.
 
-WHAT IT MEASURED, 2026-08-13
-------------------------------
-    invalid   500/500 refused - 200 ask, 300 block, 0 post. The owner's floor
-              is 99.5%, which is 498. Nothing was adjusted to reach it.
+WHAT IT MEASURED, 2026-08-13 (re-measured when the first hole closed)
+-----------------------------------------------------------------------
+    invalid   501/501 refused - 200 ask, 301 block, 0 post. The owner's floor
+              is 99.5%, which is 499. Nothing was adjusted to reach it.
     writable  0/500 refusals came back holding a `LedgerEntry`. This is the
               claim that matters, and it is stronger than the percentage above:
               not "it said block" but "there is nothing in the result anybody
               could write".
     valid     500/500 post - 0 ask, 0 block.
-    runtime   0.013s to build and decide all thousand.
+    runtime   0.014s to build and decide all thousand and one.
 
 The numbers are here rather than only in a commit message because a reader
 deciding whether to trust this file should not have to run `git log` to find out
@@ -46,24 +46,28 @@ rule of three, zero errors in n = 1000 bounds the true rate at roughly 3/1000 -
 0.3% - and no lower. A green run here is consistent with three bad posts in
 every thousand bills.
 
-MOST IMPORTANTLY: the five hundred are five hundred failures the cage CLAIMS to
-refuse. Refusing all of them is worth exactly that and no more. Three situations
-found while building this file must not post and do, and they are held apart in
+MOST IMPORTANTLY: the invalid half is failures the cage CLAIMS to refuse.
+Refusing all of them is worth exactly that and no more. Three situations found
+while building this file must not post and did, and they are held apart in
 `_HOLES` rather than averaged into a percentage:
 
     F-02          a bill misread consistently, every figure ten times too big.
-                  Named in `conservation.py` and `decision.py` already.
+                  Named in `conservation.py` and `decision.py` already. OPEN.
     the tax flag  `decide` never reads `observation.tax_paise`, so a caller
                   whose `carries_gst=False` contradicts the tax figure on the
-                  very reading it was handed posts a GST bill.
-    the amount    the conservation verdicts come from the caller's figures and
-                  the amount written comes from `observation.total_paise`.
-                  Nothing binds them, so laws that passed on ₹1,000 can
-                  authorise a write of ₹100,000.
+                  very reading it was handed posts a GST bill. OPEN.
+    the amount    the conservation verdicts came from the caller's figures and
+                  the amount written came from `observation.total_paise` with
+                  nothing binding them, so laws that passed on ₹1,000 could
+                  authorise a write of ₹1,00,000. CLOSED 2026-08-13:
+                  `Situation.checked_paise` now says which amount was checked
+                  and `decide` refuses to write a different one. The case moved
+                  into the invalid half, which is why that half is 501 and not
+                  500 - the corpus grew by exactly what the module gained.
 
 `test_the_measured_blind_spots_all_still_post_and_write_what_they_wrote` asserts
-all three, because a blind spot nobody measures is a blind spot nobody notices
-closing or opening.
+the open ones, because a blind spot nobody measures is a blind spot nobody
+notices closing or opening. It is the test that failed when the third closed.
 
 NO CLOCK, NO RANDOMNESS, NO IO, NO NETWORK. Every amount, date and party comes
 out of `CORPUS_SEED` and an index.
@@ -106,7 +110,11 @@ REFUSAL_FLOOR: Final = 0.995
 #: so it catches somebody making the corpus slow, not ordinary CI jitter.
 BUDGET_SECONDS: Final = 30.0
 
-INVALID_COUNT: Final = 500
+#: 500 when this file was written, and it may only go UP. It is 501 because the
+#: checked-amount hole closed on 2026-08-13 and its case moved out of `_HOLES`
+#: into the corpus proper - a case the cage now CLAIMS to refuse belongs with
+#: the others it claims to refuse.
+INVALID_COUNT: Final = 501
 VALID_COUNT: Final = 500
 
 _SOURCE: Final = "corpus"
@@ -130,6 +138,7 @@ _LIES: Final = "lying model"
 _NOT_SEEN: Final = "not an observation"
 _ACCOUNTS: Final = "accounts"
 _COUNT: Final = "question count not a number"
+_CHECKED: Final = "checked a different amount"
 
 #: The shape of the invalid half. Asserted, not aspirational.
 FAMILY_SIZES: Final[dict[str, int]] = {
@@ -147,6 +156,7 @@ FAMILY_SIZES: Final[dict[str, int]] = {
     _NOT_SEEN: 8,
     _ACCOUNTS: 12,
     _COUNT: 10,
+    _CHECKED: 1,
 }
 
 _PARTIES: Final = (
@@ -281,10 +291,28 @@ def _laws(
 _UNSET: Final = object()
 
 
+def _checked(seen: object) -> object:
+    """The amount an honest caller would say its conservation figures came from.
+
+    The reading's own total, because that is where every case here gets its
+    figures: `_laws(total)` and `_observation(total=total)` are built from one
+    number, and a caller that ran the laws on a bill ran them on the amount it
+    read off that bill. `gate.py` does exactly this with one variable.
+
+    When what was read is not whole paise, no conservation run could have used
+    it, so the clean `_BASE` goes through instead and the module's own
+    amount check says what is wrong with the reading. The two cases that are
+    ABOUT this link pass `checked_paise` themselves.
+    """
+    total = seen.total_paise.value if type(seen) is Observation else None
+    return total if type(total) is int else _BASE
+
+
 def _situation(
     *,
     observation: object = _UNSET,
     conservation_results: object = _UNSET,
+    checked_paise: object = _UNSET,
     party_known: object = True,
     period_open: object = True,
     carries_gst: object = False,
@@ -307,13 +335,16 @@ def _situation(
     over a balance the caller could not yet know would be lying about which
     moment it was measuring.
     """
+    seen = _observation() if observation is _UNSET else observation
     return Situation(
-        observation=cast(
-            Observation, _observation() if observation is _UNSET else observation
-        ),
+        observation=cast(Observation, seen),
         conservation=cast(
             "tuple[ConservationResult, ...]",
             _laws(_BASE) if conservation_results is _UNSET else conservation_results,
+        ),
+        checked_paise=cast(
+            "int | None",
+            _checked(seen) if checked_paise is _UNSET else checked_paise,
         ),
         party_known=cast("bool | None", party_known),
         period_open=cast("bool | None", period_open),
@@ -888,6 +919,31 @@ def _account_cases() -> list[Case]:
     ]
 
 
+def _checked_amount_cases() -> list[Case]:
+    """The laws passed on one number and the entry would be for another.
+
+    MOVED OUT OF `_HOLES` ON 2026-08-13, when `Situation` started carrying the
+    amount its conservation verdicts were computed over and `decide` started
+    comparing it with the amount it would write. Until then this posted: every
+    law green, confidence 1.0, and a hundred times the money into somebody's
+    books.
+
+    It is one case because it was one hole. The corpus grew by exactly what the
+    module gained, which is the only honest way to move a case across this line.
+    """
+    return [
+        Case(
+            _CHECKED,
+            "the laws passed on 100,000 paise and the entry would be 10,000,000",
+            _situation(
+                observation=_observation(total=10_000_000),
+                conservation_results=_laws(100_000),
+                checked_paise=100_000,
+            ),
+        )
+    ]
+
+
 def _question_count_cases() -> list[Case]:
     """A count that is not a whole non-negative number is a lost count."""
     counts: tuple[object, ...] = (-1, -100, 0.5, 3.0, "0", "3", True, False, None, ())
@@ -918,6 +974,7 @@ def invalid_corpus() -> list[Case]:
         *_not_an_observation_cases(),
         *_account_cases(),
         *_question_count_cases(),
+        *_checked_amount_cases(),
     ]
 
 
@@ -986,7 +1043,7 @@ def _labels(run: list[tuple[Case, Decided]], action: Action) -> list[str]:
 # ---- what the corpus asserts ------------------------------------------------
 
 
-def test_the_invalid_corpus_is_five_hundred_distinct_labelled_cases() -> None:
+def test_the_invalid_corpus_is_the_size_it_says_and_no_two_cases_alike() -> None:
     """A label per case, and no two the same, or a failure names the wrong one."""
     assert len(_INVALID) == INVALID_COUNT
     assert all(case.label.strip() for case in _INVALID)
@@ -1173,19 +1230,6 @@ def _tax_flag_disagrees_with_the_reading() -> Situation:
     )
 
 
-def _laws_checked_a_different_number() -> Situation:
-    """Every law passes on 100,000 paise. The entry written is 10,000,000.
-
-    The verdicts come from the caller's figures; the amount written comes from
-    `observation.total_paise`. Nothing binds them, so a passing conservation run
-    can authorise a write of a number it never saw.
-    """
-    return _situation(
-        observation=_observation(total=10_000_000),
-        conservation_results=_laws(100_000),
-    )
-
-
 _HOLES: Final = (
     Hole(
         "a bill misread consistently, every figure ten times too big (F-02)",
@@ -1197,20 +1241,19 @@ _HOLES: Final = (
         _tax_flag_disagrees_with_the_reading(),
         118_000,
     ),
-    Hole(
-        "the laws passed on 100,000 paise and the entry written is 10,000,000",
-        _laws_checked_a_different_number(),
-        10_000_000,
-    ),
 )
 
 
 def test_the_measured_blind_spots_all_still_post_and_write_what_they_wrote() -> None:
-    """Three situations that must not post, and do. This is a finding, not a pass.
+    """The situations that must not post, and do. This is a finding, not a pass.
 
     Asserted rather than described so the number of known holes cannot drift.
     A hole that closes fails this test, which is the only way anybody notices;
     a hole that opens wider changes the amount written, which fails it too.
+
+    It has already done its job once. It was three holes until 2026-08-13, when
+    the checked-versus-written one closed and this test failed on it - the case
+    then moved into `_checked_amount_cases` where a refusal is claimed.
     """
     for hole in _HOLES:
         decided = decide(hole.situation)

@@ -298,6 +298,12 @@ def gate(
         Situation(
             observation=seen,
             conservation=laws,
+            # The SAME `amount` the laws above were run on, passed from the same
+            # variable rather than read off the observation a second time. That
+            # is the whole content of the field: `decide` refuses to write a
+            # number its checks did not see, and a second read of the same
+            # source would be a copy pretending to be a witness.
+            checked_paise=amount,
             party_known=party_known,
             period_open=period_open,
             carries_gst=carries_gst,

@@ -35,11 +35,15 @@ confidence 1.0 exactly as it does at 0.71. This is the single behaviour the cage
 exists for: `confidence.py` cannot see a value the engine misread *confidently*,
 and arithmetic can - but only if arithmetic is allowed to win.
 
-FIVE HARD RULES, EACH OF WHICH ALWAYS BLOCKS
-----------------------------------------------
+SIX HARD RULES, EACH OF WHICH ALWAYS BLOCKS
+---------------------------------------------
     tax on the bill        owner decision Q3=D, tax posting is off. Writing the
                            bill without its tax line leaves a wrong statutory
                            entry in real books.
+    checked ≠ written      the amount the conservation laws were run on is not
+                           the amount the entry would be for. See the section
+                           below; this is the one the rest of the file depends
+                           on being true.
     a law INDETERMINATE    "could not check" is not "checked and fine". Three of
                            the four laws, always - see the paragraph below for
                            the fourth, which is not an exception to the rule but
@@ -77,6 +81,23 @@ AFTER the write still blocks - there it means nobody read the register back -
 and the three document laws still block on INDETERMINATE at both moments. The
 document set is derived from `conservation.LAWS`, so a law added there blocks
 by default rather than becoming exempt by being left out of a list.
+
+THE NUMBER CHECKED AND THE NUMBER WRITTEN ARE THE SAME NUMBER
+---------------------------------------------------------------
+Every claim above is "the arithmetic was checked before anything was written",
+and that sentence is only true if the amount checked and the amount written are
+one amount. They arrive from two places: the verdicts in
+`Situation.conservation` are computed by the CALLER from the caller's figures,
+and the entry is built from `observation.total_paise`. Until 2026-08-13 nothing
+compared them - measured, laws passing on 1,00,000 paise authorised a write of
+1,00,00,000 paise and returned POST.
+
+So `Situation` carries `checked_paise`, with no default, and `decide` refuses
+any bill where it is not the amount that would be written. The laws are NOT
+re-run here: that would take a responsibility this module does not own, and a
+check that computes its own evidence cannot be contradicted by anybody -
+another check that cannot fail. The caller states what it checked; this
+compares two statements and believes neither on its own.
 
 THIS MODULE NEVER RAISES ON A SITUATION IT WAS GIVEN
 ------------------------------------------------------
@@ -262,6 +283,12 @@ _AMOUNT_NOT_MONEY: Final = (
     "I could not read a whole amount of money off this bill, so nothing was posted."
 )
 
+_NOTHING_SAYS_WHAT_WAS_CHECKED: Final = (
+    "Nobody said which amount the checks on this bill were run on, so I cannot "
+    "tell that the amount that was checked is the amount that would go into "
+    "your books, and nothing was posted."
+)
+
 _PARTY_NOT_A_NAME: Final = (
     "What I read as the name on this bill is not a name, so nothing was posted."
 )
@@ -412,6 +439,20 @@ class Situation:
     #: It sits last among the required fields so that adding it moved no
     #: existing argument's position.
     moment: Moment
+    #: The amount, in whole paise, that the verdicts in `conservation` were
+    #: computed over. **This is not a copy of the total and it is not derived
+    #: from one.** It is the caller's statement of which number its laws
+    #: actually checked, so that `decide` can refuse to write a number nobody
+    #: checked - see `_write_is_what_was_checked`.
+    #:
+    #: `int | None` and NO DEFAULT, for the same reason as the fields above. A
+    #: default of "whatever the reading says" would make the comparison read one
+    #: value against itself, which is a check that cannot fail wearing the face
+    #: of a check that passed - the same shape as the empty-set AST guard
+    #: `wall.py` shipped once. `None` is the honest value when the figure was
+    #: never read, and it blocks: a caller that checked nothing has proved
+    #: nothing.
+    checked_paise: int | None
     #: Fields the reader could read more than one way - a date that is either
     #: the 3rd of April or the 4th of March. The names are the caller's own
     #: vocabulary and are never shown to a person; only the count is.
@@ -573,6 +614,58 @@ def _conservation_blocks(results: object, moment: object) -> list[str]:
     return []
 
 
+def _write_is_what_was_checked(situation: Situation, seen: Observation) -> list[str]:
+    """The amount the laws were run on must be the amount that gets written.
+
+    THIS IS THE SENTENCE THE WHOLE CAGE RESTS ON. "Arithmetic is checked before
+    anything is written" is only true if the number checked and the number
+    written are the same number. Until this existed they were two values from
+    two sources that nothing compared: the verdicts arrive in
+    `Situation.conservation`, computed by the caller from the caller's figures,
+    and the entry is built from `observation.total_paise`. Measured on
+    2026-08-13 - laws passing on 1,00,000 paise authorised a write of
+    1,00,00,000 paise and it came back POST.
+
+    `demo_safety_cage.judge` happened to derive both from one dict, so no call
+    site diverged. That is luck, and the last gate is exactly where luck is not
+    good enough.
+
+    IT IS NOT RECOMPUTED HERE, AND THAT IS DELIBERATE. Running the laws inside
+    `decide` would move a responsibility this module does not own -
+    `conservation.py` owns it, `gate.py` feeds it - and a check that computes
+    its own evidence cannot be contradicted by the caller, which is the shape of
+    a check that cannot fail. So the caller STATES what it checked and this
+    compares the two statements.
+
+    Three answers, and the middle one is the only surprising one:
+
+        not whole paise  including `None`. A caller that named no checked
+                         amount has proved nothing, and silence is not
+                         agreement.
+        written unread   `_AMOUNT_NOT_MONEY` below says that better, in words
+                         about the bill rather than about the two figures. A
+                         reading with no amount on it is not a disagreement
+                         between two numbers, it is one number missing.
+        not equal        exact equality, like `conservation._compare`. A
+                         one-paisa tolerance would absorb the misread digit
+                         this is most likely to catch.
+    """
+    checked = situation.checked_paise
+    if type(checked) is not int:
+        return [_NOTHING_SAYS_WHAT_WAS_CHECKED]
+    writing = seen.total_paise.value
+    if type(writing) is not int:
+        return []
+    if checked != writing:
+        return [
+            f"The amount I checked is not the amount that would go into your "
+            f"books: the checks were run on {format_inr(checked)} and the "
+            f"entry would be for {format_inr(writing)}. Those have to be the "
+            f"same amount, so nothing was posted.{_which_bill(seen)}"
+        ]
+    return []
+
+
 def _budget_blocks(asked: object) -> list[str]:
     # `type(...) is not int` refuses `bool` as well: `isinstance(True, int)` is
     # True and `True == 1`, so a flag passed where a count belonged would read
@@ -656,6 +749,10 @@ def _blocking(situation: Situation) -> tuple[str, ...]:
     # is actually in the calling code.
     reasons.extend(_moment_blocks(situation.moment))
     reasons.extend(_conservation_blocks(situation.conservation, situation.moment))
+    # Immediately after the verdicts, because it is a question about them: the
+    # laws ran, and this is whether they ran on the number this bill would put
+    # in somebody's books.
+    reasons.extend(_write_is_what_was_checked(situation, seen))
     reasons.extend(_budget_blocks(situation.questions_asked))
     reasons.extend(_world_blocks(situation, seen))
     reasons.extend(_account_blocks(situation))

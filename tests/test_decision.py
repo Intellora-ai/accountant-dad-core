@@ -87,17 +87,32 @@ from accountant.schema import Voucher
 # fact nobody checked.
 
 
+#: The amount on the clean bill every builder here starts from. Named once so
+#: the checked-amount helper below and `an_observation` cannot drift apart into
+#: two different "clean totals", which would make every link test vacuous.
+CLEAN_TOTAL = 250_000
+
+
 def an_observation(
     *,
     party: object = "Blue Steel Traders",
-    total_paise: object = 250_000,
+    total_paise: object = CLEAN_TOTAL,
+    tax_paise: object = 0,
     confidence: float = 1.0,
 ) -> Observation:
     return Observation(
         date=Field(value="2026-08-12", confidence=confidence, source="test"),
         party=Field(value=party, confidence=confidence, source="test"),
         total_paise=Field(value=total_paise, confidence=confidence, source="test"),
-        tax_paise=Field(value=0, confidence=confidence, source="test"),
+        # A field with no value carries confidence 0.0 - the wall enforces it,
+        # because not reading something and being unsure about it are the same
+        # fact. Written here so a test can hand over an UNREAD tax field, which
+        # is the case that must not be mistaken for a tax of zero.
+        tax_paise=Field(
+            value=tax_paise,
+            confidence=0.0 if tax_paise is None else confidence,
+            source="test",
+        ),
     )
 
 
@@ -144,10 +159,30 @@ def named_law(
 UNSET = object()
 
 
+def what_the_laws_were_run_on(seen: object) -> object:
+    """The amount an honest caller would say its conservation figures came from.
+
+    The reader's own total, because that is where a real caller's figures come
+    from: `gate.py` passes the very same value to `conservation.run` and to
+    `Situation.checked_paise`, which is the whole point of the field.
+
+    When what was read is not whole paise, no conservation run could have used
+    it, so the builder passes the clean total instead and leaves the module's
+    own amount check to say what is wrong with the reading. A builder that
+    passed the float on would move every malformed-amount test in this file
+    onto a different branch from the one it was written for.
+
+    Tests that are ABOUT the link say `checked_paise=` themselves.
+    """
+    total = seen.total_paise.value if type(seen) is Observation else None
+    return total if type(total) is int else CLEAN_TOTAL
+
+
 def a_situation(
     *,
     observation: object = UNSET,
     conservation: object = UNSET,
+    checked_paise: object = UNSET,
     party_known: object = True,
     period_open: object = True,
     carries_gst: object = False,
@@ -157,9 +192,13 @@ def a_situation(
     moment: object = Moment.BEFORE_THE_WRITE,
     ambiguous_fields: object = (),
 ) -> Situation:
+    seen = an_observation() if observation is UNSET else observation
     return Situation(
-        observation=an_observation() if observation is UNSET else observation,  # type: ignore[arg-type]
+        observation=seen,  # type: ignore[arg-type]
         conservation=all_laws_pass() if conservation is UNSET else conservation,  # type: ignore[arg-type]
+        checked_paise=(  # type: ignore[arg-type]
+            what_the_laws_were_run_on(seen) if checked_paise is UNSET else checked_paise
+        ),
         party_known=party_known,  # type: ignore[arg-type]
         period_open=period_open,  # type: ignore[arg-type]
         carries_gst=carries_gst,  # type: ignore[arg-type]
@@ -408,6 +447,103 @@ def test_the_control_a_moment_nobody_stated_grants_no_exemption() -> None:
     decided = decide(a_situation(conservation=unknowable, moment=None))
     assert decided.action is Action.BLOCK
     assert len(decided.reasons) == 2
+
+
+# ---- the number that was checked is the number that gets written ------------
+#
+# The conservation verdicts are computed by the CALLER, from the caller's
+# figures. The entry is built from `observation.total_paise`. Until 2026-08-13
+# nothing compared the two, so laws that passed on 1,00,000 paise authorised a
+# write of 1,00,00,000 paise and it came back POST - every law green, every
+# field legible, and a hundred times the money.
+#
+# That is the whole cage in one line: it checked *a* number, which need not be
+# *the* number. `demo_safety_cage.judge` happened to derive both from one dict,
+# so no call site diverged - luck, not a guarantee, and the last gate is where
+# a guarantee belongs.
+
+
+def test_laws_that_passed_on_one_amount_cannot_authorise_a_write_of_another() -> None:
+    """MEASURED before the fix: POST, carrying an entry for 10,000,000 paise.
+
+    Nothing else here is wrong. Confidence is 1.0, all four laws PASS, the party
+    is known and the books are open - which is exactly why this one matters.
+    """
+    seen = an_observation(total_paise=10_000_000)
+    decided = decide(a_situation(observation=seen, checked_paise=100_000))
+    assert decided.action is Action.BLOCK
+    assert decided.entry is None
+
+
+def test_the_control_the_same_bill_checked_on_its_own_amount_still_posts() -> None:
+    """THE CONTROL, and it carries the weight: without it, a `decide` that
+    refused every bill on earth would pass the test above and look like a fix."""
+    seen = an_observation(total_paise=10_000_000)
+    decided = decide(a_situation(observation=seen, checked_paise=10_000_000))
+    assert decided.action is Action.POST
+    assert decided.entry is not None
+    assert decided.entry.amount_paise == 10_000_000
+
+
+def test_one_paisa_between_what_was_checked_and_what_would_be_written_blocks() -> None:
+    """Exact equality, the same as `conservation._compare` and for the same
+    reason: a one-paisa gap is a misread digit far more often than it is a
+    rounding artefact, and a tolerance would absorb the sharpest signal here."""
+    decided = decide(a_situation(checked_paise=CLEAN_TOTAL - 1))
+    assert decided.action is Action.BLOCK
+    assert decided.entry is None
+
+
+def test_a_caller_that_names_no_checked_amount_has_proved_nothing() -> None:
+    """`None` is not "the amounts agree", it is "nobody said what was checked".
+    Passing it through silently would leave the link asserted by nobody, which
+    is the state this field was added to end."""
+    decided = decide(a_situation(checked_paise=None))
+    assert decided.action is Action.BLOCK
+    assert decided.entry is None
+
+
+def test_a_checked_amount_that_is_not_whole_paise_blocks() -> None:
+    """`type(...) is not int` refuses `bool` as well, like every other amount in
+    this module: `True == 1`, so a flag here would agree with a one-paisa bill."""
+    for value in (250_000.0, "250000", True, ()):
+        decided = decide(a_situation(checked_paise=value))
+        assert decided.action is Action.BLOCK, value
+        assert decided.entry is None, value
+
+
+def test_the_refusal_names_both_amounts_through_the_one_formatter() -> None:
+    """A person cannot act on "the amounts disagree". They can act on which two.
+    `money.format_inr` or nothing - `1,000,000` is what `f"{n:,}"` produces and
+    it is not what an Indian accountant reads."""
+    seen = an_observation(total_paise=10_000_000)
+    said = decide(a_situation(observation=seen, checked_paise=100_000)).said
+
+    assert format_inr(100_000) in said
+    assert format_inr(10_000_000) in said
+    assert "10,000,000" not in said
+    assert "checked_paise" not in said
+
+
+def test_a_situation_that_does_not_say_which_amount_was_checked_cannot_be_built() -> (
+    None
+):
+    """No default, for the same reason `period_open` and `moment` have none. A
+    default of "whatever the reading says" would make the check compare a number
+    against itself - a check that cannot fail wearing the face of one that
+    passed, which is the shape this repository has already shipped once."""
+    with pytest.raises(TypeError):
+        Situation(  # type: ignore[call-arg]
+            observation=an_observation(),
+            conservation=all_laws_pass(),
+            party_known=True,
+            period_open=True,
+            carries_gst=False,
+            questions_asked=0,
+            debit_account="Purchases",
+            credit_account="Cash",
+            moment=Moment.BEFORE_THE_WRITE,
+        )
 
 
 # ---- hard rules, each of which always blocks --------------------------------

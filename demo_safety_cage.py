@@ -547,6 +547,20 @@ def observed(seen: dict[str, str], scores: dict[str, float]) -> Observation:
     )
 
 
+def total_checked(seen: dict[str, str]) -> int | None:
+    """The one figure the laws below are run on, and the one `decide` is told.
+
+    Written once and called twice on purpose. `decide` refuses to write an
+    amount its checks did not see, so `judge` has to hand it the number
+    `laws_for` used - and two separate expressions computing "the total" would
+    be exactly the gap that check exists to close.
+
+    `None` when the bill has no total on it. That is the honest answer, and it
+    blocks: laws run on nothing have checked nothing.
+    """
+    return int(seen["total"]) if "total" in seen else None
+
+
 def laws_for(
     seen: dict[str, str], before: int
 ) -> tuple[conservation.ConservationResult, ...]:
@@ -560,7 +574,7 @@ def laws_for(
     """
     money = {name: int(seen[name]) for name in MONEY if name in seen}
     lines = tuple(int(p) for p in seen.get("lines", "").split(",") if p.strip())
-    total = money.get("total")
+    total = total_checked(seen)
     return conservation.run(
         debit_paise=total,
         credit_paise=money.get("paid"),
@@ -641,6 +655,11 @@ def judge(row: Input, client: FakeTally) -> Result:
         Situation(
             observation=watched,
             conservation=laws,
+            # The same figure `laws_for` was run on, from the same function
+            # rather than read off `watched` a second time. `decide` compares
+            # this against the amount it would write, and a second read of the
+            # observation would make it compare a number against itself.
+            checked_paise=total_checked(seen),
             party_known=seen.get("party", "") in KNOWN_PARTIES,
             period_open=datetime.date.fromisoformat(seen["date"]) >= BOOKS_OPEN_FROM,
             carries_gst=int(seen.get("tax", 0)) != 0,
