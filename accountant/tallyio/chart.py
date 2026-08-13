@@ -41,9 +41,9 @@ here.
        The account's ROLE IN THIS VOUCHER says which comparison to make, and
        the answer must be a group THIS COMPANY ALREADY USES:
 
-         the leg equal to `voucher.party`   -> a party ledger. Which side it
-                                               sits on decides creditor or
-                                               debtor (see below).
+         the leg equal to `voucher.party`   -> a party ledger. The side it
+                                               sits on AND what the other leg
+                                               is decide creditor or debtor.
          the non-party CREDIT leg           -> where the money came from, so a
                                                money group.
          the non-party DEBIT leg            -> REFUSED. See below.
@@ -53,15 +53,32 @@ here.
        nothing to learn from, and there is no fallback group: a wrong group is
        wrong in somebody's books permanently and cannot be un-posted.
 
+THE SIDE ALONE DOES NOT SAY CREDITOR OR DEBTOR
+-----------------------------------------------
+A supplier is CREDITED on a bill and DEBITED when we pay them. So "party on
+the debit side is a debtor" is right for a Sales invoice and wrong for a
+Payment - and wrong in exactly the direction nothing catches.
+
+The other leg settles it, and the other leg's group comes out of the same
+chart:
+
+    party credited, other leg is Purchases     a bill      -> Creditors
+    party debited,  other leg is Sales         an invoice  -> Debtors
+    party debited,  other leg is the bank      a payment   -> Creditors
+    party credited, other leg is the bank      a receipt   -> Debtors
+
+So the party leg is only placeable when the OTHER leg is already in the chart
+and sits in a group this module recognises. Two unknowns is a refusal.
+
 WHAT IS WRITTEN DOWN HERE AND WHAT IS NOT
 ------------------------------------------
-`PARTY_GROUP_FOR_SIDE`, `MONEY_GROUPS` and `INCOME_GROUPS` are Tally's OWN
-group names carrying Tally's OWN accounting meaning. They are not a mapping
-from a ledger name to a group, and they are not a per-company table: nothing
-here can produce a group the company's chart does not already contain, because
-every branch intersects with the groups actually in use. Delete the company's
-ledgers and this module answers nothing at all - which is the measured
-`TANVEER SIDHU` case and the correct answer for it.
+`PARTY_GROUP_FOR_SIDE`, `MONEY_GROUPS`, `INCOME_GROUPS` and `TRADE_GROUPS` are
+Tally's OWN group names carrying Tally's OWN accounting meaning. They are not a
+mapping from a ledger name to a group, and they are not a per-company table:
+nothing here can produce a group the company's chart does not already contain,
+because every branch intersects with the groups actually in use. Delete the
+company's ledgers and this module answers nothing at all - which is the
+measured `TANVEER SIDHU` case and the correct answer for it.
 
 The names are spelled to match `masters.KNOWN_GROUPS` exactly.
 `tests/test_ledger_placement.py` asserts that they are a subset of it, because
@@ -94,29 +111,60 @@ from accountant.schema import Voucher
 # Tally's own vocabulary
 # ---------------------------------------------------------------------------
 
-#: Which party group a ledger belongs in, decided by the side it is posted on.
+#: Which party group a ledger belongs in, given the side it is posted on AND
+#: what the entry did. THE SIDE ALONE IS NOT ENOUGH, and believing it was is a
+#: defect this table exists to record:
 #:
-#: This is arithmetic, not preference. A supplier we owe is CREDITED and its
-#: balance is a credit, which in Tally is `Sundry Creditors`, a liability. A
-#: customer who owes us is DEBITED and its balance is a debit, which is
-#: `Sundry Debtors`, an asset. Swapping them is the exact failure
-#: `docs/RUNBOOK_PHASE5_ACCEPTANCE.md:180-186` describes and no later check
-#: catches.
-PARTY_GROUP_FOR_SIDE: Final[dict[str, str]] = {
-    "credit": "Sundry Creditors",
-    "debit": "Sundry Debtors",
+#:     Purchase  debit Purchases, credit the supplier   party on CREDIT
+#:     Payment   debit the supplier, credit the bank    party on DEBIT
+#:
+#: Same supplier, same `Sundry Creditors`, opposite sides. "Party on the debit
+#: side is a debtor" is right for a Sales invoice and WRONG for a Payment, and
+#: it is wrong in the direction `docs/RUNBOOK_PHASE5_ACCEPTANCE.md:180-186`
+#: says nothing catches.
+#:
+#: What tells them apart is the OTHER leg, read from the company's own chart.
+#: Money moved (the counter leg is in a money group) means a settlement, and a
+#: settlement posts the party on the side OPPOSITE its balance. Money did not
+#: move (the counter leg is what the entry was for, or what it earned) means
+#: the original bill or invoice, and the party sits on the side its balance
+#: lives on.
+PARTY_GROUP_FOR_SIDE: Final[dict[tuple[str, bool], str]] = {
+    # (side the party is posted on, the other leg is money)
+    ("credit", False): "Sundry Creditors",
+    ("debit", False): "Sundry Debtors",
+    ("credit", True): "Sundry Debtors",
+    ("debit", True): "Sundry Creditors",
 }
 
-#: The groups a company's own money sits in. A credit leg that is not the party
-#: is where the money came FROM, so it is one of these or it is not derivable.
+#: The groups a company's own money sits in. Two jobs: a credit leg that is not
+#: the party is where the money came FROM, and a counter leg sitting here is
+#: what makes an entry a settlement rather than a bill.
 MONEY_GROUPS: Final[frozenset[str]] = frozenset({"Bank Accounts", "Cash-in-Hand"})
 
-#: Income groups. Their presence is a DISQUALIFIER, never an answer: a company
-#: that sells things posts sales on the credit side too, so "the credit leg
-#: that is not the party is money" stops being true and this refuses instead of
-#: filing a Sales ledger under a bank.
+#: Income groups. Their presence in a chart is a DISQUALIFIER for the funding
+#: rule, never an answer: a company that sells things posts sales on the credit
+#: side too, so "the credit leg that is not the party is money" stops being
+#: true and this refuses instead of filing a Sales ledger under a bank.
 INCOME_GROUPS: Final[frozenset[str]] = frozenset(
     {"Sales Accounts", "Direct Incomes", "Indirect Incomes"}
+)
+
+#: What the counter leg of a BILL or an INVOICE sits in: what the money was
+#: for, or what it earned. Recognising this - rather than treating "not money"
+#: as bill - is what makes an unfamiliar group a refusal instead of an
+#: assumption. A counter leg under `Current Assets` could be a deposit, a loan
+#: or a transfer, and those put the party on different sides.
+TRADE_GROUPS: Final[frozenset[str]] = (
+    frozenset(
+        {
+            "Purchase Accounts",
+            "Direct Expenses",
+            "Indirect Expenses",
+            "Fixed Assets",
+        }
+    )
+    | INCOME_GROUPS
 )
 
 
@@ -259,16 +307,39 @@ def derive_group(chart: Sequence[Placement], voucher: Voucher, account: str) -> 
         )
 
     if side := _party_side(voucher, account):
-        wanted = PARTY_GROUP_FOR_SIDE[side]
+        counter = voucher.debit_account if side == "credit" else voucher.credit_account
+        counter_group = next((e.parent.strip() for e in chart if e.name == counter), "")
+        if counter_group not in MONEY_GROUPS and counter_group not in TRADE_GROUPS:
+            return Derived(
+                refusal=(
+                    f"{account!r} is this voucher's party on the {side} side, and "
+                    "which side a party sits on does NOT by itself say whether it "
+                    "is somebody we owe or somebody who owes us - a supplier is "
+                    "credited on a bill and DEBITED when we pay them. The other "
+                    "leg is what tells them apart, and this chart "
+                    + (
+                        f"does not hold {counter!r} at all"
+                        if not counter_group
+                        else f"puts {counter!r} under {counter_group!r}, which is "
+                        "not a group this code recognises as money or as trade"
+                    )
+                    + f". Create {account!r} in Tally, under the group you want it in"
+                )
+            )
+        settlement = counter_group in MONEY_GROUPS
+        wanted = PARTY_GROUP_FOR_SIDE[side, settlement]
         if wanted in in_use:
             return Derived(group=wanted)
         return Derived(
             refusal=(
-                f"{account!r} is this voucher's party on the {side} side, so it "
-                f"belongs with this company's other {wanted!r} - but the chart has "
-                f"no ledger under {wanted!r} at all, so that group cannot be read "
-                f"out of your own books. Groups in use: "
-                f"{', '.join(sorted(in_use))}. Create {account!r} in Tally first"
+                f"{account!r} is this voucher's party on the {side} side and the "
+                f"other leg {counter!r} is "
+                + ("money, so this settles" if settlement else "what the entry was")
+                + f" for - which makes {account!r} one of this company's "
+                f"{wanted!r}. But the chart has no ledger under {wanted!r} at all, "
+                "so that group cannot be read out of your own books. Groups in "
+                f"use: {', '.join(sorted(in_use))}. Create {account!r} in Tally "
+                "first"
             )
         )
 
@@ -360,8 +431,17 @@ def place_ledgers(
     EVERY MISSING LEDGER IS DERIVED BEFORE ANY IS CREATED. A voucher naming two
     absent ledgers where only one is derivable must not leave the derivable one
     created and the voucher refused: that is a master added to somebody's books
-    for a write that never happened. Two passes, and the first one sends
-    nothing.
+    for a write that never happened, and nothing here can remove it - the write
+    door permits `create_ledger` and nothing that deletes one. Two passes, and
+    the first one sends nothing.
+
+    AT MOST ONE LEDGER IS EVER CREATED PER VOUCHER TODAY, and that falls out of
+    the rules rather than being enforced here: the party leg is only derivable
+    when the OTHER leg is already in the chart, and the only other derivable
+    role is the non-party credit leg. So the two cannot both be missing and
+    both be placeable. The loop is written for the general case anyway, because
+    the day a third role becomes derivable this stays correct instead of
+    silently creating one of a pair.
     """
     legs: list[str] = []
     for leg in (voucher.debit_account, voucher.credit_account):

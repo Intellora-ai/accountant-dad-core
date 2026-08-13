@@ -239,6 +239,18 @@ class FakeTally:
         # copies is what W6 and W4 both were, and `schema.py:115-132` records
         # the third instance of the same drift.
         #
+        # THE CLAIM THAT USED TO SIT HERE, and its answer. This comment said
+        # Tally "creates one silently if you send it a name it does not have,
+        # so 'purchases' against a chart holding 'Purchases' makes a second
+        # ledger next to the real one". `RealTally._check_ledgers_exist` said
+        # the opposite - that Tally does NOT create a master on the fly and the
+        # import fails. Neither has been measured against a licensed
+        # TallyPrime and they cannot both be true. The resolution is written
+        # out in full at `real.py::RealTally._check_ledgers_exist`: pre-creating
+        # under a derived group is the better move under either reading, so the
+        # code does not have to choose. What did not survive either way is a
+        # name differing only in case, which is refused rather than created.
+        #
         # An empty leg still arrives here as a ledger named '' that the chart
         # does not hold, and `chart.derive_group` refuses it - exactly how
         # `RealTally` reports it. Skipping the blank would make the double

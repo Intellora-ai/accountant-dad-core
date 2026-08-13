@@ -300,6 +300,90 @@ def test_a_party_on_the_debit_side_is_a_debtor_and_not_a_creditor(
 
 
 @BOTH
+def test_a_supplier_paid_from_the_bank_is_a_creditor_even_though_it_is_debited(
+    make_backend: MakeBackend,
+) -> None:
+    """THE CASE THE SIDE ALONE GETS WRONG, and the reason the counter leg is read.
+
+    A Payment debits the supplier and credits the bank. "Party on the debit
+    side is a debtor" would file a supplier under Sundry Debtors - the exact
+    sign inversion `RUNBOOK_PHASE5_ACCEPTANCE.md:180-186` says nothing catches.
+    The other leg is money, so money moved, so this settles something the party
+    was already owed: a creditor.
+    """
+    backend = make_backend(
+        {
+            "HDFC Current": "Bank Accounts",
+            "Sharma Traders": "Sundry Creditors",
+            "Gupta Stores": "Sundry Debtors",
+        }
+    )
+    payment = a_bill(debit=PARTY, credit="HDFC Current")
+
+    refusal = chart.place_ledgers(backend.book, COMPANY, payment, "op-payment")
+
+    assert refusal == ""
+    assert backend.chart_after()[PARTY] == "Sundry Creditors", (
+        "the party is DEBITED here and is still somebody we owe. Only the "
+        "other leg says so, and the chart is where its group comes from"
+    )
+
+
+@BOTH
+def test_a_customer_paying_us_is_a_debtor_even_though_it_is_credited(
+    make_backend: MakeBackend,
+) -> None:
+    """The mirror. A Receipt debits the bank and credits the customer."""
+    backend = make_backend(
+        {
+            "HDFC Current": "Bank Accounts",
+            "Sharma Traders": "Sundry Creditors",
+            "Gupta Stores": "Sundry Debtors",
+        }
+    )
+    receipt = a_bill(debit="HDFC Current", credit=PARTY)
+
+    refusal = chart.place_ledgers(backend.book, COMPANY, receipt, "op-receipt")
+
+    assert refusal == ""
+    assert backend.chart_after()[PARTY] == "Sundry Debtors"
+
+
+def test_a_party_whose_other_leg_is_not_in_the_chart_is_not_placed() -> None:
+    """Two unknowns and no precedent. The counter leg is the only thing that
+    says bill from payment, and it has to be readable to say it."""
+    placed = chart.derive_group(
+        [chart.Placement("Sharma Traders", "Sundry Creditors")],
+        a_bill(debit="Freight Inward"),
+        PARTY,
+    )
+
+    assert placed.group == ""
+    assert "does not hold 'Freight Inward' at all" in placed.refusal
+
+
+def test_a_party_whose_other_leg_sits_in_an_unrecognised_group_is_not_placed() -> None:
+    """ "Not money" is not the same as "a bill".
+
+    A counter leg under `Current Assets` could be a deposit, a loan or a
+    transfer, and each of them puts the party on a different side. Treating
+    every unfamiliar group as trade would be an assumption wearing a rule.
+    """
+    placed = chart.derive_group(
+        [
+            chart.Placement("Security Deposit", "Current Assets"),
+            chart.Placement("Sharma Traders", "Sundry Creditors"),
+        ],
+        a_bill(debit="Security Deposit"),
+        PARTY,
+    )
+
+    assert placed.group == ""
+    assert "'Current Assets'" in placed.refusal
+    assert "not a group this code recognises" in placed.refusal
+
+
+@BOTH
 def test_a_funding_leg_is_created_under_the_money_group_the_company_uses(
     make_backend: MakeBackend,
 ) -> None:
@@ -811,9 +895,14 @@ def test_every_group_this_module_can_choose_is_one_tally_spells_that_way() -> No
         set(chart.PARTY_GROUP_FOR_SIDE.values())
         | chart.MONEY_GROUPS
         | chart.INCOME_GROUPS
+        | chart.TRADE_GROUPS
     )
 
     assert choosable <= masters.KNOWN_GROUPS, sorted(choosable - masters.KNOWN_GROUPS)
+    assert chart.INCOME_GROUPS <= chart.TRADE_GROUPS, (
+        "income is what an invoice earned, so it is one of the counter legs "
+        "that makes an entry a bill rather than a settlement"
+    )
 
 
 def test_no_group_this_module_names_is_one_of_the_forbidden_buckets() -> None:
@@ -826,6 +915,7 @@ def test_no_group_this_module_names_is_one_of_the_forbidden_buckets() -> None:
             *chart.PARTY_GROUP_FOR_SIDE.values(),
             *chart.MONEY_GROUPS,
             *chart.INCOME_GROUPS,
+            *chart.TRADE_GROUPS,
         )
     }
 
