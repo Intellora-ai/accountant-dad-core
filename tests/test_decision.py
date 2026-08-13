@@ -56,6 +56,8 @@ NO NETWORK, NO FIXTURES, NO IO. Every test here is arithmetic and strings.
 
 from __future__ import annotations
 
+import datetime
+
 import pytest
 
 from accountant.cage.conservation import LAWS, ConservationResult, Verdict
@@ -72,8 +74,10 @@ from accountant.cage.decision import (
     decide,
 )
 from accountant.cage.wall import DECIDING_MODULE, Field, LedgerEntry, Observation
+from accountant.checks import tax_lines_can_be_posted
 from accountant.money import format_inr
 from accountant.questions import QUESTION_CAP, Answer, Question
+from accountant.schema import Voucher
 
 # ---- builders ---------------------------------------------------------------
 # Defaults describe a clean, boring, fully readable purchase. Every test below
@@ -742,6 +746,35 @@ def test_the_said_sentence_is_made_of_the_reasons_and_hides_none_of_them() -> No
 
 
 # ---- a refusal names the bill it is about, and says what to do next ---------
+
+
+def test_the_tax_refusal_says_what_to_do_next_instead_of_stopping_dead() -> None:
+    """A refusal with no next step leaves a person holding a bill and no move.
+    Every other sentence in the module ends with one; this one ended at "cannot
+    be posted automatically"."""
+    assert "in Tally yourself" in decide(a_situation(carries_gst=True)).said
+
+
+def test_the_control_the_tax_next_step_is_the_words_checks_py_already_uses() -> None:
+    """THE CONTROL on the wording, not the behaviour. `tax_lines_can_be_posted`
+    answers the same situation one layer down, and a third phrasing for the same
+    instruction is how a product ends up telling a person two different things
+    about one bill. Asserted against the check's own sentence so the two cannot
+    drift apart in silence."""
+    carrying_tax = Voucher(
+        id="v-1",
+        date=datetime.date(2026, 8, 12),
+        party="Blue Steel Traders",
+        narration="",
+        debit_account="Purchases",
+        credit_account="Cash",
+        amount_paise=250_000,
+        gst_paise=45_000,
+    )
+    shared = "enter this one in Tally yourself"
+
+    assert shared in tax_lines_can_be_posted(carrying_tax, ()).detail
+    assert shared in decide(a_situation(carries_gst=True)).said
 
 
 def test_a_closed_period_refusal_names_the_date_it_is_refusing() -> None:

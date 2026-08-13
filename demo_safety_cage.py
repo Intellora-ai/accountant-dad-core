@@ -188,9 +188,16 @@ AS_OUTCOME: dict[Action, Outcome] = {
 #: move. A dead end is a defect, so the demo, which is the surface a person
 #: touches here, supplies the move. Reported to the owner as a gap in the cage's
 #: own wording rather than patched into `decision.py` by this file.
+#:
+#: THE TAX ROW IS NOW EMPTY, AS OF 2026-08-13. That gap was reported and it has
+#: been closed at the source: `decision.GST_IS_OFF` now ends with "Please enter
+#: this one in Tally yourself", the same words `checks.py::tax_lines_can_be_posted`
+#: already used. Leaving this entry filled printed the same instruction twice in
+#: a row at the person, which is its own defect. An empty string here is the
+#: demo saying the cage already answered, not the demo giving up.
 NEXT_STEP: dict[str, str] = {
     "arithmetic": "Check that against the bill and send it again.",
-    "tax": "Enter this one, with its tax, in Tally yourself.",
+    "tax": "",
     "party": "Add them in Tally, or tell me which name you already have.",
     "period": "Ask your accountant to open that period, or check the date.",
     "confidence": "",

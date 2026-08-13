@@ -189,10 +189,17 @@ class Action(StrEnum):
 # and says what happened rather than which branch fired. They are constants
 # because a sentence built inline is a sentence nobody reviews.
 
-#: Owner's wording, kept verbatim (decision Q3=D).
+#: Owner's wording, kept verbatim (decision Q3=D), plus one sentence saying what
+#: to do. The owner's two sentences stopped at "cannot be posted automatically",
+#: which left a person holding a bill and no next move - every other sentence in
+#: this module ends with one. The added words are not a third phrasing:
+#: `checks.py::tax_lines_can_be_posted` answers this exact situation one layer
+#: down with "please enter this one in Tally yourself", and the control test
+#: `test_the_control_the_tax_next_step_is_the_words_checks_py_already_uses`
+#: asserts the clause against that check's own sentence so the two cannot drift.
 GST_IS_OFF: Final = (
     "This bill includes GST. GST posting is switched off, so this cannot be "
-    "posted automatically."
+    "posted automatically. Please enter this one in Tally yourself."
 )
 
 _GST_UNKNOWN: Final = (
