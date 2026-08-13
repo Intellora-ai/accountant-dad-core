@@ -75,12 +75,29 @@ balance blocks exactly as before. See `decision.py`'s own docstring, section
 
 WHAT IT SCORES, AND WHY
 -----------------------
-Every field the record actually read is `confidence.EXACT`. The typed-text path
-reads a text layer - there is no pixel and no estimate, so there is nothing to
-be unsure about. Every field the record did NOT read is `value=None,
-confidence=0.0`, carrying the record's own stated reason, because "we did not
-read it" and "we are unsure about it" are the same fact and `wall.Field`
-refuses to let them disagree.
+Every field the record actually read carries THE READER'S OWN SCORE, and only a
+reader that stated none falls back to `confidence.EXACT`. Every field the record
+did NOT read is `value=None, confidence=0.0`, carrying the record's own stated
+reason, because "we did not read it" and "we are unsure about it" are the same
+fact and `wall.Field` refuses to let them disagree.
+
+THIS PARAGRAPH USED TO SAY `EXACT` FOR EVERY READ FIELD, and it was true when
+the only two tiers were a text layer and a person's typing - no pixel, no
+estimate, nothing to be unsure about. It stopped being true on 2026-08-13, when
+`registry.DEFAULT_BACKEND` became `ladder` and the picture rung went live on the
+upload path: that rung reads a party at 0.08, and this module was telling the
+decision layer the guess was certain. `ASK_FLOOR` and `AUTO_POST_FLOOR` are both
+about exactly that number, so inventing it here defeated both of the owner's
+bands at once. `ExtractedRecord.per_field_confidence` is where the real number
+now arrives, and `_sure` below is the whole of the change.
+
+The fallback is the part that is still wrong, and it is written down rather than
+left to be found: a reader that states nothing is read as certain, which is the
+direction a missing statement must not fail in. Changing it to 0.0 blocks every
+backend with no scoring machinery, which is a deliberate change with its own
+measurement rather than a side effect of this one. Nothing about IDENTITY rests
+on it - `ExtractedRecord.read_exactly` requires a STATED `EXACT`, so a silent
+backend never names a supplier however this module scores it.
 
 Money that is not whole paise is neither coerced nor raised on. The field is
 built UNREAD, the observation's lowest confidence falls to 0.0, and the entry
@@ -121,11 +138,15 @@ pretends otherwise.
 
 WHERE IT IS NOT WIRED, AND WHY
 -------------------------------
-It is not on `pipeline.run`'s posting path. That path has no reader producing
-per-field confidence, no source for the period, and no inputs for three of the
-four laws, so the gate could only ever say block - which would delete a working
-path rather than add a guard to it. `tests/test_gate.py` pins that structurally
-and states what has to land first.
+It is not on `pipeline.run`'s posting path. That path still has no source for
+the period and no inputs for three of the four laws, so the gate could only ever
+say block - which would delete a working path rather than add a guard to it.
+`tests/test_gate.py` pins that structurally and states what has to land first.
+
+ONE OF THE THREE REASONS IS GONE AS OF 2026-08-13: "no reader producing
+per-field confidence" was the first item on that list and is no longer true.
+`ExtractedRecord` carries a score per field, and the picture rung and the text
+layer both state one. The period and the conservation inputs are what remain.
 """
 
 from __future__ import annotations
@@ -179,11 +200,34 @@ def _paise(value: object) -> int | None:
     return value if type(value) is int else None
 
 
+def _sure(record: ExtractedRecord, name: str) -> float:
+    """How sure the READER said it was about this field.
+
+    THE READER'S OWN NUMBER, 2026-08-13, AND IT USED TO BE INVENTED HERE. This
+    module stamped `EXACT` on every field any record said it had read, and the
+    module docstring justified it - the two tiers that existed then read
+    characters, so there was nothing to be unsure about. The picture rung went
+    live on the upload path that morning, it reads a party at 0.08,
+    `ExtractedRecord` had no column to carry the 0.08 in, and this line then told
+    the decision layer the guess was certain.
+
+    `EXACT` when the reader stated nothing, which preserves this module's
+    behaviour for every record that carries no scores. That fallback is the one
+    thing here that is still wrong and the module docstring says so; nothing
+    about identity depends on it, because `ExtractedRecord.read_exactly` demands
+    a STATED `EXACT` and reads silence as an estimate.
+    """
+    stated = record.confidence_of(name)
+    return EXACT if stated is None else stated
+
+
 def _read_field(record: ExtractedRecord, name: str, value: object) -> Field:
     """One field of the observation: what was read, and how sure we are of it."""
     if not _was_read(record, name, value):
         return Field(value=None, confidence=0.0, source=_stated(record, name))
-    return Field(value=value, confidence=EXACT, source=_stated(record, name))
+    return Field(
+        value=value, confidence=_sure(record, name), source=_stated(record, name)
+    )
 
 
 def _repaired(record: ExtractedRecord, caller: bool | None) -> bool | None:

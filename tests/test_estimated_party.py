@@ -59,6 +59,8 @@ from __future__ import annotations
 import datetime
 
 from accountant.cage.confidence import EXACT
+from accountant.cage.decision import ASK_FLOOR
+from accountant.cage.gate import observed
 from accountant.checks import party_is_named
 from accountant.extract.adapter import (
     NOT_FOUND,
@@ -67,6 +69,7 @@ from accountant.extract.adapter import (
 )
 from accountant.extract.freeocr import FreeReader, Reading, Word
 from accountant.extract.textlayer import SOURCE as TEXT_LAYER
+from accountant.extract.textlayer import TextLayerReader
 from accountant.memory.bootstrap import bootstrap
 from accountant.memory.company import CompanyMemory, propose_account
 from accountant.memory.store import MemoryStore
@@ -74,6 +77,12 @@ from accountant.pipeline import ESTIMATED_NOT_AN_IDENTITY, build_draft, next_que
 from accountant.questions import who_was_it
 from accountant.schema import Voucher
 from accountant.tallyio.fake import FakeTally
+
+# The PDF builder, borrowed rather than copied. `tests/test_textlayer.py` builds
+# a real PDF 1.4 with the xref offsets measured off the bytes as they are
+# emitted, and a second hand-rolled copy here is how the two drift into testing
+# different file formats.
+from tests.test_textlayer import pdf_bytes
 
 COMPANY = "Nagpur Hardware Stores"
 ACCOUNTS = ("Purchases", "Cash")
@@ -126,8 +135,29 @@ def _record(
 
     Every other field is an explicit `not_found`, so a test that passes cannot
     be passing because of the total or the date.
+
+    `confidence=None` OMITS THE ARGUMENT ALTOGETHER rather than passing an empty
+    map, and that is not tidiness. Passing `{}` exercises a caller's empty dict;
+    omitting it exercises the dataclass DEFAULT, which is the thing that has to
+    fail safe. Written the other way, a default of `EXACT` would never be reached
+    by any test in this file and the one mutation that matters most would live.
     """
-    scores = {} if confidence is None else {"party": confidence}
+    sources = {
+        "date": f"{NOT_FOUND}: no date was read here",
+        "party": source if party else f"{NOT_FOUND}: no name was read here",
+        "total_paise": source,
+        "tax_paise": f"{NOT_FOUND}: no tax was read here",
+    }
+    if confidence is None:
+        return ExtractedRecord(
+            date=None,
+            party=party,
+            total_paise=420000,
+            tax_paise=None,
+            raw_text="",
+            backend=source,
+            per_field_source=sources,
+        )
     return ExtractedRecord(
         date=None,
         party=party,
@@ -135,13 +165,8 @@ def _record(
         tax_paise=None,
         raw_text="",
         backend=source,
-        per_field_source={
-            "date": f"{NOT_FOUND}: no date was read here",
-            "party": source if party else f"{NOT_FOUND}: no name was read here",
-            "total_paise": source,
-            "tax_paise": f"{NOT_FOUND}: no tax was read here",
-        },
-        per_field_confidence=scores | ({"total_paise": EXACT} if confidence else {}),
+        per_field_source=sources,
+        per_field_confidence={"party": confidence, "total_paise": EXACT},
     )
 
 
@@ -185,14 +210,26 @@ def test_a_record_built_without_confidence_information_does_not_read_as_confiden
     """The default is ABSENT, and absent is not certain.
 
     A default of `EXACT` would have labelled every OCR guess an exact reading -
-    the one change that would make this whole file pass while making the
-    product worse than it was before the field existed.
+    the one change that would make this whole file pass while making the product
+    worse than it was before the field existed.
+
+    ASSERTED AT THE CONSUMER TOO, and that half is the one that matters. A
+    record with no scores on it still has to be refused an identity all the way
+    through `build_draft`; asserting only that the map is empty would pass on a
+    default of `EXACT` the moment the record carried a value with it, because a
+    name with a 1.0 stamped on it by the DEFAULT is indistinguishable from one a
+    reader measured.
     """
     record = _record(MISREAD, source="free_ocr", confidence=None)
 
     assert record.per_field_confidence == {}
     assert record.confidence_of("party") is None
     assert not record.read_exactly("party")
+
+    draft = _draft(record, _memory())
+
+    assert draft.voucher.party == ""
+    assert draft.voucher.debit_account == ""
 
 
 def test_a_field_with_no_value_reads_exactly_nothing() -> None:
@@ -229,8 +266,27 @@ def test_the_control_a_text_layer_party_flows_through_unchanged() -> None:
     The text-layer tier measures 20/20 party on the twenty corpus PDFs with
     ZERO wrong. It states `confidence.EXACT`, it is entitled to, and nothing
     here may cost it a single one of those twenty.
+
+    THE REAL TIER, ON REAL PDF BYTES, and not a record built by hand at the
+    shape it produces. That distinction was measured rather than argued: with a
+    hand-built record this control passed even when `TextLayerReader.extract`
+    stated no confidence at all, because the test was then asserting about the
+    fixture and not about the reader. A control that cannot fail when the tier
+    stops speaking is not controlling the tier.
     """
-    draft = _draft(_record(BOOKED, source=TEXT_LAYER, confidence=EXACT), _memory())
+    bill = pdf_bytes(
+        [
+            "TAX INVOICE",
+            f"SUPPLIER: {BOOKED}",
+            "INVOICE NO: 2451",
+            "TOTAL: 4200.00",
+        ]
+    )
+    draft = build_draft(COMPANY, bill, "application/pdf", TextLayerReader(), _memory())
+
+    assert draft.record.backend == TEXT_LAYER
+    assert draft.record.confidence_of("party") == EXACT
+    assert draft.record.read_exactly("party")
 
     assert draft.voucher.party == BOOKED
     assert draft.voucher.debit_account == "Purchases"
@@ -334,6 +390,40 @@ def test_the_sentence_on_the_leg_names_the_tier_that_guessed() -> None:
 
     assert said.startswith(NOT_FOUND)
     assert "free_ocr" in said
+
+
+# =============================================================================
+# the other consumer: the cage's own door
+# =============================================================================
+
+
+def test_the_cage_sees_the_readers_score_rather_than_one_this_module_invented() -> None:
+    """`gate.observed` stamped `EXACT` on every field any record said it read.
+
+    That was correct for the two tiers that existed when it was written and
+    became a fabrication the morning the picture rung went live: a party read at
+    0.08 arrived at the decision layer as certainty, and `ASK_FLOOR` and
+    `AUTO_POST_FLOOR` are both about exactly that number. Both of the owner's
+    bands were defeated by one invented 1.0.
+
+    The observation still CARRIES the misread name, at its own score. That is
+    the difference between refusing to act on evidence and destroying it.
+    """
+    draft = _draft(_record(MISREAD, source="free_ocr", confidence=OCR_SCORE), _memory())
+    seen = observed(draft)
+
+    assert seen.party.value == MISREAD
+    assert seen.party.confidence == OCR_SCORE
+    assert seen.lowest_confidence < ASK_FLOOR
+
+
+def test_the_control_the_cage_still_sees_a_text_layer_field_as_exact() -> None:
+    """The control on the same line. Reading the score off the record must not
+    quietly lower a tier that is entitled to 1.0."""
+    bill = pdf_bytes(["TAX INVOICE", f"SUPPLIER: {BOOKED}", "TOTAL: 4200.00"])
+    draft = build_draft(COMPANY, bill, "application/pdf", TextLayerReader(), _memory())
+
+    assert observed(draft).party.confidence == EXACT
 
 
 # =============================================================================
