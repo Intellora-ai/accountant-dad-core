@@ -40,13 +40,43 @@ FIVE HARD RULES, EACH OF WHICH ALWAYS BLOCKS
     tax on the bill        owner decision Q3=D, tax posting is off. Writing the
                            bill without its tax line leaves a wrong statutory
                            entry in real books.
-    a law INDETERMINATE    "could not check" is not "checked and fine".
+    a law INDETERMINATE    "could not check" is not "checked and fine". Three of
+                           the four laws, always - see the paragraph below for
+                           the fourth, which is not an exception to the rule but
+                           a different kind of question.
     the period closed      the books for that date are shut.
     the party unknown      we never add a name to somebody's chart of accounts.
                            The person is asked; nothing is invented.
     the question budget    `questions.QUESTION_CAP` questions already asked. A
                            product that will not take no for an answer is worse
                            than one that hands the entry back.
+
+THREE LAWS ARE ABOUT THE BILL. THE FOURTH IS ABOUT THE BOOKS.
+--------------------------------------------------------------
+`debits_equal_credits`, `lines_sum_to_total` and `net_plus_tax_equals_gross`
+ask whether the numbers ON THE PIECE OF PAPER agree with each other. That
+question has an answer before anything is written, so "I could not check the
+arithmetic on this bill" is precisely the case the cage exists for, and it
+blocks - at either moment, no exceptions.
+
+`balance_delta_equals_entry` asks something else: did the BOOKS move by exactly
+what we asked them to move by. It compares the ledger balance before the entry
+with the balance after it, and before a write there is no after. So its honest
+pre-write verdict is INDETERMINATE on every bill, every time.
+
+Blocking on that made auto-post unreachable. The only route to a POST was to
+hand the law a PREDICTED after-balance, which makes it compare a number against
+itself - a check that cannot fail, wearing the face of a check that passed. That
+is the same shape as the empty-set AST guard `wall.py` already shipped once.
+
+So the caller states which moment it is (`Situation.moment`, no default, never
+inferred), and pre-write an INDETERMINATE fourth law is expected rather than
+blocking. Three things stay unchanged, and each is the reason the exemption is
+safe: a pre-write FAIL still refuses the post, an INDETERMINATE fourth law
+AFTER the write still blocks - there it means nobody read the register back -
+and the three document laws still block on INDETERMINATE at both moments. The
+document set is derived from `conservation.LAWS`, so a law added there blocks
+by default rather than becoming exempt by being left out of a list.
 
 THIS MODULE NEVER RAISES ON A SITUATION IT WAS GIVEN
 ------------------------------------------------------
@@ -78,7 +108,12 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final, cast
 
-from accountant.cage.conservation import LAWS, ConservationResult, Verdict
+from accountant.cage.conservation import (
+    LAWS,
+    ConservationResult,
+    Verdict,
+    balance_delta_equals_entry,
+)
 from accountant.cage.wall import DECIDING_MODULE, LedgerEntry, Observation
 from accountant.questions import QUESTION_CAP
 
@@ -95,6 +130,40 @@ ASK_FLOOR: Final = 0.70
 #: Written from `ASK_FLOOR` rather than typed again, because two copies of a
 #: threshold drift and the sentence is the half a person reads.
 _ASK_FLOOR_IN_100: Final = round(ASK_FLOOR * 100)
+
+#: The one law that is a statement about the BOOKS rather than about the
+#: document. Taken from the function's own name rather than typed again: the
+#: entry in `conservation.LAWS` and the function that produces it are the same
+#: word, and binding to the function means a rename breaks the import loudly
+#: instead of leaving a string here that matches nothing.
+LAW_ABOUT_THE_BOOKS: Final = balance_delta_equals_entry.__name__
+
+#: The laws that are statements about the DOCUMENT, and are therefore answerable
+#: before anything is written. DERIVED, not retyped: a law added to
+#: `conservation.py` lands in this set automatically and blocks on
+#: INDETERMINATE, which is the fail-closed direction. Retyping the three names
+#: here would leave a new law in neither set, exempt by omission - the same
+#: shape as the empty-set AST guard in `wall.py`.
+DOCUMENT_LAWS: Final[frozenset[str]] = frozenset(LAWS) - {LAW_ABOUT_THE_BOOKS}
+
+
+class Moment(StrEnum):
+    """Which point in the write this decision is being made at.
+
+    **There is no default and it is never inferred.** A caller must say. The
+    obvious alternative - work it out from whether an after-balance arrived - is
+    exactly how the defect this enum fixes got in: a value that is absent
+    because it cannot exist yet is indistinguishable, at the type level, from a
+    value the caller simply forgot, and guessing between them is what turned a
+    vacuous check into a passing one.
+
+    The two moments are not symmetrical, and that asymmetry is the whole point:
+    `balance_delta_equals_entry` cannot be known BEFORE_THE_WRITE and must be
+    known AFTER_THE_WRITE.
+    """
+
+    BEFORE_THE_WRITE = "before_the_write"
+    AFTER_THE_WRITE = "after_the_write"
 
 
 class Action(StrEnum):
@@ -170,6 +239,11 @@ _TOO_UNSURE: Final = (
     "to finish."
 )
 
+_MOMENT_UNKNOWN: Final = (
+    "Nobody said whether this bill had already been written to your books, and "
+    "which checks can be answered depends on that, so nothing was posted."
+)
+
 _SAME_PLACE_TWICE: Final = (
     "Both sides of this entry point at the same place in your books, which "
     "cannot be right, so nothing was posted."
@@ -240,6 +314,12 @@ class Situation:
     questions_asked: int
     debit_account: str
     credit_account: str
+    #: Before the write, or after reading the register back. Required, with no
+    #: default, for the same reason the three facts above have none: a caller
+    #: who does not say gets a `TypeError` here rather than an exemption there.
+    #: It sits last among the required fields so that adding it moved no
+    #: existing argument's position.
+    moment: Moment
     #: Fields the reader could read more than one way - a date that is either
     #: the 3rd of April or the 4th of March. The names are the caller's own
     #: vocabulary and are never shown to a person; only the count is.
@@ -324,11 +404,53 @@ def _checks_are_intact(results: object) -> bool:
     return tuple(r.law for r in cast(tuple[ConservationResult, ...], results)) == LAWS
 
 
-def _conservation_blocks(results: object) -> list[str]:
+def _moment_blocks(moment: object) -> list[str]:
+    """The caller has to say when this is. It is never worked out from the data.
+
+    Inferring the moment from whether an after-balance arrived is the defect
+    this field exists to close: a value absent because it cannot exist yet and a
+    value absent because the caller forgot are identical at the type level, and
+    guessing between them is what turned a vacuous check into a passing one.
+    """
+    if type(moment) is not Moment:
+        return [_MOMENT_UNKNOWN]
+    return []
+
+
+def _conservation_blocks(results: object, moment: object) -> list[str]:
+    """ "Could not check" blocks - for three of the four laws, at both moments.
+
+    THE FOURTH LAW IS DIFFERENT, AND THIS IS THE WHOLE OF THE DIFFERENCE.
+    `balance_delta_equals_entry` compares the ledger balance before the entry
+    with the balance after it. Before a write there IS no after, so the honest
+    verdict pre-write is INDETERMINATE, every time, on every bill. Blocking on
+    it made a post unreachable except by handing the law a PREDICTED
+    after-balance - a law comparing a number against itself, which is a check
+    that cannot fail dressed as a check that passed.
+
+    The exemption is narrow in three ways, all of them deliberate:
+
+        one law     `DOCUMENT_LAWS` is derived from `conservation.LAWS`, so a
+                    law added there blocks by default rather than joining the
+                    exemption by omission.
+        one moment  after the write the balance IS knowable, and not knowing it
+                    then means nobody read the register back - which is the one
+                    failure this law was written to catch.
+        one verdict INDETERMINATE only. A pre-write FAIL still counts: a caller
+                    who supplied real balances and got a contradiction is
+                    telling us something true, and when it arrived does not make
+                    it less true. `_asking` picks that up and refuses the post.
+
+    A `moment` that is not a `Moment` grants nothing - `is` against the member,
+    so anything else falls through to blocking on all four.
+    """
     if not _checks_are_intact(results):
         return [_CHECKS_DID_NOT_RUN]
     checked = cast(tuple[ConservationResult, ...], results)
-    if any(r.verdict is Verdict.INDETERMINATE for r in checked):
+    unchecked = [r for r in checked if r.verdict is Verdict.INDETERMINATE]
+    if moment is Moment.BEFORE_THE_WRITE:
+        unchecked = [r for r in unchecked if r.law in DOCUMENT_LAWS]
+    if unchecked:
         return [_COULD_NOT_CHECK]
     return []
 
@@ -398,7 +520,13 @@ def _blocking(situation: Situation) -> tuple[str, ...]:
         # errors that are all the same error.
         return (_NOTHING_READ,)
     reasons: list[str] = []
-    reasons.extend(_conservation_blocks(situation.conservation))
+    # The moment comes first because everything after it depends on it: which
+    # conservation verdicts can be honoured is a function of when this is. Both
+    # would block anyway - a moment nobody stated grants no exemption - but the
+    # person would read "there is something I could not check" for a defect that
+    # is actually in the calling code.
+    reasons.extend(_moment_blocks(situation.moment))
+    reasons.extend(_conservation_blocks(situation.conservation, situation.moment))
     reasons.extend(_budget_blocks(situation.questions_asked))
     reasons.extend(_world_blocks(situation))
     reasons.extend(_account_blocks(situation))

@@ -112,6 +112,7 @@ from accountant.cage.decision import (
     AUTO_POST_FLOOR,
     Action,
     Decided,
+    Moment,
     Situation,
     decide,
 )
@@ -639,6 +640,9 @@ def judge(row: Input, client: FakeTally) -> Result:
             questions_asked=0,
             debit_account=EXPENSE,
             credit_account=FUNDING,
+            # Nothing has been written yet. Stated, never inferred - `decide`
+            # has no default for this and refuses to guess.
+            moment=Moment.BEFORE_THE_WRITE,
         )
     )
     return settle(row, client, seen, scores, laws, watched, decided, before)

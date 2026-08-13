@@ -20,6 +20,7 @@ One `Situation`, frozen, **with no defaults on the facts that matter**:
 | `carries_gst` | `bool \| None` | yes, **no default** |
 | `questions_asked` | `int` | yes |
 | `debit_account` / `credit_account` | `str` | yes |
+| `moment` | `Moment` | yes, **no default** |
 | `ambiguous_fields` | `tuple[str, ...]` | defaults to `()` |
 
 The three `bool | None` fields are the design's load-bearing detail. *"The period
@@ -60,6 +61,33 @@ same scale and do not trade off, so a failing law sends a bill to ASK at
 confidence 1.0 exactly as it does at 0.71. This is the single behaviour the whole
 cage exists for: `confidence.py` cannot see a value the engine misread
 *confidently*, arithmetic can, but only if arithmetic is allowed to win.
+
+## Three laws are about the bill. The fourth is about the books.
+
+`debits_equal_credits`, `lines_sum_to_total` and `net_plus_tax_equals_gross` ask
+whether the numbers **on the piece of paper** agree. That has an answer before
+anything is written, so `INDETERMINATE` on any of them blocks at either moment.
+
+`balance_delta_equals_entry` asks whether the **books** moved by exactly the
+entry — it compares the ledger balance before with the balance after, and before
+a write there is no after. Its honest pre-write verdict is `INDETERMINATE` on
+every bill, every time. Blocking on it made auto-post unreachable except by
+handing the law a *predicted* after-balance, which makes it compare a number
+against itself: a check that cannot fail wearing the face of one that passed.
+
+So the caller states which moment it is, and pre-write an `INDETERMINATE` fourth
+law is expected rather than blocking. **The exemption is narrow in three ways,
+and each is why it is safe:**
+
+| Narrow in | What still blocks |
+|---|---|
+| one law | `DOCUMENT_LAWS` is *derived* from `conservation.LAWS`, so a law added there blocks by default rather than becoming exempt by omission |
+| one moment | `AFTER_THE_WRITE`, an `INDETERMINATE` fourth law blocks — there it means nobody read the register back |
+| one verdict | a pre-write **FAIL** still refuses the post. "Not yet knowable" is exempt; "known to be wrong" never is |
+
+`Moment` has no default and is never inferred from whether a balance arrived: a
+balance absent because it cannot exist yet and one absent because the caller
+forgot are the same `None`.
 
 ## Five hard rules, each of which always blocks
 

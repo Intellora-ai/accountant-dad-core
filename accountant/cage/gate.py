@@ -47,10 +47,22 @@ silently at every call site that forgot. A caller who forgets gets a
 WHY THE MONEY FACTS DO HAVE A DEFAULT, AND WHY THAT IS SAFE
 -------------------------------------------------------------
 `net_paise` and the two balances default to `None`. A default is only safe when
-forgetting it fails closed, and these do: `None` means the figure was never
-read, an unread figure makes its law INDETERMINATE, and INDETERMINATE is a hard
-block in `decision.py`. The dangerous default for `period_open` is `True`;
-there is no dangerous default for a number nobody read.
+forgetting it fails closed, and `net_paise` does: `None` means the figure was
+never read, an unread figure makes `net_plus_tax_equals_gross` INDETERMINATE,
+and an INDETERMINATE document law is a hard block in `decision.py`. The
+dangerous default for `period_open` is `True`; there is no dangerous default
+for a number nobody read.
+
+THE TWO BALANCES ARE NO LONGER PART OF THAT SENTENCE, AS OF 2026-08-13.
+`balance_delta_equals_entry` is a statement about the BOOKS, not about the
+document, and before a write there is no after-balance to compare against - so
+`decision.py` now expects it to be INDETERMINATE at `Moment.BEFORE_THE_WRITE`
+and does not block on it. Omitting the two balances on a pre-write call
+therefore fails OPEN, not closed. What holds the line instead is `moment`
+itself, which has no default here and none in `Situation`: a caller who does not
+say gets a `TypeError`, and a caller who says `AFTER_THE_WRITE` and supplies no
+balance blocks exactly as before. See `decision.py`'s own docstring, section
+"THREE LAWS ARE ABOUT THE BILL. THE FOURTH IS ABOUT THE BOOKS."
 
 WHAT IT SCORES, AND WHY
 -----------------------
@@ -113,7 +125,7 @@ from typing import TYPE_CHECKING
 
 from accountant.cage import conservation
 from accountant.cage.confidence import EXACT
-from accountant.cage.decision import Decided, Situation, decide
+from accountant.cage.decision import Decided, Moment, Situation, decide
 from accountant.cage.wall import Field, Observation
 from accountant.extract.adapter import NOT_FOUND, ExtractedRecord
 
@@ -220,6 +232,7 @@ def observed(draft: Draft) -> Observation:
 def gate(
     draft: Draft,
     *,
+    moment: Moment,
     party_known: bool | None,
     period_open: bool | None,
     carries_gst: bool | None,
@@ -236,9 +249,17 @@ def gate(
     positional call site is one reordering away from telling the cage the
     period is open when it meant the party is known.
 
-    `party_known`, `period_open` and `carries_gst` HAVE NO DEFAULTS. A caller
-    that has not looked passes `None`, which blocks. See the module docstring
-    for why `None` is not the same as `False` and why neither is computed here.
+    `moment`, `party_known`, `period_open` and `carries_gst` HAVE NO DEFAULTS. A
+    caller that has not looked passes `None` for the three facts, which blocks.
+    See the module docstring for why `None` is not the same as `False` and why
+    neither is computed here.
+
+    `moment` is not a fact about the bill - it is which side of the write the
+    caller is standing on, and it decides whether `balance_delta_equals_entry`
+    being unanswerable is expected or is a failure to look. It is passed
+    straight through and never worked out from whether a balance arrived,
+    because a balance that is absent because it cannot exist yet and one that is
+    absent because the caller forgot are the same `None`.
 
     `questions_asked` is the caller's own count. A default of 0 would be "nobody
     has asked anything yet" asserted on behalf of a caller who did not say so,
@@ -281,6 +302,7 @@ def gate(
             period_open=period_open,
             carries_gst=carries_gst,
             questions_asked=questions_asked,
+            moment=moment,
             # The legs come from the voucher because that is where a proposed
             # account lives; the AMOUNT never does. `decision.decide` builds the
             # entry from what was READ, and the voucher's own copy of the total

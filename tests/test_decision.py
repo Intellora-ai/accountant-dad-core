@@ -62,9 +62,12 @@ from accountant.cage.conservation import LAWS, ConservationResult, Verdict
 from accountant.cage.decision import (
     ASK_FLOOR,
     AUTO_POST_FLOOR,
+    DOCUMENT_LAWS,
     GST_IS_OFF,
+    LAW_ABOUT_THE_BOOKS,
     Action,
     Decided,
+    Moment,
     Situation,
     decide,
 )
@@ -109,6 +112,26 @@ def one_law(
     return tuple(results)
 
 
+def named_law(
+    law: str, verdict: Verdict, said: str = "the numbers are out by 1 paise."
+) -> tuple[ConservationResult, ...]:
+    """Every law passing except the one NAMED, which gets `verdict`.
+
+    `one_law` above always moves the first law, which is a document law. The
+    pre-write exemption is about one specific law by name, so a helper that can
+    only reach position zero cannot test it - and cannot test that the other
+    three are untouched by it either.
+    """
+    return tuple(
+        ConservationResult(
+            law=name,
+            verdict=verdict if name == law else Verdict.PASS,
+            said=said if name == law else f"{name}: agreed.",
+        )
+        for name in LAWS
+    )
+
+
 #: "Not passed", which is NOT the same as "passed `None`". Without it, the test
 #: for a `None` observation quietly received the clean default and passed
 #: against a module that does not check at all. It was first written that way
@@ -126,6 +149,7 @@ def a_situation(
     questions_asked: object = 0,
     debit_account: object = "Purchases",
     credit_account: object = "Cash",
+    moment: object = Moment.BEFORE_THE_WRITE,
     ambiguous_fields: object = (),
 ) -> Situation:
     return Situation(
@@ -137,6 +161,7 @@ def a_situation(
         questions_asked=questions_asked,  # type: ignore[arg-type]
         debit_account=debit_account,  # type: ignore[arg-type]
         credit_account=credit_account,  # type: ignore[arg-type]
+        moment=moment,  # type: ignore[arg-type]
         ambiguous_fields=ambiguous_fields,  # type: ignore[arg-type]
     )
 
@@ -217,10 +242,161 @@ def test_the_control_the_identical_bill_with_that_law_passing_is_posted() -> Non
 
 def test_the_ask_repeats_what_the_failing_law_actually_said() -> None:
     """ "The numbers do not add up" is not actionable. The law's own sentence
+    names the figures and the difference, and that is what a person can check.
+
     names the figures and the difference, and that is what a person can check."""
     broken = one_law(Verdict.FAIL, said="out by 1 paise on a 2,500 rupee bill.")
     decided = decide(a_situation(conservation=broken))
     assert "out by 1 paise" in decided.said
+
+
+# ---- before the write, and after it -----------------------------------------
+#
+# Three of the four laws are statements about the DOCUMENT and can be checked
+# before anything is written. The fourth, `balance_delta_equals_entry`, is a
+# statement about the BOOKS and compares the ledger balance before and after the
+# entry - so before a write there is no after, and it is INDETERMINATE on every
+# honest pre-write call. Blocking on it made auto-post unreachable except by
+# handing the law a PREDICTED after-balance, which is a law comparing a number
+# against itself.
+
+
+def test_before_the_write_a_balance_law_that_cannot_be_known_yet_still_posts() -> None:
+    """THE test that proves auto-post is reachable without lying to `decide`.
+
+    Every other post test in this file passes a balance law that PASSED, which
+    a caller can only produce pre-write by predicting the answer. This one hands
+    over the honest verdict - "not yet knowable" - and still expects the write.
+    """
+    unknowable = named_law(
+        LAW_ABOUT_THE_BOOKS,
+        Verdict.INDETERMINATE,
+        said="could not check balance delta equals entry: the balance after "
+        "was not read.",
+    )
+    decided = decide(
+        a_situation(conservation=unknowable, moment=Moment.BEFORE_THE_WRITE)
+    )
+    assert decided.action is Action.POST
+    assert decided.entry is not None
+
+
+def test_before_the_write_a_balance_law_that_failed_is_still_refused() -> None:
+    """The exemption is for "not yet knowable". It is never for "known to be
+    wrong". A caller who supplied real before and after balances and got a
+    contradiction back is telling us something true, and discarding it because
+    of when it arrived would be the same defect in the other direction."""
+    contradicted = named_law(
+        LAW_ABOUT_THE_BOOKS,
+        Verdict.FAIL,
+        said="the books did not move by the amount of this entry.",
+    )
+    decided = decide(
+        a_situation(conservation=contradicted, moment=Moment.BEFORE_THE_WRITE)
+    )
+    assert decided.action is not Action.POST
+    assert decided.entry is None
+
+
+def test_before_the_write_any_document_law_that_could_not_be_checked_blocks() -> None:
+    """All three by name, not one of them. "Could not check the arithmetic on
+    the bill" is precisely the case this cage exists for, and an exemption
+    written with `in` where `not in` belonged would let one through while the
+    other two carried on blocking."""
+    for law in sorted(DOCUMENT_LAWS):
+        unchecked = named_law(law, Verdict.INDETERMINATE, said=f"{law}: not read.")
+        decided = decide(
+            a_situation(conservation=unchecked, moment=Moment.BEFORE_THE_WRITE)
+        )
+        assert decided.action is Action.BLOCK, law
+        assert decided.entry is None, law
+
+
+def test_after_the_write_a_balance_law_that_could_not_be_checked_blocks() -> None:
+    """After the write the balance IS knowable - the register can be read back.
+    So "I could not check it" there does not mean "not yet", it means nobody
+    looked, and that is the one failure this law exists to catch."""
+    unchecked = named_law(
+        LAW_ABOUT_THE_BOOKS,
+        Verdict.INDETERMINATE,
+        said="the balance after was not read.",
+    )
+    decided = decide(a_situation(conservation=unchecked, moment=Moment.AFTER_THE_WRITE))
+    assert decided.action is Action.BLOCK
+    assert decided.entry is None
+
+
+def test_the_control_the_exemption_is_exactly_one_law_and_not_the_other_three() -> None:
+    """THE CONTROL, and it carries more weight than the tests above.
+
+    Measured law by law rather than read off a constant: which law names does an
+    INDETERMINATE verdict get a pass for, pre-write. Set equality and not a
+    subset - an exemption widened to all four passes every test above it, and an
+    exemption narrowed to none passes the three blocking tests.
+    """
+    exempt = {
+        law
+        for law in LAWS
+        if decide(
+            a_situation(
+                conservation=named_law(law, Verdict.INDETERMINATE),
+                moment=Moment.BEFORE_THE_WRITE,
+            )
+        ).action
+        is Action.POST
+    }
+    assert exempt == {LAW_ABOUT_THE_BOOKS}
+
+
+def test_the_control_the_document_laws_are_derived_and_never_retyped() -> None:
+    """THE CONTROL on the derivation. The three names are pinned to literals
+    HERE, once, so `decision.py` can take them from `conservation.LAWS` instead
+    of keeping a second copy that drifts. A law added to `conservation.py` lands
+    in this set automatically, which means it blocks - fail closed - and this
+    assertion is what fails on the day somebody adds one."""
+    assert LAW_ABOUT_THE_BOOKS == "balance_delta_equals_entry"
+    assert {
+        "debits_equal_credits",
+        "lines_sum_to_total",
+        "net_plus_tax_equals_gross",
+    } == DOCUMENT_LAWS
+    assert DOCUMENT_LAWS | {LAW_ABOUT_THE_BOOKS} == set(LAWS)
+
+
+def test_a_situation_that_does_not_say_which_moment_it_is_cannot_be_built() -> None:
+    """No default, for the same reason `period_open` has none: inferring the
+    moment from whether a balance arrived is how the last defect got in. A
+    caller who does not say gets a `TypeError` here rather than an exemption
+    there."""
+    with pytest.raises(TypeError):
+        Situation(  # type: ignore[call-arg]
+            observation=an_observation(),
+            conservation=all_laws_pass(),
+            party_known=True,
+            period_open=True,
+            carries_gst=False,
+            questions_asked=0,
+            debit_account="Purchases",
+            credit_account="Cash",
+        )
+
+
+def test_a_moment_that_is_not_one_of_the_two_blocks() -> None:
+    """Malformed in, refused out - the same as every other field here. It is
+    also the fail-closed direction: nobody said when this is, so nothing gets
+    the pre-write exemption."""
+    decided = decide(a_situation(moment="before, probably"))
+    assert decided.action is Action.BLOCK
+    assert decided.entry is None
+
+
+def test_the_control_a_moment_nobody_stated_grants_no_exemption() -> None:
+    """THE CONTROL on the test above: prove the refusal is not just the bad
+    moment being reported, but that the balance law stopped being exempt."""
+    unknowable = named_law(LAW_ABOUT_THE_BOOKS, Verdict.INDETERMINATE)
+    decided = decide(a_situation(conservation=unknowable, moment=None))
+    assert decided.action is Action.BLOCK
+    assert len(decided.reasons) == 2
 
 
 # ---- hard rules, each of which always blocks --------------------------------

@@ -42,7 +42,7 @@ from typing import cast
 import pytest
 
 from accountant.cage.confidence import EXACT
-from accountant.cage.decision import GST_IS_OFF, Action, Decided
+from accountant.cage.decision import GST_IS_OFF, Action, Decided, Moment
 from accountant.cage.gate import gate, observed
 from accountant.extract.adapter import NOT_FOUND, ExtractedRecord, LineItem
 from accountant.pipeline import Draft
@@ -122,6 +122,7 @@ def a_draft(
 def asked(
     draft: Draft,
     *,
+    moment: Moment = Moment.BEFORE_THE_WRITE,
     party_known: bool | None = True,
     period_open: bool | None = True,
     carries_gst: bool | None = False,
@@ -136,9 +137,16 @@ def asked(
     The defaults live here and not in `gate`, which is the whole point: a test
     that wants a posted bill has to say the books are open, and the module
     under test still has no way to say it on anybody's behalf.
+
+    `moment` defaults to BEFORE_THE_WRITE because that is what the gate is for -
+    it is asked whether to write, which can only be a question asked before
+    writing. The two balance defaults are kept as they are so that overriding
+    one is still the only thing a test changes; a test that wants the honest
+    pre-write posture passes `balance_after_paise=None` and says so.
     """
     return gate(
         draft,
+        moment=moment,
         party_known=party_known,
         period_open=period_open,
         carries_gst=carries_gst,
@@ -360,8 +368,35 @@ def test_the_control_lines_that_were_read_are_checked_against_the_total() -> Non
     assert "could not check at all" not in asked(a_draft()).said
 
 
-def test_a_balance_nobody_read_blocks_because_the_law_could_not_run() -> None:
-    decided = asked(a_draft(), balance_after_paise=None)
+def test_before_the_write_a_balance_that_cannot_exist_yet_does_not_block() -> None:
+    """RENAMED AND REVERSED 2026-08-13. This was
+    `test_a_balance_nobody_read_blocks_because_the_law_could_not_run` and it
+    asserted BLOCK on exactly this input.
+
+    That assertion was wrong, and it was wrong about something specific.
+    `balance_delta_equals_entry` compares the ledger balance before the entry
+    with the balance after it. The gate is asked whether to WRITE, so there is
+    no after-balance yet - not "nobody read it", but "it does not exist to be
+    read". Blocking on it made a post unreachable except by handing the law a
+    PREDICTED after-balance, which makes it compare a number against itself: a
+    check that cannot fail wearing the face of a check that passed.
+
+    The old assertion is not deleted. It is still true at the other moment, and
+    it is asserted there - see the test directly below this one.
+    """
+    decided = asked(a_draft(), moment=Moment.BEFORE_THE_WRITE, balance_after_paise=None)
+    assert decided.action is Action.POST
+    assert "could not check at all" not in decided.said
+
+
+def test_after_the_write_a_balance_nobody_read_blocks_because_nobody_looked() -> None:
+    """The original assertion, kept, at the moment where it is still correct.
+
+    After the write the balance IS knowable - the register can be read back - so
+    "could not check" there does not mean "not yet", it means nobody looked, and
+    a write nobody checked is the one failure this law exists to catch.
+    """
+    decided = asked(a_draft(), moment=Moment.AFTER_THE_WRITE, balance_after_paise=None)
     assert decided.action is Action.BLOCK
     assert "could not check at all" in decided.said
 

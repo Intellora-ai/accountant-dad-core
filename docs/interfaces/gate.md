@@ -13,17 +13,25 @@ A `Draft`, plus keyword arguments:
 
 | Argument | Default | Note |
 |---|---|---|
+| `moment` | **none** | keyword-only, no default |
 | `party_known` | **none** | keyword-only, no default |
 | `period_open` | **none** | keyword-only, no default |
 | `carries_gst` | **none** | keyword-only, no default |
 | `net_paise` | `None` | safe to default — see below |
-| `balance_before_paise` / `balance_after_paise` | `None` | same |
+| `balance_before_paise` / `balance_after_paise` | `None` | **no longer safe on its own** — see below |
 
-The asymmetry is deliberate and is the whole point of the file. **Forgetting a
-`None`-defaulted number fails closed** — unread becomes `INDETERMINATE` becomes a
-block. Forgetting a defaulted *world fact* would fail **open**, because
-`period_open=True` reads as "somebody checked". So the three that could fail open
+The asymmetry is deliberate and is the whole point of the file. **Forgetting
+`net_paise` fails closed** — unread becomes `INDETERMINATE` on a document law
+becomes a block. Forgetting a defaulted *world fact* would fail **open**, because
+`period_open=True` reads as "somebody checked". So the facts that could fail open
 have no defaults at all, and a caller who forgets gets a `TypeError`.
+
+**The two balances left the safe column on 2026-08-13.** `decision.py` now
+expects `balance_delta_equals_entry` to be `INDETERMINATE` before the write —
+there is no after-balance to compare against yet — so omitting them on a
+pre-write call fails **open**, not closed. What holds the line instead is
+`moment`, which is why it has no default here and none in `Situation`: say
+`AFTER_THE_WRITE` and supply no balance, and it blocks exactly as before.
 
 `Draft` is imported under `TYPE_CHECKING` only, so the cage never depends on the
 pipeline at run time.
