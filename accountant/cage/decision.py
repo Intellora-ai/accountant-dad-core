@@ -35,11 +35,15 @@ confidence 1.0 exactly as it does at 0.71. This is the single behaviour the cage
 exists for: `confidence.py` cannot see a value the engine misread *confidently*,
 and arithmetic can - but only if arithmetic is allowed to win.
 
-SIX HARD RULES, EACH OF WHICH ALWAYS BLOCKS
----------------------------------------------
+SEVEN HARD RULES, EACH OF WHICH ALWAYS BLOCKS
+-----------------------------------------------
     tax on the bill        owner decision Q3=D, tax posting is off. Writing the
                            bill without its tax line leaves a wrong statutory
                            entry in real books.
+    the tax flag and the   `carries_gst` is the caller's; `tax_paise` is on the
+    tax figure disagree    reading in the same argument. Two statements about
+                           one fact. Neither is trusted over the other - when
+                           they disagree, nothing is posted.
     checked ≠ written      the amount the conservation laws were run on is not
                            the amount the entry would be for. See the section
                            below; this is the one the rest of the file depends
@@ -118,9 +122,13 @@ It cannot tell that a bill was misread CONSISTENTLY - every figure scaled by
 ten. Every law holds, every field is legible, confidence is 1.0, and it posts.
 That is failure mode F-02, no arithmetic sees it, and nothing here pretends to.
 
-It also cannot tell whether the party, period and tax facts it was handed are
-true. It can only tell whether somebody actually looked: `None` means nobody
-did, and nobody-looked blocks.
+It cannot tell whether the party, period and tax facts it was handed are true.
+It can tell whether somebody actually looked - `None` means nobody did, and
+nobody-looked blocks - and, for tax alone, whether the fact it was told
+contradicts the reading it was told it about. Two sources disagreeing is not
+knowing which one is right, so it refuses rather than picking a winner. There is
+no such second source for the party or the period; `docs/OWNER_WORK.md` records
+that gap rather than papering over it.
 """
 
 from __future__ import annotations
@@ -383,6 +391,52 @@ def _period_closed(seen: Observation) -> str:
         f"The books for {when} are closed, so nothing can be added to them."
         if when
         else "The books for this date are closed, so nothing can be added to them."
+    )
+
+
+def _reading_shows_tax(seen: Observation) -> bool:
+    """Does the reading in hand say there is tax on this bill?
+
+    A TYPE test, never a truth test, and the difference is the whole care in
+    this function. Two readings are NOT a contradiction of "no tax" and each of
+    them is the common case, not the corner:
+
+        None      nobody read the tax field. Absence of a reading is not a
+                  reading of absence - `conservation.net_plus_tax_equals_gross`
+                  says the same thing at length about the same field. Firing
+                  here would refuse every bill that has no tax line on it,
+                  which is most of them, and a false block that lands on a
+                  whole class of bills is not a cheap false block.
+        0         read, and read as none. That is the flag and the figure
+                  AGREEING, which is what the ordinary purchase looks like.
+
+    Everything else is a disagreement, including a `bool` and a string. Not
+    because they prove tax, but because they are not the two things above:
+    `True` is not a whole-paise zero (`type(...) is int` refuses it, as
+    everywhere else money is handled here) and "18000" is somebody's parser
+    having failed. Reading either as "no tax" is the coercion this file exists
+    to refuse - `_GST_UNKNOWN` already blocks when the caller says it could not
+    tell, and a reading nobody can tell about is the same fact one layer down.
+    """
+    tax = seen.tax_paise.value
+    if tax is None:
+        return False
+    return not (type(tax) is int and tax == 0)
+
+
+def _tax_disagrees(seen: Observation) -> str:
+    """The flag says one thing, the reading in the same argument says another.
+
+    Both figures are named where they can be. `format_inr` only accepts whole
+    paise, so a tax field that is not money at all gets the shorter clause
+    rather than a traceback - this sentence goes on a person's screen.
+    """
+    tax = seen.tax_paise.value
+    shows = f"shows {format_inr(tax)} of tax on it" if type(tax) is int else "shows tax"
+    return (
+        f"I was told this bill has no tax on it, and the reading in front of me "
+        f"{shows}. Those two do not agree, so nothing was posted."
+        f"{_which_bill(seen)}"
     )
 
 
@@ -683,6 +737,11 @@ def _budget_blocks(asked: object) -> list[str]:
 def _world_blocks(situation: Situation, seen: Observation) -> list[str]:
     """The three facts somebody had to look up, and what happens if they did not.
 
+    Plus the one of the three that has a SECOND source: the tax figure is on the
+    reading this function was handed, so `carries_gst` can be contradicted where
+    `party_known` and `period_open` cannot. Comparing them costs nothing - no
+    labels, no model, no network - and until 2026-08-13 it was not done.
+
     `is not True` and `is not False` rather than truthiness, deliberately. A
     caller passing `0` or `""` where a looked-up fact belonged is a caller who
     did not look it up, and truthiness would read it as a definite no.
@@ -699,6 +758,12 @@ def _world_blocks(situation: Situation, seen: Observation) -> list[str]:
             if situation.carries_gst is True
             else _GST_UNKNOWN + _which_bill(seen)
         )
+    elif _reading_shows_tax(seen):
+        # The caller says there is no tax. The reading it handed over in the
+        # same argument says there is. `elif`, because when the flag already
+        # refused the bill there is nothing to disagree with - a second sentence
+        # there would report the same refusal twice in different words.
+        reasons.append(_tax_disagrees(seen))
     if situation.period_open is not True:
         reasons.append(
             _period_closed(seen) if situation.period_open is False else _PERIOD_UNKNOWN

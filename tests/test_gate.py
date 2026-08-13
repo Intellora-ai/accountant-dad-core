@@ -284,13 +284,28 @@ def test_gst_nobody_checked_blocks_too() -> None:
 
 
 def test_the_control_the_gst_fact_is_the_callers_and_never_the_records() -> None:
-    """THE CONTROL on the fact above, and the sharpest one available: a record
-    carrying a tax figure of 75,000 paise still posts when the CALLER says the
-    bill carries no GST. A gate that read the fact off the record would refuse
-    this, which is how you tell the two apart."""
+    """THE CONTROL on the fact above: the gate carries the caller's flag and
+    never computes one off the record.
+
+    REWRITTEN 2026-08-13, and the old version is worth stating because it
+    asserted the opposite. It said a record carrying 75,000 paise of tax still
+    POSTS when the caller says the bill carries no GST. It did, and that was a
+    defect, not a feature: `decision.py` now compares the caller's flag against
+    the tax figure on the reading it was handed, and a GST bill posted without
+    its tax line is a wrong statutory entry in somebody's real books.
+
+    What the control was FOR survives, and this puts it more sharply than a
+    post ever did: ONE record, TWO callers, TWO DIFFERENT refusals. A gate that
+    read the fact off the record would answer both of them the same way.
+    """
     record = a_record(tax_paise=75_000)
-    decided = asked(a_draft(record), carries_gst=False, net_paise=TOTAL - 75_000)
-    assert decided.action is Action.POST
+    net = TOTAL - 75_000
+    told_there_is_tax = asked(a_draft(record), carries_gst=True, net_paise=net)
+    told_there_is_none = asked(a_draft(record), carries_gst=False, net_paise=net)
+
+    assert GST_IS_OFF in told_there_is_tax.said
+    assert GST_IS_OFF not in told_there_is_none.said
+    assert "do not agree" in told_there_is_none.said
 
 
 # ---- the bands: post, ask, block --------------------------------------------

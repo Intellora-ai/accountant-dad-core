@@ -568,6 +568,82 @@ def test_not_knowing_whether_there_is_tax_blocks_rather_than_assuming_none() -> 
     assert decide(a_situation(carries_gst=None)).action is Action.BLOCK
 
 
+# ---- the tax flag and the tax figure are two statements about one fact ------
+#
+# The GST hard rule rested entirely on `carries_gst`, a flag the caller computed
+# somewhere else, while the figure that contradicts it sat unread in the same
+# argument. Measured before the fix: `carries_gst=False` with a reading showing
+# 18,000 paise of tax came back POST and wrote 1,18,000 paise.
+#
+# This is the free conservation-style check - no labels, no model, no network,
+# two statements about one fact compared - and it was not there.
+
+
+def test_a_tax_figure_on_the_reading_contradicts_a_no_tax_flag_and_blocks() -> None:
+    """MEASURED before the fix: POST, writing 1,18,000 paise of a GST bill.
+
+    Neither statement is trusted over the other. They disagree, and a bill two
+    sources describe differently is not a bill anybody may post unasked.
+    """
+    seen = an_observation(total_paise=118_000, tax_paise=18_000)
+    decided = decide(a_situation(observation=seen, carries_gst=False))
+    assert decided.action is Action.BLOCK
+    assert decided.entry is None
+
+
+def test_the_control_a_reading_that_shows_no_tax_agrees_with_the_flag() -> None:
+    """THE CONTROL. Without it this fix could be "block every bill" and pass.
+    A tax of exactly zero, read as confidently as everything else, is the two
+    sources AGREEING - which is the ordinary case and it has to still post."""
+    seen = an_observation(total_paise=118_000, tax_paise=0)
+    decided = decide(a_situation(observation=seen, carries_gst=False))
+    assert decided.action is Action.POST
+    assert decided.entry is not None
+
+
+def test_a_tax_field_nobody_read_is_not_evidence_that_there_is_no_tax() -> None:
+    """The one that must NOT fire, and the reason the check is a type test and
+    not a truth test. An unread field is `None` at confidence 0.0, which is
+    every bill with no tax line on it - firing here would refuse them all, and
+    at 100:1 a false block is cheap but a whole CLASS of them is not."""
+    seen = an_observation(tax_paise=None)
+    said = decide(a_situation(observation=seen, carries_gst=False)).said
+    assert "do not agree" not in said
+
+
+def test_the_control_that_unread_tax_bill_is_refused_for_being_unreadable() -> None:
+    """THE CONTROL on the test above: the sentence is absent because the tax
+    check did not fire, not because the bill sailed through. An unread field
+    drags `lowest_confidence` to 0.0, which is under the ask floor."""
+    seen = an_observation(tax_paise=None)
+    decided = decide(a_situation(observation=seen, carries_gst=False))
+    assert decided.action is Action.BLOCK
+    assert decided.entry is None
+
+
+def test_a_tax_field_that_is_not_money_at_all_is_refused_not_waved_through() -> None:
+    """Not `None` and not a whole-paise zero, so it is not agreement. A string
+    where a tax amount belongs is somebody's parser having failed, and reading
+    it as "no tax" is the coercion this whole cage exists to refuse."""
+    for value in ("18000", 180.0, True):
+        seen = an_observation(tax_paise=value)
+        decided = decide(a_situation(observation=seen, carries_gst=False))
+        assert decided.action is Action.BLOCK, value
+        assert decided.entry is None, value
+
+
+def test_the_tax_disagreement_says_so_plainly_and_names_the_figure() -> None:
+    """A person has to be able to check which two things disagreed, so the
+    figure is named - through `money.format_inr`, the one renderer."""
+    seen = an_observation(total_paise=118_000, tax_paise=18_000)
+    said = decide(a_situation(observation=seen, carries_gst=False)).said
+
+    assert "do not agree" in said
+    assert format_inr(18_000) in said
+    assert "nothing was posted" in said
+    assert "tax_paise" not in said
+
+
 def test_a_conservation_law_that_could_not_be_checked_blocks() -> None:
     """INDETERMINATE is not a soft pass. "I could not check" and "I checked and
     it is fine" are different sentences and only one of them authorises a

@@ -19,16 +19,16 @@ half and is worthless. So there are five hundred clean non-GST purchases as
 well, and if the cage refuses those, the refusal rate on the other half means
 nothing.
 
-WHAT IT MEASURED, 2026-08-13 (re-measured when the first hole closed)
------------------------------------------------------------------------
-    invalid   501/501 refused - 200 ask, 301 block, 0 post. The owner's floor
-              is 99.5%, which is 499. Nothing was adjusted to reach it.
+WHAT IT MEASURED, 2026-08-13 (re-measured when the two holes closed)
+----------------------------------------------------------------------
+    invalid   502/502 refused - 200 ask, 302 block, 0 post. The owner's floor
+              is 99.5%, which is 500. Nothing was adjusted to reach it.
     writable  0/500 refusals came back holding a `LedgerEntry`. This is the
               claim that matters, and it is stronger than the percentage above:
               not "it said block" but "there is nothing in the result anybody
               could write".
     valid     500/500 post - 0 ask, 0 block.
-    runtime   0.014s to build and decide all thousand and one.
+    runtime   0.015s to build and decide all thousand and two.
 
 The numbers are here rather than only in a commit message because a reader
 deciding whether to trust this file should not have to run `git log` to find out
@@ -52,22 +52,29 @@ while building this file must not post and did, and they are held apart in
 `_HOLES` rather than averaged into a percentage:
 
     F-02          a bill misread consistently, every figure ten times too big.
-                  Named in `conservation.py` and `decision.py` already. OPEN.
-    the tax flag  `decide` never reads `observation.tax_paise`, so a caller
-                  whose `carries_gst=False` contradicts the tax figure on the
-                  very reading it was handed posts a GST bill. OPEN.
+                  Named in `conservation.py` and `decision.py` already. OPEN,
+                  and it did not narrow when the other two closed: a consistent
+                  misread scales the checked amount and the written amount by
+                  the same ten, so they still agree, and its tax is still zero.
+    the tax flag  `decide` never read `observation.tax_paise`, so a caller whose
+                  `carries_gst=False` contradicted the tax figure on the very
+                  reading it was handed posted a GST bill. CLOSED 2026-08-13:
+                  the flag and the figure are two statements about one fact and
+                  are now compared. The case moved into the GST family.
     the amount    the conservation verdicts came from the caller's figures and
                   the amount written came from `observation.total_paise` with
                   nothing binding them, so laws that passed on ₹1,000 could
                   authorise a write of ₹1,00,000. CLOSED 2026-08-13:
                   `Situation.checked_paise` now says which amount was checked
                   and `decide` refuses to write a different one. The case moved
-                  into the invalid half, which is why that half is 501 and not
-                  500 - the corpus grew by exactly what the module gained.
+                  into the invalid half, which is why that half is 502 and not
+                  500 - the corpus grew by exactly what the module gained, two
+                  cases for two holes, and by nothing else.
 
 `test_the_measured_blind_spots_all_still_post_and_write_what_they_wrote` asserts
-the open ones, because a blind spot nobody measures is a blind spot nobody
-notices closing or opening. It is the test that failed when the third closed.
+the one that is still open, because a blind spot nobody measures is a blind spot
+nobody notices closing or opening. It is the test that failed when the other two
+closed, which is exactly the job it was written to do.
 
 NO CLOCK, NO RANDOMNESS, NO IO, NO NETWORK. Every amount, date and party comes
 out of `CORPUS_SEED` and an index.
@@ -110,11 +117,11 @@ REFUSAL_FLOOR: Final = 0.995
 #: so it catches somebody making the corpus slow, not ordinary CI jitter.
 BUDGET_SECONDS: Final = 30.0
 
-#: 500 when this file was written, and it may only go UP. It is 501 because the
-#: checked-amount hole closed on 2026-08-13 and its case moved out of `_HOLES`
-#: into the corpus proper - a case the cage now CLAIMS to refuse belongs with
-#: the others it claims to refuse.
-INVALID_COUNT: Final = 501
+#: 500 when this file was written, and it may only go UP. It is 502 because two
+#: holes closed on 2026-08-13 and their cases moved out of `_HOLES` into the
+#: corpus proper - a case the cage now CLAIMS to refuse belongs with the others
+#: it claims to refuse.
+INVALID_COUNT: Final = 502
 VALID_COUNT: Final = 500
 
 _SOURCE: Final = "corpus"
@@ -145,7 +152,7 @@ FAMILY_SIZES: Final[dict[str, int]] = {
     _ARITHMETIC: 120,
     _PARTY: 48,
     _PERIOD: 26,
-    _GST: 36,
+    _GST: 37,
     _BUDGET: 16,
     _AMOUNT: 50,
     _VERDICT: 10,
@@ -515,6 +522,22 @@ def _gst_cases() -> list[Case]:
                 ),
             )
         )
+    # MOVED OUT OF `_HOLES` ON 2026-08-13, when `decide` started reading
+    # `observation.tax_paise`. Until then the GST rule rested entirely on the
+    # caller's flag while the figure that contradicts it sat in the same
+    # argument, and this posted a GST bill for 118,000 paise.
+    lines = (100_000, 18_000)
+    cases.append(
+        Case(
+            _GST,
+            "the caller says no tax and the reading shows 18,000 paise of it",
+            _situation(
+                observation=_observation(total=118_000, tax=18_000, lines=lines),
+                conservation_results=_laws(118_000, lines=lines, tax=18_000),
+                carries_gst=False,
+            ),
+        )
+    )
     return cases
 
 
@@ -1214,32 +1237,11 @@ class Hole:
     writes_paise: int
 
 
-def _tax_flag_disagrees_with_the_reading() -> Situation:
-    """The caller says there is no tax. The reading in hand says 18,000 paise.
-
-    `decide` never reads `observation.tax_paise`. The GST hard rule rests
-    entirely on a flag the caller computed somewhere else, while the figure that
-    contradicts it is sitting in the same argument. Two statements about one
-    fact, both present, never compared.
-    """
-    lines = (100_000, 18_000)
-    return _situation(
-        observation=_observation(total=118_000, tax=18_000, lines=lines),
-        conservation_results=_laws(118_000, lines=lines, tax=18_000),
-        carries_gst=False,
-    )
-
-
 _HOLES: Final = (
     Hole(
         "a bill misread consistently, every figure ten times too big (F-02)",
         _blind_spot_situation(),
         1_000_000,
-    ),
-    Hole(
-        "the caller's no-tax flag contradicts the tax figure on the reading",
-        _tax_flag_disagrees_with_the_reading(),
-        118_000,
     ),
 )
 
