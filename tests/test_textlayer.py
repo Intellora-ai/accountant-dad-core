@@ -399,6 +399,73 @@ def test_an_impossible_date_is_refused() -> None:
     assert reading.observation.date.value is None
 
 
+#: Written out rather than imported, for the reason `AMBIGUOUS_DATE` is: a test
+#: that took the names from the module would agree with whatever the module
+#: happened to hold, including a name for month zero.
+MONTH_NAMES = (
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+)
+
+
+@pytest.mark.parametrize("printed", ["10/00/2026", "00/10/2026"])
+def test_a_zero_in_a_date_never_names_a_month_that_is_not_on_the_bill(
+    printed: str,
+) -> None:
+    """MEASURED 2026-08-13, and a regression the ambiguity sentence introduced.
+
+    `_MONTH_NAMES[first - 1]` had no lower bound, and `_ordered_date` sent a
+    zero component to the ambiguity branch - which never reaches `_real_date`,
+    so the ValueError guard that catches every other impossible date was
+    bypassed. `_MONTH_NAMES[0 - 1]` is `_MONTH_NAMES[-1]`:
+
+        10/00/2026 -> "could be 10 December or 0 October"
+
+    Nothing on the document says December. It is a plausible-looking date,
+    invented, inside the sentence whose whole decided purpose is to carry BOTH
+    true readings - and "0 October" is not a day that exists either. `00` gets
+    past `_NUMERIC_DATE`, so an OCR misread of `06` reaches it.
+
+    The control is `test_the_control_a_date_whose_order_is_settled...` above: a
+    guard that sent every date here would refuse 26/02/2026 too."""
+    reading = bill_with(("DATE: 2026-04-01", f"DATE: {printed}"))
+    source = reading.observation.date.source
+
+    assert reading.observation.date.value is None
+    assert "is not a day that exists" in source
+    assert [name for name in MONTH_NAMES if name in source] == []
+
+
+def test_a_numeric_date_with_no_month_in_it_is_refused_and_does_not_crash() -> None:
+    """MEASURED 2026-08-13, on the live upload route, and it was a traceback.
+
+    `85-13-2026` gets past `_NUMERIC_DATE`, and then neither 85 nor 13 can be a
+    month - so the ambiguity branch was reached with two numbers it then used
+    as indexes into the twelve month names. IndexError, raised inside `_parse`,
+    which sits OUTSIDE the try in `read`, so it escaped `TextLayerReader
+    .extract`, escaped `pipeline.build_draft`, and reached
+    `web/app.py::handle_one_request` as HTTP 503 "Something in Accountant Dad
+    broke". A person whose supplier misprinted a date was told the application
+    was broken.
+
+    It is not ambiguous. It is not a date at all - both readings are
+    impossible, so nothing was guessed at and nothing needs confirming."""
+    reading = bill_with(("DATE: 2026-04-01", "DATE: 85-13-2026"))
+    assert reading.observation.date.value is None
+    assert "ambiguous" not in reading.observation.date.source
+    assert reading.observation.date.source.startswith(NOT_FOUND)
+
+
 def test_a_second_date_that_disagrees_leaves_the_date_unread() -> None:
     lines = [*BILL, "DATE: 2026-05-09"]
     assert read(pdf_bytes(lines)).observation.date.value is None

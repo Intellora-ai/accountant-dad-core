@@ -107,7 +107,6 @@ import datetime
 import io
 import re
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from typing import Final
 
@@ -120,6 +119,32 @@ from accountant.extract.adapter import (
     ExtractedRecord,
     LineItem,
     UnavailableExtractor,
+)
+
+# THE LABEL VOCABULARY AND THE MATCHING LIVE IN `labels.py` AS OF 2026-08-13,
+# and this module reads them back from there rather than holding its own copy.
+# The reading engine's page reader needs the same answers off the same shape of
+# text, and two vocabularies is how one of them learns `AMOUNT PAYABLE` and the
+# other does not - the same bill then reads differently depending on whether it
+# arrived as a PDF or as a photograph. `labels.py` imports nothing outside the
+# standard library, so nothing about this module's dependencies changed.
+#
+# `paise_or_none` is re-exported rather than re-implemented: it was already the
+# ONE rule about sub-paise on this side of the system and callers name it here.
+from accountant.extract.labels import (
+    CURRENCY,
+    DATE_LABEL,
+    PARTY_LABELS,
+    TAX_PARTS,
+    TAX_WHOLE,
+    TOTAL_LABELS,
+    Amount,
+    Found,
+    amount_on,
+    amounts_for,
+    paise_or_none,
+    the_one,
+    values_for,
 )
 
 #: What every field this module reads says about where it came from.
@@ -266,99 +291,20 @@ def xref_was_rebuilt(data: bytes) -> bool:
 
 
 # =============================================================================
-# money
-# =============================================================================
-
-_HUNDRED: Final = Decimal(100)
-
-#: Decoration a supplier prints around an amount. Removed before the number is
-#: parsed; never used to decide what the number MEANS. This reader does no
-#: currency conversion and would be wrong to - `£606.00` on an Indian purchase
-#: bill is a fact about the bill, and converting it here would invent a rate.
-#: The non-breaking space is written as an escape because a literal one is
-#: invisible in a diff - `ingest/spend.py` says the same about the same
-#: character, and it turns up inside published amounts often enough to matter.
-_DECORATION: Final[tuple[str, ...]] = (
-    "\u20b9",
-    "\u00a3",
-    "\u00a0",
-    "RS.",
-    "RS",
-    "INR",
-    "GBP",
-    ",",
-    " ",
-)
-
-#: What is left must be exactly a number. `Decimal` accepts `NaN`, `Infinity`
-#: and `1e5`; the first two turn into an OverflowError inside the conversion
-#: and the third into a number nobody printed. None of them is an amount a
-#: supplier wrote, so the shape is checked before `Decimal` sees it.
-_JUST_A_NUMBER: Final = re.compile(r"-?\d+(?:\.\d+)?")
-
-
-def paise_or_none(text: str) -> int | None:
-    """A printed rupee amount as integer paise, or None if it is not one.
-
-    `"1,234.56"` is 123456. `"RS. 1,234.56"` and `"1,234.56 GBP"` are the same
-    number wearing the decoration a supplier printed.
-
-    REFUSES SUB-PAISE RATHER THAN ROUNDING. `"10.005"` is None, not 1000.
-    `tallyio.paise_from_rupees` has always refused that string, and two money
-    parsers in one repository disagreeing about it is how a reconciliation
-    breaks three months later. This one returns None where that one raises,
-    because an unreadable amount on a bill is a QUESTION for the person, not a
-    500 in the web app.
-    """
-    cleaned = text.strip().upper()
-    for junk in _DECORATION:
-        cleaned = cleaned.replace(junk, "")
-    if not _JUST_A_NUMBER.fullmatch(cleaned):
-        return None
-    try:
-        rupees = Decimal(cleaned)
-    except InvalidOperation:
-        return None
-    scaled = rupees * _HUNDRED
-    paise = int(scaled)
-    return paise if scaled == paise else None
-
-
-# =============================================================================
 # reading one labelled thing off a page
 # =============================================================================
-
-#: A label counts when it starts the line or follows a run of spaces wide enough
-#: to be a column gap. `SUPPLIER: CORNWALL COUNCIL        HSN/SAC: 998311` is one
-#: line carrying two fields, and a reader anchored only to line starts reads the
-#: second field into the first one's value.
-_LABEL_AT: Final = r"(?:^|\s{2,})"
-
-#: Where a value stops: the next column's label. Without this the party above
-#: comes back as `CORNWALL COUNCIL        HSN/SAC: 998311`, which does not match
-#: any vendor in history, so it is proposed as a NEW supplier. A wrong party is
-#: worse than a missing one.
-_NEXT_LABEL: Final = re.compile(r"\s{2,}[A-Z][A-Z0-9 /]*:")
-
-_CURRENCY: Final = r"(?:RS\.?|INR|GBP|₹|£)"
-
-#: `GST @ 18%` and `GST 18%` are the same label wearing its rate. The rate is
-#: consumed, never read: a percentage is not the tax amount, and computing the
-#: tax from it would be arithmetic on a number the bill already states.
-_RATE: Final = r"(?:\s*@?\s*\d{1,2}(?:\.\d+)?\s*%)?"
-
-#: After the label, the rest of the line must be the amount and nothing else.
-#: This is what stops `TAX INVOICE 2026` being read as 2026 rupees of tax.
-_ONLY_AMOUNT: Final = re.compile(
-    rf"^[\s:|]*{_CURRENCY}?\s*(-?[\d,]+(?:\.\d+)?)\s*{_CURRENCY}?\s*\|?\s*$"
-)
+#
+# The label vocabulary, `paise_or_none` and the two matchers now live in
+# `labels.py` and are imported at the top of this file. What is left here is
+# what only a PDF's text layer has: an ITEMISED BLOCK with a column header, a
+# printed rule closing it, and dates written four different ways.
 
 #: A line item: a description, then an amount with a decimal point in it.
 #: Requiring the decimals is what keeps `PAGE 1 OF 2` and `GT/0021` out of the
 #: line items - and it is how a bill actually prints money.
 _ITEM: Final = re.compile(
-    rf"^\|?\s*(?P<desc>\S.*?)\s*\|?\s*{_CURRENCY}?\s*"
-    rf"(?P<amount>-?[\d,]+\.\d{{2,}})\s*{_CURRENCY}?\s*\|?\s*$"
+    rf"^\|?\s*(?P<desc>\S.*?)\s*\|?\s*{CURRENCY}?\s*"
+    rf"(?P<amount>-?[\d,]+\.\d{{2,}})\s*{CURRENCY}?\s*\|?\s*$"
 )
 
 _ITEM_HEADER: Final = re.compile(r"^DESCRIPTION\b.*\bAMOUNT\b")
@@ -370,43 +316,6 @@ _ITEM_HEADER: Final = re.compile(r"^DESCRIPTION\b.*\bAMOUNT\b")
 #: so that blank line is an artefact of OUR join, not something the bill prints.
 _RULE: Final = re.compile(r"^[\s|]*[-=_][-=_\s|]*$")
 _BLANK: Final = re.compile(r"^\s*$")
-
-#: Names a supplier gives the amount payable. Longest first, so `TOTAL DUE` is
-#: reported as itself rather than as `TOTAL`. `SUBTOTAL` is absent on purpose
-#: and the match is anchored, so it can never be read as the total - a
-#: substring match there leaves the bill short by the whole of its tax.
-_TOTAL_LABELS: Final[tuple[str, ...]] = (
-    "GRAND TOTAL",
-    "TOTAL DUE",
-    "AMOUNT PAYABLE",
-    "AMOUNT DUE",
-    "TOTAL",
-)
-
-#: Tax printed as HALVES of one figure. An intra-state Indian bill prints CGST
-#: and SGST, and reading one of them posts half the input credit - real money
-#: lost, with a bill that still looks read.
-_TAX_PARTS: Final[tuple[str, ...]] = ("CGST", "SGST", "UTGST")
-
-#: Tax printed as ONE figure. Kept apart from the halves because adding all of
-#: them together double-counts, and a bill showing both is refused rather than
-#: guessed at.
-_TAX_WHOLE: Final[tuple[str, ...]] = (
-    "OUTPUT TAX",
-    "INPUT TAX",
-    "IGST",
-    "GST",
-    "TAX",
-)
-
-#: Labels the party is printed under. Vocabulary, not policy: an unmatched
-#: label leaves the party unread and the person is asked who this bill is from.
-_PARTY_LABELS: Final[tuple[str, ...]] = (
-    "SUPPLIER",
-    "VENDOR",
-    "BILLED BY",
-    "SOLD BY",
-)
 
 #: Written down rather than taken from `%B`, which follows the machine's
 #: locale. A bill that parses on one machine and not another is not a reading,
@@ -437,62 +346,6 @@ _MONTHS: Final[tuple[str, ...]] = tuple(name[:3].upper() for name in _MONTH_NAME
 _ISO_DATE: Final = re.compile(r"^(\d{4})-(\d{1,2})-(\d{1,2})$")
 _NUMERIC_DATE: Final = re.compile(r"^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$")
 _LONG_DATE: Final = re.compile(r"^(\d{1,2})[ -]([A-Z]{3})[A-Z]*[ -](\d{4})$")
-
-
-def _labelled(text: str, label: str) -> tuple[str, ...]:
-    """Every value printed under `label`, in the order they appear."""
-    pattern = re.compile(rf"{_LABEL_AT}{re.escape(label)}\s*:\s*(.*)$", re.M)
-    found = (
-        _NEXT_LABEL.split(match.group(1), maxsplit=1)[0]
-        for match in pattern.finditer(text)
-    )
-    return tuple(value.strip() for value in found if value.strip())
-
-
-def _amount_on(line: str, label: str) -> int | None:
-    """The amount printed against `label` on this line, or None.
-
-    None covers three different situations on purpose - the label is not here,
-    the rest of the line is not an amount, or the amount will not parse - and
-    all three mean the same thing to the caller: this line states no figure for
-    that label.
-    """
-    head = re.match(rf"{re.escape(label)}\b{_RATE}", line)
-    if head is None:
-        return None
-    tail = _ONLY_AMOUNT.match(line[head.end() :])
-    return None if tail is None else paise_or_none(tail.group(1))
-
-
-def _amounts_for(lines: tuple[str, ...], labels: tuple[str, ...]) -> tuple[int, ...]:
-    """Every amount on the page printed against any of `labels`."""
-    found: list[int] = []
-    for line in lines:
-        for label in labels:
-            amount = _amount_on(line, label)
-            if amount is not None:
-                found.append(amount)
-                break
-    return tuple(found)
-
-
-def _the_one[T](values: tuple[T, ...], what: str) -> tuple[T | None, str]:
-    """One value that every printing of it agreed on, or None and the reason.
-
-    A continuation sheet repeats the header, so REPETITION is ordinary and is
-    not refused. DISAGREEMENT is refused: one of the two is wrong, nothing here
-    can say which, and picking the first is a coin toss that posts money.
-    """
-    if not values:
-        return None, f"{NOT_FOUND}: nothing on this document is labelled as {what}"
-    distinct = list(dict.fromkeys(values))
-    if len(distinct) > 1:
-        return None, (
-            f"{NOT_FOUND}: this document states {what} more than once and the "
-            f"statements disagree ({', '.join(str(v) for v in distinct)}), so "
-            "nothing is read from it"
-        )
-    return distinct[0], ""
 
 
 # =============================================================================
@@ -537,11 +390,32 @@ def _ordered_date(
 
     Equal numbers are determined too: `05/05/2026` is the 5th of May either
     way round, so there is nothing to guess.
+
+    NEITHER NUMBER A MONTH IS NOT AMBIGUITY, and until 2026-08-13 this fell
+    through to the ambiguity sentence and CRASHED there - `85-13-2026` used 85
+    as an index into the twelve month names, IndexError, escaping `read` into
+    an HTTP 503 that told a person the application was broken. Ambiguity means
+    two readings and no way to choose; this is zero readings, which is the
+    impossible-date refusal and always was.
+
+    A ZERO IS THE SAME CASE AT THE OTHER END, and it did not crash, which is
+    why it survived the fix above. `_MONTH_NAMES[0 - 1]` is `_MONTH_NAMES[-1]`,
+    so `10/00/2026` was answered "could be 10 December or 0 October" - a month
+    nothing on the document mentions, INVENTED, inside the one sentence whose
+    decided purpose is to carry both true readings. Zero is not a month and not
+    a day, so neither reading exists and `_real_date` says exactly that.
     """
+    if first == 0 or second == 0:
+        return _real_date(year, second, first)
     if first == second or (first > 12 >= second):
         return _real_date(year, second, first)
     if second > 12 >= first:
         return _real_date(year, first, second)
+    if first > 12 and second > 12:
+        return None, (
+            f"{NOT_FOUND}: {printed!r} is not a date - neither {first} nor "
+            f"{second} can be a month, so it was misread or misprinted"
+        )
     return None, f"{NOT_FOUND}: {_ambiguous(first, second, printed)}"
 
 
@@ -561,10 +435,16 @@ def _ambiguous(first: int, second: int, printed: str) -> str:
         cannot be read two ways, so the answer that comes back cannot reopen
         the question the refusal was raised about.
 
-    QUOTES WHAT WAS PRINTED, not a normalised form. Two of the twenty corpus
-    bills write their dates with hyphens, and asking somebody to confirm
-    `07/11/2026` when their document says `07-11-2026` is asking them to find a
-    string that is not there.
+    QUOTES WHAT WAS PRINTED, not a normalised form. FOUR of the twenty corpus
+    bills write their dates with hyphens - GT-0027, GT-0031, GT-0035, GT-0038 -
+    and asking somebody to confirm `07/11/2026` when their document says
+    `07-11-2026` is asking them to find a string that is not there.
+
+    That count said TWO until 2026-08-13, when somebody counted. The decision
+    it justifies was right and is unchanged; the number cited for it was not
+    measured, and a number nobody measured is an opinion with a digit in it.
+    `scripts/run_ground_truth.py` regenerates the corpus, so the count is
+    checked by reading the twenty documents and never by remembering it.
 
     The first reading is day-first, the second month-first, which is the order
     the decision states them in - and neither is preferred by anything here.
@@ -587,20 +467,33 @@ def _real_date(year: int, month: int, day: int) -> tuple[datetime.date | None, s
         )
 
 
-def _read_date(text: str) -> tuple[datetime.date | None, str]:
-    printed, why = _the_one(_labelled(text, "DATE"), "its date")
+def _printed(found: tuple[Found, ...]) -> tuple[str, ...]:
+    """Just the characters, for the readers here that want nothing else.
+
+    `labels.values_for` also reports WHERE each value sat, because the reading
+    engine's page reader has to map a value back to the words that produced it.
+    This rung has no words, so it drops the positions here rather than
+    threading them through four functions that would never look at them.
+    """
+    return tuple(one.printed for one in found)
+
+
+def _paise(found: tuple[Amount, ...]) -> tuple[int, ...]:
+    """Just the figures. Same reason as `_printed` above."""
+    return tuple(one.paise for one in found)
+
+
+def _read_date(lines: tuple[str, ...]) -> tuple[datetime.date | None, str]:
+    printed, why = the_one(_printed(values_for(lines, (DATE_LABEL,))), "its date")
     return (None, why) if printed is None else _date_from(printed)
 
 
-def _read_party(text: str) -> tuple[str | None, str]:
-    values: tuple[str, ...] = ()
-    for label in _PARTY_LABELS:
-        values += _labelled(text, label)
-    return _the_one(values, "its supplier")
+def _read_party(lines: tuple[str, ...]) -> tuple[str | None, str]:
+    return the_one(_printed(values_for(lines, PARTY_LABELS)), "its supplier")
 
 
 def _read_total(lines: tuple[str, ...]) -> tuple[int | None, str]:
-    return _the_one(_amounts_for(lines, _TOTAL_LABELS), "its total")
+    return the_one(_paise(amounts_for(lines, TOTAL_LABELS)), "its total")
 
 
 def _split_tax(lines: tuple[str, ...]) -> tuple[int | None, str, bool]:
@@ -618,12 +511,12 @@ def _split_tax(lines: tuple[str, ...]) -> tuple[int | None, str, bool]:
     """
     added = 0
     printed_any = False
-    for label in _TAX_PARTS:
-        printed = _amounts_for(lines, (label,))
+    for label in TAX_PARTS:
+        printed = _paise(amounts_for(lines, (label,)))
         if not printed:
             continue
         printed_any = True
-        stated, why = _the_one(printed, f"its {label}")
+        stated, why = the_one(printed, f"its {label}")
         if stated is None:
             return None, why, True
         added += stated
@@ -640,7 +533,7 @@ def _read_tax(lines: tuple[str, ...]) -> tuple[int | None, str]:
     is something the document said.
     """
     split, why_split, has_split = _split_tax(lines)
-    whole = _amounts_for(lines, _TAX_WHOLE)
+    whole = _paise(amounts_for(lines, TAX_WHOLE))
     if has_split and whole:
         return None, (
             f"{NOT_FOUND}: this bill prints its tax both as one figure and as "
@@ -648,17 +541,17 @@ def _read_tax(lines: tuple[str, ...]) -> tuple[int | None, str]:
         )
     if has_split:
         return split, why_split
-    return _the_one(whole, "its tax")
+    return the_one(whole, "its tax")
 
 
 #: Labels that belong to a bill's FOOTER rather than to its items. `SUBTOTAL`
-#: is here and deliberately absent from `_TOTAL_LABELS`: it closes the itemised
+#: is here and deliberately absent from `labels.TOTAL_LABELS`: it closes the itemised
 #: block without ever being readable as the amount payable.
 _FOOTER_LABELS: Final[tuple[str, ...]] = (
     "SUBTOTAL",
-    *_TOTAL_LABELS,
-    *_TAX_WHOLE,
-    *_TAX_PARTS,
+    *TOTAL_LABELS,
+    *TAX_WHOLE,
+    *TAX_PARTS,
 )
 
 
@@ -674,7 +567,7 @@ def _is_footer_row(line: str) -> bool:
     This is what lets a blank line be skipped safely. Without it, a table whose
     closing rule is missing would run on and read `SUBTOTAL` as an item.
     """
-    return any(_amount_on(line, label) is not None for label in _FOOTER_LABELS)
+    return any(amount_on(line, label) is not None for label in _FOOTER_LABELS)
 
 
 def _read_lines(lines: tuple[str, ...]) -> tuple[tuple[LineRead, ...] | None, str]:
@@ -895,8 +788,8 @@ def read(data: bytes) -> TextLayerReading:
 def _parse(text: str, pages: int, repaired: bool) -> TextLayerReading:
     lines = tuple(line.rstrip() for line in text.splitlines())
     answers: dict[str, Answered[object]] = {}
-    date = answers["date"] = _read_date(text)
-    party = answers["party"] = _read_party(text)
+    date = answers["date"] = _read_date(lines)
+    party = answers["party"] = _read_party(lines)
     total = answers["total_paise"] = _read_total(lines)
     tax = answers["tax_paise"] = _read_tax(lines)
     items = answers["line_paise"] = _read_lines(lines)
