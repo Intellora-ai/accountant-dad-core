@@ -1980,3 +1980,32 @@ def test_the_control_two_real_amounts_are_still_ambiguous() -> None:
 
     assert record.total_paise is None
     assert "Multiple numbers were found" in record.per_field_source["total_paise"]
+
+
+def test_a_month_name_beside_a_number_too_big_to_be_a_day_is_not_a_date() -> None:
+    """MEASURED after the date rule landed, and a refusal it caused.
+
+    `salary 45000 August` is a salary for a month, not a date - 45000 is not a
+    day of any month. The rule that lets `diesel 3500 on 5 Aug` read was
+    excluding both of them, so a number is only part of a date when it is
+    SHAPED like one: a day beside the month, or a year after it."""
+    record = TypedTextExtractor().extract(b"salary 45000 August", "text/plain")
+
+    assert record.total_paise == 4500000
+    assert (
+        TypedTextExtractor().extract(b"August 4200", "text/plain").total_paise == 420000
+    )
+
+
+def test_the_control_a_real_date_beside_a_month_name_is_still_a_date() -> None:
+    """THE CONTROL. Narrowing the rule to day-shaped and year-shaped numbers
+    must not put the price back in competition with the date."""
+    day = TypedTextExtractor().extract(
+        b"diesel 3500 for the truck on 5 Aug", "text/plain"
+    )
+    year = TypedTextExtractor().extract(
+        b"paid rent 15000 for August 2026", "text/plain"
+    )
+
+    assert day.total_paise == 350000
+    assert year.total_paise == 1500000

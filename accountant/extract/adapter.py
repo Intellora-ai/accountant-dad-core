@@ -246,6 +246,14 @@ _MONTH_WORD = (
 _MONTH_BEFORE = re.compile(rf"\b(?:{_MONTH_WORD})\b[\s,]*$", re.I)
 _MONTH_AFTER = re.compile(rf"\s*(?:st|nd|rd|th)?[\s,]*\b(?:{_MONTH_WORD})\b", re.I)
 
+#: THE NUMBER HAS TO BE SHAPED LIKE A DATE PART TOO, measured the same day the
+#: rule landed: `salary 45000 August` refused, because a month name beside a
+#: number was enough on its own. 45000 is not a day of any month - it is a
+#: salary, and the month is what it was for. A number is part of a date when it
+#: could be a day (1-31 beside the month) or a year (after it), and `August
+#: 4200` is neither, so it reads.
+_LAST_DAY_OF_ANY_MONTH = 31
+
 #: A unit of quantity. `50 bags of cement` is fifty bags, not fifty rupees, and
 #: counting it as a rival to the price refused the sentence outright.
 _UNIT_AFTER = re.compile(
@@ -333,13 +341,31 @@ def _numbers(text: str) -> list[_Number]:
                 ),
                 glued=_glued(text, start, end),
                 labelled=label.group(1) if label else "",
-                dated=bool(
-                    _MONTH_BEFORE.search(before) or _MONTH_AFTER.match(text, end)
-                ),
+                dated=_beside_a_month(raw, before, text, end),
                 counted=bool(_UNIT_AFTER.match(text, end)),
             )
         )
     return found
+
+
+def _beside_a_month(raw: str, before: str, text: str, end: int) -> bool:
+    """Is this number the day or the year of a date written with a month name?
+
+    Both halves are required, and the second half is the one that was missing:
+    a month name NEXT TO a number does not make the number part of the date.
+    `5 Aug` is a day and `August 2026` is a year; `salary 45000 August` is what
+    the salary was for, and 45000 is a day of nothing.
+    """
+    if not raw.isdigit():
+        return False
+    if _MONTH_AFTER.match(text, end):
+        return 0 < int(raw) <= _LAST_DAY_OF_ANY_MONTH
+    if _MONTH_BEFORE.search(before):
+        return (
+            0 < int(raw) <= _LAST_DAY_OF_ANY_MONTH
+            or _EARLIEST_YEAR <= int(raw) <= _LATEST_YEAR
+        )
+    return False
 
 
 def _invoice_shaped(text: str) -> bool:
