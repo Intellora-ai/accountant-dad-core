@@ -610,3 +610,17 @@ outcome turns into a real verdict on its own, and the strict-xfail pair around
 it fails loudly until somebody removes the now-passing half. Nothing else needs
 changing.
 
+### `period_open` has no source
+
+`period_open` has no source. Tally knows the financial-year bounds and refuses
+an out-of-range date at the write door; nothing reads them beforehand. Until
+something does, the gate is passed `None` and those entries block. Closing it
+means a Tally read (`SVFROMDATE`/`SVTODATE`, noted at `tallyio/reports.py:45`)
+that needs a live Tally to verify.
+
+Closing it is also what lets `accountant/cage/gate.py` move from the reader path
+onto the pipeline path. It is not the only thing that has to land first — no
+reader produces per-field confidence yet, and three of the four conservation
+laws have no inputs on that path — but it is the one that needs a live Tally
+rather than more code.
+
