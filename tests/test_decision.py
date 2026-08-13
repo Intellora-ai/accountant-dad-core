@@ -83,6 +83,7 @@ import pytest
 from accountant.cage.conservation import LAWS, ConservationResult, Verdict
 from accountant.cage.decision import (
     ASK_FLOOR,
+    AUTO_POST_ALLOWED_TIERS,
     AUTO_POST_FLOOR,
     DOCUMENT_LAWS,
     GST_IS_OFF,
@@ -112,6 +113,14 @@ from accountant.schema import Voucher
 #: the checked-amount helper below and `an_observation` cannot drift apart into
 #: two different "clean totals", which would make every link test vacuous.
 CLEAN_TOTAL = 250_000
+
+#: The one tier the owner cleared for auto-post, and one that is not. Written as
+#: literals rather than imported from `accountant.extract`, because this file
+#: reads nothing and imports no reader - the same rule `decision.py` itself
+#: keeps. `tests/test_gate.py` is where the literal is bound to the string the
+#: text-layer reader actually stamps, so a rename there cannot pass unnoticed.
+TEXT_LAYER = "pdf_text_layer"
+OCR = "free_ocr"
 
 
 def an_observation(
@@ -211,11 +220,17 @@ def a_situation(
     debit_account: object = "Purchases",
     credit_account: object = "Cash",
     moment: object = Moment.BEFORE_THE_WRITE,
-    #: `None`, because the clean bill these builders describe is typed text and
-    #: not a PDF - so there was nothing to repair, which is what `None` means
+    #: `None`, because there was nothing to repair - which is what `None` means
     #: here. It is NOT "nobody looked": see `Situation.pdf_repaired`.
     pdf_repaired: object = None,
     ambiguous_fields: object = (),
+    #: CHANGED 2026-08-13 BY OWNER DECISION 2, and it used to be nothing at all.
+    #: These builders describe the bill that auto-posts, and after that decision
+    #: a bill that auto-posts is one read off a text layer - so the clean
+    #: default says so. The comment above `pdf_repaired` used to call this bill
+    #: typed text; it is a text-layer PDF that needed no mending, which `None`
+    #: covers ("there was nothing to repair").
+    reading_tiers: object = (TEXT_LAYER,),
 ) -> Situation:
     seen = an_observation() if observation is UNSET else observation
     return Situation(
@@ -233,6 +248,7 @@ def a_situation(
         moment=moment,  # type: ignore[arg-type]
         pdf_repaired=pdf_repaired,  # type: ignore[arg-type]
         ambiguous_fields=ambiguous_fields,  # type: ignore[arg-type]
+        reading_tiers=reading_tiers,  # type: ignore[arg-type]
     )
 
 
@@ -745,6 +761,148 @@ def test_a_situation_that_does_not_say_whether_it_was_repaired_cannot_build() ->
             credit_account="Cash",
             moment=Moment.BEFORE_THE_WRITE,
         )
+
+
+# ---- the reading tier is the second ceiling. Owner decision 2, 2026-08-13. --
+#
+# Owner decision 2, verbatim: "We do not hard-code 'photos never auto-post'.
+# Instead, auto-post eligibility is controlled by reading tier + confidence +
+# safety checks, not by media type alone." Auto-post needs all four of: a
+# non-GST purchase, every check passing, confidence at or above
+# `AUTO_POST_FLOOR`, AND a reading tier on the allowlist.
+#
+# "For this MVP the allowed reading tier list for auto-post is ["text_layer"]
+# only. OCR-based reads (including photos processed by Tesseract) are not in the
+# auto-post allowlist yet. So: photos can be read and shown to the user, they
+# can go to ASK or BLOCK, but not AUTO-POST."
+#
+# It is the same SHAPE as the repaired-file ceiling above and the tests are laid
+# out the same way, control first: a ceiling and a blanket refusal look
+# identical from the refusing side, and without the control a change that
+# refused every bill would pass every other test in this section.
+
+
+def test_the_control_a_text_layer_read_at_the_auto_post_floor_still_posts() -> None:
+    """THE CONTROL, and it is first because everything below it is a refusal.
+
+    A tier check that allowed nothing - an empty allowlist, a comparison that
+    can never be true - passes every other test in this section and fails only
+    this one. Without it the section proves the cage can say no, which was never
+    in doubt.
+
+    At the floor rather than above it, so the two ceilings cannot be confused:
+    this bill is exactly as sure as the owner's number demands and is refused by
+    nothing.
+    """
+    seen = an_observation(confidence=AUTO_POST_FLOOR + 0.01)
+    decided = decide(a_situation(observation=seen, reading_tiers=(TEXT_LAYER,)))
+
+    assert decided.action is Action.POST
+    assert decided.entry is not None
+
+
+def test_an_ocr_read_at_the_same_confidence_is_asked_about_and_never_posted() -> None:
+    """The same bill, the same 0.96, the same four passing laws - read off
+    pixels instead of off the characters the producing program wrote.
+
+    Confidence is not the whole of eligibility any more. An OCR reader that is
+    sure of itself is still an OCR reader, and the owner has not cleared that
+    tier to write into somebody's books unattended.
+    """
+    seen = an_observation(confidence=AUTO_POST_FLOOR + 0.01)
+    decided = decide(a_situation(observation=seen, reading_tiers=(OCR,)))
+
+    assert decided.action is Action.ASK
+    assert decided.entry is None
+
+
+def test_an_ocr_read_that_also_fails_a_hard_rule_is_still_refused() -> None:
+    """THE ALLOWLIST IS A CEILING, NOT A BYPASS. It lowers the best available
+    outcome and never raises the worst one.
+
+    Written as an early `return ASK` the tier check would overturn a block - a
+    photo of a bill whose numbers do not add up would become a question, which
+    is the exact opposite of what the owner asked for. Written as one more
+    reason to ask it can only ever lower post to ask.
+    """
+    for how in (
+        a_situation(reading_tiers=(OCR,), conservation=one_law(Verdict.FAIL)),
+        a_situation(reading_tiers=(OCR,), period_open=False),
+        a_situation(reading_tiers=(OCR,), carries_gst=True),
+    ):
+        decided = decide(how)
+        assert decided.action is Action.BLOCK
+        assert decided.entry is None
+
+
+def test_a_bill_read_by_two_tiers_needs_both_of_them_on_the_allowlist() -> None:
+    """The weakest reading decides, exactly as `lowest_confidence` does.
+
+    A ladder record can read the total off a text layer and guess the party off
+    a photograph, and "some of this was read properly" is not the fact the owner
+    granted the auto-post to. `any` here instead of `all` would post a bill
+    whose supplier name came out of an OCR guess.
+    """
+    decided = decide(a_situation(reading_tiers=(TEXT_LAYER, OCR)))
+
+    assert decided.action is Action.ASK
+    assert decided.entry is None
+
+
+def test_a_caller_that_names_no_tier_at_all_does_not_auto_post() -> None:
+    """FAILS CLOSED, which is what makes the default on this field safe.
+
+    An empty tuple is a caller that did not say how the bill was read, and
+    nobody-said is not evidence of a text layer. `all()` over an empty tuple is
+    True, so the emptiness is checked on its own - without that line a caller
+    who stated nothing would clear a condition the owner wrote to be explicit.
+    """
+    decided = decide(a_situation(reading_tiers=()))
+
+    assert decided.action is Action.ASK
+    assert decided.entry is None
+
+
+def test_the_tier_sentence_says_what_happened_and_names_no_tier_of_ours() -> None:
+    """A person being asked has to know why. "I am not sure enough" is about the
+    reading; this is about the WAY it was read, and a tier name is our
+    vocabulary - `free_ocr` on somebody's screen explains nothing."""
+    said = decide(a_situation(reading_tiers=(OCR,))).said
+
+    assert "read this way" in said
+    assert OCR not in said
+    assert "tier" not in said
+
+
+def test_the_auto_post_allowlist_holds_exactly_one_tier() -> None:
+    """THE COUNT IS ASSERTED so the list cannot be widened quietly.
+
+    Same technique as `test_adversarial_amounts_and_states.py::test_eight_of_
+    the_thirteen_state_names_do_not_exist_in_the_shipped_package`: widening is
+    allowed, but only together with this number, which is one line in a diff a
+    reviewer cannot miss.
+
+    The owner wrote `["text_layer"]`; the string here is `pdf_text_layer`,
+    because that is what `extract/textlayer.py` actually stamps and an allowlist
+    matching nothing would refuse every bill in the product. `tests/
+    test_gate.py` binds the two so a rename of the reader's stamp breaks loudly.
+
+    `typed_text` IS DELIBERATELY ABSENT. A person typing a sentence is not a
+    pixel read and a case can be made for it, but the owner's list has one entry
+    and this is not the place that decision gets made.
+    """
+    assert len(AUTO_POST_ALLOWED_TIERS) == 1
+    assert frozenset({TEXT_LAYER}) == AUTO_POST_ALLOWED_TIERS
+    assert "typed_text" not in AUTO_POST_ALLOWED_TIERS
+
+
+def test_the_two_confidence_floors_are_still_exactly_where_the_owner_put_them() -> None:
+    """OWNER DECISION 2 IS A CONFIGURATION CHANGE, NOT A THRESHOLD CHANGE, and
+    this is the test that says so. The allowlist is a fourth condition beside
+    the confidence band, not a way of moving it: a change that got the tier
+    right by nudging 0.95 would pass every other test in this section."""
+    assert AUTO_POST_FLOOR == 0.95
+    assert ASK_FLOOR == 0.70
 
 
 # ---- hard rules, each of which always blocks --------------------------------

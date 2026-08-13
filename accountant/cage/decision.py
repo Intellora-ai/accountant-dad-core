@@ -195,6 +195,46 @@ ASK_FLOOR: Final = 0.70
 #: threshold drift and the sentence is the half a person reads.
 _ASK_FLOOR_IN_100: Final = round(ASK_FLOOR * 100)
 
+#: WHICH READING TIERS MAY WRITE INTO SOMEBODY'S BOOKS UNATTENDED.
+#:
+#: Owner decision 2, 2026-08-13, verbatim: "We do not hard-code 'photos never
+#: auto-post'. Instead, auto-post eligibility is controlled by reading tier +
+#: confidence + safety checks, not by media type alone." Auto-post now needs
+#: FOUR things and not three: a non-GST purchase, every check passing,
+#: confidence at or above `AUTO_POST_FLOOR`, and a tier on this list.
+#:
+#: "OCR-based reads (photos) are currently excluded from auto-post in the
+#: default configuration, even if confidence >= 0.95. This is a configuration
+#: choice, not a threshold change. Adding OCR tiers to this allowlist is a
+#: future, owner-approved task."
+#:
+#: THIS IS NOT A THRESHOLD AND IT DID NOT MOVE ONE. `AUTO_POST_FLOOR` is 0.95
+#: and `ASK_FLOOR` is 0.70, both untouched by this decision and both asserted in
+#: `tests/test_decision.py` beside the tests for this list. A tier that is not
+#: here does not become postable at 0.99, and a tier that is here does not
+#: become postable at 0.90.
+#:
+#: THE STRING IS `pdf_text_layer` AND THE OWNER WROTE `text_layer`. The owner
+#: named the tier; `extract/textlayer.py` stamps the name, and an allowlist
+#: holding a string no reader ever writes would refuse every bill in the
+#: product while looking exactly like a working one. `tests/test_gate.py` binds
+#: this entry to `textlayer.SOURCE` so a rename there fails loudly instead of
+#: silently emptying this list. The naming question is reported to the owner
+#: rather than answered here.
+#:
+#: `typed_text` IS NOT HERE, DELIBERATELY. A person typing a sentence reads no
+#: pixel and estimates nothing - `adapter.ENTITLED_TO_EXACT` already treats it
+#: as a character tier - so there is a case for it. The owner's list has one
+#: entry, this module implements the list it was given, and the measured cost is
+#: reported: `demo_safety_cage.py` posted three bills before this decision and
+#: posts none after it, because every input in it is a typed sentence.
+#:
+#: A `frozenset` where the owner wrote a list, for the same reason
+#: `DOCUMENT_LAWS` is one: this is asked `in` and nothing else, order means
+#: nothing, and a mutable module-level list is one `.append()` away from being
+#: widened at run time by code that is not a review.
+AUTO_POST_ALLOWED_TIERS: Final[frozenset[str]] = frozenset({"pdf_text_layer"})
+
 #: The one law that is a statement about the BOOKS rather than about the
 #: document. Taken from the function's own name rather than typed again: the
 #: entry in `conservation.LAWS` and the function that produces it are the same
@@ -366,6 +406,20 @@ NUMBERS_DO_NOT_ADD_UP: Final = (
 _NOT_SURE_ENOUGH: Final = (
     "I am not sure enough about what this bill says to post it on my own, so I "
     "need to check with you first."
+)
+
+#: Owner decision 2, 2026-08-13. Deliberately says nothing about photographs,
+#: because the rule is about the reading tier and not about the media type - the
+#: owner's own first sentence. It names no tier: `free_ocr` is our vocabulary
+#: and explains nothing to the person whose bill it is.
+#:
+#: One sentence for both ways of failing the check - a tier that is not on the
+#: allowlist, and a caller that named no tier at all - because a person can do
+#: exactly the same thing about either, and the second is a bug in our plumbing
+#: that a second sentence on their screen would not help them with.
+_TIER_NOT_CLEARED_TO_POST: Final = (
+    "Bills read this way are not posted on their own yet, so I need to check "
+    "with you first."
 )
 
 _WHICH_WAY_ROUND: Final = (
@@ -592,6 +646,33 @@ class Situation:
     #: the 3rd of April or the 4th of March. The names are the caller's own
     #: vocabulary and are never shown to a person; only the count is.
     ambiguous_fields: tuple[str, ...] = ()
+    #: HOW this bill was read: one tier name per field, deduplicated. Owner
+    #: decision 2, 2026-08-13 - auto-post needs a tier on
+    #: `AUTO_POST_ALLOWED_TIERS`, and everything else is capped at ASK. It is a
+    #: ceiling and not a hard rule, exactly like `pdf_repaired` - see `_asking`.
+    #:
+    #: EVERY tier, not the best one, for the same reason `lowest_confidence` is
+    #: a minimum: `extract/ladder.py` can read a total off a text layer and
+    #: guess the party off a photograph, and the strongest tier on a bill
+    #: describes the field it read and no other.
+    #:
+    #: IT HAS A DEFAULT, WHICH IS THE OPPOSITE OF THE FIELDS ABOVE, AND THE
+    #: REASON IS THE ONE `gate.py`'s docstring states about `net_paise`: a
+    #: default is safe when forgetting it fails CLOSED. `()` is a caller that
+    #: named no tier, `all()` over it is not consulted (see `_may_auto_post`),
+    #: and the outcome is one question - never a post. There is no dangerous
+    #: default here the way `period_open=True` would be, so a `TypeError` would
+    #: buy loudness at the cost of every existing call site and no safety.
+    #:
+    #: NOT DERIVED FROM `observation`, though `wall.Field.source` carries the
+    #: same word for a field the reader read. That string is free text - it also
+    #: carries `not_found: ...` sentences and `lying.py`'s own labels - and
+    #: matching an allowlist against free text makes a safety rule out of a
+    #: message written for a person. `gate.py` fills both from one dictionary,
+    #: so in the product they cannot disagree; a caller that hand-builds an
+    #: observation and states a contradicting tier is lying to itself and
+    #: nothing here can tell.
+    reading_tiers: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -917,6 +998,39 @@ def _repair_blocks(repaired: object) -> list[str]:
     return [_REPAIR_UNKNOWN]
 
 
+def _may_auto_post(tiers: object) -> bool:
+    """Is EVERY tier this bill was read by cleared to write unattended?
+
+    Owner decision 2, 2026-08-13. Three ways to answer no, and the first two are
+    the ones a reviewer should look at hardest:
+
+        not a tuple   a caller whose plumbing is wrong. A bare string would
+                      otherwise be iterated one CHARACTER at a time, and this
+                      returning False on it is the same fail-closed direction
+                      `_repair_blocks` takes on a value nobody can read. It
+                      capped at ASK rather than blocking, because the owner's
+                      rule 4 is about auto-post and nothing else.
+        empty         nobody said how this was read. `all()` over an empty
+                      tuple is True, so without this clause a caller that
+                      stated nothing would clear the condition the owner wrote
+                      to be explicit - the check would pass by having no
+                      inputs, which is the shape of the vacuous guard `wall.py`
+                      shipped once.
+        one not on the list   `all` and not `any`. A ladder record can read the
+                      total off a text layer and guess the party off a
+                      photograph; "some of it was read properly" is not what
+                      the owner cleared.
+    """
+    if type(tiers) is not tuple or not tiers:
+        return False
+    # The `cast` carries the type test above past the checker and asserts
+    # nothing new: `object` is the honest parameter type here, the same as
+    # `_repair_blocks`, because the values that make this interesting are the
+    # ones no annotation would have stopped.
+    stated = cast(tuple[object, ...], tiers)
+    return all(tier in AUTO_POST_ALLOWED_TIERS for tier in stated)
+
+
 def _account_blocks(situation: Situation) -> list[str]:
     """Only what no answer could fix. A missing account is a question, not this.
 
@@ -999,6 +1113,24 @@ def _asking(situation: Situation, seen: Observation) -> tuple[str, ...]:
         # nothing to confirm about, and anything else has already blocked in
         # `_repair_blocks` and never reaches this function.
         reasons.append(_WAS_REPAIRED)
+    if not _may_auto_post(situation.reading_tiers):
+        # OWNER DECISION 2, 2026-08-13: "auto-post eligibility is controlled by
+        # reading tier + confidence + safety checks, not by media type alone",
+        # and "the allowed reading tier list for auto-post is ["text_layer"]
+        # only".
+        #
+        # HERE, BESIDE THE REPAIR CEILING, AND FOR THE SAME REASON. Written as
+        # an early `return _spoken(ASK, ...)` it would overturn a block on a
+        # photographed bill whose numbers do not add up - the allowlist would
+        # become a bypass rather than a ceiling. Written as one more reason to
+        # ask it can only ever lower the best outcome from post to ask, and
+        # `_blocking` has already had the last word by the time this runs.
+        #
+        # It is a fact about the reading rather than about the bill, which is
+        # why it sits next to the repair ceiling and ahead of the confidence
+        # band: a person reading two sentences reads the same two in the same
+        # order on every run.
+        reasons.append(_TIER_NOT_CLEARED_TO_POST)
     if situation.ambiguous_fields:
         count = len(situation.ambiguous_fields)
         thing = "thing" if count == 1 else "things"

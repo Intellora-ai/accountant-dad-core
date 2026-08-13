@@ -221,6 +221,30 @@ def _sure(record: ExtractedRecord, name: str) -> float:
     return EXACT if stated is None else stated
 
 
+def _tiers(record: ExtractedRecord) -> tuple[str, ...]:
+    """Which reading tiers this record's four fields came from, deduplicated.
+
+    Owner decision 2, 2026-08-13. `decision.decide` needs the tier to answer its
+    fourth auto-post condition and must not import a reader to get it; this is
+    the seam, and it is three lines because the fact is already on the record -
+    `per_field_source` is written by whichever rung read each field.
+
+    EVERY FIELD, INCLUDING THE ONES NOBODY READ. An unread field arrives here as
+    `not_found: ...`, which is on no allowlist and therefore caps the bill at
+    ASK. That costs nothing real - an unread field is confidence 0.0 and blocks
+    two layers earlier - and filtering would be a special case whose only effect
+    is to make the tuple prettier.
+
+    ORDER IS `FIELDS` ORDER AND DUPLICATES ARE DROPPED, via `dict.fromkeys`
+    rather than a set, so the same record produces the same tuple on every run.
+    A set would reorder it per process and put a different sentence in the log
+    for the same bill.
+    """
+    return tuple(
+        dict.fromkeys(_stated(record, name) for name in ExtractedRecord.FIELDS)
+    )
+
+
 def _read_field(record: ExtractedRecord, name: str, value: object) -> Field:
     """One field of the observation: what was read, and how sure we are of it."""
     if not _was_read(record, name, value):
@@ -422,5 +446,10 @@ def gate(
             debit_account=draft.voucher.debit_account,
             credit_account=draft.voucher.credit_account,
             ambiguous_fields=ambiguous_fields,
+            # NOT a parameter of this function, and that is the point: the
+            # record already says which rung read each field, so asking the
+            # caller would invite an answer that disagrees with the reading it
+            # is about. Owner decision 2, 2026-08-13 - see `_tiers`.
+            reading_tiers=_tiers(draft.record),
         )
     )
