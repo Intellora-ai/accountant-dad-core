@@ -245,16 +245,116 @@ def test_each_of_the_seven_fields_has_somewhere_to_live() -> None:
     assert {"company_key", "operation_id"} <= columns
 
 
-def test_no_authentication_dependency_was_added() -> None:
-    """`dependencies = []` and it stays that way.
+#: Identity and authentication packages, by name. The common ones, listed so
+#: the failure message can say what arrived.
+IDENTITY_LIBRARIES = (
+    "authlib",
+    "python-jose",
+    "pyjwt",
+    "passlib",
+    "bcrypt",
+    "argon2",
+    "oauthlib",
+    "requests-oauthlib",
+    "python-keycloak",
+    "msal",
+)
 
-    Coarse actor labels were chosen precisely so no identity subsystem was
-    needed. If this ever fails, the actor field has stopped meaning what the
-    owner approved.
+#: Fragments that catch the identity library nobody here has heard of. A named
+#: list alone is defeated by the next package; these are matched as substrings,
+#: case-insensitively, over the declared name of every dependency.
+IDENTITY_WORDS = ("auth", "oauth", "jwt", "identity", "oidc", "saml", "ldap")
+
+
+def declared_dependencies() -> list[str]:
+    """Every dependency this project declares, runtime and dev groups alike.
+
+    An auth library arriving as a dev tool is still an auth library in the
+    lockfile, so the scan covers every group and not only the runtime one.
     """
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    project = pyproject["project"]
+    declared = list(project["dependencies"])
+    for group in project.get("optional-dependencies", {}).values():
+        declared.extend(group)
+    return declared
 
-    assert pyproject["project"]["dependencies"] == []
+
+def identity_dependencies(declared: list[str]) -> list[str]:
+    return [
+        item
+        for item in declared
+        if any(name in item.lower() for name in IDENTITY_LIBRARIES)
+        or any(word in item.lower() for word in IDENTITY_WORDS)
+    ]
+
+
+def test_no_authentication_dependency_was_added() -> None:
+    """No identity library is declared, in any group. **Not a dependency count.**
+
+    Until 2026-08-13 this read `dependencies == []`, which was an EXACT proxy
+    for the claim while the list was empty: nothing declared means no auth
+    library declared. The list is no longer empty — `D-30` cleared `pypdf`,
+    `pytesseract` and `Pillow` — so the proxy stopped being exact, and a PDF
+    parser has nothing to do with identity.
+
+    The claim being protected is unchanged: **no identity subsystem, two coarse
+    actor labels, owner decision Q8 = A.** It is now asserted directly instead
+    of by proxy. If this ever fails, the actor field has stopped meaning what
+    the owner approved.
+
+    Deliberately NOT a copy of `APPROVED_RUNTIME_DEPENDENCIES` from
+    `tests/test_no_reader.py`. That file owns *which* packages exist; this one
+    owns *what kind* may exist, in every group. Two tests asserting the same
+    fact would mean one of them was not earning its place.
+    """
+    found = identity_dependencies(declared_dependencies())
+
+    assert found == [], (
+        "an authentication or identity library is declared. The actor field is "
+        "two coarse labels precisely because no identity subsystem exists; a "
+        f"library that can establish who someone is breaks that: {found}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("label", "planted"),
+    [
+        ("a named one", "pyjwt>=2.9"),
+        ("another named one", "Authlib>=1.3"),
+        ("a password hasher", "passlib[bcrypt]>=1.7"),
+        ("Microsoft's", "msal>=1.31"),
+        ("one nobody listed, caught by the word", "django-allauth>=65.0"),
+        ("one nobody listed, caught by a different word", "python-ldap>=3.4"),
+    ],
+)
+def test_the_authentication_dependency_guard_actually_catches_one(
+    label: str, planted: str
+) -> None:
+    """Without this the assertion above is vacuous. It would have passed on an
+    empty list for free; now that the list is not empty, something has to prove
+    the scan still bites."""
+    real = declared_dependencies()
+
+    assert identity_dependencies(real) == [], "the live scan should be clean"
+    assert identity_dependencies([*real, planted]) == [planted], (
+        f"{label} slipped past the identity guard, so the guard proves nothing"
+    )
+
+
+def test_the_identity_guard_does_not_fire_on_the_tools_already_here() -> None:
+    """The disconfirming case. A guard that flags `pip-audit` or `pytesseract`
+    gets weakened the first time somebody runs it, and then it guards nothing.
+
+    `audit` is not `auth`, and neither is `authored`; this is the check that
+    the substring net is aimed rather than greedy.
+    """
+    declared = declared_dependencies()
+
+    assert len(declared) >= 15, "the scan read almost no dependencies"
+    assert "pypdf>=5.0" in declared, "the runtime group was not scanned"
+    assert "pip-audit>=2.10" in declared, "the dev group was not scanned"
+    assert identity_dependencies(declared) == []
 
 
 def test_there_are_exactly_two_actor_labels_and_neither_is_an_identity() -> None:
