@@ -1608,3 +1608,175 @@ def test_a_field_the_stub_was_handed_still_names_the_stub_and_not_a_refusal():
     assert record.per_field_source["date"] == "stub"
     assert not record.per_field_source["date"].startswith(NOT_FOUND)
     assert record.per_field_source["party"].startswith(NOT_FOUND)
+
+
+# =============================================================================
+# THE FIRST NUMBER IS NOT THE AMOUNT
+# =============================================================================
+#
+# `_AMOUNT.findall(text)[0]` took the FIRST number in the document. On a
+# sentence a person typed that is the amount; on an invoice layout it is the
+# invoice number. Measured on the committed corpus before this section existed,
+# `.venv/bin/python scripts/run_ground_truth.py`:
+#
+#     20 of 20 text/plain cases returned a WRONG total_paise, sourced
+#     "typed_text", with no confidence anywhere on the record.
+#     GT-0001: TOTAL 147.50 on the bill, total_paise = 100, from "GT/0001".
+#
+# The media type could never have caught it. `text/plain` is `text/plain`
+# whether a person typed one line or pasted a whole bill, and that conflation
+# IS the defect - so what follows tests the SHAPE of the text and never the
+# type it arrived as.
+
+#: Every `text/plain` case in the committed pack. A `.txt` in that directory IS
+#: a `text/plain` case - `build_ground_truth.py` writes one extension per input
+#: type - so this cannot silently shrink to the cases that happen to pass.
+CORPUS_TEXT_CASES = sorted(
+    (REPO / "artifacts" / "ground_truth" / "documents").glob("GT-*.txt")
+)
+
+#: One corpus bill, verbatim. Six invoice signals: TAX INVOICE, INVOICE NO,
+#: HSN/SAC, PLACE OF SUPPLY, a TOTAL line, and five label:value lines.
+INVOICE_TEXT = (
+    REPO / "artifacts" / "ground_truth" / "documents" / "GT-0001.txt"
+).read_bytes()
+
+
+def test_an_invoice_shaped_text_refuses_the_amount_in_the_owners_words() -> None:
+    """GT-0001. It used to answer 100 paise for a bill of 14750."""
+    record = TypedTextExtractor().extract(INVOICE_TEXT, "text/plain")
+
+    assert record.total_paise is None
+    assert record.per_field_source["total_paise"] == (
+        f"{NOT_FOUND}: This document looks like an invoice, but the amount "
+        "could not be reliably read. Please upload a clearer image or a "
+        "proper PDF."
+    )
+
+
+@pytest.mark.parametrize("path", CORPUS_TEXT_CASES, ids=lambda p: p.stem)
+def test_every_text_plain_corpus_case_refuses_instead_of_returning_a_number(
+    path: pathlib.Path,
+) -> None:
+    """The measurement, pinned. 20 wrong extractions become 20 refusals.
+
+    A value here is not a near miss to be tuned away later - it is a number
+    with `typed_text` on it reaching the ledger, which this repository counts
+    as worse than reading nothing.
+    """
+    assert len(CORPUS_TEXT_CASES) == 20, "the pack holds twenty text/plain cases"
+    record = TypedTextExtractor().extract(path.read_bytes(), "text/plain")
+
+    assert record.total_paise is None, path.stem
+    assert record.tax_paise is None, path.stem
+    assert record.per_field_source["total_paise"].startswith(f"{NOT_FOUND}: ")
+    assert "looks like an invoice" in record.per_field_source["total_paise"]
+
+
+def test_the_control_a_typed_sentence_is_not_invoice_shaped_and_still_reads() -> None:
+    """THE CONTROL ON THE WHOLE SECTION. A refusal that refuses everything is
+    not a fix, it is a deletion, and it would pass every test above."""
+    record = TypedTextExtractor().extract(BILL, "text/plain")
+
+    assert record.total_paise == 420000
+    assert record.per_field_source["total_paise"] == "typed_text"
+
+
+def test_a_total_line_on_its_own_is_one_signal_and_one_signal_is_not_a_layout() -> None:
+    """THE THRESHOLD, pinned. `TOTAL 4200` fires exactly one invoice signal -
+    the total line - and nothing else. A person typing that into the box is
+    stating an amount, so one signal must not be enough to refuse.
+
+    Written after the mutant `_SIGNALS_FOR_AN_INVOICE = 1` survived every other
+    test in this section: the control below used `TOTAL` mid-sentence, which
+    fires ZERO signals, so it never reached the threshold at all. Both sides of
+    the boundary are here, so moving it either way goes red.
+    """
+    one = TypedTextExtractor().extract(b"TOTAL 4200", "text/plain")
+    two = TypedTextExtractor().extract(b"TOTAL 4200\nHSN/SAC: 9954", "text/plain")
+
+    assert one.total_paise == 420000
+    assert two.total_paise is None
+    assert "looks like an invoice" in two.per_field_source["total_paise"]
+
+
+def test_the_word_total_inside_a_sentence_is_not_a_total_line_at_all() -> None:
+    """The anchor, separately. A figure in a column begins its line; the same
+    word in the middle of something somebody typed is a person talking."""
+    record = TypedTextExtractor().extract(b"paid for the lot, TOTAL 4200", "text/plain")
+
+    assert record.total_paise == 420000
+
+
+def test_two_numbers_in_a_note_refuse_rather_than_taking_the_first() -> None:
+    """Not invoice-shaped, so rule 1 does not fire - and picking the first of
+    two is the same guess that produced the 20."""
+    record = TypedTextExtractor().extract(
+        b"paid Sharma Traders 1180 for cement plus 180 GST", "text/plain"
+    )
+
+    assert record.total_paise is None
+    assert record.per_field_source["total_paise"] == (
+        f"{NOT_FOUND}: Multiple numbers were found and the amount could not be "
+        "determined. Please specify the amount explicitly or upload a clearer "
+        "document."
+    )
+
+
+def test_the_control_a_rate_is_not_counted_as_a_second_number() -> None:
+    """`18%` is a rate, not an amount. Counting it would refuse every GST
+    sentence the product is built around, which is a fix that refuses
+    everything wearing the right sentence."""
+    record = TypedTextExtractor().extract(GST_BILL, "text/plain")
+
+    assert record.total_paise == 420000
+    assert record.tax_paise == 64068
+
+
+def test_a_four_digit_year_alone_is_not_read_as_an_amount() -> None:
+    """SANITY CHECK 1. One number in the text, and it is a year."""
+    record = TypedTextExtractor().extract(b"software renewal 2026", "text/plain")
+
+    assert record.total_paise is None
+    assert "a year" in record.per_field_source["total_paise"]
+
+
+def test_the_control_a_year_sized_amount_written_as_money_still_reads() -> None:
+    """The escape hatch, and the disconfirming case for the year check: ₹2,000
+    is an ordinary rent. Written as money it is money."""
+    record = TypedTextExtractor().extract(b"paid Landlord Rs. 2000 rent", "text/plain")
+
+    assert record.total_paise == 200000
+
+
+def test_something_phone_shaped_is_not_read_as_an_amount() -> None:
+    """SANITY CHECK 2. Ten bare digits is an Indian mobile number, and
+    ₹98,76,543.21 is what reading it as money would post."""
+    record = TypedTextExtractor().extract(b"call Sharma on 9876543210", "text/plain")
+
+    assert record.total_paise is None
+    assert "phone number" in record.per_field_source["total_paise"]
+
+
+def test_something_id_shaped_is_not_read_as_an_amount() -> None:
+    """SANITY CHECK 3. `GT/0001` is the string that produced the original 100
+    paise, and it is still not an amount when it is the only number there."""
+    record = TypedTextExtractor().extract(b"our reference GT/0001", "text/plain")
+
+    assert record.total_paise is None
+    assert "identifier" in record.per_field_source["total_paise"]
+
+
+def test_a_refused_amount_is_never_a_guess_carrying_a_low_score() -> None:
+    """The shape of every refusal above: no value, and a sentence saying why.
+
+    `ExtractedRecord` has no confidence field, so 'confidence 0.0' is expressed
+    the way `textlayer._field` already expresses it - a `None` value cannot
+    carry a score, and the source string is where the reason lives.
+    """
+    for data in (INVOICE_TEXT, b"paid X 1180 plus 180", b"renewal 2026"):
+        record = TypedTextExtractor().extract(data, "text/plain")
+
+        assert record.total_paise is None, data[:30]
+        assert record.per_field_source["total_paise"].startswith(f"{NOT_FOUND}: ")
+        assert record.per_field_source["total_paise"].strip() != NOT_FOUND

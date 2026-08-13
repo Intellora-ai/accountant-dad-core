@@ -309,6 +309,17 @@ def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
     version: 20 PDFs are read exactly, 6 of them refuse an ambiguous DD/MM date
     rather than guess it, and the other 60 cases reach no rung that can read
     them.
+
+    CORRECTED AGAIN 2026-08-13, PHASE 8 DECISION 1. `exit1_wrong_per_field` was
+    `total_paise: 20, tax_paise: 2` and `exit1_wrong_examples` held 10. Those
+    were real: `typed_text` took the FIRST number in each pasted invoice, which
+    is the invoice number, and stated `typed_text` as the source of it. The
+    owner closed that — invoice-shaped text is refused — so all four counts are
+    now zero and there are no examples left to show. **The exact scores below
+    did NOT move.** Nothing got better at reading a bill; twenty wrong totals
+    stopped reaching the ledger. If a later change makes `exit1_exact` rise
+    while these zeros hold, that is a reader improving. If the zeros rise, it
+    is this defect coming back.
     """
     section = runner.Section(name="s2_extraction")
     runner.run_s2(section)
@@ -332,16 +343,17 @@ def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
     }
 
     # THE NUMBER THAT MATTERS MORE THAN THE SCORE, and the reason this fact
-    # exists: 22 fields came back with a value and a source on them, and were
-    # not the truth. Every one is `typed_text` reading an invoice number as a
-    # total. Unread is safe; wrong at a stated source is what the cage is for.
+    # exists: a field that came back with a value and a source on it and was
+    # not the truth. It was 22 — every one `typed_text` reading an invoice
+    # number as a total — and it is now 0. Unread is safe; wrong at a stated
+    # source is what the cage is for, and this is the line that would go red.
     assert section.facts["exit1_wrong_per_field"] == {
         "date": 0,
         "party": 0,
-        "total_paise": 20,
-        "tax_paise": 2,
+        "total_paise": 0,
+        "tax_paise": 0,
     }
-    assert len(section.facts["exit1_wrong_examples"]) == 10
+    assert section.facts["exit1_wrong_examples"] == []
 
     # The tier split, so one number cannot hide four different stories.
     assert section.facts["s2_rung_that_answered"] == {
@@ -354,10 +366,12 @@ def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
         "refused": 0,
         "wrong": 0,
     }
+    # The whole of DECISION 1, in one row. It read `0 / 0 / 20` — twenty
+    # values, none of them right, none of them refused.
     assert section.facts["s2_by_input_type"]["text"]["total_paise"] == {
         "exact": 0,
-        "refused": 0,
-        "wrong": 20,
+        "refused": 20,
+        "wrong": 0,
     }
 
     # And the run says out loud that it did not score the running application.
@@ -385,10 +399,14 @@ def test_a_refusal_that_states_a_reason_is_still_a_refusal():
     The backend now scored really does speak to some fields, so the numbers
     below are neither 0 nor 100 and a regression to either end is visible.
 
-    `total_paise` is 40 and not 20: `typed_text` speaks to the total on all 20
-    text cases and is WRONG on all 20 of them. Sourced and wrong is exactly what
-    this fact counts - it is a count of fields SPOKEN TO, never of fields right,
-    and `exit1_wrong_per_field` is where the difference is reported.
+    CORRECTED AGAIN 2026-08-13, PHASE 8 DECISION 1. `total_paise` was 40 and
+    `tax_paise` 22, because `typed_text` SPOKE TO the total on all 20 text
+    cases and was wrong on all 20. It now refuses them, so it speaks to
+    neither and both drop to 20 — the 20 the PDF rung reads. This fact counts
+    fields SPOKEN TO and never fields right, so a drop here is a backend that
+    stopped answering, which is the intended change and not a regression. The
+    gate below still FAILS, which is what keeps this test honest: a comparison
+    broken the CodeAnt way would report 100.
     """
     section = runner.Section(name="s2_extraction")
     runner.run_s2(section)
@@ -396,8 +414,8 @@ def test_a_refusal_that_states_a_reason_is_still_a_refusal():
     assert section.facts["s2_per_field"] == {
         "date": 14,
         "party": 20,
-        "total_paise": 40,
-        "tax_paise": 22,
+        "total_paise": 20,
+        "tax_paise": 20,
     }
     scored = {g.name: g for g in section.gates}["s2_extraction_scored"]
     assert scored.status == runner.FAIL

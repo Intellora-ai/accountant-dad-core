@@ -1,13 +1,13 @@
 {
   "verdict": "FAIL",
   "exit_code": 1,
-  "generated_at": "2026-08-13T01:18:37.838327+00:00",
+  "generated_at": "2026-08-13T02:18:47.785606+00:00",
   "harness_error": "",
   "provenance": {
     "cwd": "/Users/tanveersidhu/ACCOUNTANT",
     "accountant__file__": "/Users/tanveersidhu/ACCOUNTANT/accountant/__init__.py",
     "python": "3.14.6",
-    "commit": "34e4a5050fb7b70707c135f864575ffb47133657",
+    "commit": "3a7efc75785d951ceb820a22ffd93bcb1de49b29",
     "branch": "cage/safety-layer",
     "worktree": "/Users/tanveersidhu/ACCOUNTANT",
     "dirty": "yes"
@@ -48,7 +48,7 @@
           "name": "exit1_generated_truth_extraction",
           "status": "FAIL",
           "measured": "{\"date\": 14, \"party\": 20, \"tax_paise\": 20, \"total_paise\": 20}",
-          "detail": "ladder backend, 80 renderable cases, exact matches per field {'date': 14, 'party': 20, 'total_paise': 20, 'tax_paise': 20}, required 76; WRONG rather than unread, per field, over all 100 cases: {'date': 0, 'party': 0, 'total_paise': 20, 'tax_paise': 2}. Rung that answered: {'ladder': 60, 'pdf_text_layer': 20, 'typed_text': 20}. The application default is 'typed_text', which is NOT the backend scored here. GENERATED_TRUTH from canonical JSON, SYNTHETIC_EVIDENCE, and never evidence about real-world reader accuracy. 40 of the 80 renderable cases reach no rung that can read them at all: 20 DOCX, which no reader here opens, and 20 PNG, whose tier is not wired. docs/EXTRACTION_MEASURED.md carries the split per input type and the count of fields that came back WRONG rather than unread."
+          "detail": "ladder backend, 80 renderable cases, exact matches per field {'date': 14, 'party': 20, 'total_paise': 20, 'tax_paise': 20}, required 76; WRONG rather than unread, per field, over all 100 cases: {'date': 0, 'party': 0, 'total_paise': 0, 'tax_paise': 0}. Rung that answered: {'ladder': 60, 'pdf_text_layer': 20, 'typed_text': 20}. The application default is 'typed_text', which is NOT the backend scored here. GENERATED_TRUTH from canonical JSON, SYNTHETIC_EVIDENCE, and never evidence about real-world reader accuracy. 40 of the 80 renderable cases reach no rung that can read them at all: 20 DOCX, which no reader here opens, and 20 PNG, whose tier is not wired. docs/EXTRACTION_MEASURED.md carries the split per input type and the count of fields that came back WRONG rather than unread."
         },
         {
           "name": "exit2_unrenderable_input_is_explicit",
@@ -59,8 +59,8 @@
         {
           "name": "s2_extraction_scored",
           "status": "FAIL",
-          "measured": "{\"date\": 14, \"party\": 20, \"tax_paise\": 22, \"total_paise\": 40}",
-          "detail": "ladder backend, 100 cases, per-field hits {'date': 14, 'party': 20, 'total_paise': 40, 'tax_paise': 22}. This asks whether every field was SPOKEN TO, which two of the five input types cannot be: a DOCX and a pixel-free JPEG reach no rung, and a refusal is the correct answer rather than a hit."
+          "measured": "{\"date\": 14, \"party\": 20, \"tax_paise\": 20, \"total_paise\": 20}",
+          "detail": "ladder backend, 100 cases, per-field hits {'date': 14, 'party': 20, 'total_paise': 20, 'tax_paise': 20}. This asks whether every field was SPOKEN TO, which two of the five input types cannot be: a DOCX and a pixel-free JPEG reach no rung, and a refusal is the correct answer rather than a hit."
         }
       ],
       "facts": {
@@ -68,8 +68,8 @@
         "s2_per_field": {
           "date": 14,
           "party": 20,
-          "total_paise": 40,
-          "tax_paise": 22
+          "total_paise": 20,
+          "tax_paise": 20
         },
         "s2_backend": "ladder",
         "s2_backend_is_the_application_default": false,
@@ -181,13 +181,13 @@
             },
             "total_paise": {
               "exact": 0,
-              "refused": 0,
-              "wrong": 20
+              "refused": 20,
+              "wrong": 0
             },
             "tax_paise": {
               "exact": 0,
-              "refused": 18,
-              "wrong": 2
+              "refused": 20,
+              "wrong": 0
             }
           }
         },
@@ -201,21 +201,10 @@
         "exit1_wrong_per_field": {
           "date": 0,
           "party": 0,
-          "total_paise": 20,
-          "tax_paise": 2
+          "total_paise": 0,
+          "tax_paise": 0
         },
-        "exit1_wrong_examples": [
-          "GT-0001 text total_paise: 100 sourced 'typed_text'",
-          "GT-0002 text total_paise: 200 sourced 'typed_text'",
-          "GT-0003 text total_paise: 300 sourced 'typed_text'",
-          "GT-0004 text total_paise: 400 sourced 'typed_text'",
-          "GT-0005 text total_paise: 500 sourced 'typed_text'",
-          "GT-0006 text total_paise: 600 sourced 'typed_text'",
-          "GT-0007 text total_paise: 700 sourced 'typed_text'",
-          "GT-0008 text total_paise: 800 sourced 'typed_text'",
-          "GT-0009 text total_paise: 900 sourced 'typed_text'",
-          "GT-0010 text total_paise: 1000 sourced 'typed_text'"
-        ],
+        "exit1_wrong_examples": [],
         "exit1_required": 76,
         "exit2_unrenderable_cases": 20,
         "exit2_unsafe": [],

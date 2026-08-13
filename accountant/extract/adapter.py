@@ -82,7 +82,11 @@ class Extractor(Protocol):
 # `\.\d+`, not `\.\d{1,2}`. Capturing at most two decimals meant "10.005"
 # matched as "10.00" and the half-paise was gone before any conversion could
 # object to it. The truncation was in the pattern, not in the arithmetic.
-_AMOUNT = re.compile(r"(?:rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)", re.I)
+#
+# `\d[\d,]*`, not `[\d,]+`. The old class matched a BARE COMMA - "paid for the
+# lot, TOTAL 4200" found "," first, `_to_paise` could make nothing of it, and
+# the sentence read as having no amount at all. A number starts with a digit.
+_AMOUNT = re.compile(r"(?:rs\.?|₹)?\s*(\d[\d,]*(?:\.\d+)?)", re.I)
 _GST_PCT = re.compile(
     r"(\d{1,2}(?:\.\d+)?)\s*%\s*gst|gst\s*@?\s*(\d{1,2}(?:\.\d+)?)\s*%", re.I
 )
@@ -95,6 +99,196 @@ _PARTY = re.compile(
 
 
 _HUNDRED = Decimal(100)
+
+
+# =============================================================================
+# THE FIRST NUMBER IS NOT THE AMOUNT
+# =============================================================================
+#
+# `_AMOUNT.findall(text)[0]` took the FIRST number in the text. On a sentence a
+# person typed that is the amount. On an invoice layout it is the invoice
+# number, and the backend could not tell the two apart because it checked the
+# MEDIA TYPE and never the SHAPE - `text/plain` is `text/plain` whether one
+# line was typed or a whole bill was pasted, and that conflation IS the defect.
+#
+# Measured on the committed pack before any of this existed
+# (`scripts/run_ground_truth.py`): 20 of 20 `text/plain` cases returned a WRONG
+# `total_paise` sourced `typed_text`. GT-0001 states TOTAL 147.50 and this
+# backend answered 100 paise, read off `GT/0001`.
+#
+# Everything below decides from the shape of the text. Nothing here opens a
+# container or interprets a byte: it is still string parsing, and reading a
+# document is still the third-party backend's job.
+
+#: What the person reads when the text is laid out like a bill. Owner wording,
+#: PHASE 8 DECISION 1, verbatim - it names the two things they can actually do.
+INVOICE_SHAPED = (
+    "This document looks like an invoice, but the amount could not be reliably "
+    "read. Please upload a clearer image or a proper PDF."
+)
+
+#: What the person reads when the text is NOT invoice-shaped but carries more
+#: than one number. Owner wording, verbatim.
+AMBIGUOUS_NUMBERS = (
+    "Multiple numbers were found and the amount could not be determined. Please "
+    "specify the amount explicitly or upload a clearer document."
+)
+
+#: Invoice SEMANTICS. Each is a thing only a bill says, and each is checked
+#: against the text rather than against the media type.
+_INVOICE_MARKS = (
+    re.compile(r"\btax\s+invoice\b", re.I),
+    re.compile(r"\binvoice\s*(?:no\b|number\b|#)", re.I),
+    re.compile(r"\bhsn\s*/?\s*sac\b", re.I),
+    re.compile(r"\bplace\s+of\s+supply\b", re.I),
+    re.compile(r"\bgstin\b", re.I),
+    # A TOTAL LINE, not the word "total". A line that BEGINS with it is a
+    # figure in a column; the same word inside a sentence is somebody talking.
+    re.compile(r"^[ \t|]*(?:grand\s+|sub\s*)?total\b", re.I | re.M),
+    re.compile(r"^[ \t|]*amount\s+payable\b", re.I | re.M),
+)
+
+#: `SUPPLIER: SHARMA TRADERS` - one line, a label, a colon, a value. Two or
+#: more of them is a layout; one is a person writing a note with a colon in it.
+_LABEL_LINE = re.compile(r"^[ \t]*[A-Za-z][A-Za-z0-9 /.&()-]{0,40}:[ \t]*\S", re.M)
+
+#: TWO signals, not one. One is a word - "TOTAL 4200" at the start of a typed
+#: line is a person stating an amount, and refusing it would delete the
+#: backend's whole job. Two independent invoice semantics in one text is a
+#: layout. Measured: all 20 corpus cases carry six.
+_SIGNALS_FOR_AN_INVOICE = 2
+
+#: A rate is not an amount. `18%` in "including 18% GST" must not count as a
+#: second number, or every GST sentence the product is built around refuses -
+#: which is a fix that refuses everything wearing the right sentence.
+_IS_A_RATE = re.compile(r"\s*%")
+
+#: A number written with a currency word, a decimal point or a digit-grouping
+#: comma has been written AS MONEY by the person. That is the escape hatch out
+#: of the year and phone checks below: `Rs. 2000` and `2000.00` are amounts,
+#: `2000` on its own is not clearly one.
+_MONEY_MARKED = re.compile(r"(?:rs\.?|₹)\s*$", re.I)
+
+#: Characters that glue a number into a larger token. `GT/0001`, `INV-2026`,
+#: `h1`, `12/08/2026`, `10:00`. A number wedged into one of those is a
+#: reference, a date or a time, and never a price.
+_GLUE_BEFORE = "/-#:"
+_GLUE_AFTER = "/-:"
+
+#: The window a bare four-digit number is a year rather than an amount in.
+_EARLIEST_YEAR = 1900
+_LATEST_YEAR = 2100
+
+#: An Indian mobile number is exactly ten digits. Read as rupees it posts
+#: ₹98,76,543.21, which is a plausible enough figure that nothing downstream
+#: would blink at it.
+_PHONE_DIGITS = 10
+
+
+@dataclass(frozen=True)
+class _Number:
+    """One number found in the text, with the context that says what it is."""
+
+    raw: str
+    money_marked: bool
+    glued: bool
+
+
+def _glued(text: str, start: int, end: int) -> bool:
+    """Is the number at `text[start:end]` wedged into a larger token?
+
+    Looks one character each way, and asks a different question on each side.
+    BEFORE: any letter or digit, or one of the separators - `GT/0001`, `h1`,
+    `INV-2026`. AFTER: a letter or a separator, but NOT a digit, because the
+    match already ran to the end of its own digits.
+    """
+    head, tail = text[start - 1 : start] if start else "", text[end : end + 1]
+    return bool(
+        (head and (head.isalnum() or head in _GLUE_BEFORE))
+        or (tail and (tail.isalpha() or tail in _GLUE_AFTER))
+    )
+
+
+def _numbers(text: str) -> list[_Number]:
+    """Every monetary-looking number in the text, in the order written.
+
+    A percentage is left out because it is a RATE, and counting rates would
+    turn "4200 including 18% GST" into two candidates. Everything else is kept,
+    including the things that turn out to be references and dates: the count is
+    how ambiguity is detected, so filtering first would hide the ambiguity.
+    """
+    found: list[_Number] = []
+    for match in _AMOUNT.finditer(text):
+        start, end = match.span(1)
+        if _IS_A_RATE.match(text, end):
+            continue
+        raw = match.group(1)
+        found.append(
+            _Number(
+                raw=raw,
+                money_marked=bool(
+                    _MONEY_MARKED.search(text[:start]) or "." in raw or "," in raw
+                ),
+                glued=_glued(text, start, end),
+            )
+        )
+    return found
+
+
+def _invoice_shaped(text: str) -> bool:
+    """Is this text laid out like a bill? Decided from the text, never the type."""
+    signals = sum(1 for mark in _INVOICE_MARKS if mark.search(text))
+    if len(_LABEL_LINE.findall(text)) >= 2:
+        signals += 1
+    return signals >= _SIGNALS_FOR_AN_INVOICE
+
+
+def _not_an_amount(number: _Number) -> str:
+    """Why this single number is not the amount, or "" when it is one.
+
+    Each check is separately named because each is separately wrong when it is
+    missing, and a check with no name cannot have a test that fails without it.
+    """
+    if number.glued:
+        return (
+            "the only number here is part of an identifier such as an invoice "
+            "or reference number, not an amount"
+        )
+    if number.money_marked:
+        # Written as money by the person who typed it. `Rs. 2000` is rent.
+        return ""
+    plain = number.raw
+    if len(plain) == 4 and _EARLIEST_YEAR <= int(plain) <= _LATEST_YEAR:
+        return (
+            "the only number here is a year, not an amount. Write it as money "
+            "- Rs. 2000 or 2000.00 - if it is one"
+        )
+    if len(plain) >= _PHONE_DIGITS:
+        return (
+            "the only number here is long enough to be a phone number rather "
+            "than an amount"
+        )
+    return ""
+
+
+def _amount(text: str) -> tuple[int | None, str]:
+    """The total in paise, or None and the sentence the person reads.
+
+    RULE 1 refuses invoice-shaped text outright rather than guessing at it.
+    RULE 2 allows exactly one number, and only when it survives the checks
+    above. RULE 3 - anything else - refuses, because choosing among several
+    numbers is the guess that produced the twenty wrong totals.
+    """
+    if _invoice_shaped(text):
+        return None, INVOICE_SHAPED
+    found = _numbers(text)
+    if not found:
+        return None, ""
+    if len(found) > 1:
+        return None, AMBIGUOUS_NUMBERS
+    if why := _not_an_amount(found[0]):
+        return None, why
+    return _to_paise(found[0].raw), ""
 
 
 def _media_type(mime: str) -> str:
@@ -203,9 +397,16 @@ class TypedTextExtractor:
 
         src: dict[str, str] = {}
 
-        amounts = _AMOUNT.findall(text)
-        total = _to_paise(amounts[0]) if amounts else None
-        src["total_paise"] = self.name if total is not None else NOT_FOUND
+        total, why = _amount(text)
+        # A refusal is a refusal: no value, and the sentence saying why on the
+        # row beside it. `ExtractedRecord` has no confidence column, and it
+        # needs none here - a field with no value cannot carry a score, which
+        # is exactly how `textlayer._field` already expresses 0.0. What must
+        # never happen is the third thing: a number with a low score on it.
+        if total is not None:
+            src["total_paise"] = self.name
+        else:
+            src["total_paise"] = f"{NOT_FOUND}: {why}" if why else NOT_FOUND
 
         tax = None
         m = _GST_PCT.search(text)

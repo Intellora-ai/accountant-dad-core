@@ -14,7 +14,7 @@ quoted with the commit beside them.
 | cwd | `/Users/tanveersidhu/ACCOUNTANT` |
 | accountant__file__ | `/Users/tanveersidhu/ACCOUNTANT/accountant/__init__.py` |
 | python | `3.14.6` |
-| commit | `34e4a5050fb7b70707c135f864575ffb47133657` |
+| commit | `3a7efc75785d951ceb820a22ffd93bcb1de49b29` |
 | branch | `cage/safety-layer` |
 | worktree | `/Users/tanveersidhu/ACCOUNTANT` |
 | dirty | `yes` |
@@ -26,9 +26,9 @@ quoted with the commit beside them.
 | manifest | `ground_truth_manifest_validates` | **PASS** | — | every manifest entry checked out |
 | manifest | `ground_truth_hashes_verify` | **PASS** | — | hashes verified by scripts/validate_ground_truth.py |
 | manifest | `gst_rule_cases_readable` | **PASS** | 5b2e44fe065b6bb58f81dda423f671783215ad3cef0f6dbfae4628afe6fbdb2c | sha256 5b2e44fe065b6bb5… |
-| s2_extraction | `exit1_generated_truth_extraction` | **FAIL** | {"date": 14, "party": 20, "tax_paise": 20, "total_paise": 20} | ladder backend, 80 renderable cases, exact matches per field {'date': 14, 'party': 20, 'total_paise': 20, 'tax_paise': 20}, required 76; WRONG rather than unread, per field, over all 100 cases: {'date': 0, 'party': 0, 'total_paise': 20, 'tax_paise': 2}. Rung that answered: {'ladder': 60, 'pdf_text_layer': 20, 'typed_text': 20}. The application default is 'typed_text', which is NOT the backend scored here. GENERATED_TRUTH from canonical JSON, SYNTHETIC_EVIDENCE, and never evidence about real-world reader accuracy. 40 of the 80 renderable cases reach no rung that can read them at all: 20 DOCX, which no reader here opens, and 20 PNG, whose tier is not wired. docs/EXTRACTION_MEASURED.md carries the split per input type and the count of fields that came back WRONG rather than unread. |
+| s2_extraction | `exit1_generated_truth_extraction` | **FAIL** | {"date": 14, "party": 20, "tax_paise": 20, "total_paise": 20} | ladder backend, 80 renderable cases, exact matches per field {'date': 14, 'party': 20, 'total_paise': 20, 'tax_paise': 20}, required 76; WRONG rather than unread, per field, over all 100 cases: {'date': 0, 'party': 0, 'total_paise': 0, 'tax_paise': 0}. Rung that answered: {'ladder': 60, 'pdf_text_layer': 20, 'typed_text': 20}. The application default is 'typed_text', which is NOT the backend scored here. GENERATED_TRUTH from canonical JSON, SYNTHETIC_EVIDENCE, and never evidence about real-world reader accuracy. 40 of the 80 renderable cases reach no rung that can read them at all: 20 DOCX, which no reader here opens, and 20 PNG, whose tier is not wired. docs/EXTRACTION_MEASURED.md carries the split per input type and the count of fields that came back WRONG rather than unread. |
 | s2_extraction | `exit2_unrenderable_input_is_explicit` | **PASS** | 0 | 20 unrenderable cases; every named field explicit not_found with a reason. ADAPTER_CONTRACT, never reader accuracy. no silent blank, no fabricated value |
-| s2_extraction | `s2_extraction_scored` | **FAIL** | {"date": 14, "party": 20, "tax_paise": 22, "total_paise": 40} | ladder backend, 100 cases, per-field hits {'date': 14, 'party': 20, 'total_paise': 40, 'tax_paise': 22}. This asks whether every field was SPOKEN TO, which two of the five input types cannot be: a DOCX and a pixel-free JPEG reach no rung, and a refusal is the correct answer rather than a hit. |
+| s2_extraction | `s2_extraction_scored` | **FAIL** | {"date": 14, "party": 20, "tax_paise": 20, "total_paise": 20} | ladder backend, 100 cases, per-field hits {'date': 14, 'party': 20, 'total_paise': 20, 'tax_paise': 20}. This asks whether every field was SPOKEN TO, which two of the five input types cannot be: a DOCX and a pixel-free JPEG reach no rung, and a refusal is the correct answer rather than a hit. |
 | gst_rules | `uncited_production_rules_is_zero` | **PASS** | — | 0 |
 | gst_rules | `every_rule_has_a_notification_number` | **PASS** | — | 0 |
 | gst_rules | `every_rule_has_a_retrieval_date` | **PASS** | — | 0 |
@@ -72,23 +72,12 @@ quoted with the commit beside them.
   },
   "exit1_renderable_cases": 80,
   "exit1_required": 76,
-  "exit1_wrong_examples": [
-    "GT-0001 text total_paise: 100 sourced 'typed_text'",
-    "GT-0002 text total_paise: 200 sourced 'typed_text'",
-    "GT-0003 text total_paise: 300 sourced 'typed_text'",
-    "GT-0004 text total_paise: 400 sourced 'typed_text'",
-    "GT-0005 text total_paise: 500 sourced 'typed_text'",
-    "GT-0006 text total_paise: 600 sourced 'typed_text'",
-    "GT-0007 text total_paise: 700 sourced 'typed_text'",
-    "GT-0008 text total_paise: 800 sourced 'typed_text'",
-    "GT-0009 text total_paise: 900 sourced 'typed_text'",
-    "GT-0010 text total_paise: 1000 sourced 'typed_text'"
-  ],
+  "exit1_wrong_examples": [],
   "exit1_wrong_per_field": {
     "date": 0,
     "party": 0,
-    "tax_paise": 2,
-    "total_paise": 20
+    "tax_paise": 0,
+    "total_paise": 0
   },
   "exit2_unrenderable_cases": 20,
   "exit2_unsafe": [],
@@ -197,13 +186,13 @@ quoted with the commit beside them.
       },
       "tax_paise": {
         "exact": 0,
-        "refused": 18,
-        "wrong": 2
+        "refused": 20,
+        "wrong": 0
       },
       "total_paise": {
         "exact": 0,
-        "refused": 0,
-        "wrong": 20
+        "refused": 20,
+        "wrong": 0
       }
     }
   },
@@ -211,8 +200,8 @@ quoted with the commit beside them.
   "s2_per_field": {
     "date": 14,
     "party": 20,
-    "tax_paise": 22,
-    "total_paise": 40
+    "tax_paise": 20,
+    "total_paise": 20
   },
   "s2_rung_that_answered": {
     "ladder": 60,
