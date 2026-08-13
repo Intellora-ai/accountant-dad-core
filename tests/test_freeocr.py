@@ -37,10 +37,15 @@ That a high score means a right answer. Failure mode F-02 is the engine
 reporting 96 on a digit it got wrong. Nothing computed from the engine's own
 opinion of itself can see that.
 
-That the engine is wired into the product. It is not. `registry._READY` does
-not carry this backend and `registry.available()` is asserted elsewhere to be
-exactly four names, so nothing reaches this code by uploading a document. What
-blocks the wiring is written into `docs/OCR.md` and is not a test change.
+That the engine is wired into the product. It is not. CORRECTED 2026-08-13:
+`registry.available()` is now asserted to be exactly SIX names, and this
+backend is still not one of them — it sits in `registry._NEEDS_WIRING`, which
+is the table for a backend that exists and cannot be built from a name. What it
+needs is a page reader: something that says which words on a page are the
+total, the tax, the date and the supplier. Nothing in this repository does
+that, because it cannot be checked without `H-02`. So nothing reaches this code
+by uploading a document, the number in that sentence changed and the fact did
+not, and what blocks the wiring is `docs/OCR.md` and not a test change.
 
 NO NETWORK. The only test here that starts a program is the one that measures
 the real engine, and it is SKIPPED WITH A STATED REASON when the engine is not

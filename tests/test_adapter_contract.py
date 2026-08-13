@@ -63,7 +63,7 @@ from dataclasses import replace
 import pytest
 
 from accountant import pipeline
-from accountant.extract import registry
+from accountant.extract import ladder, registry
 from accountant.extract.adapter import (
     NOT_FOUND,
     ExtractedRecord,
@@ -72,6 +72,7 @@ from accountant.extract.adapter import (
     TypedTextExtractor,
     UnavailableExtractor,
 )
+from accountant.extract.ladder import Ladder
 from accountant.extract.placeholder import PlaceholderReader
 from accountant.extract.service import (
     ALL_REASONS,
@@ -81,6 +82,7 @@ from accountant.extract.service import (
     ServiceExtractor,
     document_key,
 )
+from accountant.extract.textlayer import TextLayerReader
 from accountant.memory.bootstrap import bootstrap
 from accountant.memory.company import CompanyMemory
 from accountant.memory.store import MemoryStore
@@ -179,8 +181,16 @@ def service_for(data: bytes, **fields: object) -> ServiceExtractor:
 #: sourced, no silent blank, its own name on the row, no exception on bytes
 #: that are not text — is what stops "we have no reader" being expressed as a
 #: blank, and a backend exempt from those checks could express it as one.
+#:
+#: `TextLayerReader` and `Ladder` joined 2026-08-13 with their registration.
+#: They are the first two entries here that can actually READ something, which
+#: makes the record contract matter more rather than less: a rung that returns
+#: a value has somewhere new to leave a silent blank, and the router has a whole
+#: new way to lose one — by handing back a rung's record without checking it.
 CONFIGURATION_FREE: tuple[Callable[[], Extractor], ...] = (
     TypedTextExtractor,
+    TextLayerReader,
+    Ladder,
     StubExtractor,
     UnavailableExtractor,
     PlaceholderReader,
@@ -468,13 +478,25 @@ def test_every_extractor_the_package_defines_returns_the_same_type() -> None:
 
 
 def test_the_registry_builds_every_backend_it_says_is_available() -> None:
+    """CORRECTED 2026-08-13: four names became six when the readers were wired.
+
+    `pdf_text_layer` and `ladder` joined `_READY` the day `D-30` cleared the two
+    reader modules. The old four-name tuple was not weakened to a subset and is
+    not going to be: this is still an EXACT equality, because the thing it
+    guards is that a backend cannot appear in the registry without somebody
+    writing its name down here — and a reader arriving unannounced is precisely
+    the event this repository spends `tests/test_no_reader.py` on.
+    """
     built = {name: registry.build(name) for name in registry.available()}
 
-    # `no_reader` joined 2026-08-11 with the upload routes. Still an EXACT
-    # equality and still four names spelled out: the assertion is not loosened
-    # to a subset, because the thing it is guarding is that a backend cannot
-    # appear in the registry without somebody writing its name down here.
-    assert registry.available() == ("no_reader", "stub", "typed_text", "unavailable")
+    assert registry.available() == (
+        "ladder",
+        "no_reader",
+        "pdf_text_layer",
+        "stub",
+        "typed_text",
+        "unavailable",
+    )
     assert all(isinstance(b, Extractor) for b in built.values())
 
 
@@ -495,6 +517,84 @@ def test_the_registry_says_what_a_backend_still_needs_instead_of_unknown() -> No
 
     assert "reader_service" not in registry.available()
     assert "ServiceExtractor" in str(caught.value)
+
+
+def test_the_picture_reader_says_what_it_still_needs_rather_than_being_absent() -> None:
+    """ADDED 2026-08-13. `free_ocr` is on disk and is not buildable by name.
+
+    It is the second entry in `_NEEDS_WIRING` and the distinction it draws is
+    the one that file exists for: "there is no such backend" and "the backend
+    exists and something it needs has not been decided" send a person to
+    completely different places. What it needs is field detection, which needs
+    `H-02`, which is a pile of real bills nobody has supplied.
+    """
+    with pytest.raises(registry.UnknownBackend, match="it needs a page reader") as bad:
+        registry.build("free_ocr")
+
+    assert "free_ocr" not in registry.available()
+    assert "FreeReader" in str(bad.value)
+    assert "H-02" in str(bad.value)
+
+    # Two sentences about one gap, on purpose, and the assertion says which is
+    # which rather than that they match. This one names a constructor and an
+    # argument, for somebody wiring a backend. `ladder.NEEDS_A_PAGE_READER`
+    # names what to do instead, for somebody who just uploaded a photograph.
+    assert "FreeReader" not in ladder.NEEDS_A_PAGE_READER
+    assert "type this one in" in ladder.NEEDS_A_PAGE_READER
+
+
+def test_the_router_hands_typed_text_to_the_rung_that_already_read_it() -> None:
+    """The safety argument for `DEFAULT_BACKEND = "ladder"`, in its testable
+    form: on the media type the product runs on today, the router is not a
+    change. Same rung, same record, same number."""
+    routed = Ladder().extract(BILL, "text/plain")
+    direct = TypedTextExtractor().extract(BILL, "text/plain")
+
+    assert routed.backend == "typed_text"
+    assert field_values(routed) == field_values(direct)
+    assert routed.per_field_source == direct.per_field_source
+
+
+def test_the_router_hands_a_pdf_to_the_text_layer_rung_and_names_it() -> None:
+    """Routing is provable without a real PDF: these bytes reach the PDF rung
+    and are refused BY IT, in its words, under its name. A router that had
+    swallowed the document would answer under its own."""
+    record = Ladder().extract(b"not a pdf at all", "application/pdf")
+
+    assert record.backend == "pdf_text_layer"
+    assert not_found_fields(record) == set(ExtractedRecord.FIELDS)
+    assert "do not begin with %PDF-" in record.per_field_source["total_paise"]
+
+
+@pytest.mark.parametrize(
+    ("label", "mime"),
+    [
+        ("a photograph", "image/jpeg"),
+        ("a screenshot", "image/png"),
+        ("a Word file", "application/vnd.openxmlformats-officedocument"),
+        ("nothing declared", ""),
+    ],
+)
+def test_the_router_refuses_what_no_rung_reads_and_says_what_is_missing(
+    label: str, mime: str
+) -> None:
+    """A refusal that says "unsupported" tells a person to wait for a feature.
+    This one tells them what to do now, and it is the same sentence the registry
+    gives whoever tries to build the picture reader by name."""
+    record = Ladder().extract(b"\xff\xd8\xff\xe0", mime)
+
+    assert record.backend == "ladder", label
+    assert not_found_fields(record) == set(ExtractedRecord.FIELDS)
+    assert all(
+        ladder.NEEDS_A_PAGE_READER in source
+        for source in record.per_field_source.values()
+    )
+
+
+def test_the_router_reads_only_what_it_says_it_reads() -> None:
+    """The list is asserted rather than described, so a rung cannot arrive
+    without the count moving."""
+    assert Ladder().reads() == ("application/pdf", "text/plain")
 
 
 def test_the_default_backend_is_one_the_registry_can_actually_build() -> None:
