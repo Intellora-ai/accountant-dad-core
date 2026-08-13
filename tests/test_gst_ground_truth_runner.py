@@ -12,10 +12,44 @@ exit-2 situations that looked like scores.
 from __future__ import annotations
 
 import pathlib
+import shutil
 
 import pytest
 
 from scripts import run_ground_truth as runner
+
+#: The tesseract binary, or None. Two tests below read the picture rung's real
+#: output and their `party` counts move with it: 23 and 28 with an engine, 20
+#: without. That 20 is not a reader regression, it is the measured signature of
+#: a missing binary.
+ENGINE_ON_PATH = shutil.which("tesseract")
+
+#: OWNER DECISION 2026-08-13, and it reverses an earlier one on this same file.
+#:
+#: These two tests had NO guard on purpose: they are the only CI coverage of the
+#: whole `s2_extraction` benchmark table, and skipping them removes the benchmark
+#: from CI entirely. The owner first ruled to install the binary in CI instead.
+#:
+#: That ruling was made when the CI change looked like a two-line paste. It is
+#: three insertions across two workflow files, `.github/**` is write-denied to
+#: the agent at five separate mechanisms, and one hand-edit had already produced
+#: broken YAML. The owner then chose the guard.
+#:
+#: WHAT IS LOST, stated so nobody discovers it later: with no engine on a runner,
+#: CI stops checking the s2_extraction table. The benchmark is still measured on
+#: every local run and its numbers are recorded in `docs/EXTRACTION_MEASURED.md`,
+#: so the measurement survives - only the CI enforcement of it goes.
+#:
+#: `skipif`, not `importorskip`: a skip that names its reason is a fact a person
+#: can act on. `docs/CI_OCR_INSTALL.md` carries the three-insertion diff that
+#: makes these run again.
+NEEDS_THE_ENGINE = pytest.mark.skipif(
+    ENGINE_ON_PATH is None,
+    reason=(
+        "the tesseract binary is not on PATH, so the picture rung reads nothing "
+        "and the party counts collapse to 20. See docs/CI_OCR_INSTALL.md."
+    ),
+)
 
 
 def test_the_three_exit_codes_are_distinct_and_zero_means_everything_passed():
@@ -295,6 +329,7 @@ def test_the_paise_conversion_is_the_pack_representation_not_a_rounding():
     assert runner.paise_from_decimal(None) is None
 
 
+@NEEDS_THE_ENGINE
 def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
     """Two different claims. A backend that reads nothing and one that invents a
     value both fail EXIT 1; only the second also fails EXIT 2.
@@ -484,6 +519,7 @@ def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
     assert section.facts["exit2_unsafe"] == []
 
 
+@NEEDS_THE_ENGINE
 def test_a_refusal_that_states_a_reason_is_still_a_refusal():
     """CodeAnt, PR 37. A `!=` here counted every reason-bearing refusal as a hit.
 
