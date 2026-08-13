@@ -929,3 +929,50 @@ def test_a_situation_has_no_default_for_a_fact_nobody_looked_up() -> None:
 #    right numbers, only that the code implements them. Calibration needs
 #    labelled invoices this repository does not have (H-02), and inventing a
 #    threshold test would make a measurement out of an assumption.
+
+
+# ---- recovered 2026-08-13 ---------------------------------------------------
+# These three were written after a mutation run and a branch-coverage
+# measurement, then DELETED FROM DISK - not by anyone's edit, but by the
+# pre-commit hook. `prek` stashes unstaged changes to a patch file and restores
+# them afterwards; it timed out at two minutes in this shared tree and the
+# restore never ran, so the working copy simply lost them.
+#
+# Recovered from /Users/tanveersidhu/.cache/prek/patches/1786579290388-57829.patch
+# and re-verified against the restructured module rather than pasted back on
+# trust. Each one closes a branch that no other test reached, which is exactly
+# the kind of test whose loss nothing would have reported.
+
+
+def test_the_refusal_for_an_amount_that_is_not_money_uses_no_code_names() -> None:
+    """WRITTEN AFTER A MUTATION RUN, which is the only reason it exists.
+
+    Deleting the module's own amount check survived every other test here: the
+    wall refuses a float too, and the block catches it, so the outcome never
+    moved. What moved was the sentence - to "amount_paise must be a whole number
+    of paise, not float", which is our variable name on a stranger's screen.
+
+    So the outcome was never what that branch was for, and no test said so.
+    This one does.
+    """
+    seen = an_observation(total_paise=250_000.5)
+    said = decide(a_situation(observation=seen)).said
+    assert "amount_paise" not in said
+    assert "float" not in said
+
+
+def test_something_that_is_not_a_verdict_at_all_blocks() -> None:
+    """A tuple of the right length and the right shape, holding a bare string
+    where a result belongs. Found by measuring which branches no test reached -
+    the module refuses it, and until now nothing said so."""
+    not_a_result = ("debits_equal_credits: fine", *all_laws_pass()[1:])
+    assert decide(a_situation(conservation=not_a_result)).action is Action.BLOCK
+
+
+def test_a_decision_whose_sentence_is_only_whitespace_cannot_be_constructed() -> None:
+    """Reasons and the sentence are separate fields, so a decision can have one
+    and not the other. Found by measuring which branches no test reached: a
+    refusal that renders as an empty box on the page is a refusal the person
+    cannot act on, and it would have shipped."""
+    with pytest.raises(ValueError, match="sentence"):
+        Decided(action=Action.BLOCK, said="   ", reasons=("no",))

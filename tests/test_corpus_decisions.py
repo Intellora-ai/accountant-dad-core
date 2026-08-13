@@ -19,6 +19,21 @@ half and is worthless. So there are five hundred clean non-GST purchases as
 well, and if the cage refuses those, the refusal rate on the other half means
 nothing.
 
+WHAT IT MEASURED, 2026-08-13
+------------------------------
+    invalid   500/500 refused - 200 ask, 300 block, 0 post. The owner's floor
+              is 99.5%, which is 498. Nothing was adjusted to reach it.
+    writable  0/500 refusals came back holding a `LedgerEntry`. This is the
+              claim that matters, and it is stronger than the percentage above:
+              not "it said block" but "there is nothing in the result anybody
+              could write".
+    valid     500/500 post - 0 ask, 0 block.
+    runtime   0.013s to build and decide all thousand.
+
+The numbers are here rather than only in a commit message because a reader
+deciding whether to trust this file should not have to run `git log` to find out
+what it last measured, and a number that drifts should be visible in the diff.
+
 WHAT THIS FILE DOES NOT PROVE, SAID PLAINLY
 ---------------------------------------------
 It is SYNTHETIC. Every case here is a failure somebody thought to write down,
