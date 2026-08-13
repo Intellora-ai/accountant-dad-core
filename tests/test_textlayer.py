@@ -58,7 +58,7 @@ import datetime
 import io
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -352,16 +352,50 @@ def test_a_date_that_could_be_two_different_days_is_refused_not_guessed() -> Non
 def test_the_ambiguous_date_sentence_quotes_the_date_the_way_the_bill_prints_it() -> (
     None
 ):
-    """Two of the six refused corpus bills print their dates with hyphens.
+    """THREE of the six refused corpus bills print their dates with hyphens.
 
     A sentence that quoted `07/11/2026` at somebody holding a bill that says
     `07-11-2026` is asking them to confirm a string that is not on the document.
-    The quoted date is the one that was printed."""
+    The quoted date is the one that was printed.
+
+    That count said TWO until 2026-08-13 and was never measured. The rule it
+    justifies is unchanged; the test below now counts the corpus instead of
+    this docstring remembering it, because the corpus is regenerated."""
     reading = bill_with(("DATE: 2026-04-01", "DATE: 07-11-2026"))
     source = reading.observation.date.source
     assert "'07-11-2026'" in source
     assert "07/11/2026" not in source
     assert "(could be 7 November or 11 July)" in source
+
+
+#: `03-07-2026`, and never the ISO `2026-04-01` that also carries hyphens.
+HYPHENATED = re.compile(r"^\d{1,2}-\d{1,2}-\d{4}$")
+
+
+def test_the_hyphen_counts_the_quoting_rule_cites_are_read_off_the_corpus() -> None:
+    """The counts in `_ambiguous` and in the test above, MEASURED.
+
+    Both said TWO, in the module and in a docstring, and both were wrong: four
+    of the twenty bills are hyphenated and three of the six refusals are. The
+    decision was right and the arithmetic offered for it was invented, which is
+    the cheapest kind of wrong to leave lying around - it reads like evidence.
+
+    Counted here rather than asserted in prose, because
+    `scripts/build_ground_truth.py` can rebuild the pack and a number in a
+    docstring cannot notice."""
+    hyphenated: set[str] = set()
+    refused: set[str] = set()
+    for case in corpus_cases():
+        reading = read((DOCUMENTS / str(case["document"])).read_bytes())
+        printed = re.search(r"DATE:\s*(\S+)", reading.text)
+        if printed and HYPHENATED.match(printed.group(1)):
+            hyphenated.add(str(case["case_id"]))
+        if reading.fields["date"].source.startswith(NOT_FOUND):
+            refused.add(str(case["case_id"]))
+
+    assert len(hyphenated) == 4, sorted(hyphenated)
+    assert len(refused) == 6, sorted(refused)
+    assert len(hyphenated & refused) == 3, sorted(hyphenated & refused)
 
 
 def test_the_control_a_date_whose_order_is_settled_carries_no_ambiguity_sentence() -> (
@@ -1284,3 +1318,91 @@ def test_a_field_object_from_this_reader_obeys_the_wall_invariants() -> None:
 #    not written here because this module imports `pypdf` on purpose, and an
 #    allow-list over a third-party package's own transitive imports would fail
 #    on a routine upgrade rather than on a real change.
+
+
+# =============================================================================
+# THE OTHER WAY pypdf REPAIRS A FILE, MEASURED 2026-08-13
+# =============================================================================
+#
+# `xref_was_rebuilt` asked ONE question: does the last `startxref` point where
+# it says. Adversarial verification found the second door. `pypdf` has a second
+# recovery path, and it does not go through `_rebuild_xref_table` at all: break
+# an xref TABLE ENTRY and leave `startxref` correct, and it logs
+#
+#     Object ID 4,0 ref repaired
+#
+# then rescans the file and answers from whatever it finds. Shift every offset
+# instead and it recovers all five objects the same way, logging "Ignoring
+# wrong pointing object 1 0 ... Object 1 0 found" five times. Measured on
+# GT-0021 and on the bill above: total read, confidence 1.0, `pdf_repaired`
+# FALSE. A rebuild keeps the LAST definition it finds, so this is the same
+# tamper `test_a_rebuilt_table_reads_an_appended_total...` runs, through a door
+# the flag was not watching.
+#
+# So the question is asked of EVERY entry rather than of one pointer, and it is
+# still asked of the bytes: the table says object N starts at offset X, so the
+# bytes at X either begin `N 0 obj` or the reader that went there did not go
+# where the document sent it. No `pypdf` internal is touched and no log is
+# captured, for the thread-safety reason `xref_was_rebuilt` already states.
+
+
+def broken_xref_entry(data: bytes, obj: int) -> bytes:
+    """The same PDF with ONE table entry pointing at the wrong place.
+
+    `startxref` is untouched and correct, the trailer is untouched, and every
+    object is still whole and in the file. Only the table's own claim about
+    where object `obj` lives is false.
+    """
+    at = data.rfind(b"\nxref\n")
+    head, table = data[: at + 1], bytearray(data[at + 1 :])
+    entry = list(re.finditer(rb"(\d{10}) (\d{5}) n \n", table))[obj - 1]
+    table[entry.start(1) : entry.end(1)] = b"0000000009"
+    return head + bytes(table)
+
+
+def every_offset_shifted(data: bytes, by: int) -> bytes:
+    """The same PDF with every entry off by the same few bytes.
+
+    What a writer that edited the header and did not re-measure leaves behind.
+    `pypdf` recovers all of it by scanning, and every recovered object is one
+    the document's own table could not find.
+    """
+    at = data.rfind(b"\nxref\n")
+    return data[: at + 1] + re.sub(
+        rb"(\d{10}) (\d{5}) n \n",
+        lambda m: b"%010d %s n \n" % (int(m.group(1)) + by, m.group(2)),
+        data[at + 1 :],
+    )
+
+
+@pytest.mark.parametrize("tamper", [broken_xref_entry, every_offset_shifted])
+def test_an_entry_that_points_at_the_wrong_bytes_is_a_repair_too(
+    tamper: Callable[[bytes, int], bytes],
+) -> None:
+    """Both tampers leave `startxref` correct, so the old check saw nothing.
+
+    The reading is unaffected either way - `pypdf` finds the objects by
+    scanning and answers 1,234.56 at confidence 1.0 - which is exactly why the
+    flag has to notice: it is the only difference between this file and one
+    whose table was never wrong."""
+    tampered = tamper(pdf_bytes(BILL), 4)
+
+    assert xref_was_rebuilt(tampered) is True
+    assert read(tampered).pdf_repaired is True
+    assert read(tampered).outcome is Outcome.READ
+
+
+def test_the_control_a_table_that_points_where_it_says_is_not_a_repair() -> None:
+    """THE CONTROL, and the one that matters most for a check that got wider.
+    Walking every entry gives twenty more chances to fire on an honest file,
+    and a warning on all twenty corpus bills teaches a person to click past the
+    one that matters."""
+    honest = {
+        str(case["case_id"])
+        for case in corpus_cases()
+        if xref_was_rebuilt((DOCUMENTS / str(case["document"])).read_bytes())
+    }
+
+    assert honest == set()
+    assert xref_was_rebuilt(pdf_bytes(BILL)) is False
+    assert xref_was_rebuilt(pdf_bytes(BILL, pages=3)) is False

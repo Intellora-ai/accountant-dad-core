@@ -239,6 +239,13 @@ _XREF_KEYWORD: Final = b"xref"
 _OBJECT_HEADER: Final = re.compile(rb"\d+\s+\d+\s+obj\b")
 _ENOUGH: Final = 32
 
+#: `0 6` - the first object number this run of entries covers, and how many.
+_SUBSECTION: Final = re.compile(rb"\s*(\d+)\s+(\d+)\s*?[\r\n]+")
+
+#: `0000000245 00000 n `. Twenty bytes by the specification, and written as a
+#: pattern rather than a slice because writers disagree about the last two.
+_XREF_ENTRY: Final = re.compile(rb"(\d{10}) (\d{5}) ([nf])[ \r\n]{1,2}")
+
 
 def xref_was_rebuilt(data: bytes) -> bool:
     """Did `pypdf` have to RECONSTRUCT this file's object table to read it?
@@ -264,11 +271,28 @@ def xref_was_rebuilt(data: bytes) -> bool:
     logging or warning capture is involved, so two PDFs read at the same moment
     in two threads cannot swap answers.
 
+    THE SAME QUESTION IS ASKED OF EVERY ENTRY, 2026-08-13. Asking it only of
+    `startxref` left a second door, and adversarial verification walked through
+    it: `pypdf` has a recovery path that never calls `_rebuild_xref_table`.
+    Break the table's ENTRY for object 4, leave `startxref` correct, and it
+    logs `Object ID 4,0 ref repaired`, rescans, and answers from what it finds.
+    Shift every offset by seven bytes and it recovers all five objects the same
+    way. Both read at confidence 1.0 and both were FALSE here. A rebuild keeps
+    the LAST definition it finds, so both are the appended-total tamper above
+    with the pointer left honest and the table broken instead.
+
+    A table entry is the same kind of statement as `startxref` - object N
+    starts at offset X - so it gets the same treatment: the bytes at X either
+    begin `N G obj` or the reader did not go where the document sent it.
+
     WHAT IT DOES NOT CATCH, stated rather than left to be discovered. A pointer
     aimed at some OTHER object is accepted here, because a cross-reference
     stream is an ordinary object and refusing those would fire on a large share
     of the PDFs a modern word processor writes. Measured: `pypdf` refuses those
     files outright rather than rebuilding, so no reading comes out of that hole.
+    The entries INSIDE such a stream are not walked either - they are
+    compressed, and decompressing them here would be writing a second PDF
+    parser to check the first one.
 
     True for bytes that state no pointer at all. `read` never asks about those
     - they do not parse - but the sentence this function answers is about the
@@ -285,9 +309,50 @@ def xref_was_rebuilt(data: bytes) -> bool:
     if not 0 < offset < len(data):
         return True
     here = data[offset : offset + _ENOUGH]
-    return not (
-        here.startswith(_XREF_KEYWORD) or _OBJECT_HEADER.match(here) is not None
-    )
+    if here.startswith(_XREF_KEYWORD):
+        return _table_lies(data, offset + len(_XREF_KEYWORD))
+    return _OBJECT_HEADER.match(here) is None
+
+
+def _table_lies(data: bytes, at: int) -> bool:
+    """Does any entry of the classic table at `at` point somewhere it should not?
+
+    Subsection by subsection, entry by entry, and each entry is checked against
+    ITS OWN object number: `0000000245 00000 n` in the slot for object 4 means
+    the bytes at 245 begin `4 0 obj`, and anything else means the reader that
+    followed that entry landed somewhere the document did not send it.
+
+    A table this cannot parse is NOT called a lie. `pypdf` would refuse such a
+    file rather than read it, so answering True would put a warning on a
+    document nobody read anything off - and the twenty corpus bills are the
+    control that this stayed a detector rather than becoming a rubber stamp.
+    """
+    for number, offset in _table_entries(data, at):
+        here = data[offset : offset + _ENOUGH]
+        if not re.match(rb"%d\s+\d+\s+obj\b" % number, here):
+            return True
+    return False
+
+
+def _table_entries(data: bytes, at: int) -> list[tuple[int, int]]:
+    """`(object number, offset)` for every in-use entry of a classic table.
+
+    Empty when the bytes are not a table this reads, which is the same answer
+    as a table with nothing wrong in it. That is deliberate: this function
+    reports what it could check, and `_table_lies` is what decides.
+    """
+    entries: list[tuple[int, int]] = []
+    while (head := _SUBSECTION.match(data, at)) is not None:
+        first, count = int(head[1]), int(head[2])
+        at = head.end()
+        for index in range(count):
+            entry = _XREF_ENTRY.match(data, at)
+            if entry is None:
+                return entries
+            at = entry.end()
+            if entry[3] == b"n":
+                entries.append((first + index, int(entry[1])))
+    return entries
 
 
 # =============================================================================
@@ -875,6 +940,13 @@ class TextLayerReader:
                 name: reading.fields[name].source
                 for name in ("date", "party", "total_paise", "tax_paise")
             },
+            # The fact travels with the evidence, 2026-08-13. This line was
+            # missing and `ExtractedRecord` had nowhere to put it, so a
+            # repaired PDF became an ordinary record here and the decision
+            # layer's ceiling was unreachable from any shipped path. It is not
+            # a per-field source because it is not something read off the
+            # document - it is what we had to do to the bytes to read anything.
+            pdf_repaired=reading.pdf_repaired,
         )
 
 

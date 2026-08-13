@@ -44,9 +44,16 @@ import pytest
 from accountant.cage.confidence import EXACT
 from accountant.cage.decision import GST_IS_OFF, Action, Decided, Moment
 from accountant.cage.gate import gate, observed
-from accountant.extract.adapter import NOT_FOUND, ExtractedRecord, LineItem
+from accountant.extract.adapter import (
+    INVOICE_SHAPED,
+    NOT_FOUND,
+    ExtractedRecord,
+    LineItem,
+)
+from accountant.extract.textlayer import TextLayerReader
 from accountant.pipeline import Draft
 from accountant.schema import Voucher
+from tests.test_textlayer import BILL, broken_startxref, pdf_bytes
 
 ACCOUNTANT = pathlib.Path(__file__).resolve().parent.parent / "accountant"
 
@@ -650,3 +657,182 @@ def test_the_gate_is_not_yet_on_the_live_pipeline_path_and_this_records_why() ->
     test is what fails, and whoever wires it reads this before production does.
     """
     assert "accountant.cage.gate" not in _imported_modules(ACCOUNTANT / "pipeline.py")
+
+
+# =============================================================================
+# THE REPAIRED FLAG NEVER REACHED THE DECISION, MEASURED 2026-08-13
+# =============================================================================
+#
+# `decision.py` caps a repaired PDF at ASK, and every test of that ceiling
+# built the `Situation` by hand. Adversarial verification asked the question
+# nobody had: does the fact ever GET there down a path the application ships?
+#
+# It did not. `TextLayerReader.extract` read `reading.pdf_repaired` and dropped
+# it - `ExtractedRecord` had no such field - so a PDF whose object table was
+# rebuilt produced a record with no trace of the repair in it: every source
+# said `pdf_text_layer`, and `"repair" in repr(record).lower()` was False. The
+# only shipped call site, `demo_safety_cage.py`, passes `pdf_repaired=None`,
+# which is the value that GRANTS the full post. So the ceiling was real for a
+# Situation a test constructed and for nothing else.
+#
+# The fact now travels with the evidence. A caller may still say True - another
+# tier may know about a repair this one cannot see - but it can no longer say
+# False or None over a record that says True, because the record was there.
+
+
+def a_repaired_record() -> ExtractedRecord:
+    """A record from a reader that had to mend the bytes to read them."""
+    return ExtractedRecord(
+        date=DATE,
+        party=PARTY,
+        total_paise=TOTAL,
+        tax_paise=TAX,
+        line_items=(LineItem("cement", TOTAL),),
+        raw_text="paid Sharma Traders 4200 for cement",
+        backend="pdf_text_layer",
+        per_field_source=dict.fromkeys(ExtractedRecord.FIELDS, "pdf_text_layer"),
+        pdf_repaired=True,
+    )
+
+
+def test_a_caller_who_never_looked_cannot_post_a_repaired_pdf() -> None:
+    """`None` means "not a PDF, nothing to repair" and grants the full post.
+    That is the right meaning and the wrong answer here, because the record
+    knows better and was never asked."""
+    decided = asked(a_draft(a_repaired_record()), pdf_repaired=None)
+
+    assert decided.action is not Action.POST
+    assert decided.entry is None
+
+
+def test_a_caller_who_says_it_was_fine_cannot_talk_the_record_out_of_it() -> None:
+    """The stronger half. A caller passing False over a record that says True
+    is a caller contradicting the evidence, and the evidence wins."""
+    decided = asked(a_draft(a_repaired_record()), pdf_repaired=False)
+
+    assert decided.action is not Action.POST
+
+
+def test_the_control_a_record_that_was_never_repaired_still_posts() -> None:
+    """THE CONTROL, and the mandatory one. Reading the flag off the record must
+    not become "cap everything at ASK", which would pass both tests above and
+    would delete the posting path."""
+    decided = asked(a_draft(), pdf_repaired=None)
+
+    assert decided.action is Action.POST
+    assert decided.entry is not None
+    assert a_record().pdf_repaired is None
+
+
+def test_the_caller_can_still_report_a_repair_the_record_knows_nothing_about() -> None:
+    """The other control. The parameter is not decorative now that the record
+    carries the fact: a tier that mended bytes this reader never saw is exactly
+    why `gate` still takes it."""
+    decided = asked(a_draft(), pdf_repaired=True)
+
+    assert decided.action is not Action.POST
+
+
+#: A cash memo with no tax on it, printed the way a supplier prints one. The
+#: zero GST line matters: without it the tax is UNREAD, one conservation law
+#: cannot be answered, and an honest read of this blocks - which would let the
+#: seam test below pass on a refusal it did not cause.
+A_BILL_THAT_POSTS = (
+    "CASH MEMO",
+    "DATE: 2026-04-01",
+    "SUPPLIER: SHARMA STATIONERS",
+    "DESCRIPTION                                  AMOUNT",
+    "REGISTER BOOKS                                       495.00",
+    "SUBTOTAL                                             495.00",
+    "GST                                                    0.00",
+    "TOTAL                                                495.00",
+)
+BILL_PAISE = 49_500
+
+
+def a_pdf_draft(data: bytes) -> Draft:
+    """The shipped path in three steps: bytes, the real reader, a draft."""
+    return a_draft(TextLayerReader().extract(data, "application/pdf"))
+
+
+def decided_on(data: bytes) -> Decided:
+    """What the gate says about those bytes when the caller knows nothing.
+
+    `pdf_repaired=None` is not a test convenience - it is what every shipped
+    caller passes, because until now there was nothing else it could pass.
+    """
+    return asked(
+        a_pdf_draft(data),
+        pdf_repaired=None,
+        net_paise=BILL_PAISE,
+        balance_before_paise=BEFORE,
+        balance_after_paise=BEFORE + BILL_PAISE,
+    )
+
+
+def test_a_pdf_that_had_to_be_mended_cannot_post_across_the_whole_seam() -> None:
+    """BYTES to DECISION, which is the test that did not exist.
+
+    Every part of this was proved separately and the seam between them is where
+    the fact fell out. Real bytes, the shipped reader, the record it builds,
+    the gate a caller asks - and the caller says nothing about repairs.
+
+    The honest half is the control and is not optional: it POSTS a real entry,
+    so the refusal on the other line is the repair and not the arithmetic."""
+    honest, mended = (
+        decided_on(pdf_bytes(A_BILL_THAT_POSTS)),
+        decided_on(broken_startxref(pdf_bytes(A_BILL_THAT_POSTS))),
+    )
+
+    assert honest.action is Action.POST
+    assert honest.entry is not None and honest.entry.amount_paise == BILL_PAISE
+    assert mended.action is Action.ASK
+    assert mended.entry is None
+    assert "damaged and had to be repaired" in mended.said
+
+
+def test_the_record_the_reader_builds_carries_the_repair_it_had_to_do() -> None:
+    """The dropped line, on its own. `TextLayerReader.extract` read
+    `reading.pdf_repaired` and built a record without it, so this was the last
+    place the fact existed before the seam above."""
+    mended = TextLayerReader().extract(
+        broken_startxref(pdf_bytes(BILL)), "application/pdf"
+    )
+
+    assert mended.pdf_repaired is True
+    assert (
+        TextLayerReader().extract(pdf_bytes(BILL), "application/pdf").pdf_repaired
+        is False
+    )
+
+
+def test_the_owners_refusal_reaches_the_observation_and_not_a_type_name() -> None:
+    """A CROSSWIRE, measured the same day. `_money_field` asked `_paise(value)
+    is None` BEFORE it asked whether the field was read, and `None` is not
+    whole paise - so every refused amount arrived at the `Observation` as
+    "total_paise arrived as NoneType", and the owner's sentence survived only
+    on `record.per_field_source`. A person still saw it; nothing reading the
+    observation did.
+
+    The type sentence is for a value that ARRIVED and was not paise, which is
+    a different fact, and the control below keeps it."""
+    refusal = f"{NOT_FOUND}: {INVOICE_SHAPED}"
+    seen = observed(
+        a_draft(a_record(total_paise=None, sources={"total_paise": refusal}))
+    )
+
+    assert seen.total_paise.value is None
+    assert seen.total_paise.confidence == 0.0
+    assert seen.total_paise.source == refusal
+
+
+def test_a_caller_whose_plumbing_is_broken_still_blocks_rather_than_asks() -> None:
+    """THE CONTROL ON `_repaired` ITSELF. `record.pdf_repaired or caller` would
+    have coerced a string to True and turned this block into a question, which
+    is a caller with wrong plumbing being granted a softer answer than the one
+    `decision._repair_blocks` decided for it."""
+    junk = cast("bool | None", "no")
+    decided = asked(a_draft(), pdf_repaired=junk)
+
+    assert decided.action is Action.BLOCK
+    assert asked(a_draft(a_repaired_record()), pdf_repaired=junk).action is Action.BLOCK

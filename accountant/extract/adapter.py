@@ -58,6 +58,22 @@ class ExtractedRecord:
     backend: str = "unknown"
     per_field_source: dict[str, str] = field(default_factory=dict[str, str])
 
+    #: Did the reader have to MEND the bytes before it could read them?
+    #:
+    #: `None` means there was nothing to mend - not a PDF, or a backend that
+    #: cannot tell. `False` is a reader that looked and found the file whole.
+    #: It is not one of `FIELDS` because it is not something read OFF the
+    #: document; it is a fact about our own processing of it, and it has no
+    #: source line for the same reason.
+    #:
+    #: ADDED 2026-08-13. `textlayer.TextLayerReading` had carried this since the
+    #: rung was written and `TextLayerReader.extract` DROPPED IT while building
+    #: this record, so a repaired PDF reached the cage indistinguishable from an
+    #: honest one - measured: `"repair" in repr(record).lower()` was False, and
+    #: every per-field source said `pdf_text_layer`. The ceiling that refuses to
+    #: auto-post one of these existed and nothing could reach it.
+    pdf_repaired: bool | None = None
+
     FIELDS = ("date", "party", "total_paise", "tax_paise")
 
     def __post_init__(self) -> None:

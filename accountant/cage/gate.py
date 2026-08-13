@@ -186,14 +186,54 @@ def _read_field(record: ExtractedRecord, name: str, value: object) -> Field:
     return Field(value=value, confidence=EXACT, source=_stated(record, name))
 
 
+def _repaired(record: ExtractedRecord, caller: bool | None) -> bool | None:
+    """Was this document mended before anything was read off it?
+
+    THE RECORD WINS WHEN IT SAYS YES, 2026-08-13. The caller's word used to be
+    the only word, and measured that day: no shipped caller had one. The reader
+    that mends the bytes is `extract/textlayer.py`, `TextLayerReader.extract`
+    dropped the fact while building the record, and `demo_safety_cage.py` - the
+    only non-test call site of `decide` outside this module - passes `None`,
+    which is the value that grants the full post. A ceiling nothing can reach
+    is not a ceiling.
+
+    The caller is still asked, and still believed when it says True: a tier
+    that mended bytes this reader never saw is real, and the record cannot know
+    about it. What it can no longer do is talk the evidence down. The two ways
+    of being wrong are not symmetrical - a caller wrongly reporting a repair
+    costs a question, and a caller wrongly reporting none costs a posted
+    voucher off bytes somebody may have edited.
+
+    THE RECORD ANSWERS ONLY FOR A CALLER THAT SAID NO REPAIR, and that is why
+    the condition is written on the caller rather than on the record.
+    `decision._repair_blocks` BLOCKS anything that is not `True`, `False` or
+    `None`, because a string or an int there is a caller whose plumbing is
+    wrong - a fact about the caller, which no fact about the document answers.
+    An `or` here would have coerced that junk to `True` and turned its block
+    into a question. So a caller that said anything but "no repair" keeps
+    exactly what it said, and the type rule stays in the one place that has it.
+    """
+    said_no_repair = caller is None or caller is False
+    return True if said_no_repair and record.pdf_repaired is True else caller
+
+
 def _money_field(record: ExtractedRecord, name: str, value: object) -> Field:
     """A money field, unread unless it arrived as whole paise.
 
     Not coerced and not raised on. `4200.0` means somebody did money in
     decimals and a bool means somebody passed a flag; neither is a low-quality
     amount, both are the absence of one.
+
+    A MISSING VALUE IS NOT A TYPE ERROR, corrected 2026-08-13. This asked
+    `_paise(value) is None` first, and `None` is not whole paise - so every
+    REFUSED amount reached the `Observation` wearing "total_paise arrived as
+    NoneType" and the reader's own sentence was thrown away. The owner's
+    wording survived on `record.per_field_source`, which is what the page
+    prints, so a person still saw it and nothing reading the observation did.
+    The type sentence is for a value that ARRIVED and was not paise; that is a
+    different fact about a different failure, and it is still said.
     """
-    if _paise(value) is None:
+    if value is not None and _paise(value) is None:
         return Field(
             value=None,
             confidence=0.0,
@@ -324,11 +364,10 @@ def gate(
             party_known=party_known,
             period_open=period_open,
             carries_gst=carries_gst,
-            # Passed through and never worked out here. This module reads a
-            # `Draft`, and a `Draft` carries no record of what its bytes went
-            # through on the way to being text - `accountant/extract/textlayer.py`
-            # is where a repair happens and the caller is what connects the two.
-            pdf_repaired=pdf_repaired,
+            # The RECORD'S answer, and the caller's only when the record has
+            # none. See `_repaired` below - this used to be the caller's word
+            # alone, and no shipped caller had one.
+            pdf_repaired=_repaired(draft.record, pdf_repaired),
             questions_asked=questions_asked,
             moment=moment,
             # The legs come from the voucher because that is where a proposed
