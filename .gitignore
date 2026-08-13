@@ -68,3 +68,25 @@ logs/
 # the package its first runtime dependency by accident rather than by decision.
 # `accountant/tallyio/` is the supported path and uses urllib.
 tally_client.py
+
+# Corpus-collection scratch, 2026-08-13. These fetch and repair the real-invoice
+# corpus under data/, which is itself gitignored above - so the scripts have no
+# committed subject and every run rewrites their inputs.
+#
+# THE REASON THEY ARE IGNORED RATHER THAN CLEANED AND COMMITTED: the `lint` and
+# `format` gates run `ruff check .` and `ruff format --check .` over the WHOLE
+# TREE, not over tracked files. Measured 2026-08-13: these paths carry 136 ruff
+# errors and 15 unformatted files, while `git ls-files '*.py'` over the 230
+# tracked files is clean. Committing them as they stand turns two required gates
+# red; leaving them untracked-but-unignored means the next person to `git add -A`
+# does it by accident.
+#
+# Promote any of them to a supported script by cleaning it and deleting its line
+# here - deliberately, not by a stray add.
+scripts_realdata/
+scripts/collect_commons_documents.py
+scripts/collect_real_invoices.py
+scripts/migrate_gov_sidecars_to_shared_schema.py
+scripts/rebuild_real_invoices_manifest.py
+scripts/repair_real_invoices.py
+scripts/verify_real_invoices.py
