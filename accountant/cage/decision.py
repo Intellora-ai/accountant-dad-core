@@ -222,18 +222,44 @@ _ASK_FLOOR_IN_100: Final = round(ASK_FLOOR * 100)
 #: silently emptying this list. The naming question is reported to the owner
 #: rather than answered here.
 #:
-#: `typed_text` IS NOT HERE, DELIBERATELY. A person typing a sentence reads no
-#: pixel and estimates nothing - `adapter.ENTITLED_TO_EXACT` already treats it
-#: as a character tier - so there is a case for it. The owner's list has one
-#: entry, this module implements the list it was given, and the measured cost is
-#: reported: `demo_safety_cage.py` posted three bills before this decision and
-#: posts none after it, because every input in it is a typed sentence.
+#: `typed_text` JOINED ON THE OWNER'S RULING, 2026-08-13, AND HERE IS THE TRUST
+#: RATIONALE SO THIS DOES NOT REGRESS AGAIN.
+#:
+#: The one-entry version was implemented literally and it stopped the product
+#: posting anything: `demo_safety_cage.py` went from `posted 3` to `posted 0`
+#: with an empty trial balance, because every input in it is a typed sentence.
+#: That measurement is what the ruling was made on.
+#:
+#: The trust model, stated once so the next reader does not have to infer it:
+#:
+#:     what the tier does            estimates?   may auto-post
+#:     ------------------------------------------------------------
+#:     typed_text     a PERSON typed the words        no      YES
+#:     pdf_text_layer bytes SAY the words             no      YES
+#:     free_ocr       a MODEL guessed from pixels     YES     no
+#:
+#: The line is **estimation, not media type**. Neither allowed tier guesses: one
+#: is a person stating a fact, the other is a file stating one, and
+#: `adapter.ENTITLED_TO_EXACT` already treats both as character tiers for the
+#: same reason. `free_ocr` reads pixels and returns a computed proxy, so it is
+#: capped at ASK however high that proxy climbs - which is the whole content of
+#: the owner's decision and the reason this is a tier list rather than a
+#: threshold.
+#:
+#: THE ROOT CAUSE OF THE OUTAGE WAS A NAME, NOT A JUDGEMENT. The owner wrote
+#: `text_layer`; the code stamps two non-estimating tiers, `pdf_text_layer` and
+#: `typed_text`, and one word cannot name both. Nothing tied this list to the
+#: tiers that exist, so the mismatch surfaced as behaviour rather than as an
+#: error. `tests/test_decision.py` now binds BOTH entries to the constants that
+#: stamp them, so a rename fails loudly instead of silently emptying this list.
 #:
 #: A `frozenset` where the owner wrote a list, for the same reason
 #: `DOCUMENT_LAWS` is one: this is asked `in` and nothing else, order means
 #: nothing, and a mutable module-level list is one `.append()` away from being
 #: widened at run time by code that is not a review.
-AUTO_POST_ALLOWED_TIERS: Final[frozenset[str]] = frozenset({"pdf_text_layer"})
+AUTO_POST_ALLOWED_TIERS: Final[frozenset[str]] = frozenset(
+    {"pdf_text_layer", "typed_text"}
+)
 
 #: The one law that is a statement about the BOOKS rather than about the
 #: document. Taken from the function's own name rather than typed again: the

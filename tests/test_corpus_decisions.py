@@ -111,6 +111,7 @@ from accountant.cage.decision import (
     decide,
 )
 from accountant.cage.wall import Field, Observation
+from accountant.extract.adapter import TypedTextExtractor
 from accountant.questions import QUESTION_CAP
 
 #: Written here, once, and never read from a clock or an environment. It is a
@@ -377,6 +378,19 @@ def _situation(
         ambiguous_fields=cast("tuple[str, ...]", ambiguous_fields),
         moment=cast(Moment, moment),
         pdf_repaired=cast("bool | None", pdf_repaired),
+        # WHICH READER READ IT. Owner decision 2, 2026-08-13: a tier not on
+        # `AUTO_POST_ALLOWED_TIERS` is capped at a question however sure it is.
+        #
+        # Added because this builder did not exist when the allowlist did, so
+        # every one of the 1000 cases carried the default `()` - no tier named -
+        # and the whole VALID half stopped posting. The corpus was right and the
+        # builder was silent, which is the same defect the demo had and the
+        # third place this exact omission has cost something today.
+        #
+        # These cases are hand-built observations, not reader output, so they
+        # state the tier the same way the demo does. The 500 valid cases model a
+        # typed bill.
+        reading_tiers=(TypedTextExtractor.name,),
     )
 
 

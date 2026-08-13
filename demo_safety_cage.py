@@ -126,6 +126,7 @@ from accountant.cage.decision import (
     decide,
 )
 from accountant.cage.wall import Field, LedgerEntry, Observation
+from accountant.extract.adapter import TypedTextExtractor
 from accountant.questions import (
     QUESTION_CAP,
     RETYPE,
@@ -551,10 +552,25 @@ def observed(seen: dict[str, str], scores: dict[str, float]) -> Observation:
     function rather than about the bill.
     """
 
+    #: The tier every field in this demo was read by, taken from the extractor
+    #: that stamps it rather than typed again here.
+    #:
+    #: THIS LINE SAID `"typed text"` UNTIL 2026-08-13 - with a space - and every
+    #: real record carries `typed_text`, with an underscore. Nothing compared
+    #: them, so the string was wrong from the day it was written and cost
+    #: nothing until `AUTO_POST_ALLOWED_TIERS` started asking which tier read a
+    #: bill. Then it cost everything: all three of this demo's auto-posts became
+    #: questions and the trial balance emptied, because a tier spelled with a
+    #: space is on no allowlist anywhere.
+    #:
+    #: It is bound to `TypedTextExtractor.name` now. A hand-typed copy of a name
+    #: that lives somewhere else is not a constant, it is a bet.
     def one(name: str, value: object) -> Field:
         score = scores[name] if name in seen else 0.0
         return Field(
-            value=value if name in seen else None, confidence=score, source="typed text"
+            value=value if name in seen else None,
+            confidence=score,
+            source=TypedTextExtractor.name,
         )
 
     return Observation(
@@ -694,6 +710,20 @@ def judge(row: Input, client: FakeTally) -> Result:
             # would have to say `True` here and would then be confirmed rather
             # than posted.
             pdf_repaired=None,
+            # WHICH READER READ THIS BILL. Owner decision 2, 2026-08-13: a tier
+            # not on `AUTO_POST_ALLOWED_TIERS` is capped at a question however
+            # sure it is.
+            #
+            # This line did not exist until the allowlist did, so every bill
+            # here carried the default `()` - no tier named - and `_may_auto_post`
+            # correctly refused all of them. The demo went from `posted 3` to
+            # `posted 0` with an empty trial balance, and the cause was not the
+            # allowlist's contents but a caller that never said who read the
+            # bill. `gate.py` fills this from the record on the real path; this
+            # demo builds its own observation, so it has to say so itself.
+            #
+            # Taken from the extractor that stamps the name, not typed again.
+            reading_tiers=(TypedTextExtractor.name,),
         )
     )
     return settle(row, client, seen, scores, laws, watched, decided, before)

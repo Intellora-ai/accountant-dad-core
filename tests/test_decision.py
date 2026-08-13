@@ -887,13 +887,22 @@ def test_the_auto_post_allowlist_holds_exactly_one_tier() -> None:
     matching nothing would refuse every bill in the product. `tests/
     test_gate.py` binds the two so a rename of the reader's stamp breaks loudly.
 
-    `typed_text` IS DELIBERATELY ABSENT. A person typing a sentence is not a
-    pixel read and a case can be made for it, but the owner's list has one entry
-    and this is not the place that decision gets made.
+    CORRECTED 2026-08-13. This asserted `len(...) == 1` and `"typed_text" not
+    in ...`, and it was right about the list it was given and wrong about the
+    product. The one-entry version stopped auto-posting entirely - the demo went
+    from `posted 3` to `posted 0` with an empty trial balance, because every
+    input in it is a typed sentence. The owner ruled on that measurement and
+    added `typed_text`.
+
+    The line the list actually draws is ESTIMATION, not media type. `typed_text`
+    is a person stating a fact and `pdf_text_layer` is a file stating one;
+    neither guesses, and `adapter.ENTITLED_TO_EXACT` already groups them for the
+    same reason. `free_ocr` reads pixels and returns a computed proxy, so it
+    stays out however high that proxy climbs.
     """
-    assert len(AUTO_POST_ALLOWED_TIERS) == 1
-    assert frozenset({TEXT_LAYER}) == AUTO_POST_ALLOWED_TIERS
-    assert "typed_text" not in AUTO_POST_ALLOWED_TIERS
+    assert len(AUTO_POST_ALLOWED_TIERS) == 2
+    assert frozenset({TEXT_LAYER, "typed_text"}) == AUTO_POST_ALLOWED_TIERS
+    assert "free_ocr" not in AUTO_POST_ALLOWED_TIERS
 
 
 def test_the_two_confidence_floors_are_still_exactly_where_the_owner_put_them() -> None:
