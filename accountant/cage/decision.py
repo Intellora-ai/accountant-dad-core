@@ -16,11 +16,19 @@ deciding whether to trust a refusal.
 THE BANDS ARE OWNER-SET
 ------------------------
     post    confidence 0.95 or better AND every conservation law PASS AND the
-            party known AND the period open AND no hard rule broken
+            party known AND the period open AND no hard rule broken AND the
+            bill was read by a tier on `AUTO_POST_ALLOWED_TIERS`
     ask     confidence from 0.70 to just under 0.95, OR something readable more
             than one way, OR the file had to be repaired before anything could
-            be read off it
+            be read off it, OR it was read by a tier not on that list
     block   confidence under 0.70, OR any hard rule broken
+
+The fourth condition on `post` is owner decision 2, 2026-08-13, and it is a
+CONFIGURATION choice rather than a fifth threshold - "auto-post eligibility is
+controlled by reading tier + confidence + safety checks, not by media type
+alone". A photograph is not refused for being a photograph; it is refused
+because the reader that reads photographs estimates, and no estimating tier is
+on the list. See `AUTO_POST_ALLOWED_TIERS` for which are and why.
 
 Whether 0.95 and 0.70 are the RIGHT numbers is a question for a corpus run
 against labelled invoices this repository does not have (`H-02`). They are not
@@ -72,8 +80,13 @@ EIGHT HARD RULES, EACH OF WHICH ALWAYS BLOCKS
                            product that will not take no for an answer is worse
                            than one that hands the entry back.
 
-A REPAIRED FILE IS A CEILING, NOT A NINTH HARD RULE
------------------------------------------------------
+TWO CEILINGS, NEITHER OF THEM A NINTH HARD RULE
+-------------------------------------------------
+A REPAIRED FILE, and A READING TIER THE OWNER HAS NOT CLEARED. Both are owner
+decisions of 2026-08-13, both live in `_asking`, and both are written the same
+way for the same reason - so read this section once and the tier ceiling at
+`AUTO_POST_ALLOWED_TIERS` needs no second explanation.
+
 Owner decision, 2026-08-13: "If the PDF had to be repaired: in the decision
 layer, if conservation checks and all other rules pass, allow confirm (ask), but
 do NOT auto-post. If anything else is uncertain or fails, block with a plain
@@ -91,6 +104,12 @@ the owner's own sentence.
 That is the ONE field in `Situation` where `None` is not "nobody looked", it is
 written down on the field, and it is why the field has no default: the
 safe-looking default is the dangerous one here.
+
+`Situation.reading_tiers` is the second ceiling and it defaults the other way,
+to `()`, because forgetting it fails CLOSED - a caller that names no tier gets
+one question, never a post. That is the same test `gate.py`'s docstring applies
+to `net_paise`: a default is safe exactly when forgetting it costs nothing that
+matters.
 
 THREE LAWS ARE ABOUT THE BILL. THE FOURTH IS ABOUT THE BOOKS.
 --------------------------------------------------------------
