@@ -14,10 +14,10 @@ quoted with the commit beside them.
 | cwd | `/Users/tanveersidhu/ACCOUNTANT` |
 | accountant__file__ | `/Users/tanveersidhu/ACCOUNTANT/accountant/__init__.py` |
 | python | `3.14.6` |
-| commit | `9ba86a91e894d5ae0f836bda746c2467850dce26` |
+| commit | `c0c3765ae38a618a422425890461e40caefdd505` |
 | branch | `cage/safety-layer` |
 | worktree | `/Users/tanveersidhu/ACCOUNTANT` |
-| dirty | `yes` |
+| dirty | `no` |
 
 ## Gates
 
