@@ -162,42 +162,67 @@ COPY --from=dependencies --chown=10001:10001 /app/.venv /app/.venv
 # so this single line is what lets `python -m accountant.web` import pypdf.
 ENV PATH="/app/.venv/bin:$PATH"
 
-# TESSERACT IS NOT INSTALLED, AND THAT IS A DECISION. 2026-08-13.
+# TESSERACT IS INSTALLED. OWNER DECISION, 2026-08-13.
 #
-# `pytesseract` is a wrapper, not an engine: the wheel is here, the `tesseract`
-# BINARY it shells out to is not. Four reasons, in the order that decided it.
+# This block used to read "TESSERACT IS NOT INSTALLED, AND THAT IS A DECISION",
+# and its first reason was that the engine would have no caller. That reason
+# expired the same day: `pagereader.py` supplied the page reader
+# `registry._NEEDS_WIRING` was waiting for, `DEFAULT_BACKEND` became `ladder`,
+# and `app.py` hands every uploaded image to it. The engine has a caller on the
+# live path.
 #
-# 1. It would have no caller. Nothing in this repository builds
-#    `freeocr.FreeReader` - `registry.build("free_ocr")` raises, and
-#    `registry._NEEDS_WIRING` says why: it needs a page reader nobody has
-#    written, because one cannot be checked without a corpus of bills whose
-#    answers are known (H-02). Installing an engine for a rung that is not
-#    wired is shipping a dependency to satisfy a comment.
-# 2. apt cannot be pinned to anything this repository measured. `uv sync
-#    --locked` above installs the exact versions the 4233 tests ran against;
-#    `apt-get install tesseract-ocr` installs whatever Debian's index serves on
-#    the morning of the build. One unpinned binary would undo the property the
-#    stage above exists to give.
-# 3. Without it the app STARTS and refuses in words, and that is designed
-#    behaviour rather than luck: `pytesseract.TesseractNotFoundError` is mapped
-#    to `freeocr.ENGINE_MISSING` in `_REFUSAL_FOR`. Installing the binary to
-#    "be safe" would quietly convert a designed refusal into a hard system
-#    requirement that no test covers.
-# 4. What it costs is nothing that works today. A photographed bill cannot be
-#    read in this image - and cannot be read outside it either, for reason 1. A
-#    born-digital PDF goes through pypdf, which IS installed, and typed entry
-#    never touched an engine.
+# THE MEASUREMENT THAT DECIDED IT. With `PATH=/usr/bin:/bin` - no `tesseract`
+# binary, which is what this image was - `registry.default_extractor()` on a
+# corpus PNG returns all four fields unread, each of them saying
 #
-# CI IS THE OTHER WAY ROUND, AND THE ASYMMETRY IS THE POINT.
-# docs/CI_OCR_INSTALL.md asks for `apt-get install -y tesseract-ocr` in the two
-# jobs that run the whole suite, because a test suite without the binary SKIPS
-# the OCR tests and a skipped test measures nothing. A container without it
-# skips nothing: it runs a rung that has no caller. Same binary, two different
-# questions, two different answers.
+#     not_found: the text reading program is not installed on this machine
 #
-# THE DAY THE PAGE READER IS WIRED, this changes: install it here, pin the
-# version, and add it to docs/DEPLOY.md. tests/test_deploy_artefacts.py fails
-# until all three happen, so the decision cannot be reversed quietly.
+# A photograph read ZERO of four fields in this image, always. PDFs read either
+# way, through pypdf, and typed entry never touched an engine.
+#
+# The owner, in words: "This is required because the MVP requirement is: a user
+# can upload a photo and get fields read. A Docker image where photos are dead
+# by design does not satisfy that requirement."
+#
+# WHAT IT COSTS, WRITTEN DOWN RATHER THAN DISCOVERED LATER.
+# The image is larger and slower to build. docs/DEPLOY.md carries the owner's
+# sentence accepting exactly that.
+#
+# AND APT PINS NOTHING, which is the cost that has not gone away. `uv sync
+# --locked` above installs the exact wheel versions the suite ran against;
+# these two packages are whatever Debian's index serves on the morning of the
+# build. No version is written here because none has been READ from an index -
+# inventing one in a file whose job is to be exact would be a fabricated fact,
+# the same rule the header applies to the base image digest. What contains the
+# damage is that the list is SHORT and asserted: tests/test_deploy_artefacts.py
+# fails on a third package, on any language pack but English, on a missing
+# --no-install-recommends, and on package lists left in the layer.
+#
+# ENGLISH ONLY. `tesseract-ocr-eng` is a hard dependency of `tesseract-ocr` on
+# Debian and is named anyway: which languages this image can read is a decision,
+# and one that rests on somebody else's dependency list is invisible here.
+# `tesseract-ocr-all` is the shape to never write - every language there is,
+# tens of megabytes each, for bills no corpus in this repository contains.
+#
+# ONE RUN, on purpose. `apt-get update` downloads tens of megabytes of package
+# lists, and a layer is immutable: deleting them in a later RUN leaves the bytes
+# in the image under a whiteout while the file reads as though it had cleaned
+# up. Update, install and delete are one instruction or the delete is theatre.
+#
+# NOTHING HERE IS BUILT OR MEASURED. docs/DEPLOY.md's evidence class stays
+# `NOT MEASURED`: no `docker build` has been run, so what is proved is that this
+# file INSTRUCTS the install, not that a photograph was read inside a container.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      tesseract-ocr \
+      tesseract-ocr-eng \
+ && rm -rf /var/lib/apt/lists/*
+
+# CI ASKS FOR THE SAME BINARY FOR A DIFFERENT REASON, and both are still true.
+# docs/CI_OCR_INSTALL.md installs it in the two jobs that run the whole suite,
+# because a suite without it SKIPS the OCR tests and a skipped test measures
+# nothing. Here it is installed because a container without it refuses every
+# photograph. Same package, two questions, and now the same answer.
 
 # Only the package. Not the tests, not ci/, not docs/, not scripts/ - none of
 # them run in production, and every file that ships is a file somebody has to

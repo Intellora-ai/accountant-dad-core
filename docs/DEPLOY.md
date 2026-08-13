@@ -88,18 +88,63 @@ than kept:
 uv export --locked --no-emit-project -o requirements.txt
 ```
 
-### The OCR engine is not installed
+### The OCR engine is installed — owner decision, 2026-08-13
+
+> **The default Docker image includes Tesseract OCR so that photo uploads can be
+> processed. This increases image size and build time; this cost is accepted for
+> the MVP.**
 
 `tesseract` is a system binary, not a wheel — `pytesseract` is only a wrapper
-that shells out to it. The image does not install it. The `Dockerfile` carries
-the reasoning in full; in short: nothing in this repository builds the rung
-that would call it, `apt` cannot be pinned to anything this repository
-measured, and the app already refuses cleanly without it rather than crashing.
-**CI does install it** (`docs/CI_OCR_INSTALL.md`), because a suite without the
-binary skips the OCR tests and a skipped test measures nothing. Same binary,
-two questions, two answers.
+that shells out to it. Until 2026-08-13 this image did not install it, and this
+section said so. **That was reversed**, and the measurement is why:
 
-Typed entry and born-digital PDFs are unaffected either way.
+```
+PATH=/usr/bin:/bin   (no tesseract binary — what this image was)
+registry.default_extractor() on a corpus PNG
+  -> all four fields unread, each: "not_found: the text reading program
+     is not installed on this machine"
+```
+
+`DEFAULT_BACKEND` is `ladder` and `app.py` routes every uploaded image to it, so
+a photograph read **zero of four fields** in this image, always. The owner's
+reason, in full: *"This is required because the MVP requirement is: a user can
+upload a photo and get fields read. A Docker image where photos are dead by
+design does not satisfy that requirement."*
+
+```
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      tesseract-ocr \
+      tesseract-ocr-eng \
+ && rm -rf /var/lib/apt/lists/*
+```
+
+| Constraint | How it is held |
+|---|---|
+| **Two packages, no third** | `tesseract-ocr` is the engine; `tesseract-ocr-eng` is the English trained data. A third package fails a test. |
+| **English only** | `tesseract-ocr-eng` is a hard dependency of `tesseract-ocr` on Debian and is named anyway, because *which languages this image reads* is a decision and not apt's to make. Any other `tesseract-ocr-<lang>`, and `tesseract-ocr-all`, fail a test. |
+| **No recommends chain** | `--no-install-recommends`. Its absence fails a test. |
+| **No package lists left behind** | `apt-get update` writes tens of megabytes into `/var/lib/apt/lists`. A layer is immutable, so deleting them in a *later* `RUN` leaves the bytes in the image under a whiteout — update, install and delete are one instruction, and a split fails a test. |
+
+**The cost that did not go away: apt pins nothing.** `uv sync --locked` installs
+the exact wheel versions the suite ran against. These two Debian packages are
+whatever the index serves on the morning of the build. No version is written in
+the `Dockerfile` because none has been *read* from an index, and inventing one
+in a file whose job is to be exact would be a fabricated fact — the same rule
+that keeps the base image a tag rather than an invented digest. What contains it
+is that the list is short and every property above is asserted.
+
+**CI installs the same binary for a different reason**
+(`docs/CI_OCR_INSTALL.md`): a suite without it skips the OCR tests, and a
+skipped test measures nothing. Same package, two questions, and since today the
+same answer.
+
+Typed entry and born-digital PDFs are unaffected either way — those go through
+`pypdf`, or through no reader at all.
+
+**No image was built for this change.** See "Evidence class" below: the tests
+prove the `Dockerfile` *instructs* this install. Nothing here is evidence that a
+photograph was read inside a container.
 
 ## What this image cannot do yet
 
@@ -176,10 +221,12 @@ that they had. Reconciling D-23 itself is owner work, not a document edit:
 
 **What ships instead needs no account, no endpoint and no credential.** A
 born-digital PDF is read through its own text layer by `pypdf`, in this
-process. Typed-text entry is untouched by any of this. The picture rung is not
-wired — nothing in this repository builds it — so a photographed bill is
-refused in words rather than guessed at, and the `Dockerfile` explains at
-length why the OCR engine is therefore not installed in the image.
+process. Typed-text entry is untouched by any of this. The picture rung **is**
+wired — `pagereader.py` supplies the reader, `DEFAULT_BACKEND` is `ladder`, and
+`app.py` routes every uploaded image to it — and since 2026-08-13 the image
+carries the engine that rung shells out to, for the reason given above. What no
+file here claims is that it reads a photographed bill *well*: the corpus numbers
+are poor and are stated in `docs/EXTRACTION_MEASURED.md`.
 
 **No environment variable selects an extraction backend, on purpose.**
 `accountant/extract/registry.py` gives the reasoning beside `configure()`. That
@@ -373,3 +420,16 @@ The tests prove the Dockerfile *instructs* an exact, lockfile-pinned install
 and that `uv.lock` resolves exactly what `pyproject.toml` declares. They do not
 prove a wheel was fetched, a virtualenv was built or an import succeeded — no
 `docker build` was run, and the file was fixed rather than the pipeline.
+
+**It applies to the Tesseract install added the same day just as strictly.**
+The tests read the `apt-get` line out of the `Dockerfile` and check its two
+package names, its `--no-install-recommends`, and that the package lists are
+deleted in the layer that downloaded them. No image was built, no package was
+fetched, no photograph was read inside a container, and the image's size and
+build time — the costs the owner accepted in writing above — are **unmeasured
+here**. `docker build` is the only thing that settles any of that:
+
+```bash
+docker build -t accountant-dad:check .
+docker image inspect accountant-dad:check --format '{{.Size}}'
+```

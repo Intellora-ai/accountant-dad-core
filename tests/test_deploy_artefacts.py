@@ -1155,6 +1155,29 @@ def system_installs(instrs: list[tuple[str, str]]) -> list[str]:
     return [c for c in run_commands(instrs) if re.search(r"\bapt(-get)?\s+install", c)]
 
 
+#: The engine and the one language pack this image is allowed to carry.
+#: `pytesseract` is a wrapper; `tesseract-ocr` is the binary it shells out to,
+#: and `tesseract-ocr-eng` is the trained data it reads English with. English
+#: ONLY — "as small as possible" is the constraint the owner set on this
+#: install, and each further pack is tens of megabytes of a language no corpus
+#: in this repository contains.
+OCR_PACKAGES = ("tesseract-ocr", "tesseract-ocr-eng")
+
+
+def apt_packages(instrs: list[tuple[str, str]]) -> list[str]:
+    """Every Debian package NAME an `apt-get install` here asks for.
+
+    Flags are dropped — `-y` and `--no-install-recommends` are not packages —
+    and each argument list stops at `&&`, `;` or `|`, so the `rm -rf` ending the
+    same RUN is not read as a package somebody asked to install.
+    """
+    names: list[str] = []
+    for command in system_installs(instrs):
+        for install in re.finditer(r"\bapt(?:-get)?\s+install\b([^&|;]*)", command):
+            names.extend(t for t in install.group(1).split() if not t.startswith("-"))
+    return names
+
+
 def canonical(name: str) -> str:
     """PEP 503 normalisation. `Pillow` and `pillow` are one package."""
     return re.sub(r"[-_.]+", "-", name).lower()
@@ -1320,41 +1343,105 @@ def test_the_lockfile_resolves_exactly_the_dependencies_pyproject_declares() -> 
     )
 
 
-def test_the_image_installs_no_system_package_including_tesseract() -> None:
-    """tesseract is a BINARY, not a wheel, and this image does not carry it.
+def test_the_image_installs_the_ocr_engine_a_photo_upload_needs() -> None:
+    """CORRECTED 2026-08-13, and it asserts the OPPOSITE of what it did.
 
-    CORRECTED 2026-08-13. This docstring said "`DEFAULT_BACKEND` is still
-    `typed_text`, so nothing in the running application reaches it". Both
-    halves are false and the second is the dangerous one: `DEFAULT_BACKEND` is
-    `ladder`, and an uploaded photograph reaches `freeocr.FreeReader` on the
-    live path — `app.py` hands `sent.media_type` to the ladder, which routes
-    every image there. The binary has a caller in production.
+    This was `test_the_image_installs_no_system_package_including_tesseract`,
+    and it asserted `system_installs(dockerfile()) == []`. The measurement it
+    rested on has not changed and is exactly why the owner reversed it: with
+    `PATH=/usr/bin:/bin` and no `tesseract` binary, `default_extractor()` on a
+    corpus PNG returns all four fields unread, each saying `not_found: the text
+    reading program is not installed on this machine`. `DEFAULT_BACKEND` is
+    `ladder` and `app.py` routes every uploaded image to it, so on the shipped
+    artefact a photograph read ZERO of four fields, always.
 
-    SO THE COST IS NOT ZERO, and it is measured rather than reasoned about.
-    With `PATH=/usr/bin:/bin` (no tesseract), `registry.default_extractor()` on
-    a corpus PNG returns all four fields unread, each saying
+    Owner decision, 2026-08-13, verbatim: *"This is required because the MVP
+    requirement is: a user can upload a photo and get fields read. A Docker
+    image where photos are dead by design does not satisfy that requirement."*
 
-        not_found: the text reading program is not installed on this machine
-
-    On the artifact that actually ships, a photograph reads ZERO of four
-    fields, always. The PDF path is unaffected. Local image readings only work
-    because homebrew tesseract 5.5.3 is on this developer machine, and nothing
-    in this repository installs it.
-
-    The assertion is unchanged, because the decision is unchanged and it is not
-    a test's to reverse: apt would install whatever version Debian serves that
-    morning, which is the one thing the lockfile install exists to prevent, and
-    a missing binary is a clean refusal rather than a crash —
-    `pytesseract.TesseractNotFoundError` maps to `freeocr.ENGINE_MISSING`.
-
-    Wiring the picture rung means installing it AND pinning it AND saying so in
-    `docs/DEPLOY.md`. This fails until all three happen. Until they do, no
-    claim of the form "the shipped default reads a photograph" is true.
+    The costs the old docstring listed are ACCEPTED, not refuted — apt pins
+    nothing, and the image is bigger and slower to build. The half of that
+    guard which was never about tesseract survives below, as
+    `test_the_image_installs_no_system_package_beyond_the_ocr_engine`.
     """
-    assert system_installs(dockerfile()) == [], (
-        f"the image installs an unpinned system package: "
-        f"{system_installs(dockerfile())}"
+    assert "tesseract-ocr" in apt_packages(dockerfile()), (
+        f"the image installs {apt_packages(dockerfile())}, so an uploaded "
+        f"photograph reads zero of four fields on the artefact that ships"
     )
+
+
+def test_the_image_installs_the_language_pack_the_engine_reads_with() -> None:
+    """An engine with no trained data reads nothing.
+
+    `tesseract-ocr` depends on `tesseract-ocr-eng` on Debian, so this asks apt
+    for something it would supply anyway — deliberately. WHICH languages this
+    image can read is a decision, and a decision resting on another package's
+    dependency list is one no reader of this file can see or defend.
+    """
+    assert "tesseract-ocr-eng" in apt_packages(dockerfile()), (
+        f"the image installs {apt_packages(dockerfile())} and names no "
+        f"language pack, so which languages it reads is apt's choice"
+    )
+
+
+def test_the_image_carries_no_language_pack_beyond_english() -> None:
+    """Smallest possible is the constraint, and language data is where size is.
+
+    Each `tesseract-ocr-<lang>` is tens of megabytes and `tesseract-ocr-all` is
+    every language there is. Nothing in this repository reads a bill in
+    anything but English, and no corpus here contains one.
+    """
+    extra = [
+        package
+        for package in apt_packages(dockerfile())
+        if package.startswith("tesseract-ocr-") and package not in OCR_PACKAGES
+    ]
+    assert extra == [], f"language packs nothing in this repository reads: {extra}"
+
+
+def test_the_image_installs_no_system_package_beyond_the_ocr_engine() -> None:
+    """What survives of the old guard, and the half that was never about OCR.
+
+    apt pins nothing: every package here is whatever Debian's index served on
+    the morning of the build, which is the one property `uv sync --locked`
+    exists to give the wheels. TWO named packages is a cost the owner weighed
+    and accepted. A third that arrived because somebody needed it once is not.
+    """
+    strangers = [p for p in apt_packages(dockerfile()) if p not in OCR_PACKAGES]
+    assert strangers == [], (
+        f"the image installs unpinned system packages nobody decided on: {strangers}"
+    )
+
+
+def test_the_engine_is_installed_without_its_recommended_packages() -> None:
+    """`--no-install-recommends`, because "keep it as small as possible" is an
+    explicit constraint on this install and not a preference. Without the flag
+    apt pulls tesseract-ocr's whole recommends chain into the layer."""
+    for command in system_installs(dockerfile()):
+        assert "--no-install-recommends" in command, command
+
+
+def test_the_package_lists_are_downloaded_and_deleted_in_one_layer() -> None:
+    """`apt-get update` writes tens of megabytes into `/var/lib/apt/lists`, and
+    a layer is immutable: delete them in a LATER `RUN` and the bytes are still
+    in the image, hidden under a whiteout, and the image is the same size while
+    the Dockerfile reads as if it were not."""
+    for command in system_installs(dockerfile()):
+        assert "apt-get update" in command, command
+        assert "rm -rf /var/lib/apt/lists" in command, command
+
+
+def test_the_deploy_document_names_the_engine_the_image_now_carries() -> None:
+    """The half of this decision a Dockerfile cannot carry.
+
+    The image is bigger and slower to build than it was yesterday, and an
+    operator reading only `docs/DEPLOY.md` would not know why. This repository
+    has already shipped that failure twice — the Azure rows, and `D-30`'s three
+    wheels — so the document is read rather than trusted.
+    """
+    text = DEPLOY_DOC.read_text(encoding="utf-8")
+    for package in OCR_PACKAGES:
+        assert package in text, f"docs/DEPLOY.md never mentions {package}"
 
 
 def test_the_control_a_dockerfile_that_installs_nothing_is_caught() -> None:
@@ -1382,22 +1469,74 @@ def test_the_control_an_unpinned_install_is_not_a_locked_install() -> None:
     assert locked_install(unlocked) is None
 
 
-def test_the_control_a_dockerfile_that_installs_a_system_package_is_caught() -> None:
+def test_the_control_a_dockerfile_that_installs_no_engine_is_caught() -> None:
+    """The image exactly as it stood until 2026-08-13: the wrapper wheel
+    installed, the binary it shells out to absent, and every uploaded
+    photograph reading zero of four fields on the artefact that ships."""
+    planted = instructions("FROM python:3.14.6-slim\nRUN uv sync --locked --no-dev\n")
+    assert apt_packages(planted) == []
+
+
+def test_the_control_an_unrelated_system_package_is_caught() -> None:
+    """CORRECTED 2026-08-13. This planted `tesseract-ocr`, which is now the
+    thing the image is supposed to install, so it would have controlled
+    nothing. The guard it controls is unchanged: an unpinned Debian package
+    that no owner decision named."""
+    planted = instructions(
+        "FROM python:3.14.6-slim\n"
+        "RUN apt-get update && apt-get install -y --no-install-recommends curl\n"
+    )
+    assert system_installs(planted) != []
+    assert [p for p in apt_packages(planted) if p not in OCR_PACKAGES] == ["curl"]
+
+
+def test_the_control_a_language_pack_nothing_here_reads_is_caught() -> None:
+    """`tesseract-ocr-all` is the whole point of the size check: one word, every
+    language there is, and no test anywhere would otherwise notice."""
+    planted = instructions(
+        "FROM python:3.14.6-slim\n"
+        "RUN apt-get install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-all\n"
+    )
+    extra = [
+        p
+        for p in apt_packages(planted)
+        if p.startswith("tesseract-ocr-") and p not in OCR_PACKAGES
+    ]
+    assert extra == ["tesseract-ocr-all"]
+
+
+def test_the_control_an_install_that_takes_the_recommends_chain_is_caught() -> None:
     planted = instructions(
         "FROM python:3.14.6-slim\n"
         "RUN apt-get update && apt-get install -y tesseract-ocr\n"
     )
-    assert system_installs(planted) != []
+    assert all("--no-install-recommends" not in c for c in system_installs(planted))
+
+
+def test_the_control_package_lists_left_behind_in_the_image_are_caught() -> None:
+    """The likelier mistake than forgetting the deletion outright: putting it in
+    its own RUN, where it reads as done and removes nothing from the layer
+    above it."""
+    planted = instructions(
+        "FROM python:3.14.6-slim\n"
+        "RUN apt-get update && apt-get install -y --no-install-recommends x\n"
+        "RUN rm -rf /var/lib/apt/lists/*\n"
+    )
+    left = [c for c in system_installs(planted) if "rm -rf /var/lib/apt/lists" not in c]
+    assert left != []
 
 
 def test_the_control_tesseract_named_in_a_comment_is_not_an_install() -> None:
-    """The other direction. The Dockerfile explains at length why the binary is
-    absent, and naming the command it does not run must not fail the check that
-    it does not run it."""
+    """The other direction, and it matters MORE since 2026-08-13 than it did
+    before. The Dockerfile no longer explains why the binary is absent; it
+    explains what is installed and what that costs, in prose that names the
+    packages. A comment cannot install anything and must not be able to satisfy
+    — or fail — a check about what is installed."""
     planted = instructions(
         "FROM python:3.14.6-slim\n# NOT installed: apt-get install -y tesseract-ocr\n"
     )
     assert system_installs(planted) == []
+    assert apt_packages(planted) == []
 
 
 # ---------------------------------------------------------------------------
