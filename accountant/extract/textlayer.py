@@ -32,8 +32,27 @@ October; read month-first it is the 10th of June; both are somebody's national
 convention and neither is in the document. A guessed date at confidence 1.0
 files a GST return in the wrong month with nothing on screen to notice. Six of
 the twenty corpus PDFs are refused for exactly this and that is the correct
-answer, not a gap. Whether the product should assume `DD/MM` for an Indian
-supplier is an OWNER DECISION about locale, not a fact this reader can read.
+answer, not a gap.
+
+DECIDED 2026-08-13: a locale is never assumed, and the refusal must be a
+sentence somebody can act on. It names BOTH readings in months a person
+recognises and asks for `YYYY-MM-DD`, which is the one written form of a date
+that cannot be read two ways. `_ambiguous` is the whole of it.
+
+WHEN THE FILE HAD TO BE REPAIRED TO READ IT
+---------------------------------------------
+Corrupt nothing in a corpus PDF but the number after its `startxref` and
+`pypdf` rebuilds the object table by scanning for `N 0 obj`, then reads the
+bill perfectly - same total, `Outcome.READ`, confidence 1.0. Measured. The
+reconstruction leaves no mark, and a rebuild keeps the LAST definition of an
+object it finds while the cross-reference table names the CURRENT one, so
+"append a new total, break the xref" reads back the appended figure.
+
+So `xref_was_rebuilt` asks the bytes whether the document's own pointer leads
+where it says, and `TextLayerReading.pdf_repaired` carries the answer with the
+reading. What is DONE about it - never auto-posting one of these - is
+`cage/decision.py`'s half and deliberately not here: this file measures, the
+cage decides.
 
 WHAT IT DOES WHEN THERE IS NO TEXT LAYER
 ------------------------------------------
@@ -170,6 +189,80 @@ class TextLayerReading:
     lines: tuple[LineRead, ...] = ()
     text: str = ""
     pages: int = 0
+    pdf_repaired: bool = False
+
+
+# =============================================================================
+# was this reading reconstructed?
+# =============================================================================
+
+#: What a person is told about a document whose object table was rebuilt.
+#: OWNER DECISION 2026-08-13, word for word. The decision-layer half - never
+#: auto-post on one of these - belongs to `cage/decision.py` and is not here.
+REPAIRED_WARNING: Final = (
+    "This PDF was damaged and had to be repaired to read it. The extracted "
+    "data may be unreliable. Please verify carefully."
+)
+
+_STARTXREF: Final = b"startxref"
+_DIGITS: Final = b"0123456789"
+
+#: The two things a `startxref` offset may legally point at: the classic
+#: `xref` keyword, or the object header of a cross-reference STREAM. Enough
+#: bytes for `NNNNNNNNNN GGGGG obj` and no more.
+_XREF_KEYWORD: Final = b"xref"
+_OBJECT_HEADER: Final = re.compile(rb"\d+\s+\d+\s+obj\b")
+_ENOUGH: Final = 32
+
+
+def xref_was_rebuilt(data: bytes) -> bool:
+    """Did `pypdf` have to RECONSTRUCT this file's object table to read it?
+
+    WHY THIS IS ASKED AT ALL. Corrupt nothing in a corpus PDF but the number
+    after its `startxref` and `pypdf` rebuilds the object table by scanning the
+    whole file for `N 0 obj`, then reads the bill perfectly - the same total,
+    `Outcome.READ`, confidence 1.0. Measured, not assumed. The recovery is
+    silent, and this rung's entire claim is that nothing it returns was guessed.
+
+    IT IS NOT COSMETIC. A rebuild keeps the LAST definition of an object it
+    finds, while the cross-reference table names the CURRENT one. So append a
+    second copy of the content stream carrying a different total, break the
+    pointer, and the reader answers the appended figure at confidence 1.0 -
+    which is what a tampered invoice looks like, and `test_textlayer.py` runs
+    exactly that.
+
+    HOW IT IS TOLD, on the bytes and nothing else. The document states where
+    its cross-reference structure lives; either that statement is true or the
+    reader that followed it did not follow it. So: find the last `startxref`,
+    read the offset, and look at what is actually there. No `pypdf` internals
+    are touched, so a version upgrade cannot silently change the answer, and no
+    logging or warning capture is involved, so two PDFs read at the same moment
+    in two threads cannot swap answers.
+
+    WHAT IT DOES NOT CATCH, stated rather than left to be discovered. A pointer
+    aimed at some OTHER object is accepted here, because a cross-reference
+    stream is an ordinary object and refusing those would fire on a large share
+    of the PDFs a modern word processor writes. Measured: `pypdf` refuses those
+    files outright rather than rebuilding, so no reading comes out of that hole.
+
+    True for bytes that state no pointer at all. `read` never asks about those
+    - they do not parse - but the sentence this function answers is about the
+    bytes, and bytes with no pointer state nothing for a reader to have read.
+    """
+    at = data.rfind(_STARTXREF)
+    if at < 0:
+        return True
+    tail = data[at + len(_STARTXREF) :].lstrip()
+    digits = tail[: len(tail) - len(tail.lstrip(_DIGITS))]
+    if not digits:
+        return True
+    offset = int(digits)
+    if not 0 < offset < len(data):
+        return True
+    here = data[offset : offset + _ENOUGH]
+    return not (
+        here.startswith(_XREF_KEYWORD) or _OBJECT_HEADER.match(here) is not None
+    )
 
 
 # =============================================================================
@@ -315,25 +408,31 @@ _PARTY_LABELS: Final[tuple[str, ...]] = (
     "SOLD BY",
 )
 
-#: Written down rather than taken from `%b`, which follows the machine's
-#: locale. A bill that parses on one machine and not another is not a reading.
-#: `ingest/spend.py` carries the same twelve for the same reason; importing
-#: them would make document extraction depend on the UK-spend CSV loader, and
-#: that coupling is worse than three lines of month names.
-_MONTHS: Final[tuple[str, ...]] = (
-    "JAN",
-    "FEB",
-    "MAR",
-    "APR",
-    "MAY",
-    "JUN",
-    "JUL",
-    "AUG",
-    "SEP",
-    "OCT",
-    "NOV",
-    "DEC",
+#: Written down rather than taken from `%B`, which follows the machine's
+#: locale. A bill that parses on one machine and not another is not a reading,
+#: and a refusal that names a month in the server's language is not a sentence
+#: the person holding the bill can act on. `ingest/spend.py` carries the same
+#: twelve for the same reason; importing them would make document extraction
+#: depend on the UK-spend CSV loader, and that coupling is worse than three
+#: lines of month names.
+_MONTH_NAMES: Final[tuple[str, ...]] = (
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
 )
+
+#: What a supplier prints. DERIVED, not written twice: two lists that must
+#: agree are one list plus a bug waiting for somebody to edit one of them.
+_MONTHS: Final[tuple[str, ...]] = tuple(name[:3].upper() for name in _MONTH_NAMES)
 
 _ISO_DATE: Final = re.compile(r"^(\d{4})-(\d{1,2})-(\d{1,2})$")
 _NUMERIC_DATE: Final = re.compile(r"^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$")
@@ -426,11 +525,13 @@ def _date_from(printed: str) -> tuple[datetime.date | None, str]:
         return None, (
             f"{NOT_FOUND}: {printed.strip()!r} is not a date this reader reads"
         )
-    return _ordered_date(int(numeric[1]), int(numeric[2]), int(numeric[3]))
+    return _ordered_date(
+        int(numeric[1]), int(numeric[2]), int(numeric[3]), printed.strip()
+    )
 
 
 def _ordered_date(
-    first: int, second: int, year: int
+    first: int, second: int, year: int, printed: str
 ) -> tuple[datetime.date | None, str]:
     """`26/02/2026` when only one reading of it is a real date.
 
@@ -441,11 +542,37 @@ def _ordered_date(
         return _real_date(year, second, first)
     if second > 12 >= first:
         return _real_date(year, first, second)
-    return None, (
-        f"{NOT_FOUND}: {first:02d}/{second:02d}/{year} is either the "
-        f"{first} of month {second} or the {second} of month {first}, and the "
-        "document does not say which. A date read the wrong way round files a "
-        "return in the wrong month, so it is asked rather than assumed"
+    return None, f"{NOT_FOUND}: {_ambiguous(first, second, printed)}"
+
+
+def _ambiguous(first: int, second: int, printed: str) -> str:
+    """The sentence for a date whose order the document does not state.
+
+    OWNER DECISION 2026-08-13, word for word, and the words are the point. The
+    old sentence said the date was "either the 6 of month 10 or the 10 of month
+    6" - true, and useless to somebody holding the bill, because it neither
+    names the months nor says what to send back. This one does both:
+
+        NAMES BOTH READINGS, in months a person recognises. A sentence carrying
+        only one of them is a guess with a citation, which is worse than a
+        guess, and it is the mutant this wording is tested against.
+
+        ASKS FOR ISO. `YYYY-MM-DD` is the one written form of a date that
+        cannot be read two ways, so the answer that comes back cannot reopen
+        the question the refusal was raised about.
+
+    QUOTES WHAT WAS PRINTED, not a normalised form. Two of the twenty corpus
+    bills write their dates with hyphens, and asking somebody to confirm
+    `07/11/2026` when their document says `07-11-2026` is asking them to find a
+    string that is not there.
+
+    The first reading is day-first, the second month-first, which is the order
+    the decision states them in - and neither is preferred by anything here.
+    """
+    return (
+        f"The date '{printed}' is ambiguous (could be "
+        f"{first} {_MONTH_NAMES[second - 1]} or {second} {_MONTH_NAMES[first - 1]}). "
+        "Please confirm the date in YYYY-MM-DD format."
     )
 
 
@@ -654,13 +781,21 @@ def _reading(
     items: Answered[tuple[LineRead, ...]] = _NOTHING,
     text: str = "",
     pages: int = 0,
+    repaired: bool = False,
 ) -> TextLayerReading:
     """Assemble one reading. The ONE place a `TextLayerReading` is built.
 
     One place, for the reason `registry.GuardedExtractor.outage` gives about
     outage records: two constructors is how one of them ends up without a
     reason on a blank field, which is a silent blank wearing a label.
+
+    The repair warning is added BEFORE the fields are built, because `said` is
+    also the fallback reason on a field that has none of its own. A warning
+    appended afterwards would be missing from exactly the fields that carry no
+    other explanation.
     """
+    if repaired:
+        said = f"{said} {REPAIRED_WARNING}"
     found = items[0]
     line_paise = None if found is None else tuple(i.amount_paise for i in found)
     fields = {
@@ -684,6 +819,7 @@ def _reading(
         lines=found or (),
         text=text,
         pages=pages,
+        pdf_repaired=repaired,
     )
 
 
@@ -737,6 +873,12 @@ def read(data: bytes) -> TextLayerReading:
             f"({type(exc).__name__}), so nothing was read from it",
         )
 
+    # Asked only once the bytes have parsed. `pdf_repaired` is a statement
+    # about data that came back, and a refusal brings none: telling somebody to
+    # verify a reading carefully when there is no reading is noise on the one
+    # warning that has to be read.
+    repaired = xref_was_rebuilt(data)
+
     if not text.strip():
         return _reading(
             Outcome.NO_TEXT_LAYER,
@@ -745,11 +887,12 @@ def read(data: bytes) -> TextLayerReading:
             "here guesses at one",
             text=text,
             pages=pages,
+            repaired=repaired,
         )
-    return _parse(text, pages)
+    return _parse(text, pages, repaired)
 
 
-def _parse(text: str, pages: int) -> TextLayerReading:
+def _parse(text: str, pages: int, repaired: bool) -> TextLayerReading:
     lines = tuple(line.rstrip() for line in text.splitlines())
     answers: dict[str, Answered[object]] = {}
     date = answers["date"] = _read_date(text)
@@ -767,6 +910,7 @@ def _parse(text: str, pages: int) -> TextLayerReading:
         items=items,
         text=text,
         pages=pages,
+        repaired=repaired,
     )
 
 

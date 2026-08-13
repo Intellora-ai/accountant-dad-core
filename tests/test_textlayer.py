@@ -19,6 +19,11 @@ saving, and this file is where the top rung is held to its promise:
     it never raises                 a corrupt PDF is a refusal with a sentence,
                                     never a traceback out of `pypdf`
 
+    it says when it was rebuilt     a PDF whose object table `pypdf` had to
+                                    reconstruct comes back with
+                                    `pdf_repaired` True and a sentence saying
+                                    the data may be unreliable
+
 WHY SO MANY OF THESE TESTS ARE REFUSALS
 ----------------------------------------
 A reader is easy to make look good: read the clean cases and stay quiet about
@@ -52,6 +57,7 @@ from __future__ import annotations
 import datetime
 import io
 import json
+import re
 from collections.abc import Sequence
 from decimal import Decimal
 from pathlib import Path
@@ -65,11 +71,13 @@ from accountant.cage.wall import Field, Observation
 from accountant.extract.adapter import NOT_FOUND, ExtractedRecord, Extractor
 from accountant.extract.textlayer import FIELDS as MODULE_FIELDS
 from accountant.extract.textlayer import (
+    REPAIRED_WARNING,
     Outcome,
     TextLayerReader,
     TextLayerReading,
     paise_or_none,
     read,
+    xref_was_rebuilt,
 )
 
 REPO = Path(__file__).resolve().parent.parent
@@ -309,14 +317,73 @@ def test_a_month_first_date_is_read_when_that_is_the_only_reading() -> None:
     assert reading.observation.date.value == datetime.date(2026, 1, 25)
 
 
+#: The owner's sentence for an ambiguous date, DECIDED 2026-08-13 and written
+#: out here rather than imported. It is the specification, not an implementation
+#: detail: importing the module's own string would let a mutant that drops one
+#: of the two readings change both sides at once and stay green.
+AMBIGUOUS_DATE = (
+    "The date '06/10/2026' is ambiguous (could be 6 October or 10 June). "
+    "Please confirm the date in YYYY-MM-DD format."
+)
+
+
 def test_a_date_that_could_be_two_different_days_is_refused_not_guessed() -> None:
     """`06/10/2026` is the 6th of October to a supplier in Delhi and the 10th of
     June to one in Dallas. A field on this rung carries confidence 1.0, and a
     locale convention is not a reading - it is a guess wearing a certainty. The
-    wrong one of these files a GST return in the wrong month."""
+    wrong one of these files a GST return in the wrong month.
+
+    CORRECTED 2026-08-13 for the owner's decision on ambiguous dates. It used to
+    assert only that the word "either" appeared, which passed for the old
+    sentence and says nothing about what a person is actually told. The decision
+    is that the refusal NAMES BOTH READINGS and asks for ISO, so the whole
+    sentence is pinned - a sentence naming one reading is exactly the failure
+    this wording exists to stop, and `in` could not catch it.
+
+    The `not_found:` prefix is pinned with it. `cage/gate.py` decides a field is
+    unread by `source.startswith(NOT_FOUND)`, so dropping the prefix to make the
+    sentence stand alone would present a REFUSED date to the gate as a sourced
+    one."""
     reading = bill_with(("DATE: 2026-04-01", "DATE: 06/10/2026"))
     assert reading.observation.date.value is None
-    assert "either" in reading.observation.date.source
+    assert reading.observation.date.source == f"{NOT_FOUND}: {AMBIGUOUS_DATE}"
+
+
+def test_the_ambiguous_date_sentence_quotes_the_date_the_way_the_bill_prints_it() -> (
+    None
+):
+    """Two of the six refused corpus bills print their dates with hyphens.
+
+    A sentence that quoted `07/11/2026` at somebody holding a bill that says
+    `07-11-2026` is asking them to confirm a string that is not on the document.
+    The quoted date is the one that was printed."""
+    reading = bill_with(("DATE: 2026-04-01", "DATE: 07-11-2026"))
+    source = reading.observation.date.source
+    assert "'07-11-2026'" in source
+    assert "07/11/2026" not in source
+    assert "(could be 7 November or 11 July)" in source
+
+
+def test_the_control_a_date_whose_order_is_settled_carries_no_ambiguity_sentence() -> (
+    None
+):
+    """THE CONTROL on the two tests above. A reader that answered every numeric
+    date with the ambiguity refusal would pass both of them and would then
+    refuse `26/02/2026`, which only one reading can be. Refusing everything is
+    not safety, it is a reader that reads nothing."""
+    reading = bill_with(("DATE: 2026-04-01", "DATE: 26/02/2026"))
+    assert reading.observation.date.value == datetime.date(2026, 2, 26)
+    assert "ambiguous" not in reading.said
+    assert "YYYY-MM-DD" not in reading.said
+
+
+def test_the_ambiguous_date_refusal_is_still_read_by_the_machine_as_unread() -> None:
+    """The sentence is for a person; the field is for the decision layer. A
+    refusal that scored anything above zero would put a date nobody read in
+    front of the gate at a confidence that says somebody did."""
+    date = bill_with(("DATE: 2026-04-01", "DATE: 06/10/2026")).observation.date
+    assert date.confidence == 0.0
+    assert date.source.startswith(NOT_FOUND)
 
 
 def test_the_same_number_twice_is_the_same_day_whichever_way_it_is_read() -> None:
@@ -689,6 +756,174 @@ def test_a_page_tree_that_points_at_itself_does_not_hang_or_crash() -> None:
     assert read(looping).said.strip()
 
 
+# ---- repaired PDFs: a reading that was reconstructed says so -----------------
+#
+# MEASURED, and the whole reason `pdf_repaired` exists. Corrupt nothing in a
+# corpus PDF but its `startxref` pointer and `pypdf` rebuilds the object table
+# by scanning the file for `N 0 obj`, then reads the bill perfectly - same
+# total, `Outcome.READ`, confidence 1.0. The reconstruction is invisible.
+#
+# It is not cosmetic, because a rebuild takes the LAST definition of an object
+# it finds. "Append a new total, break the xref" is what a tampered invoice
+# looks like, and `test_a_rebuilt_table_reads_an_appended_total...` below runs
+# exactly that and gets 9,999.00 out of a bill that says 1,234.56.
+
+
+def broken_startxref(data: bytes) -> bytes:
+    """The same PDF with only its `startxref` pointer made wrong.
+
+    ONE NUMBER, nothing else. Every object, the cross-reference table and the
+    trailer are untouched and correct - which is the point: the file is still
+    readable, and the only thing lost is the document's own statement of where
+    its object table lives.
+    """
+    at = data.rfind(b"startxref")
+    return data[:at] + re.sub(
+        rb"startxref\s*\d+", b"startxref\n999999", data[at:], count=1
+    )
+
+
+def test_a_pdf_whose_cross_reference_table_was_rebuilt_is_flagged_repaired() -> None:
+    """A REAL corpus PDF, with one number in it broken.
+
+    The reading still comes back READ with its total at confidence 1.0 - so the
+    flag is not decoration, it is the only difference between this reading and
+    an honest one."""
+    case = corpus_cases()[0]
+    data = (DOCUMENTS / str(case["document"])).read_bytes()
+    honest, repaired = read(data), read(broken_startxref(data))
+    assert repaired.outcome is Outcome.READ
+    assert repaired.observation.total_paise == honest.observation.total_paise
+    assert repaired.pdf_repaired is True
+
+
+def test_the_control_none_of_the_twenty_corpus_pdfs_is_flagged_repaired() -> None:
+    """THE CONTROL, and the mandatory one. A detector that answered True for
+    everything would pass every test above it and would then put "verify this
+    carefully" on all twenty honest bills, which teaches a person to click past
+    the one warning that matters."""
+    flagged = {
+        str(case["case_id"])
+        for case in corpus_cases()
+        if read((DOCUMENTS / str(case["document"])).read_bytes()).pdf_repaired
+    }
+    assert flagged == set()
+
+
+def test_the_control_an_ordinary_bill_read_here_is_not_flagged_repaired() -> None:
+    """THE SECOND CONTROL, on a PDF this file builds rather than one on disk."""
+    assert read(pdf_bytes(BILL)).pdf_repaired is False
+    assert read(_blank_pdf()).pdf_repaired is False
+    assert xref_was_rebuilt(pdf_bytes(BILL)) is False
+
+
+def test_a_rebuilt_table_reads_an_appended_total_and_the_flag_is_all_that_notices() -> (
+    None
+):
+    """MEASURED, and the harm the flag is for.
+
+    Append a second copy of object 4 carrying 9,999.00 and break only the
+    startxref. `pypdf` rebuilds by scanning for `N 0 obj`, the LAST definition
+    of object 4 wins, and the reader answers 999900 at confidence 1.0 for a
+    document whose cross-reference table still points at 1,234.56.
+
+    Nothing else in this module can tell. The outcome is READ, every field is
+    present, the arithmetic is self-consistent, and `lines_sum_to_total` has
+    nothing to object to. The flag is the only signal."""
+    louder = [*BILL]
+    louder[-1] = "TOTAL                                              9,999.00"
+    tampered = pdf_bytes(BILL) + b"4 0 obj\n" + _content_stream(louder) + b"\nendobj\n"
+    reading = read(broken_startxref(tampered))
+    assert reading.observation.total_paise.value == 999_900
+    assert reading.observation.total_paise.confidence == EXACT
+    assert reading.pdf_repaired is True
+
+
+def test_a_startxref_of_zero_is_a_rebuild_the_same_as_one_pointing_nowhere() -> None:
+    """`startxref 0` is what a truncating writer leaves behind. It reads, and
+    what it reads was reconstructed."""
+    data = pdf_bytes(BILL)
+    at = data.rfind(b"startxref")
+    reading = read(data[:at] + b"startxref\n0\n%%EOF\n")
+    assert reading.outcome is Outcome.READ
+    assert reading.pdf_repaired is True
+
+
+def test_the_repair_flag_is_a_bool_because_the_decision_layer_branches_on_it() -> None:
+    """`decision.py` will refuse to auto-post on this. A truthy something-else
+    reaching that branch is how a rule ends up depending on a string's length."""
+    assert type(read(pdf_bytes(BILL)).pdf_repaired) is bool
+    assert type(read(broken_startxref(pdf_bytes(BILL))).pdf_repaired) is bool
+
+
+def test_a_repaired_pdf_says_so_in_the_sentence_a_person_reads() -> None:
+    """The owner's words, pinned here rather than imported for the reason
+    `AMBIGUOUS_DATE` is: a test that took the sentence from the module would
+    agree with any sentence the module happened to hold."""
+    said = read(broken_startxref(pdf_bytes(BILL))).said
+    assert (
+        "This PDF was damaged and had to be repaired to read it. The extracted "
+        "data may be unreliable. Please verify carefully."
+    ) in said
+    assert REPAIRED_WARNING in said
+
+
+def test_the_control_a_clean_bill_carries_no_repair_warning() -> None:
+    """THE CONTROL on the test above. A sentence appended unconditionally would
+    pass it, and would then tell somebody their perfectly good bill was
+    damaged."""
+    said = read(pdf_bytes(BILL)).said
+    assert "damaged" not in said
+    assert "verify carefully" not in said
+
+
+def test_a_scan_whose_table_was_rebuilt_is_still_flagged_for_the_next_rung() -> None:
+    """No text layer is not no reading. The OCR tier gets these bytes next, and
+    a reconstructed page tree is a fact about them whether or not this rung
+    could read a character off it."""
+    reading = read(broken_startxref(_blank_pdf()))
+    assert reading.outcome is Outcome.NO_TEXT_LAYER
+    assert reading.pdf_repaired is True
+
+
+def test_a_pdf_that_could_not_be_parsed_at_all_is_not_called_repaired() -> None:
+    """A refusal is not a repair. `pdf_repaired` is a statement about data that
+    was returned, and a refusal returns none - so flagging it would put a
+    "verify carefully" on a reading with nothing in it to verify."""
+    whole = pdf_bytes(BILL)
+    for data in (b"", b"not a pdf", whole[: len(whole) // 2]):
+        reading = read(data)
+        assert reading.outcome is Outcome.UNREADABLE, data[:8]
+        assert reading.pdf_repaired is False, data[:8]
+
+
+def test_a_startxref_pointing_at_an_ordinary_object_is_refused_by_the_parser() -> None:
+    """THE BOUNDARY, measured rather than assumed. The detector accepts an
+    object header at the offset, because a PDF 1.5 cross-reference STREAM is an
+    ordinary object and refusing those would fire on a large share of real
+    files. That leaves a hole - a pointer aimed at some other object - and the
+    measurement is that `pypdf` refuses those outright rather than rebuilding,
+    so no reading comes out of that hole for the flag to have to cover."""
+    data = pdf_bytes(BILL)
+    at = data.rfind(b"startxref")
+    aimed = data[:at] + f"startxref\n{data.index(b'3 0 obj')}\n%%EOF\n".encode("ascii")
+    assert read(aimed).outcome is Outcome.UNREADABLE
+
+
+def test_the_control_a_cross_reference_stream_is_not_called_a_rebuild() -> None:
+    """THE CONTROL on the boundary above, and on the whole detector. Every PDF
+    on disk here writes the classic `xref` table, so without this the branch
+    that accepts a cross-reference STREAM is untested - and it is the branch
+    standing between this flag and every PDF a modern word processor emits."""
+    streamed = (
+        b"%PDF-1.5\n7 0 obj\n<< /Type /XRef /W [1 2 1] /Size 8 >>\nstream\n"
+        b"\x00\x00\x00\x00\nendstream\nendobj\nstartxref\n9\n%%EOF\n"
+    )
+    assert streamed[9:16] == b"7 0 obj"
+    assert xref_was_rebuilt(streamed) is False
+    assert xref_was_rebuilt(streamed.replace(b"startxref\n9", b"startxref\n4")) is True
+
+
 # ---- the seam: it plugs in where the other backends already do ---------------
 
 
@@ -831,14 +1066,30 @@ def test_the_control_the_corpus_comparison_would_notice_a_wrong_answer() -> None
 def test_the_dates_the_corpus_refuses_are_refused_for_a_stated_reason() -> None:
     """The six unread dates are not a silent gap. Each one is a `DD/MM` or
     `MM/DD` that two suppliers would write for two different days, and the
-    field says so where a person can read it."""
-    refused = [
-        read((DOCUMENTS / str(case["document"])).read_bytes()).observation.date
+    field says so where a person can read it.
+
+    CORRECTED 2026-08-13 with the sentence itself. It used to look for the word
+    "either", which survived a sentence that named one reading and hid the
+    other. What the owner decided is that a refusal is only useful if the person
+    can act on it, so what is checked is that each of the six says it is
+    ambiguous and asks for the one format that cannot be ambiguous.
+
+    `GT-0034` is the case the decision was written from: it prints `06/10/2026`,
+    so its sentence is the owner's example word for word."""
+    unread = [
+        field
         for case in corpus_cases()
+        if (
+            field := read(
+                (DOCUMENTS / str(case["document"])).read_bytes()
+            ).observation.date
+        ).value
+        is None
     ]
-    unread = [field for field in refused if field.value is None]
     assert len(unread) == 6
-    assert all("either" in field.source for field in unread), unread
+    assert all("is ambiguous (could be " in f.source for f in unread), unread
+    assert all("confirm the date in YYYY-MM-DD format." in f.source for f in unread)
+    assert any(f.source == f"{NOT_FOUND}: {AMBIGUOUS_DATE}" for f in unread), unread
 
 
 def test_a_field_object_from_this_reader_obeys_the_wall_invariants() -> None:
@@ -934,25 +1185,32 @@ def test_a_field_object_from_this_reader_obeys_the_wall_invariants() -> None:
 #    also kill the first mutant, and would then drop every line after an item
 #    called `TAX CONSULTANCY SERVICES`. Both mutants are now run and both die.
 #
-# 8. NOT FIXED, and it is an OWNER QUESTION rather than a bug. Measured: take a
-#    good PDF, corrupt only its `startxref` pointer, and `pypdf` rebuilds the
-#    cross-reference table by scanning the file for `N 0 obj` and reads the bill
-#    perfectly - 123456 paise, `Outcome.READ`, confidence 1.0. That recovery is
-#    a RECONSTRUCTION, and this rung's entire claim is that nothing it returns
-#    was guessed.
+# 8. FIXED 2026-08-13, and the owner question in it is now answered. Measured:
+#    take a good PDF, corrupt only its `startxref` pointer, and `pypdf` rebuilds
+#    the cross-reference table by scanning the file for `N 0 obj` and reads the
+#    bill perfectly - `Outcome.READ`, confidence 1.0, every field right. That
+#    recovery is a RECONSTRUCTION, and this rung's entire claim is that nothing
+#    it returns was guessed.
 #
-#    It is not cosmetic. In an incrementally updated PDF the xref chain is the
-#    only thing saying which version of an object is current, so a rebuild can
-#    hand back a superseded total in good faith - and "append a new total, break
-#    the xref" is what a tampered invoice looks like.
+#    It is not cosmetic, and this file now proves it rather than arguing it. A
+#    rebuild keeps the LAST definition of an object it finds, while the xref
+#    names the CURRENT one, so
+#    `test_a_rebuilt_table_reads_an_appended_total_and_the_flag_is_all_that_notices`
+#    appends a second content stream saying 9,999.00, breaks the pointer, and
+#    the reader answers 999900 at confidence 1.0 for a bill that says 1,234.56.
+#    That is what a tampered invoice looks like.
 #
-#    Refusing it is about twenty lines (`rfind(b"startxref")`, parse the offset,
-#    check `xref` or `N 0 obj` is actually there - verified working against all
-#    twenty corpus PDFs, the blank PDF and the encrypted one). It is NOT done
-#    here because it would also refuse real supplier PDFs that `pypdf` recovers
-#    correctly today, and choosing between "refuse a recoverable real bill" and
-#    "accept a reconstruction" is a product decision with a cost on both sides.
-#    Nobody has made it, so it is reported rather than assumed.
+#    The decision was NOT the one this note assumed it had to be. The choice was
+#    put as "refuse a recoverable real bill" against "accept a reconstruction",
+#    and both costs are real - but the third option is to READ it and SAY SO,
+#    which is what the owner chose. `pdf_repaired` is the flag, the sentence is
+#    the owner's own words, and refusing to auto-post on it is `decision.py`'s
+#    half. Nothing is refused here that was readable before, so the cost that
+#    blocked this for a month was a cost of the answer nobody had to give.
+#
+#    The control matters more than the detector. A flag that fired on
+#    everything would pass every positive test above and be worthless, so all
+#    twenty corpus PDFs are asserted False in one test of their own.
 #
 # 7. NOT FIXED, deliberately. `conservation.py` pins its own import list so a
 #    dependency cannot arrive behind an import nobody rereads. The same test is
