@@ -99,7 +99,7 @@ class Verdict(StrEnum):
     # S105 reads `PASS = "pass"` as a hardcoded credential. It is a verdict.
     # Renaming it to satisfy a linter would make the code worse to read, so the
     # rule is silenced on that one line with the reason written here.
-    PASS = "pass"  # noqa: S105
+    PASS = "pass"  # noqa: S105  # nosec B105
     FAIL = "fail"
     INDETERMINATE = "indeterminate"
 

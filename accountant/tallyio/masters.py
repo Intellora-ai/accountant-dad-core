@@ -55,7 +55,10 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Final
-from xml.sax.saxutils import escape
+
+# `escape` ESCAPES text on its way out. It parses nothing, so B406's warning
+# about parsing untrusted XML does not apply. defusedxml has no equivalent.
+from xml.sax.saxutils import escape  # nosec B406
 
 from accountant.tallyio import audit, errors, writedoor
 from accountant.tallyio.real import (
