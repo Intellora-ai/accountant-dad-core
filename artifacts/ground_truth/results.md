@@ -14,7 +14,7 @@ quoted with the commit beside them.
 | cwd | `/Users/tanveersidhu/ACCOUNTANT` |
 | accountant__file__ | `/Users/tanveersidhu/ACCOUNTANT/accountant/__init__.py` |
 | python | `3.14.6` |
-| commit | `e87681feaf842da85fd7c2dc6e81476726f9250f` |
+| commit | `34e4a5050fb7b70707c135f864575ffb47133657` |
 | branch | `cage/safety-layer` |
 | worktree | `/Users/tanveersidhu/ACCOUNTANT` |
 | dirty | `yes` |

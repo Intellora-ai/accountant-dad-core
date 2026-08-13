@@ -4,20 +4,24 @@
 `tesseract 5.5.3 / leptonica 1.87.0` on macOS arm64, not predicted.** Where a
 number came from a run, the command that produced it is written beside it.
 
-## Status: half landed, and the half that is missing is named
+## Status: the engine call is real; one piece above it is deliberately absent
 
-`accountant/extract/freeocr.py` exists and holds everything about reading that
-is **not** the engine call: the confidence proxy, the `-1` marker rule, the
-media-type gate, the refusal sentences, and the rule that a field with no
-confidence carries no value.
+`accountant/extract/freeocr.py` holds the engine call — `read_words` — and
+everything the safety of a reading depends on: the confidence proxy, the `-1`
+marker rule, the media-type gate, the bounded wait, the refusal sentences, and
+the rule that a field with no confidence carries no value.
 
-The engine call itself is **not in this repository**. It cannot be:
-`tests/test_no_reader.py` forbids a third-party import anywhere in
-`accountant/extract/`, and forbids `pyproject.toml` declaring any runtime
-dependency at all. So `freeocr.PageReader` is an **injected** transport, the
-same shape `service.ServiceExtractor` already uses, and the ten lines that
-satisfy it live in the deployment. They are written out below. See
-"The blocker, measured".
+It could not have held any of that before **2026-08-13**. `tests/test_no_reader.py`
+forbade every third-party import in `accountant/extract/` and required
+`pyproject.toml` to declare `dependencies = []`. **`D-30` in
+[`DECISIONS.md`](./DECISIONS.md) lifted it by name**: `freeocr.py` may import
+`pytesseract` and `PIL`, `textlayer.py` may import `pypdf`, and nothing else may
+import anything. Widening that list is still an owner decision.
+
+**What is NOT built, on purpose: nothing turns a list of words into "this one is
+the total".** See "The gap that is left" at the bottom. It is not an oversight
+and it is not a small piece of work; it is the piece that cannot be checked
+without labelled data.
 
 ## Which tool, and why this one
 
@@ -74,49 +78,42 @@ brew install tesseract
 choco install tesseract
 ```
 
-## The reader the deployment supplies
-
-`freeocr.PageReader` is `(bytes, media type) -> Reading`. The media type it
-receives is always one of `freeocr.READABLE_MEDIA` — five constants written in
-that module — never a string a caller chose. This is the whole of it:
+## The engine call, and the three things about it that matter
 
 ```python
-import io
-import pytesseract
-from PIL import Image
-from pytesseract import Output
-from accountant.extract.freeocr import Reading, Word
+from accountant.extract.freeocr import FreeReader, Reading, read_words
 
-WORD_ROW = 5          # image_to_data levels 1-4 are page/block/para/line
-DEADLINE_SECONDS = 8  # bounded; pytesseract kills the subprocess at the bound
-
-def read_page(data: bytes, _media: str) -> Reading:
-    page = Image.open(io.BytesIO(data))
-    rows = pytesseract.image_to_data(
-        page, output_type=Output.DICT, timeout=DEADLINE_SECONDS
-    )
-    words = [
-        Word(text=rows["text"][i], confidence=rows["conf"][i])
-        for i in range(len(rows["text"]))
-        if rows["level"][i] == WORD_ROW
-    ]
-    return group_into_fields(words)   # the deployment's own field detection
+words = read_words(image_bytes, deadline_seconds=8)   # -> tuple[Word, ...]
+reader = FreeReader(my_page_reader)                   # -> Extractor
+record = reader.extract(image_bytes, "image/png")     # -> ExtractedRecord
+observed = reader.observe(image_bytes, "image/png")   # -> Observation, with scores
 ```
 
-Three things about that snippet are load-bearing:
-
-- **`output_type=Output.DICT`, not the default text.** MEASURED: the text
-  output prints `conf` as `92.372406`; the DICT output floors it to the integer
+- **`image_to_data`, `output_type=DICT`.** MEASURED: the engine's text output
+  prints the confidence as `92.372406`; the DICT output floors it to the integer
   `92`. `field_confidence` refuses anything that is not an `int`, so the
   conversion has to have already happened. Flooring is also the safe direction —
-  rounding a confidence up is inventing certainty.
-- **`timeout=`.** `pytesseract` kills the subprocess at the bound and raises
-  `RuntimeError("Tesseract process timeout")`. Re-raise it as
-  `freeocr.EngineTimedOut` so the person is told to try a smaller picture
-  rather than to install software they already have.
-- **Fixed argv.** `pytesseract` builds an argument *list*, never a shell
-  string, and nothing a person uploads reaches it: the bytes go to a temporary
-  file the wrapper owns and the flags are constants.
+  rounding a confidence up is inventing certainty. `read_words` **does not**
+  coerce the column itself; `_complaint` refuses a float by name, so a change in
+  the wrapper shows up as a refusal rather than as a plausible number.
+
+- **Only level 5 rows survive.** `image_to_data` reports a hierarchy: 1 page,
+  2 block, 3 paragraph, 4 line, 5 word. Levels 1–4 always carry the marker.
+  Filtering at the source means a caller cannot forget to.
+
+- **`deadline_seconds` has no default, and that is the one number this
+  page does not set.** A bounded wait is required; the bound belongs to the
+  deployment, which knows its own page sizes. Measured headroom: a page takes
+  0.065–0.131 s, so any bound above a second or two is generous. **The
+  production value is an owner setting and nothing here invents one.**
+
+Every argument is a **fixed argument list, never a shell string** — read off
+`pytesseract.run_tesseract`, which builds a python `list` and hands it to
+`subprocess.Popen` with no shell. This module passes an **empty** config, so it
+contributes no argument at all: there is no string for anything to be
+interpolated into, and no page segmentation mode is forced. The media type is
+matched against `READABLE_MEDIA` before anything runs, so what crosses the
+boundary is one of five constants, never a caller's header.
 
 ## The confidence proxy, exactly
 
@@ -216,36 +213,46 @@ broke when the truth is that a program is not installed.
 somebody stopping the process, and answering it with a tidy record would fight
 them.
 
-## The blocker, measured
+## The blocker, and how it was lifted
 
-Putting a real `pytesseract` call in `accountant/extract/` breaks **four**
-assertions in `tests/test_no_reader.py`. Two were measured by planting the
-module and running the suite; two by evaluating the guard's own helpers against
-the `pyproject.toml` the approved dependencies would need.
+Before `D-30`, putting a `pytesseract` call in `accountant/extract/` broke
+**four** assertions in `tests/test_no_reader.py`. Two were measured by planting
+the module and running the suite; two by evaluating the guard's own helpers
+against the `pyproject.toml` the dependencies would need.
 
-| Assertion | Why it fires | How measured |
-|---|---|---|
-| `test_the_extraction_package_imports_nothing_a_reader_would_need` | `{'freeocr.py': ['PIL', 'pytesseract']}` — neither is stdlib nor `accountant.*` | planted, ran, FAILED |
-| `test_no_module_in_the_extraction_package_names_the_work_of_reading` | `pytesseract` contains the reader word `tesseract` | planted, ran, FAILED |
-| `test_the_project_declares_no_runtime_dependency_at_all` | needs `dependencies = ["pytesseract>=0.3", "Pillow>=11.0"]`; the guard asserts `== []` | evaluated, FAIL |
-| `test_no_dependency_in_any_group_names_a_document_reader` | `pytesseract>=0.3` contains the reader word `tesseract` | evaluated, FAIL |
+| Assertion | Why it fired |
+|---|---|
+| `test_the_extraction_package_imports_nothing_a_reader_would_need` | `{'freeocr.py': ['PIL', 'pytesseract']}` — neither is stdlib nor `accountant.*` |
+| `test_no_module_in_the_extraction_package_names_the_work_of_reading` | `pytesseract` contains the reader word `tesseract` |
+| `test_the_project_declares_no_runtime_dependency_at_all` | the guard asserted `project.dependencies == []` |
+| `test_no_dependency_in_any_group_names_a_document_reader` | `pytesseract>=0.3` contains `tesseract` |
 
-Two guards did **not** fire, and that is worth recording: the package starts no
-subprocess of its own and opens no file, so `REACHES_OUTSIDE` and
-`FORBIDDEN_CALLS` stay clean — and they stay clean under the injected design
-permanently, not by luck.
+`D-30` replaced the blanket ban with an **allow-list**: two reader modules by
+name, three runtime dependencies by name, one `subprocess` exception for
+`freeocr.py`, and everything else exactly as forbidden as before. No assertion
+was deleted. Two guards never fired and still do not: this module opens no file
+and evaluates no code.
 
-**The last two are not fixable by moving the file.** They are repo-wide: no
-location in this repository can host a declared `pytesseract` dependency while
-`test_no_reader.py` stands. The guard says so itself, at
-`tests/test_no_reader.py:430` — *"A new one is either a reader or the door a
-reader walks through; either way it is an owner decision and not a test
-change."* `dependencies = []` is load-bearing in two more places:
-`tests/test_upload.py:107` and `tests/test_phase5b_readiness.py:744`, where the
-`--no-deps` install is described as safe only because of it.
+## The gap that is left
 
-**This blocks `accountant/extract/textlayer.py` (`pypdf`) identically** on the
-runtime-dependency guard. It is a phase question, not a Tesseract question:
-`test_no_reader.py` was written for Phase 7, when the correct answer was that
-no reader existed. Retiring or re-scoping it is the owner's call, and nothing
-here was weakened to route around it.
+**Nothing decides which words are the total.** `read_words` returns every word
+on the page; `Reading` says which words make up each field; and the function
+between them does not exist in this repository.
+
+That is field detection, and it is the one part of reading a bill that cannot be
+checked without labelled data. `H-02` — a pile of invoices where somebody
+already knows the right answer — does not exist here. A heuristic written
+without it would be unmeasured, unfalsifiable and confident, and the engine's own
+confidence would not catch it: `field_confidence` scores how legible a word was,
+not whether it was the right word to look at.
+
+Three things are needed before that piece is worth writing, in this order:
+
+1. `H-02`, the labelled corpus. Without it there is no way to tell a good rule
+   from a bad one, and "it looked right on three bills" is not a measurement.
+2. The **deadline** number above, from the owner.
+3. Registration. `registry._READY` does not carry this backend, and
+   `tests/test_adapter_contract.py` asserts `registry.available()` is exactly
+   `("no_reader", "stub", "typed_text", "unavailable")`. **Nothing reaches this
+   code by uploading a document today**, which is correct while the field step
+   is missing — an unwired reader refuses nothing and invents nothing.

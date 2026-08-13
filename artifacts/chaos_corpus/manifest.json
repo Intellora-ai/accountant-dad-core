@@ -1,0 +1,1840 @@
+{
+  "generation_version": "1",
+  "created_at": "2026-08-13",
+  "case_count": 200,
+  "by_family": {
+    "nothing_at_all": 8,
+    "truncated_header": 12,
+    "truncated_body": 16,
+    "the_liars": 16,
+    "formats_we_cannot_read": 34,
+    "pictures_that_are_not_documents": 20,
+    "scripts_and_encodings": 24,
+    "text_that_is_not_a_bill": 17,
+    "adversarial": 23,
+    "bulk_and_boundaries": 14,
+    "pdf_shapes": 16
+  },
+  "total_bytes": 288836,
+  "photo_limitation": "the pictures in this corpus are drawn, not photographed; they exercise a non-document image arriving at the input layer and carry no camera noise, lens blur or JPEG artefacts, so real-photograph behaviour is NOT_MEASURED",
+  "required_names": [
+    "empty_file",
+    "one_byte_nul",
+    "three_bytes_of_the_pdf_marker",
+    "a_pdf_that_is_really_a_jpeg",
+    "a_jpg_that_is_really_a_zip",
+    "a_heic_photo_from_an_iphone",
+    "a_webp_image",
+    "a_real_word_document",
+    "sixteen_kilobytes_of_pseudorandom_bytes",
+    "every_byte_value_0_255",
+    "a_photo_of_a_cat",
+    "a_handwritten_note",
+    "a_low_light_photo",
+    "a_mixed_script_bill",
+    "a_png_with_its_idat_cut_in_half",
+    "a_pdf_with_no_text_layer"
+  ],
+  "cases": [
+    {
+      "name": "empty_file",
+      "family": "nothing_at_all",
+      "filename": "empty.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "why": "An upload that failed before a single byte arrived."
+    },
+    {
+      "name": "one_byte_nul",
+      "family": "nothing_at_all",
+      "filename": "one.bin",
+      "declared_mime": "",
+      "bytes": 1,
+      "sha256": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "why": "One NUL byte, which is the tell that bytes are binary."
+    },
+    {
+      "name": "one_byte_percent_sign",
+      "family": "nothing_at_all",
+      "filename": "one.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 1,
+      "sha256": "bbf3f11cb5b43e700273a78d12de55e4a7eab741ed2abf13787a4d2dc832b8ec",
+      "why": "The first byte of a PDF marker and nothing after it."
+    },
+    {
+      "name": "one_byte_0xff",
+      "family": "nothing_at_all",
+      "filename": "one.jpg",
+      "declared_mime": "image/jpeg",
+      "bytes": 1,
+      "sha256": "a8100ae6aa1940d0b663bb31cd466142ebbdbd5187131b92d93818987832eb89",
+      "why": "The first byte of a JPEG marker and nothing after it."
+    },
+    {
+      "name": "one_byte_newline",
+      "family": "nothing_at_all",
+      "filename": "one.txt",
+      "declared_mime": "text/plain",
+      "bytes": 1,
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "why": "A file holding a single line ending and no words."
+    },
+    {
+      "name": "one_byte_space",
+      "family": "nothing_at_all",
+      "filename": "one.txt",
+      "declared_mime": "text/plain",
+      "bytes": 1,
+      "sha256": "36a9e7f1c95b82ffb99743e0c5c4ce95d83c9a430aac59f84ef3cbfab6145068",
+      "why": "A file holding one space, which is text and says nothing."
+    },
+    {
+      "name": "one_byte_letter_a",
+      "family": "nothing_at_all",
+      "filename": "one.txt",
+      "declared_mime": "text/plain",
+      "bytes": 1,
+      "sha256": "559aead08264d5795d3909718cdd05abd49572e84fe55590eef31a88a08fdffd",
+      "why": "One printable letter, too short for any magic number."
+    },
+    {
+      "name": "one_byte_delete_0x7f",
+      "family": "nothing_at_all",
+      "filename": "one.bin",
+      "declared_mime": "",
+      "bytes": 1,
+      "sha256": "620bfdaa346b088fb49998d92f19a7eaf6bfc2fb0aee015753966da1028cb731",
+      "why": "One control byte that is neither printable nor a marker."
+    },
+    {
+      "name": "two_bytes_of_the_pdf_marker",
+      "family": "truncated_header",
+      "filename": "cut.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 2,
+      "sha256": "b9c39a040804e0b3424df7b13a11cca1d0e45bd246b541acb1177429cd3236ab",
+      "why": "Two bytes of a five byte PDF marker."
+    },
+    {
+      "name": "three_bytes_of_the_pdf_marker",
+      "family": "truncated_header",
+      "filename": "cut.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 3,
+      "sha256": "a135fc158ef93b36ab22c78a03eefd3406e4ebaf78499576e5c555977e205dc9",
+      "why": "Three bytes of a five byte PDF marker."
+    },
+    {
+      "name": "four_bytes_of_the_pdf_marker",
+      "family": "truncated_header",
+      "filename": "cut.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 4,
+      "sha256": "315d429b7714cedb6ad04ac31240145257692630457f3c88253c5beceac76027",
+      "why": "Four bytes of a five byte PDF marker, missing the dash."
+    },
+    {
+      "name": "the_pdf_marker_and_nothing_else",
+      "family": "truncated_header",
+      "filename": "cut.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 5,
+      "sha256": "38523c087796e5d5dd1cf9bad1fb026781a838dd9dd2cf8af58b9f6502a46778",
+      "why": "The whole PDF marker with no document behind it."
+    },
+    {
+      "name": "one_byte_of_the_png_marker",
+      "family": "truncated_header",
+      "filename": "cut.png",
+      "declared_mime": "image/png",
+      "bytes": 1,
+      "sha256": "e9b0c031f0493d3fd6b0b668260c79e7efe734bfd4b4115f9d82bc3be609c294",
+      "why": "The single high byte a PNG starts with."
+    },
+    {
+      "name": "three_bytes_of_the_png_marker",
+      "family": "truncated_header",
+      "filename": "cut.png",
+      "declared_mime": "image/png",
+      "bytes": 3,
+      "sha256": "449ba17f2a44989a58050282f82fec8663b84f57a6a443d3750033a0c02f8be9",
+      "why": "Three bytes of an eight byte PNG marker."
+    },
+    {
+      "name": "seven_bytes_of_the_png_marker",
+      "family": "truncated_header",
+      "filename": "cut.png",
+      "declared_mime": "image/png",
+      "bytes": 7,
+      "sha256": "214246cd551e66de7b92c04e55355d0b3751adc15ee8ecc4066e0e9a7c9d3599",
+      "why": "Seven bytes of an eight byte PNG marker."
+    },
+    {
+      "name": "two_bytes_of_the_jpeg_marker",
+      "family": "truncated_header",
+      "filename": "cut.jpg",
+      "declared_mime": "image/jpeg",
+      "bytes": 2,
+      "sha256": "71563ad80061407ede9c6f316836284bd3710a520c5a792b5eda1cb703690815",
+      "why": "A JPEG start marker with no frame after it."
+    },
+    {
+      "name": "two_bytes_of_the_zip_marker",
+      "family": "truncated_header",
+      "filename": "cut.docx",
+      "declared_mime": "application/zip",
+      "bytes": 2,
+      "sha256": "fcab7fcc2b4cffd9bb45003bfc2e468a04ef6f77ca8200a7341f027631584d25",
+      "why": "Two bytes of a zip marker, which is how a DOCX starts."
+    },
+    {
+      "name": "three_bytes_of_the_zip_marker",
+      "family": "truncated_header",
+      "filename": "cut.docx",
+      "declared_mime": "application/zip",
+      "bytes": 3,
+      "sha256": "91d7d090d6d2658d820be3973c86a6d1414f8138dc99aab9b998610c641b4d51",
+      "why": "Three bytes of a four byte zip local header marker."
+    },
+    {
+      "name": "one_byte_of_the_gzip_marker",
+      "family": "truncated_header",
+      "filename": "cut.gz",
+      "declared_mime": "application/gzip",
+      "bytes": 1,
+      "sha256": "ffe679bb831c95b67dc17819c63c5090d221aac6f4c7bf530f594ab43d21fa1e",
+      "why": "One byte of a two byte gzip marker."
+    },
+    {
+      "name": "an_ftyp_box_with_no_brand",
+      "family": "truncated_header",
+      "filename": "cut.heic",
+      "declared_mime": "image/heic",
+      "bytes": 8,
+      "sha256": "d9f1cb99ee21291800d5e62bd9bca07850461d7d8096afc4150a52dc8554d49f",
+      "why": "An ISO media header cut off before it names its brand."
+    },
+    {
+      "name": "a_pdf_cut_in_half",
+      "family": "truncated_body",
+      "filename": "half.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 362,
+      "sha256": "d1e9c60311b457420364fe954608eb01673667267bbf5eadc10f4231ab4d81e2",
+      "why": "A PDF whose upload stopped halfway through."
+    },
+    {
+      "name": "a_pdf_cut_before_its_xref_table",
+      "family": "truncated_body",
+      "filename": "noxref.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 709,
+      "sha256": "c9daa118ecf7472ae26cc29dcd14821372bfedd195ed04ac2218818ec093a096",
+      "why": "A PDF with objects in it and no cross reference table."
+    },
+    {
+      "name": "a_pdf_header_then_nothing_but_nul_bytes",
+      "family": "truncated_body",
+      "filename": "nuls.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 4105,
+      "sha256": "ec820ecec174429fd504e2aba4c2d99401cb39713a1710fd2a2b67c433cae868",
+      "why": "A PDF marker followed by four kilobytes of nothing."
+    },
+    {
+      "name": "a_pdf_whose_startxref_points_past_the_end",
+      "family": "truncated_body",
+      "filename": "farxref.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 735,
+      "sha256": "861ccdbaa6901451293965e5861ac5ca8c8317afb66c1ba96c47814cfbb6e21d",
+      "why": "A PDF pointing its reader at an offset beyond the file."
+    },
+    {
+      "name": "a_png_header_and_ihdr_only",
+      "family": "truncated_body",
+      "filename": "ihdr.png",
+      "declared_mime": "image/png",
+      "bytes": 33,
+      "sha256": "2beb27f50eab7fe6cd5142082bac86341048e47f4246eb778fcbae15fb2e3567",
+      "why": "A PNG with its size declared and no pixels behind it."
+    },
+    {
+      "name": "a_png_with_its_idat_cut_in_half",
+      "family": "truncated_body",
+      "filename": "halfidat.png",
+      "declared_mime": "image/png",
+      "bytes": 307,
+      "sha256": "3521525559006744431c48035a242e350d60878be43cfc27644ee06bba4b4d3c",
+      "why": "A corrupted image: honest header, body cut off mid stream."
+    },
+    {
+      "name": "a_png_with_no_iend_chunk",
+      "family": "truncated_body",
+      "filename": "noiend.png",
+      "declared_mime": "image/png",
+      "bytes": 570,
+      "sha256": "c8184be84336556f9498814c3f9a46487fc0bacf213cae5692128c85de0efd1f",
+      "why": "A PNG that never says it has ended."
+    },
+    {
+      "name": "a_png_with_a_deliberately_wrong_crc",
+      "family": "truncated_body",
+      "filename": "badcrc.png",
+      "declared_mime": "image/png",
+      "bytes": 582,
+      "sha256": "36814d03e600a60ba9fe5efbf49916006a217c02580d419373f22b8fe345e23b",
+      "why": "A PNG whose checksum disagrees with its own bytes."
+    },
+    {
+      "name": "a_png_declaring_more_rows_than_it_carries",
+      "family": "truncated_body",
+      "filename": "tallpng.png",
+      "declared_mime": "image/png",
+      "bytes": 582,
+      "sha256": "d4141cecef484bb09e0707d58574f86e2721e5c7b61a7984678c362241a323bf",
+      "why": "A PNG claiming four thousand rows it does not contain."
+    },
+    {
+      "name": "a_png_declaring_a_width_of_zero",
+      "family": "truncated_body",
+      "filename": "zerowide.png",
+      "declared_mime": "image/png",
+      "bytes": 582,
+      "sha256": "b6602162e7e405a8851182c985cb8197e27e9cec0807ff5598088b940f8d4a8f",
+      "why": "A PNG whose declared width is zero pixels."
+    },
+    {
+      "name": "a_jpeg_cut_in_half",
+      "family": "truncated_body",
+      "filename": "half.jpg",
+      "declared_mime": "image/jpeg",
+      "bytes": 59,
+      "sha256": "24130be21267b77d8177fbc004ec23c1cf96a5b0c5263164d3472c82f8ee8fa7",
+      "why": "A JPEG container whose upload stopped halfway."
+    },
+    {
+      "name": "a_jpeg_with_no_end_of_image_marker",
+      "family": "truncated_body",
+      "filename": "noeoi.jpg",
+      "declared_mime": "image/jpeg",
+      "bytes": 117,
+      "sha256": "a0351e32edcc05fd252b6a4439247784d5afee43443e241d231952c1d4bbf61a",
+      "why": "A JPEG that never says it has ended."
+    },
+    {
+      "name": "a_jpeg_whose_comment_length_runs_past_the_end",
+      "family": "truncated_body",
+      "filename": "longcom.jpg",
+      "declared_mime": "image/jpeg",
+      "bytes": 119,
+      "sha256": "3f29aadc0b9c1ce853d1b4ae630aff8c5706d189f5cacd8f0d164f7e24870c1e",
+      "why": "A JPEG segment claiming to be longer than the file."
+    },
+    {
+      "name": "a_docx_zip_cut_in_half",
+      "family": "truncated_body",
+      "filename": "half.docx",
+      "declared_mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "bytes": 652,
+      "sha256": "c4797542d73643884328588db35474a78a53340e369be306184bf4b0f6a33d80",
+      "why": "A Word document whose zip stops mid entry."
+    },
+    {
+      "name": "a_docx_zip_with_its_central_directory_removed",
+      "family": "truncated_body",
+      "filename": "nodir.docx",
+      "declared_mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "bytes": 1219,
+      "sha256": "27598bbfe5a584c21ac9c5258dda6c0809a48244fb6b6bb0c5c0124da6fa1740",
+      "why": "A Word document with its index of entries removed."
+    },
+    {
+      "name": "a_text_file_cut_mid_utf8_character",
+      "family": "truncated_body",
+      "filename": "cut.txt",
+      "declared_mime": "text/plain",
+      "bytes": 27,
+      "sha256": "fcaaf8a4df5c939cfec9de8a6d813b3c8d9c5137d09b809f5ea444567e4999c5",
+      "why": "A text file cut in the middle of a multi byte character."
+    },
+    {
+      "name": "a_pdf_that_is_really_a_jpeg",
+      "family": "the_liars",
+      "filename": "invoice.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 119,
+      "sha256": "b14c50e7631ac0488d947cbc7fb6b67bcfd67aa1cb41b47dc0ba01574f0a76d5",
+      "why": "A phone photo saved with a PDF name and a PDF claim."
+    },
+    {
+      "name": "a_jpg_that_is_really_a_zip",
+      "family": "the_liars",
+      "filename": "photo.jpg",
+      "declared_mime": "image/jpeg",
+      "bytes": 127,
+      "sha256": "0f820d7fb12512b0766b9ffdec0eb23b6ff9179f484e2f760c568f85aed23b89",
+      "why": "An archive renamed to look like a photograph."
+    },
+    {
+      "name": "a_png_that_is_really_a_pdf",
+      "family": "the_liars",
+      "filename": "scan.png",
+      "declared_mime": "image/png",
+      "bytes": 724,
+      "sha256": "67ed7c0f99f14d75adb0b2d7f7d353d302c8c3c5037a00cbc18ac13415afc1ff",
+      "why": "A PDF renamed to look like an image."
+    },
+    {
+      "name": "a_txt_that_is_really_a_png",
+      "family": "the_liars",
+      "filename": "notes.txt",
+      "declared_mime": "text/plain",
+      "bytes": 582,
+      "sha256": "5dc59249b5b7bb40ba5a08d2bf8ed6c394d1873ba256b22a7fd58fdb1b80ecde",
+      "why": "An image declared as plain text by the upload form."
+    },
+    {
+      "name": "a_pdf_that_is_really_a_word_document",
+      "family": "the_liars",
+      "filename": "invoice.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 1304,
+      "sha256": "31d8dc4451eb96561269a2866b86825683c501d416dcc826b7e0517db31b8158",
+      "why": "A Word document renamed to a PDF by the sender."
+    },
+    {
+      "name": "a_jpeg_that_is_really_plain_text",
+      "family": "the_liars",
+      "filename": "bill.jpg",
+      "declared_mime": "image/jpeg",
+      "bytes": 82,
+      "sha256": "1b9649266d1c542ea26647b268845aba470c788c68a618ff592c348b4f696c1f",
+      "why": "A typed note saved with a photograph's extension."
+    },
+    {
+      "name": "a_png_declared_as_a_pdf",
+      "family": "the_liars",
+      "filename": "bill.png",
+      "declared_mime": "application/pdf",
+      "bytes": 582,
+      "sha256": "5dc59249b5b7bb40ba5a08d2bf8ed6c394d1873ba256b22a7fd58fdb1b80ecde",
+      "why": "The extension is honest and the declared type is not."
+    },
+    {
+      "name": "a_word_document_declared_as_a_jpeg",
+      "family": "the_liars",
+      "filename": "bill.docx",
+      "declared_mime": "image/jpeg",
+      "bytes": 1304,
+      "sha256": "31d8dc4451eb96561269a2866b86825683c501d416dcc826b7e0517db31b8158",
+      "why": "A browser guessing the type and guessing wrong."
+    },
+    {
+      "name": "a_heic_declared_as_a_jpeg",
+      "family": "the_liars",
+      "filename": "IMG_0042.jpg",
+      "declared_mime": "image/jpeg",
+      "bytes": 52,
+      "sha256": "c5e0862325ec6b38cd58a5d646503ae134255dc9cab6316685eec96689dbf37a",
+      "why": "What an iPhone share sheet really sends."
+    },
+    {
+      "name": "a_webp_declared_as_a_png",
+      "family": "the_liars",
+      "filename": "saved.png",
+      "declared_mime": "image/png",
+      "bytes": 80,
+      "sha256": "d3d113903aba989745ed3d72618f599ee4bd7c2ee052fe9771c38026decee78a",
+      "why": "An image saved from a web page keeping the wrong name."
+    },
+    {
+      "name": "random_bytes_declared_as_a_pdf",
+      "family": "the_liars",
+      "filename": "bill.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 2048,
+      "sha256": "2ed4d91db9674eecc4001e726fb4f46116b2e8cf52f79d188b2bfab6a4fb34a4",
+      "why": "Two kilobytes of nothing wearing a PDF label."
+    },
+    {
+      "name": "an_empty_file_declared_as_a_pdf",
+      "family": "the_liars",
+      "filename": "bill.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "why": "An empty upload the form still labelled a PDF."
+    },
+    {
+      "name": "a_pdf_declared_with_a_charset_parameter",
+      "family": "the_liars",
+      "filename": "bill.pdf",
+      "declared_mime": "application/pdf; charset=binary",
+      "bytes": 724,
+      "sha256": "67ed7c0f99f14d75adb0b2d7f7d353d302c8c3c5037a00cbc18ac13415afc1ff",
+      "why": "A real form sends parameters after the media type."
+    },
+    {
+      "name": "a_pdf_declared_in_upper_case",
+      "family": "the_liars",
+      "filename": "bill.pdf",
+      "declared_mime": "APPLICATION/PDF",
+      "bytes": 724,
+      "sha256": "67ed7c0f99f14d75adb0b2d7f7d353d302c8c3c5037a00cbc18ac13415afc1ff",
+      "why": "A client that shouts its media types."
+    },
+    {
+      "name": "a_zip_declared_as_a_word_document",
+      "family": "the_liars",
+      "filename": "bill.docx",
+      "declared_mime": "application/vnd.ms-word",
+      "bytes": 127,
+      "sha256": "0f820d7fb12512b0766b9ffdec0eb23b6ff9179f484e2f760c568f85aed23b89",
+      "why": "An archive claiming to be the Word document it resembles."
+    },
+    {
+      "name": "a_gif_declared_as_a_png",
+      "family": "the_liars",
+      "filename": "bill.png",
+      "declared_mime": "image/png",
+      "bytes": 38,
+      "sha256": "6fb384760974b4aa58c7c555d482cc795121ddc4bf1da4b54522921c44c70e4c",
+      "why": "One image format claiming to be another."
+    },
+    {
+      "name": "a_heic_photo_from_an_iphone",
+      "family": "formats_we_cannot_read",
+      "filename": "IMG_0042.HEIC",
+      "declared_mime": "image/heic",
+      "bytes": 52,
+      "sha256": "c5e0862325ec6b38cd58a5d646503ae134255dc9cab6316685eec96689dbf37a",
+      "why": "The format an iPhone uses by default for photographs."
+    },
+    {
+      "name": "a_heic_photo_branded_heix",
+      "family": "formats_we_cannot_read",
+      "filename": "IMG_0043.HEIC",
+      "declared_mime": "image/heic",
+      "bytes": 52,
+      "sha256": "f831bfb06169e4f78e0cc308a5c613df6b94ae05b0443e5dd3623e4377a95699",
+      "why": "The ten bit variant of the same iPhone format."
+    },
+    {
+      "name": "a_heic_photo_branded_hevc",
+      "family": "formats_we_cannot_read",
+      "filename": "IMG_0044.HEIC",
+      "declared_mime": "image/heic",
+      "bytes": 52,
+      "sha256": "acf5592dc05c67bd99dd0d17c826cc8119d10afad3b7c0cd22a82f1024e9540f",
+      "why": "A HEIC image sequence brand from the same camera roll."
+    },
+    {
+      "name": "a_heic_photo_branded_mif1",
+      "family": "formats_we_cannot_read",
+      "filename": "IMG_0045.HEIC",
+      "declared_mime": "image/heic",
+      "bytes": 52,
+      "sha256": "f8ab0791004adaedd737020ee21275bcef96f6ddeb11c870e843288ac39b3351",
+      "why": "The generic image container brand HEIC files also use."
+    },
+    {
+      "name": "an_avif_image",
+      "family": "formats_we_cannot_read",
+      "filename": "photo.avif",
+      "declared_mime": "image/avif",
+      "bytes": 52,
+      "sha256": "4e3ca151dd7ebbe9e1f84f7d140e29d707245fa6751bd4eec149e75855612e96",
+      "why": "The newer web image format browsers now save."
+    },
+    {
+      "name": "a_webp_image",
+      "family": "formats_we_cannot_read",
+      "filename": "photo.webp",
+      "declared_mime": "image/webp",
+      "bytes": 112,
+      "sha256": "aed1ef4b2558abf406fb15413ed931e3dac0e76190bbebb72a16d1f2e8d43061",
+      "why": "What a browser saves when you right click a web image."
+    },
+    {
+      "name": "a_real_word_document",
+      "family": "formats_we_cannot_read",
+      "filename": "invoice.docx",
+      "declared_mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "bytes": 1304,
+      "sha256": "31d8dc4451eb96561269a2866b86825683c501d416dcc826b7e0517db31b8158",
+      "why": "A genuine Word file, which is a zip and is never unzipped."
+    },
+    {
+      "name": "an_excel_spreadsheet",
+      "family": "formats_we_cannot_read",
+      "filename": "ledger.xlsx",
+      "declared_mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "bytes": 265,
+      "sha256": "9a4cc16e746d0606f7c04d92df5b8b3d68087db48c7bbb5a18c7f3425c85d3e2",
+      "why": "A spreadsheet, which is the other zip people send."
+    },
+    {
+      "name": "an_opendocument_text_file",
+      "family": "formats_we_cannot_read",
+      "filename": "invoice.odt",
+      "declared_mime": "application/vnd.oasis.opendocument.text",
+      "bytes": 262,
+      "sha256": "218cfb41831a0f96f636c478cf8d0215d57418adb8f2e6508be6476557f9433c",
+      "why": "The open source word processor's own zip format."
+    },
+    {
+      "name": "an_old_word_doc_file",
+      "family": "formats_we_cannot_read",
+      "filename": "invoice.doc",
+      "declared_mime": "application/msword",
+      "bytes": 520,
+      "sha256": "c551b507712cf4dc6474d09c469db5162eea526d8d9024b2048b30e19cfd6e43",
+      "why": "The pre 2007 Word format, which is not a zip at all."
+    },
+    {
+      "name": "an_old_excel_xls_file",
+      "family": "formats_we_cannot_read",
+      "filename": "ledger.xls",
+      "declared_mime": "application/vnd.ms-excel",
+      "bytes": 520,
+      "sha256": "79ecb959685b8ca1ba40b8d41536f7b1c84e0b02481e1c00838bfc44c9c5905b",
+      "why": "The pre 2007 Excel format, same container as the old Word."
+    },
+    {
+      "name": "an_rtf_document",
+      "family": "formats_we_cannot_read",
+      "filename": "invoice.rtf",
+      "declared_mime": "application/rtf",
+      "bytes": 47,
+      "sha256": "c1f6e7d3883b3191ef051570646f2c574e12c8d9f3a06b61b7fa2b1f37aeb13e",
+      "why": "Rich text, which looks like a document and is not read."
+    },
+    {
+      "name": "a_postscript_file",
+      "family": "formats_we_cannot_read",
+      "filename": "invoice.ps",
+      "declared_mime": "application/postscript",
+      "bytes": 44,
+      "sha256": "b52baf785e32818ae5564f84041f1154fc6bd9811170330c00dc5aeaa39b0237",
+      "why": "The printer language a PDF grew out of."
+    },
+    {
+      "name": "a_gif87a_image",
+      "family": "formats_we_cannot_read",
+      "filename": "scan.gif",
+      "declared_mime": "image/gif",
+      "bytes": 70,
+      "sha256": "629f0e947cf194a34910122d2e13b700b6aa494c9f6cf835dbf9fd0d6c2cdb4c",
+      "why": "The older GIF header, still produced by old scanners."
+    },
+    {
+      "name": "a_gif89a_image",
+      "family": "formats_we_cannot_read",
+      "filename": "scan.gif",
+      "declared_mime": "image/gif",
+      "bytes": 70,
+      "sha256": "d90fb53981ad8cb319ed5f3e4c2fbba64e7e49add42015bc7179fe7fbcbc2b40",
+      "why": "The GIF header everything modern writes."
+    },
+    {
+      "name": "a_gzip_archive",
+      "family": "formats_we_cannot_read",
+      "filename": "invoice.txt.gz",
+      "declared_mime": "application/gzip",
+      "bytes": 94,
+      "sha256": "12b24290b6843a0ba0a92c7f8cdfb6e3d40c982e9793169fec62d5dee685a8d5",
+      "why": "A compressed text file, which is not the text file."
+    },
+    {
+      "name": "a_rar_archive",
+      "family": "formats_we_cannot_read",
+      "filename": "bills.rar",
+      "declared_mime": "application/vnd.rar",
+      "bytes": 263,
+      "sha256": "12ae1c325a6f4a9a4f8ab3dbab16a8900fc2ea67f27a9cdc52756cf310a345fc",
+      "why": "The archive format people still email invoices in."
+    },
+    {
+      "name": "a_seven_zip_archive",
+      "family": "formats_we_cannot_read",
+      "filename": "bills.7z",
+      "declared_mime": "application/x-7z-compressed",
+      "bytes": 262,
+      "sha256": "46b8018f379749ea0bc9030bb98a3f5b870b8eb115ec2a3a15af5421750e3363",
+      "why": "Another archive this product does not open."
+    },
+    {
+      "name": "a_bzip2_archive",
+      "family": "formats_we_cannot_read",
+      "filename": "bills.bz2",
+      "declared_mime": "application/x-bzip2",
+      "bytes": 266,
+      "sha256": "1b6f1730899ed57d02020608af578f1437badbe921d760a5a731cfe1a14518b5",
+      "why": "A compressed stream with no file name inside it."
+    },
+    {
+      "name": "an_xz_archive",
+      "family": "formats_we_cannot_read",
+      "filename": "bills.xz",
+      "declared_mime": "application/x-xz",
+      "bytes": 263,
+      "sha256": "a667365b2ff0cb5725fa5fb6ba10228162592b1dedad97c76ff94a675f2cd6c8",
+      "why": "The compression format Linux tools default to."
+    },
+    {
+      "name": "a_tar_archive",
+      "family": "formats_we_cannot_read",
+      "filename": "bills.tar",
+      "declared_mime": "application/x-tar",
+      "bytes": 1024,
+      "sha256": "8d16e8f5d60ddf7deca06153f1a2b7f6b84f8316f7c3ac0a78fff74ef003566e",
+      "why": "An uncompressed archive whose first bytes are a file name."
+    },
+    {
+      "name": "a_linux_elf_program",
+      "family": "formats_we_cannot_read",
+      "filename": "run",
+      "declared_mime": "application/octet-stream",
+      "bytes": 520,
+      "sha256": "d3db79f6b1eaeaf39ff0dc51a016d8147981564f68d0477881081ff9d4175ed2",
+      "why": "An executable, which must be named rather than run."
+    },
+    {
+      "name": "a_windows_exe_program",
+      "family": "formats_we_cannot_read",
+      "filename": "setup.exe",
+      "declared_mime": "application/x-msdownload",
+      "bytes": 520,
+      "sha256": "b8b163648e27344f087af83f43798451cf80b9a349594628fa14c5babdd14cf7",
+      "why": "A Windows program somebody attached by mistake."
+    },
+    {
+      "name": "a_macos_mach_o_program",
+      "family": "formats_we_cannot_read",
+      "filename": "tool",
+      "declared_mime": "application/octet-stream",
+      "bytes": 516,
+      "sha256": "b43f500a0399be6d0f18bd56cd9adda4e3e39d5c258c7f609a24fce716d500b1",
+      "why": "A macOS executable with no extension at all."
+    },
+    {
+      "name": "an_ogg_media_file",
+      "family": "formats_we_cannot_read",
+      "filename": "note.ogg",
+      "declared_mime": "audio/ogg",
+      "bytes": 262,
+      "sha256": "a8f2f29ced47fd8488cc3e4217857828164ab37f2758b4034be3ce9ba326fc3d",
+      "why": "A voice note, which is a real thing people send instead."
+    },
+    {
+      "name": "an_mpeg_video",
+      "family": "formats_we_cannot_read",
+      "filename": "clip.mpg",
+      "declared_mime": "video/mpeg",
+      "bytes": 260,
+      "sha256": "b8efa6524252286a37226dd6d390c1925a5702d854726da451899606cc2f161c",
+      "why": "A video stream whose header starts with three NUL bytes."
+    },
+    {
+      "name": "an_mp4_video",
+      "family": "formats_we_cannot_read",
+      "filename": "clip.mp4",
+      "declared_mime": "video/mp4",
+      "bytes": 52,
+      "sha256": "7e1b93e5c22b905ff4ed8fe6e2089a2eb40ccfc55f7f3599e116b7643c611710",
+      "why": "A phone video, the same container family as HEIC."
+    },
+    {
+      "name": "a_wav_sound_file",
+      "family": "formats_we_cannot_read",
+      "filename": "note.wav",
+      "declared_mime": "audio/wav",
+      "bytes": 80,
+      "sha256": "d722b8e0697499ade861376ecd7a138466af0d957763fba5269099adccc98804",
+      "why": "A RIFF file that is not WebP, which is the collision to avoid."
+    },
+    {
+      "name": "an_mp3_with_an_id3_tag",
+      "family": "formats_we_cannot_read",
+      "filename": "note.mp3",
+      "declared_mime": "audio/mpeg",
+      "bytes": 266,
+      "sha256": "1e4644d57b59246ccfa138c5f106633e39ec03cfd900ca5cdcdd3beb76d24013",
+      "why": "An audio file whose first bytes spell a tag name."
+    },
+    {
+      "name": "a_flac_sound_file",
+      "family": "formats_we_cannot_read",
+      "filename": "note.flac",
+      "declared_mime": "audio/flac",
+      "bytes": 264,
+      "sha256": "6d3c6a3025912a5a3230534e76f5a0723f1a5a662dc4266ddb10d1c047bac1f7",
+      "why": "Another audio container with a four letter marker."
+    },
+    {
+      "name": "an_sqlite_database",
+      "family": "formats_we_cannot_read",
+      "filename": "app.db",
+      "declared_mime": "application/vnd.sqlite3",
+      "bytes": 528,
+      "sha256": "f3eb5b47cc0b93302139f07ffbde36d3a0520b908841f85a7990071fd4807a1f",
+      "why": "A database file, whose first bytes are readable English."
+    },
+    {
+      "name": "a_tiff_little_endian_scan",
+      "family": "formats_we_cannot_read",
+      "filename": "scan.tif",
+      "declared_mime": "image/tiff",
+      "bytes": 260,
+      "sha256": "2a2664d993a78f3f9ebc3c84f2ecef0d3b991cec09157b7a52f92f2691c4d7cd",
+      "why": "What an office scanner writes by default."
+    },
+    {
+      "name": "a_tiff_big_endian_scan",
+      "family": "formats_we_cannot_read",
+      "filename": "scan.tif",
+      "declared_mime": "image/tiff",
+      "bytes": 260,
+      "sha256": "d0d9cad366a99749b142fbc960e6ad6987d29e8d34450c39096969ffb9f6b145",
+      "why": "The same format with the opposite byte order."
+    },
+    {
+      "name": "a_bmp_image",
+      "family": "formats_we_cannot_read",
+      "filename": "scan.bmp",
+      "declared_mime": "image/bmp",
+      "bytes": 512,
+      "sha256": "0f935dd8516aa2e014f66892692990ffeb684387a0c589629472716958573695",
+      "why": "An uncompressed Windows image, still produced by scanners."
+    },
+    {
+      "name": "a_photo_of_a_cat",
+      "family": "pictures_that_are_not_documents",
+      "filename": "IMG_1001.png",
+      "declared_mime": "image/png",
+      "bytes": 340,
+      "sha256": "a5d9f6ba391e4c2e6f17074e6f502456a935ef66436204644ce015821b625c29",
+      "why": "A picture of an animal, which carries no glyphs at all."
+    },
+    {
+      "name": "a_handwritten_note",
+      "family": "pictures_that_are_not_documents",
+      "filename": "note.png",
+      "declared_mime": "image/png",
+      "bytes": 367,
+      "sha256": "726586b88fdf373d7e1a8a079d426c0a7291e7c49e7325281afc5c46600741c1",
+      "why": "Ink on paper that is a stroke rather than type."
+    },
+    {
+      "name": "a_low_light_photo",
+      "family": "pictures_that_are_not_documents",
+      "filename": "IMG_1002.png",
+      "declared_mime": "image/png",
+      "bytes": 289,
+      "sha256": "83868389e4998406deddec9540662bbbc668fded125b9a9849a2fd2cd7ab421e",
+      "why": "The same scene at a twelfth of the light, so nearly black."
+    },
+    {
+      "name": "an_overexposed_photo",
+      "family": "pictures_that_are_not_documents",
+      "filename": "IMG_1003.png",
+      "declared_mime": "image/png",
+      "bytes": 296,
+      "sha256": "0d3e82b6a670e8324e9b6700a06d34f72ac8119dc7d61b3e1ca7bdc3dd02ac4c",
+      "why": "The same scene blown out to nearly white."
+    },
+    {
+      "name": "an_out_of_focus_photo",
+      "family": "pictures_that_are_not_documents",
+      "filename": "IMG_1004.png",
+      "declared_mime": "image/png",
+      "bytes": 294,
+      "sha256": "7ec93bfa920df0a93e4ad761fa31195faafb9151a3d708319a25fb77136e3fe4",
+      "why": "A picture with no edge sharp enough to be a letter."
+    },
+    {
+      "name": "a_blank_white_page",
+      "family": "pictures_that_are_not_documents",
+      "filename": "blank.png",
+      "declared_mime": "image/png",
+      "bytes": 101,
+      "sha256": "bf34657288961af7a5585846179df809153e5269134ba7a4826cdcea231869cc",
+      "why": "A page that was scanned face down."
+    },
+    {
+      "name": "an_all_black_page",
+      "family": "pictures_that_are_not_documents",
+      "filename": "black.png",
+      "declared_mime": "image/png",
+      "bytes": 84,
+      "sha256": "bd5c633c8786df980bf843b8e0f1b542eff65888c79d5336ab975f031b5b8a65",
+      "why": "A scan taken with the lid open and the light off."
+    },
+    {
+      "name": "a_one_pixel_image",
+      "family": "pictures_that_are_not_documents",
+      "filename": "dot.png",
+      "declared_mime": "image/png",
+      "bytes": 67,
+      "sha256": "e124007e0371a272f11e7fbc2414aff5a1095f3a46ad29771ea1bf3f8a5b07ca",
+      "why": "The smallest image that is still a valid image."
+    },
+    {
+      "name": "a_one_pixel_wide_strip",
+      "family": "pictures_that_are_not_documents",
+      "filename": "strip.png",
+      "declared_mime": "image/png",
+      "bytes": 74,
+      "sha256": "a920b926395f465ae9434a8349d8006f61c7f258255818866db59196d1d69ec5",
+      "why": "A tall image one pixel across."
+    },
+    {
+      "name": "a_very_wide_one_pixel_tall_image",
+      "family": "pictures_that_are_not_documents",
+      "filename": "wide.png",
+      "declared_mime": "image/png",
+      "bytes": 80,
+      "sha256": "6d87f6b84ac0490429b40a4b45d5109acc8a932a9c3f55fc927d321cd18ec526",
+      "why": "A wide image one pixel down, which breaks naive layout."
+    },
+    {
+      "name": "a_thumb_over_the_lens",
+      "family": "pictures_that_are_not_documents",
+      "filename": "IMG_1005.png",
+      "declared_mime": "image/png",
+      "bytes": 96,
+      "sha256": "893da31a37709c0172b4bdaffd72597b2b46b978283be48cf12b1c7b6fa96954",
+      "why": "A photograph of somebody's finger."
+    },
+    {
+      "name": "a_photo_of_a_wooden_table",
+      "family": "pictures_that_are_not_documents",
+      "filename": "IMG_1006.png",
+      "declared_mime": "image/png",
+      "bytes": 266,
+      "sha256": "f69393caf22231c06a2b069b1361e224685f42ad650b2d62fdbdcc1fafb07a0a",
+      "why": "Texture with no document on it, which is what a miss looks like."
+    },
+    {
+      "name": "a_screenshot_of_a_chat",
+      "family": "pictures_that_are_not_documents",
+      "filename": "Screenshot.png",
+      "declared_mime": "image/png",
+      "bytes": 260,
+      "sha256": "5399356f6b0509575af4ec6cd46e2f76e9bd137dd4e530dad191eb4ec7aa5afd",
+      "why": "Real words on a screen that are not a bill."
+    },
+    {
+      "name": "a_receipt_photographed_sideways",
+      "family": "pictures_that_are_not_documents",
+      "filename": "IMG_1007.png",
+      "declared_mime": "image/png",
+      "bytes": 612,
+      "sha256": "abdd237f9b8f401cfdf724320863ce19689108e308714e887fd832c070ff98fb",
+      "why": "A real receipt rotated ninety degrees by the camera."
+    },
+    {
+      "name": "a_receipt_photographed_upside_down",
+      "family": "pictures_that_are_not_documents",
+      "filename": "IMG_1008.png",
+      "declared_mime": "image/png",
+      "bytes": 609,
+      "sha256": "17f0d49c3e653d706b4e11da08d782045d8204fdce472d73a08a809c407e13f1",
+      "why": "The same receipt the other way up."
+    },
+    {
+      "name": "a_signature_scribble",
+      "family": "pictures_that_are_not_documents",
+      "filename": "sign.png",
+      "declared_mime": "image/png",
+      "bytes": 293,
+      "sha256": "7dd318ebc88cdcab8ad58af0974f1d9c9a0a3bef71f2c239d796b651ba8a07ec",
+      "why": "A signature, which is ink that is deliberately not legible."
+    },
+    {
+      "name": "a_png_carrying_invoice_text_in_a_text_chunk",
+      "family": "pictures_that_are_not_documents",
+      "filename": "trap.png",
+      "declared_mime": "image/png",
+      "bytes": 122,
+      "sha256": "3de712a584eddc53262b316c8e5514028704bf4e9826cac9ac379f52c4c7d4ff",
+      "why": "Invoice words in the metadata and nothing in the pixels."
+    },
+    {
+      "name": "a_greyscale_noise_image",
+      "family": "pictures_that_are_not_documents",
+      "filename": "noise.png",
+      "declared_mime": "image/png",
+      "bytes": 3188,
+      "sha256": "5cd962a31733f53fcaf7b2f6a5e050e3b737be2a9edb83f3550df77d7fe8f5ce",
+      "why": "Every pixel independent, so there is no structure to read."
+    },
+    {
+      "name": "a_photo_with_one_black_speck_on_white",
+      "family": "pictures_that_are_not_documents",
+      "filename": "speck.png",
+      "declared_mime": "image/png",
+      "bytes": 98,
+      "sha256": "43de20bed30e38a9577c83e985ff97d4dee00a73c6cae9de944693ddf5fd3d38",
+      "why": "A blank page with a single dark pixel of dust on it."
+    },
+    {
+      "name": "a_photo_of_a_handwritten_amount",
+      "family": "pictures_that_are_not_documents",
+      "filename": "IMG_1009.png",
+      "declared_mime": "image/png",
+      "bytes": 228,
+      "sha256": "6104440b6c76f090e82b6b746ace3a4313f57d0907d4d6ccac4aea6650dfca4e",
+      "why": "A figure written by hand, which no text layer can carry."
+    },
+    {
+      "name": "a_mixed_script_bill",
+      "family": "scripts_and_encodings",
+      "filename": "bill.txt",
+      "declared_mime": "text/plain",
+      "bytes": 266,
+      "sha256": "ef49ab8888ce6fda26d257953e22ce642f419e02b1eb083f08a359bf6af9b398",
+      "why": "One bill carrying Devanagari, Tamil, Bengali and Latin at once."
+    },
+    {
+      "name": "a_devanagari_bill",
+      "family": "scripts_and_encodings",
+      "filename": "bill-hi.txt",
+      "declared_mime": "text/plain",
+      "bytes": 109,
+      "sha256": "254acad5c7a50bb89985567db37af234e169e8dc8b41a58c7c98e3349c0696ef",
+      "why": "A bill written wholly in one non Latin script, hi."
+    },
+    {
+      "name": "a_tamil_bill",
+      "family": "scripts_and_encodings",
+      "filename": "bill-ta.txt",
+      "declared_mime": "text/plain",
+      "bytes": 111,
+      "sha256": "00ea4c8aa05a055cb669b74de7c57976cf9634c74d7e8d64815a6c69ed949ed0",
+      "why": "A bill written wholly in one non Latin script, ta."
+    },
+    {
+      "name": "a_bengali_bill",
+      "family": "scripts_and_encodings",
+      "filename": "bill-bn.txt",
+      "declared_mime": "text/plain",
+      "bytes": 99,
+      "sha256": "691bebf231f964afc617794696ffef5c9af1c6f9cc9a760392ebad633a44b991",
+      "why": "A bill written wholly in one non Latin script, bn."
+    },
+    {
+      "name": "a_gujarati_bill",
+      "family": "scripts_and_encodings",
+      "filename": "bill-gu.txt",
+      "declared_mime": "text/plain",
+      "bytes": 90,
+      "sha256": "a0303f73148b962bd0fd725eeaefd91eb7948e2772cfe466cd2badb1d748c085",
+      "why": "A bill written wholly in one non Latin script, gu."
+    },
+    {
+      "name": "a_gurmukhi_bill",
+      "family": "scripts_and_encodings",
+      "filename": "bill-pa.txt",
+      "declared_mime": "text/plain",
+      "bytes": 96,
+      "sha256": "d5063b10c2fd290b3c1008d05b995c39c00279cdfedb4f10dfee998c1573b639",
+      "why": "A bill written wholly in one non Latin script, pa."
+    },
+    {
+      "name": "an_arabic_right_to_left_bill",
+      "family": "scripts_and_encodings",
+      "filename": "bill-ar.txt",
+      "declared_mime": "text/plain",
+      "bytes": 73,
+      "sha256": "fee37526edc78121d2338ec357d3e0f8e335158cbe32cfbe52de1e8aa3f84e79",
+      "why": "A bill written wholly in one non Latin script, ar."
+    },
+    {
+      "name": "a_chinese_bill",
+      "family": "scripts_and_encodings",
+      "filename": "bill-zh.txt",
+      "declared_mime": "text/plain",
+      "bytes": 47,
+      "sha256": "3e0e79886d2c3317218b0f8aa13016179fdf6583287f559399c6073d4753b887",
+      "why": "A bill written wholly in one non Latin script, zh."
+    },
+    {
+      "name": "a_japanese_bill",
+      "family": "scripts_and_encodings",
+      "filename": "bill-ja.txt",
+      "declared_mime": "text/plain",
+      "bytes": 47,
+      "sha256": "24170324c7290b80c8d3079f0d772945be9b24fb268d3a0105970ce1bdcc5637",
+      "why": "A bill written wholly in one non Latin script, ja."
+    },
+    {
+      "name": "a_korean_bill",
+      "family": "scripts_and_encodings",
+      "filename": "bill-ko.txt",
+      "declared_mime": "text/plain",
+      "bytes": 45,
+      "sha256": "877f2cbb2f41bd1818624fd37c44ee7de7c86ea14fc37f9c46daf667df3c1ad6",
+      "why": "A bill written wholly in one non Latin script, ko."
+    },
+    {
+      "name": "a_cyrillic_bill",
+      "family": "scripts_and_encodings",
+      "filename": "bill-ru.txt",
+      "declared_mime": "text/plain",
+      "bytes": 59,
+      "sha256": "b943c67743a3f0cf718294df673e59fda706ffb8b55da5c14dbbe38a0de2793f",
+      "why": "A bill written wholly in one non Latin script, ru."
+    },
+    {
+      "name": "a_greek_bill",
+      "family": "scripts_and_encodings",
+      "filename": "bill-el.txt",
+      "declared_mime": "text/plain",
+      "bytes": 71,
+      "sha256": "8755a5d4ec210e12dcbe0f92f484091e6a25e27cbe7e84b686a3915aa4f0cfcf",
+      "why": "A bill written wholly in one non Latin script, el."
+    },
+    {
+      "name": "a_file_of_emoji_only",
+      "family": "scripts_and_encodings",
+      "filename": "note.txt",
+      "declared_mime": "text/plain",
+      "bytes": 22,
+      "sha256": "6e2b2db6013c049b4aed2d495c96b1b0f39027de5bd9a0e8ecf039bc23c9da89",
+      "why": "A message made only of pictures that are still characters."
+    },
+    {
+      "name": "zero_width_joiners_between_every_letter",
+      "family": "scripts_and_encodings",
+      "filename": "join.txt",
+      "declared_mime": "text/plain",
+      "bytes": 53,
+      "sha256": "4058b5eb7a9d37bdaeb7a9a78673cda81fa7423cc36f3c5b7cc4f9c0be3838fe",
+      "why": "A supplier name with invisible characters between its letters."
+    },
+    {
+      "name": "a_right_to_left_override_in_a_supplier_name",
+      "family": "scripts_and_encodings",
+      "filename": "rtl.txt",
+      "declared_mime": "text/plain",
+      "bytes": 28,
+      "sha256": "1a4f8ae0b577b4f5135397da4a5f47af817e10377a6d50529a630d37b03e54b3",
+      "why": "A name that renders backwards, which is how a file name lies."
+    },
+    {
+      "name": "utf16_little_endian_with_a_byte_order_mark",
+      "family": "scripts_and_encodings",
+      "filename": "bill.txt",
+      "declared_mime": "text/plain",
+      "bytes": 330,
+      "sha256": "bc96438d3da3ff0bd783c7c1f8701dabaf1e7a7f5f6f7bfc7fe08d1aa9225ae5",
+      "why": "What Notepad on Windows still saves when asked for Unicode."
+    },
+    {
+      "name": "utf16_big_endian_with_a_byte_order_mark",
+      "family": "scripts_and_encodings",
+      "filename": "bill.txt",
+      "declared_mime": "text/plain",
+      "bytes": 330,
+      "sha256": "2b46fd04d54cea9881a484dcd08e3a3d7eee63c55d0d9637fe718bdf313930d5",
+      "why": "The same file with the opposite byte order."
+    },
+    {
+      "name": "utf32_little_endian_with_a_byte_order_mark",
+      "family": "scripts_and_encodings",
+      "filename": "bill.txt",
+      "declared_mime": "text/plain",
+      "bytes": 44,
+      "sha256": "64a66a8afe3d7e1efe104c9e6b479ca08563bff55c34cb797515de32982a486e",
+      "why": "A wider encoding whose text is mostly NUL bytes."
+    },
+    {
+      "name": "a_rupee_sign_in_latin1",
+      "family": "scripts_and_encodings",
+      "filename": "bill.txt",
+      "declared_mime": "text/plain",
+      "bytes": 22,
+      "sha256": "bd8b49b6b675cbdc08512504da597600ced19e4e3d3b6d7ed59747d00a4ba02a",
+      "why": "A single byte encoding that is not valid UTF-8."
+    },
+    {
+      "name": "shift_jis_bytes",
+      "family": "scripts_and_encodings",
+      "filename": "bill.txt",
+      "declared_mime": "text/plain",
+      "bytes": 9,
+      "sha256": "3e4fc7438326f90206eef8a85dc93a4d3dafedaf890a6ec2d99060ba511fb2c5",
+      "why": "Japanese text in the encoding Japanese systems still send."
+    },
+    {
+      "name": "a_utf8_byte_order_mark_and_nothing_else",
+      "family": "scripts_and_encodings",
+      "filename": "bom.txt",
+      "declared_mime": "text/plain",
+      "bytes": 3,
+      "sha256": "f1945cd6c19e56b3c1c78943ef5ec18116907a4ca1efc40a57d48ab1db7adfc5",
+      "why": "Three bytes of encoding marker and no content."
+    },
+    {
+      "name": "a_text_file_with_a_nul_byte_in_the_middle",
+      "family": "scripts_and_encodings",
+      "filename": "nul.txt",
+      "declared_mime": "text/plain",
+      "bytes": 28,
+      "sha256": "c7980fa365b9031c4d61c29beb271d54b7945364eff2f3d95ec72a0360cd6a17",
+      "why": "Readable words with a binary byte hidden between them."
+    },
+    {
+      "name": "a_file_of_whitespace_only",
+      "family": "scripts_and_encodings",
+      "filename": "blank.txt",
+      "declared_mime": "text/plain",
+      "bytes": 11,
+      "sha256": "92cfd98449d0d82effd1bdd1ca44499b66c070104997768fad862b8ddda5dee5",
+      "why": "A text file a person would say is empty and is not."
+    },
+    {
+      "name": "stacked_combining_accents",
+      "family": "scripts_and_encodings",
+      "filename": "combine.txt",
+      "declared_mime": "text/plain",
+      "bytes": 81,
+      "sha256": "012f6bbf8a7ff777749fb4ca35d65852de1eb90c4a89b87889469909af9163c2",
+      "why": "One letter with forty accents stacked on it."
+    },
+    {
+      "name": "a_bank_statement_csv",
+      "family": "text_that_is_not_a_bill",
+      "filename": "statement.csv",
+      "declared_mime": "text/csv",
+      "bytes": 62,
+      "sha256": "955a3c813013ad9b6c0f1f211a7fecda1034dcd1e9c42394160cb5058c1dd212",
+      "why": "A statement, which has amounts in it and is not a bill."
+    },
+    {
+      "name": "a_json_document",
+      "family": "text_that_is_not_a_bill",
+      "filename": "bill.json",
+      "declared_mime": "application/json",
+      "bytes": 45,
+      "sha256": "b7269217ffc14d40519d6367d56e17f8b2597e62eebf15bc8b7855f21da9c925",
+      "why": "Structured data that looks like an answer already."
+    },
+    {
+      "name": "an_xml_document",
+      "family": "text_that_is_not_a_bill",
+      "filename": "bill.xml",
+      "declared_mime": "application/xml",
+      "bytes": 41,
+      "sha256": "a7dd9472a57fde7f3f8f81ae47ada67568f310d84cd05697286dcff1cc0f0224",
+      "why": "A machine format a supplier system might export."
+    },
+    {
+      "name": "an_html_page",
+      "family": "text_that_is_not_a_bill",
+      "filename": "bill.html",
+      "declared_mime": "text/html",
+      "bytes": 62,
+      "sha256": "e72a699c878205670cb7618c1578869e57210142ae767e17b2c1afa80d41c6ca",
+      "why": "A saved web page, which is text with markup in it."
+    },
+    {
+      "name": "a_yaml_config_file",
+      "family": "text_that_is_not_a_bill",
+      "filename": "bill.yaml",
+      "declared_mime": "text/plain",
+      "bytes": 37,
+      "sha256": "94d6cdacab50de5f85720fad1b5740e5d0fa97895a4764297a1ecac41579fd12",
+      "why": "Configuration that happens to name a total."
+    },
+    {
+      "name": "a_sql_dump",
+      "family": "text_that_is_not_a_bill",
+      "filename": "dump.sql",
+      "declared_mime": "text/plain",
+      "bytes": 57,
+      "sha256": "011a57fc535fbd72e7a368e4043bf11b868f35ef75f600ab10d71a6895b7449d",
+      "why": "A database export naming a supplier and an amount in paise."
+    },
+    {
+      "name": "a_markdown_note",
+      "family": "text_that_is_not_a_bill",
+      "filename": "notes.md",
+      "declared_mime": "text/markdown",
+      "bytes": 38,
+      "sha256": "202776a9632d1ee4648df72134ab1cdd3da50bd187358d31983d97bbcdbb15c1",
+      "why": "Somebody's own list of things to do."
+    },
+    {
+      "name": "a_python_source_file",
+      "family": "text_that_is_not_a_bill",
+      "filename": "calc.py",
+      "declared_mime": "text/x-python",
+      "bytes": 38,
+      "sha256": "6e3880e343c2725494ade6b9e6cb2074b572f01191d96b5e1cb9c9f579d7dca2",
+      "why": "Source code, uploaded to the wrong box."
+    },
+    {
+      "name": "a_base64_blob",
+      "family": "text_that_is_not_a_bill",
+      "filename": "blob.txt",
+      "declared_mime": "text/plain",
+      "bytes": 40,
+      "sha256": "810c0541fcaf4b1838284372ea790e06225520a521ca441d7d5264b2ca268b7f",
+      "why": "An encoded file that is text until somebody decodes it."
+    },
+    {
+      "name": "a_shopping_list",
+      "family": "text_that_is_not_a_bill",
+      "filename": "list.txt",
+      "declared_mime": "text/plain",
+      "bytes": 18,
+      "sha256": "ec77c1f31d28fec94e12e35570c89a83301a65352deb607b47b981b1c314d61a",
+      "why": "A list with no amount on it anywhere."
+    },
+    {
+      "name": "a_poem_about_ledgers",
+      "family": "text_that_is_not_a_bill",
+      "filename": "poem.txt",
+      "declared_mime": "text/plain",
+      "bytes": 60,
+      "sha256": "bf7d0e3b22ce826cd633ae73de69a93638c2693045f933962671ae39aaf25cbe",
+      "why": "Prose with no figure and no supplier in it."
+    },
+    {
+      "name": "an_email_thread",
+      "family": "text_that_is_not_a_bill",
+      "filename": "mail.txt",
+      "declared_mime": "text/plain",
+      "bytes": 56,
+      "sha256": "1ed74f9fda3c23180a4fb2db0e0bea80e38f842f0f67b467da022703c86b9f17",
+      "why": "The covering email instead of the attachment."
+    },
+    {
+      "name": "a_server_log_file",
+      "family": "text_that_is_not_a_bill",
+      "filename": "app.log",
+      "declared_mime": "text/plain",
+      "bytes": 63,
+      "sha256": "f9707c40504b5fe98bb4ac29b5a0db2f1bdefe3b0c17d382bd2e622efae63a09",
+      "why": "Machine output with timestamps that look like dates."
+    },
+    {
+      "name": "a_url_and_nothing_else",
+      "family": "text_that_is_not_a_bill",
+      "filename": "link.txt",
+      "declared_mime": "text/plain",
+      "bytes": 30,
+      "sha256": "43abf2c13a167cd6ce6718cfe48d4a15a145b2113710d6f457353f04b494c0fc",
+      "why": "A link to the bill instead of the bill."
+    },
+    {
+      "name": "one_very_long_line_with_no_newline",
+      "family": "text_that_is_not_a_bill",
+      "filename": "long.txt",
+      "declared_mime": "text/plain",
+      "bytes": 16800,
+      "sha256": "cfb8ae3874e323120a619cf342423b72cf70bee2c21bb383631381b2bc01f806",
+      "why": "Sixteen kilobytes on a single line with no break in it."
+    },
+    {
+      "name": "ten_thousand_blank_lines",
+      "family": "text_that_is_not_a_bill",
+      "filename": "blank.txt",
+      "declared_mime": "text/plain",
+      "bytes": 10000,
+      "sha256": "04aa5c776c4dd03422194fb8fa6d4c59443a173cf8e2fa72ae740b639da4f6be",
+      "why": "A file with structure and no content."
+    },
+    {
+      "name": "a_number_and_nothing_else",
+      "family": "text_that_is_not_a_bill",
+      "filename": "num.txt",
+      "declared_mime": "text/plain",
+      "bytes": 4,
+      "sha256": "be5220c4102d65865bde1ef9740d3d2093a02192e5773c56f23e27d917f17958",
+      "why": "A figure with nothing saying what it is."
+    },
+    {
+      "name": "text_instructing_the_system_to_post_it",
+      "family": "adversarial",
+      "filename": "bill.txt",
+      "declared_mime": "text/plain",
+      "bytes": 55,
+      "sha256": "7f80a9431334664dd9ef2ec8c734cd91fc5c1c797c27186bd930975407e51013",
+      "why": "An upload that tries to give the system an instruction."
+    },
+    {
+      "name": "text_claiming_to_be_a_system_message",
+      "family": "adversarial",
+      "filename": "bill.txt",
+      "declared_mime": "text/plain",
+      "bytes": 59,
+      "sha256": "2a9b16395f56ed6cd5f86a1ba6ac6b8597bac7ed136bc2469bf04401168df1f2",
+      "why": "An upload dressed as a message from the operator."
+    },
+    {
+      "name": "text_claiming_the_owner_already_approved_it",
+      "family": "adversarial",
+      "filename": "bill.txt",
+      "declared_mime": "text/plain",
+      "bytes": 59,
+      "sha256": "67506560c3723bb63f272b8912fbbfb727211d60c909bc62084934e3c4a09277",
+      "why": "An upload claiming an authority it cannot have."
+    },
+    {
+      "name": "a_pdf_whose_text_orders_an_immediate_post",
+      "family": "adversarial",
+      "filename": "urgent.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 661,
+      "sha256": "b0438660daf75a2108bebd0bc94b336c1de8a915573282f1efafbea7f9810522",
+      "why": "The same instruction inside a real PDF text layer."
+    },
+    {
+      "name": "a_polyglot_pdf_with_a_png_inside_it",
+      "family": "adversarial",
+      "filename": "poly.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 607,
+      "sha256": "c5ecda0e978c909c99a75d0dfa735126676a6431c9483df760f4bd1390decb80",
+      "why": "One file that is honestly a PDF and contains a whole PNG."
+    },
+    {
+      "name": "a_polyglot_gif_with_a_script_after_it",
+      "family": "adversarial",
+      "filename": "poly.gif",
+      "declared_mime": "image/gif",
+      "bytes": 39,
+      "sha256": "d91a30caae8a658d78247c203833232de2182909d419790e2138e6e69a2020b6",
+      "why": "An image header in front of something that is not an image."
+    },
+    {
+      "name": "a_zip_whose_entry_name_climbs_out_of_the_folder",
+      "family": "adversarial",
+      "filename": "evil.zip",
+      "declared_mime": "application/zip",
+      "bytes": 136,
+      "sha256": "46736ceb5dde11a82d430ec1e4413e89801b91e7b875c67a514097793c514547",
+      "why": "An archive entry naming a path outside the folder."
+    },
+    {
+      "name": "a_zip_inside_a_zip",
+      "family": "adversarial",
+      "filename": "nested.zip",
+      "declared_mime": "application/zip",
+      "bytes": 180,
+      "sha256": "db049defffda8de64d544b148a5df37871d2e870d9f9f7fb81170dc6737ace65",
+      "why": "An archive holding another archive, which is never opened."
+    },
+    {
+      "name": "an_xml_with_an_external_entity",
+      "family": "adversarial",
+      "filename": "xxe.xml",
+      "declared_mime": "application/xml",
+      "bytes": 85,
+      "sha256": "4dd06be612697c917ed58482eaf2c7a4e0843a481150e6d2ca858fdf6b0bb2ab",
+      "why": "Markup that asks a parser to fetch a file from the disk."
+    },
+    {
+      "name": "an_xml_with_nested_entity_expansion",
+      "family": "adversarial",
+      "filename": "laugh.xml",
+      "declared_mime": "application/xml",
+      "bytes": 81,
+      "sha256": "2f8826d69ea9c4e7c493d05782ca417119ec99182b19395dd334fb0125fcb26e",
+      "why": "Markup that expands to far more than it weighs."
+    },
+    {
+      "name": "json_nested_two_hundred_levels_deep",
+      "family": "adversarial",
+      "filename": "deep.json",
+      "declared_mime": "application/json",
+      "bytes": 400,
+      "sha256": "d4c5d966af55699404c24de399162a5bee9733888d2f5dd0ab41515cf3995df4",
+      "why": "Structure deep enough to exhaust a recursive parser."
+    },
+    {
+      "name": "an_html_page_with_a_script_tag",
+      "family": "adversarial",
+      "filename": "page.html",
+      "declared_mime": "text/html",
+      "bytes": 44,
+      "sha256": "617845a14132088472b401b1210a48f7ea93571280e937794147fc4fc0be7999",
+      "why": "A page that would act if anything rendered it."
+    },
+    {
+      "name": "text_carrying_ansi_escape_sequences",
+      "family": "adversarial",
+      "filename": "ansi.txt",
+      "declared_mime": "text/plain",
+      "bytes": 26,
+      "sha256": "b3b0fe49aa15d2f37beae2daf56fbc2b721af5912e411601dc72a8c597614151",
+      "why": "Text that repaints a terminal it is printed to."
+    },
+    {
+      "name": "text_that_overwrites_itself_with_carriage_returns",
+      "family": "adversarial",
+      "filename": "cr.txt",
+      "declared_mime": "text/plain",
+      "bytes": 27,
+      "sha256": "2fdb9ff97439ac16539f780cd31ecf8bd2ba1cee54bdf5a7e5e08655614333be",
+      "why": "Two totals where a terminal shows only the second."
+    },
+    {
+      "name": "a_path_traversal_string",
+      "family": "adversarial",
+      "filename": "path.txt",
+      "declared_mime": "text/plain",
+      "bytes": 22,
+      "sha256": "a032902ca26bf0d1efe11ab45b0ef4c7a22da69bc4f77ae5fd79ce8354c50e7e",
+      "why": "A file whose whole content is a path out of the folder."
+    },
+    {
+      "name": "an_sql_injection_string",
+      "family": "adversarial",
+      "filename": "inject.txt",
+      "declared_mime": "text/plain",
+      "bytes": 40,
+      "sha256": "e7badf060ccbe9f2e676d030923a35bde2769081f02367c3e3fe183e5078ba52",
+      "why": "A supplier name written to end a statement early."
+    },
+    {
+      "name": "a_format_string_with_percent_placeholders",
+      "family": "adversarial",
+      "filename": "fmt.txt",
+      "declared_mime": "text/plain",
+      "bytes": 32,
+      "sha256": "1d7acc971c694fa703ddb9e36a6292deeeda026f06214d6024682cc39375a3ed",
+      "why": "Placeholders that would be filled in by a careless formatter."
+    },
+    {
+      "name": "a_c_string_with_a_nul_terminator",
+      "family": "adversarial",
+      "filename": "cstr.txt",
+      "declared_mime": "text/plain",
+      "bytes": 43,
+      "sha256": "f5316adafd51144a15f5301fcba030990a1918dde0052a5eb1c9e3b24d989fe0",
+      "why": "Words after a NUL that some readers drop and others keep."
+    },
+    {
+      "name": "a_bill_stating_two_different_totals",
+      "family": "adversarial",
+      "filename": "two.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 1154,
+      "sha256": "6030e51d7864ae41642d09bf162338a66874e333a05cbeec98f50fd8619dc30b",
+      "why": "A readable bill that disagrees with itself about the amount."
+    },
+    {
+      "name": "a_bill_whose_line_items_do_not_sum",
+      "family": "adversarial",
+      "filename": "sum.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 1165,
+      "sha256": "ece33c683e679e9fc67d15fc356b9303b7f421e89dc070e3a5b4facb22cc85d0",
+      "why": "A readable bill whose line items do not add up to its total."
+    },
+    {
+      "name": "a_bill_with_a_negative_total",
+      "family": "adversarial",
+      "filename": "neg.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 1094,
+      "sha256": "7b006bdad2747d9d9d7910f80e6a5cefb0f13d05304149d7e6b46d6746544e32",
+      "why": "A readable bill that moves money the other way with no note."
+    },
+    {
+      "name": "a_bill_with_half_a_paisa_on_it",
+      "family": "adversarial",
+      "filename": "half.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 1094,
+      "sha256": "c7b2a0b91632f1bdca2341e1c6f9236c5c8e17b519cca10884c72612edccc564",
+      "why": "A readable bill with sub paise precision that must not be rounded."
+    },
+    {
+      "name": "a_bill_whose_date_could_be_read_two_ways",
+      "family": "adversarial",
+      "filename": "date.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 1094,
+      "sha256": "1e1bfbfa6bb45b4677a84729a47b3d8de0904b3a2d70fe5e47cba29cb3b3ba0d",
+      "why": "A readable bill dated either the third of April or the fourth of March."
+    },
+    {
+      "name": "every_byte_value_0_255",
+      "family": "bulk_and_boundaries",
+      "filename": "all.bin",
+      "declared_mime": "",
+      "bytes": 256,
+      "sha256": "40aff2e9d2d8922e47afd4648e6967497158785fbd1da870e7110266bf944880",
+      "why": "Every possible byte value once, in order, including NUL."
+    },
+    {
+      "name": "every_byte_value_in_reverse",
+      "family": "bulk_and_boundaries",
+      "filename": "all.bin",
+      "declared_mime": "",
+      "bytes": 256,
+      "sha256": "cd6816b77f68d70001fc3eaa4d42bdd67cb5973b3151cc5292ecc02a3daac6ab",
+      "why": "The same 256 values the other way round, so order cannot decide."
+    },
+    {
+      "name": "sixteen_kilobytes_of_zero_bytes",
+      "family": "bulk_and_boundaries",
+      "filename": "zeros.bin",
+      "declared_mime": "application/octet-stream",
+      "bytes": 16384,
+      "sha256": "4fe7b59af6de3b665b67788cc2f99892ab827efae3a467342b3bb4e3bc8e5bfe",
+      "why": "A file of nothing that is not an empty file."
+    },
+    {
+      "name": "sixteen_kilobytes_of_0xff_bytes",
+      "family": "bulk_and_boundaries",
+      "filename": "ff.bin",
+      "declared_mime": "application/octet-stream",
+      "bytes": 16384,
+      "sha256": "0fbba07a833d4dcfc7024eaf313661a0ba8f80a05c6d29b8801c612e10e60dee",
+      "why": "The opposite extreme, which is also not valid UTF-8."
+    },
+    {
+      "name": "sixteen_kilobytes_of_pseudorandom_bytes",
+      "family": "bulk_and_boundaries",
+      "filename": "random.bin",
+      "declared_mime": "application/octet-stream",
+      "bytes": 16384,
+      "sha256": "4283afa78bdb787ab542343a457f66b04ff2ac3237508e897083e7af4722ead8",
+      "why": "Sixteen kilobytes of random bytes with no header at all."
+    },
+    {
+      "name": "one_kilobyte_of_pseudorandom_bytes",
+      "family": "bulk_and_boundaries",
+      "filename": "random.bin",
+      "declared_mime": "application/octet-stream",
+      "bytes": 1024,
+      "sha256": "83a113f65fe14d36c444813d091eb22b09cb181979edfb76575318dc3359b70d",
+      "why": "The same thing small enough to fit one buffer read."
+    },
+    {
+      "name": "alternating_00_and_ff",
+      "family": "bulk_and_boundaries",
+      "filename": "alt.bin",
+      "declared_mime": "application/octet-stream",
+      "bytes": 16384,
+      "sha256": "3d558540e8c59a9e6915aaa700c8d714c8927167920bf0bcf84c4ece2589f368",
+      "why": "A pattern that is neither text nor any known format."
+    },
+    {
+      "name": "printable_ascii_repeated",
+      "family": "bulk_and_boundaries",
+      "filename": "ascii.txt",
+      "declared_mime": "text/plain",
+      "bytes": 16150,
+      "sha256": "7b6d6033aae5616ba27f9926f4feab1f6f277228d6af6d4bb5853ce483356cfb",
+      "why": "Every printable character, which is valid text and no bill."
+    },
+    {
+      "name": "high_bytes_only_128_to_255",
+      "family": "bulk_and_boundaries",
+      "filename": "high.bin",
+      "declared_mime": "application/octet-stream",
+      "bytes": 16384,
+      "sha256": "40bb3309a6d337fd53eaf92174a84a78a9a1e878e9b1e6632f37958d74ca3cd3",
+      "why": "Only the bytes that cannot start a UTF-8 character."
+    },
+    {
+      "name": "control_bytes_only_0_to_31",
+      "family": "bulk_and_boundaries",
+      "filename": "ctrl.bin",
+      "declared_mime": "application/octet-stream",
+      "bytes": 16384,
+      "sha256": "e4076c1922d374115032931a4b711d575a42ebed48c1eea032b81edf8ded3e7d",
+      "why": "Only control characters, which include NUL and escape."
+    },
+    {
+      "name": "a_single_byte_repeated_sixteen_thousand_times",
+      "family": "bulk_and_boundaries",
+      "filename": "a.txt",
+      "declared_mime": "text/plain",
+      "bytes": 16000,
+      "sha256": "fc6da207a08589037a241eafb7dd03aed5bfcc36a331dfe12b1227685e2c2871",
+      "why": "One letter repeated, which is text and says nothing."
+    },
+    {
+      "name": "pseudorandom_bytes_that_all_decode_as_utf8",
+      "family": "bulk_and_boundaries",
+      "filename": "junk.txt",
+      "declared_mime": "text/plain",
+      "bytes": 4067,
+      "sha256": "b98747137626c9fadeb59843a05fdcdb040c14a91d8d285b503b5195a131deca",
+      "why": "Random bytes that happen to be valid text, which is the trap."
+    },
+    {
+      "name": "sixteen_kilobytes_of_newlines",
+      "family": "bulk_and_boundaries",
+      "filename": "lines.txt",
+      "declared_mime": "text/plain",
+      "bytes": 16384,
+      "sha256": "d1e0963f92d8832073fac0e40245b44414690845c297b8a30249a3779377297d",
+      "why": "Structure with no content, sixteen thousand times over."
+    },
+    {
+      "name": "the_pdf_marker_repeated_a_thousand_times",
+      "family": "bulk_and_boundaries",
+      "filename": "many.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 9000,
+      "sha256": "c61de451ba293b197586a1b86b070e448a117e571bcc11c05025b0c6c03c276e",
+      "why": "A file that starts like a PDF a thousand times over."
+    },
+    {
+      "name": "a_pdf_with_no_text_layer",
+      "family": "pdf_shapes",
+      "filename": "scan.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 601,
+      "sha256": "436c508b4d23110b9bbca089c87fba5c263d83c15cf077fd64b46b1bcb840253",
+      "why": "A real PDF page with no text drawing operator on it."
+    },
+    {
+      "name": "a_pdf_with_an_empty_content_stream",
+      "family": "pdf_shapes",
+      "filename": "empty.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 610,
+      "sha256": "0e167a26f78be8f2d3c0d942ce50964aed0abd9d2fde9cbbb8a667799f94b41b",
+      "why": "A page whose only text operator draws an empty string."
+    },
+    {
+      "name": "a_pdf_whose_only_text_is_whitespace",
+      "family": "pdf_shapes",
+      "filename": "space.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 623,
+      "sha256": "fdc12bfdac19f9f63903290681d03aea33c274585e80db4bff628db98863fae5",
+      "why": "A text layer a person would call blank."
+    },
+    {
+      "name": "a_pdf_declaring_no_pages",
+      "family": "pdf_shapes",
+      "filename": "nopages.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 724,
+      "sha256": "8347dc87a1ec6a28bc00ceed15d9e6ccc5100803a8a2a37671d6a281c80cc232",
+      "why": "A PDF whose page tree says it holds nothing."
+    },
+    {
+      "name": "a_pdf_with_fifty_empty_pages",
+      "family": "pdf_shapes",
+      "filename": "fifty.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 13700,
+      "sha256": "a82a5d37bcfa1f4a140dd1e12cf865532f27f1555f4bb79151c89513f5edbbd9",
+      "why": "Fifty pages of nothing, which is a real scanner output."
+    },
+    {
+      "name": "a_pdf_with_a_page_tree_that_points_at_itself",
+      "family": "pdf_shapes",
+      "filename": "cycle.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 724,
+      "sha256": "7649dedc985d2cb13bbe8d2c5c02af5bfa239753d4eacb5410618bc06f1910a7",
+      "why": "A page whose parent is itself, so a walk never ends."
+    },
+    {
+      "name": "a_pdf_that_says_it_is_encrypted",
+      "family": "pdf_shapes",
+      "filename": "locked.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 739,
+      "sha256": "c978e24e87ddb619b1fc36b3299b4e844757af96c8795ff8402d086bcbe8de54",
+      "why": "A PDF naming an encryption dictionary we hold no key for."
+    },
+    {
+      "name": "a_pdf_with_a_broken_xref_table",
+      "family": "pdf_shapes",
+      "filename": "badxref.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 724,
+      "sha256": "fc651b7430778c5d8e1c24cb5a92fea6e69cdbeb0d0ab460aad0510b37a0d229",
+      "why": "A cross reference table whose first entry is wrong."
+    },
+    {
+      "name": "a_pdf_with_no_trailer",
+      "family": "pdf_shapes",
+      "filename": "notrailer.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 724,
+      "sha256": "16c03f850a24bcb0a941ac4c31541937fb70104e0ac7093282df0b556c4c5063",
+      "why": "A PDF with no trailer, so nothing names the catalogue."
+    },
+    {
+      "name": "a_pdf_whose_object_numbers_are_wrong",
+      "family": "pdf_shapes",
+      "filename": "badobj.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 724,
+      "sha256": "547b519c55b4e53d66e9d4af8b92a85eba74856410176115aa949611e1e9c63c",
+      "why": "An object numbered differently from the reference to it."
+    },
+    {
+      "name": "a_pdf_with_a_content_stream_of_the_wrong_length",
+      "family": "pdf_shapes",
+      "filename": "badlen.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 725,
+      "sha256": "97f796e2bea696844f1eeef8b95091de197acdbf8a8ff02067c7cdac7fab7890",
+      "why": "A stream whose declared length is far longer than it is."
+    },
+    {
+      "name": "a_pdf_with_sixteen_thousand_spaces_in_its_text",
+      "family": "pdf_shapes",
+      "filename": "spaces.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 16615,
+      "sha256": "56f33a6decfd7a327d7ef6bf36d932760a17c6e03df9d82a1d5c5dfeb47a1818",
+      "why": "A text layer that is long and holds nothing readable."
+    },
+    {
+      "name": "a_pdf_of_a_scan_with_no_words",
+      "family": "pdf_shapes",
+      "filename": "dots.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 627,
+      "sha256": "f1e74bbd344525b1d649df194d9bf0e18e3c9feb3131018779e090f990680da7",
+      "why": "A page carrying marks that are not letters."
+    },
+    {
+      "name": "a_pdf_whose_text_is_one_enormous_line",
+      "family": "pdf_shapes",
+      "filename": "oneline.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 13215,
+      "sha256": "c8872fb4c5ba54d37cb94443c27b2ba866f3aa953881cd3b48734a2ad339ece1",
+      "why": "A bill on a single line twelve kilobytes long."
+    },
+    {
+      "name": "a_pdf_with_a_binary_comment_line",
+      "family": "pdf_shapes",
+      "filename": "bincomment.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 730,
+      "sha256": "0ffcf0127fed32cf45e56a4bd37a3e3f47d91c67d7ef5dd203947443dbc99069",
+      "why": "The binary comment real PDF writers put on line two."
+    },
+    {
+      "name": "a_pdf_with_two_percent_pdf_headers",
+      "family": "pdf_shapes",
+      "filename": "twohead.pdf",
+      "declared_mime": "application/pdf",
+      "bytes": 733,
+      "sha256": "3d1f023bcd2d0dc01238f55adbb7e35ec84e0a9aae45eeb36e686bebfa532fb1",
+      "why": "Two PDF headers, so the offsets in the file are all wrong."
+    }
+  ]
+}
