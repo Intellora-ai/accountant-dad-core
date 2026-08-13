@@ -93,6 +93,21 @@ def typed(text: str) -> bytes:
     return text.encode()
 
 
+#: A bill from a vendor this company has two accounts for. The tests below are
+#: about WHICH ACCOUNT, so the sentence has to get past the amount to be about
+#: anything at all.
+#:
+#: CORRECTED 2026-08-13, and it is the sentence that was wrong rather than the
+#: assertions. It read `paid Verma Cement 900 bags`, which states a QUANTITY and
+#: no price - and `adapter._not_an_amount` now says so, because a number
+#: followed by a unit word counts things rather than rupees. Nine hundred bags
+#: of cement is not nine hundred rupees, and reading it as rupees is the same
+#: defect these tests were never about. The account question they ask is
+#: unchanged; the fixture now says the thing it always meant, in the wording
+#: `test_unknown_vendor_is_unclear_and_does_not_post` was already using.
+A_BILL_FROM_A_TWO_ACCOUNT_VENDOR = "paid Verma Cement 900 for bags"
+
+
 # ---- Slice 1: typed happy path ---------------------------------------------
 
 
@@ -198,7 +213,7 @@ def test_conflicted_vendor_asks_and_offers_only_accounts_seen_before():
     t = tally(hist)
     d = pipeline.run(
         COMPANY,
-        typed("paid Verma Cement 900 bags"),
+        typed(A_BILL_FROM_A_TWO_ACCOUNT_VENDOR),
         "text/plain",
         TypedTextExtractor(),
         t,
@@ -219,7 +234,7 @@ def test_answering_then_re_evaluating_posts():
 
     d = pipeline.build_draft(
         COMPANY,
-        typed("paid Verma Cement 900 bags"),
+        typed(A_BILL_FROM_A_TWO_ACCOUNT_VENDOR),
         "text/plain",
         TypedTextExtractor(),
         memory,
@@ -258,7 +273,7 @@ def test_an_answer_is_not_permission_to_post():
 
     d = pipeline.build_draft(
         COMPANY,
-        typed("paid Verma Cement 900 bags"),
+        typed(A_BILL_FROM_A_TWO_ACCOUNT_VENDOR),
         "text/plain",
         TypedTextExtractor(),
         memory,
@@ -277,7 +292,7 @@ def test_answer_is_recorded_as_provenance():
     memory = memory_for(t)
     d = pipeline.build_draft(
         COMPANY,
-        typed("paid Verma Cement 900 bags"),
+        typed(A_BILL_FROM_A_TWO_ACCOUNT_VENDOR),
         "text/plain",
         TypedTextExtractor(),
         memory,
@@ -578,7 +593,7 @@ def test_a_brand_new_company_never_posts_silently():
     assert memory.report.askable is True
     for text in (
         "paid Sharma Traders 4200 cement",
-        "paid Verma Cement 900 bags",
+        A_BILL_FROM_A_TWO_ACCOUNT_VENDOR,
         "paid Gupta Hardware 1500 tools",
     ):
         d = pipeline.run(

@@ -138,14 +138,35 @@ AMBIGUOUS_NUMBERS = (
 #: against the text rather than against the media type.
 _INVOICE_MARKS = (
     re.compile(r"\btax\s+invoice\b", re.I),
+    # BOTH forms of the invoice number, 2026-08-13. `invoice\s*(?:no|number|#)`
+    # was the only one, and `Invoice 2451` - the commonest form an Indian
+    # supplier prints - matched none of it. Measured: four texts whose first
+    # line said TAX INVOICE were read for their invoice NUMBER and posted.
     re.compile(r"\binvoice\s*(?:no\b|number\b|#)", re.I),
+    re.compile(r"\binvoice\s+\d", re.I),
+    re.compile(r"\bbill\s+(?:no\.?\s*)?\d", re.I),
     re.compile(r"\bhsn\s*/?\s*sac\b", re.I),
     re.compile(r"\bplace\s+of\s+supply\b", re.I),
     re.compile(r"\bgstin\b", re.I),
     # A TOTAL LINE, not the word "total". A line that BEGINS with it is a
     # figure in a column; the same word inside a sentence is somebody talking.
-    re.compile(r"^[ \t|]*(?:grand\s+|sub\s*)?total\b", re.I | re.M),
-    re.compile(r"^[ \t|]*amount\s+payable\b", re.I | re.M),
+    #
+    # `[^\w\n]*` and not `[ \t|]*`: a leader of dots, a rule of dashes or a
+    # bullet in front of the word is DECORATION THE PRINTER ADDED, and scoring
+    # zero on it made `..... TOTAL 4,200.00` not a total line. What the anchor
+    # is actually for is unchanged and is tested - a WORD before the word means
+    # somebody is talking, and `paid for the lot, TOTAL 4200` still reads.
+    re.compile(r"^[^\w\n]*(?:grand\s+|sub\s*)?total\b", re.I | re.M),
+    re.compile(r"^[^\w\n]*amount\s+payable\b", re.I | re.M),
+)
+
+#: A line that says nothing but what the document IS. Worth the whole threshold
+#: on its own: no sentence contains such a line, and nobody types one into a
+#: one-line box, so it is not the ambiguous case the two-signal rule hedges.
+_HEADER_LINE = re.compile(
+    r"^[^\w\n]*(?:tax\s+)?(?:invoice|bill|cash\s+memo|receipt|delivery\s+challan"
+    r"|challan|statement\s+of\s+account)[^\w\n]*$",
+    re.I | re.M,
 )
 
 #: `SUPPLIER: SHARMA TRADERS` - one line, a label, a colon, a value. Two or
@@ -175,6 +196,49 @@ _MONEY_MARKED = re.compile(r"(?:rs\.?|₹)\s*$", re.I)
 _GLUE_BEFORE = "/-#:"
 _GLUE_AFTER = "/-:"
 
+#: THE SAME QUESTION, ASKED SEMANTICALLY. Glue is positional, so it caught
+#: `GT/0001` because of the slash and missed `HSN 998311` because of the space -
+#: and the second is an invoice field name, in this corpus, worth ₹9,98,311 when
+#: read as money. This is added to the glue check and does not replace it: glue
+#: is what catches a reference the writer ran together with its prefix, and
+#: deleting it would put `GT/0001` back at 100 paise, which is the original
+#: defect.
+#:
+#: The word list is the owner's. A currency symbol between the word and the
+#: number defeats it deliberately - nobody writes a reference number with rupees
+#: in front of it, so `phone bill Rs 1200` is an amount and `bill 1200` is not.
+#:
+#: WHAT IT STILL DOES NOT CATCH, stated rather than left to be found: a bare
+#: `Ahmedabad 380015`. A six-digit pincode with no word in front of it is
+#: indistinguishable from ₹3,80,015, which is an ordinary payment, and any rule
+#: that refuses the first refuses the second.
+_LABELS_AN_IDENTIFIER = re.compile(
+    r"\b(invoice|bill|ref|reference|order|p\.?o|challan|cheque|upi|hsn|sac"
+    r"|gstin|pin|batch)\b\s*(?:no\.?|number|#)?\s*[-#:/]*\s*$",
+    re.I,
+)
+
+#: A month a person writes by name. `August 2026` and `5 Aug` are dates, and a
+#: date component is not a candidate for the total. The risk is named: `may` is
+#: also an ordinary English word, so `4200 may be wrong` refuses. That is a
+#: question asked of the person, never a number, which is the direction this
+#: whole module errs in.
+_MONTH_WORD = (
+    r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?"
+    r"|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?"
+)
+_MONTH_BEFORE = re.compile(rf"\b(?:{_MONTH_WORD})\b[\s,]*$", re.I)
+_MONTH_AFTER = re.compile(rf"\s*(?:st|nd|rd|th)?[\s,]*\b(?:{_MONTH_WORD})\b", re.I)
+
+#: A unit of quantity. `50 bags of cement` is fifty bags, not fifty rupees, and
+#: counting it as a rival to the price refused the sentence outright.
+_UNIT_AFTER = re.compile(
+    r"\s*(?:kgs?|gms?|grams?|tonnes?|tons?|quintals?|litres?|liters?|ltrs?"
+    r"|bags?|boxes|box|cartons?|packets?|packs?|pieces?|pcs|nos|units?|dozens?"
+    r"|bundles?|rolls?|sheets?|bottles?|bricks?|sets?|pairs?)\b",
+    re.I,
+)
+
 #: The window a bare four-digit number is a year rather than an amount in.
 _EARLIEST_YEAR = 1900
 _LATEST_YEAR = 2100
@@ -182,6 +246,12 @@ _LATEST_YEAR = 2100
 #: An Indian mobile number is exactly ten digits. Read as rupees it posts
 #: ₹98,76,543.21, which is a plausible enough figure that nothing downstream
 #: would blink at it.
+#:
+#: A FRACTION IS NOT A PHONE NUMBER, and that is what separates the two rather
+#: than length alone. Nobody writes a mobile number with paise on the end, so
+#: `92233720368547.75` - fourteen digits, and the exact value `tests/test_money.py`
+#: exists to protect - is money however long it is, while `Rs. 9876543210` is a
+#: phone number however it was written.
 _PHONE_DIGITS = 10
 
 
@@ -192,6 +262,21 @@ class _Number:
     raw: str
     money_marked: bool
     glued: bool
+    #: The identifier word immediately in front of it, or "".
+    labelled: str = ""
+    #: Written beside a month name, so it is part of a date.
+    dated: bool = False
+    #: Followed by a unit of quantity, so it counts things and not rupees.
+    counted: bool = False
+
+    @property
+    def digits(self) -> int:
+        """How many digits, ignoring the grouping commas.
+
+        `len(raw)` counted the commas, so `1,23,45,678` - ₹1.23 crore, eight
+        digits - measured ten characters and was refused as a phone number.
+        """
+        return sum(c.isdigit() for c in self.raw.split(".")[0])
 
 
 def _glued(text: str, start: int, end: int) -> bool:
@@ -223,20 +308,33 @@ def _numbers(text: str) -> list[_Number]:
         if _IS_A_RATE.match(text, end):
             continue
         raw = match.group(1)
+        before, label = text[:start], _LABELS_AN_IDENTIFIER.search(text[:start])
         found.append(
             _Number(
                 raw=raw,
                 money_marked=bool(
-                    _MONEY_MARKED.search(text[:start]) or "." in raw or "," in raw
+                    _MONEY_MARKED.search(before) or "." in raw or "," in raw
                 ),
                 glued=_glued(text, start, end),
+                labelled=label.group(1) if label else "",
+                dated=bool(
+                    _MONTH_BEFORE.search(before) or _MONTH_AFTER.match(text, end)
+                ),
+                counted=bool(_UNIT_AFTER.match(text, end)),
             )
         )
     return found
 
 
 def _invoice_shaped(text: str) -> bool:
-    """Is this text laid out like a bill? Decided from the text, never the type."""
+    """Is this text laid out like a bill? Decided from the text, never the type.
+
+    A bare header line settles it alone. Everything else needs a second signal,
+    for the reason `_SIGNALS_FOR_AN_INVOICE` gives: one word can be a person
+    talking, and refusing on one word deletes this backend's job.
+    """
+    if _HEADER_LINE.search(text):
+        return True
     signals = sum(1 for mark in _INVOICE_MARKS if mark.search(text))
     if len(_LABEL_LINE.findall(text)) >= 2:
         signals += 1
@@ -244,15 +342,36 @@ def _invoice_shaped(text: str) -> bool:
 
 
 def _not_an_amount(number: _Number) -> str:
-    """Why this single number is not the amount, or "" when it is one.
+    """Why this number cannot be the amount, or "" when it could be.
 
     Each check is separately named because each is separately wrong when it is
     missing, and a check with no name cannot have a test that fails without it.
+
+    THE ORDER IS THE FIX, 2026-08-13. `money_marked` used to return "" third,
+    which made every check below it unreachable for any number written with a
+    currency word, a decimal point or a grouping comma - so `Rs. 9876543210`
+    was ₹98,76,543.21 and `9,876,543,210` was the same, both at full
+    confidence. A mobile number does not stop being one because somebody wrote
+    `Rs.` in front of it. The escape hatch is kept for the YEAR check alone,
+    which is the case it was built for: `Rs. 2000` is a rent.
     """
     if number.glued:
         return (
-            "the only number here is part of an identifier such as an invoice "
-            "or reference number, not an amount"
+            f"'{number.raw}' is part of an identifier such as an invoice or "
+            "reference number, not an amount"
+        )
+    if number.labelled:
+        return (
+            f"'{number.raw}' follows '{number.labelled}', which names an "
+            "identifier rather than an amount"
+        )
+    if number.dated:
+        return f"'{number.raw}' is part of a date, not an amount"
+    if number.counted:
+        return f"'{number.raw}' is a quantity of something, not an amount"
+    if "." not in number.raw and number.digits >= _PHONE_DIGITS:
+        return (
+            f"'{number.raw}' is long enough to be a phone number rather than an amount"
         )
     if number.money_marked:
         # Written as money by the person who typed it. `Rs. 2000` is rent.
@@ -260,13 +379,8 @@ def _not_an_amount(number: _Number) -> str:
     plain = number.raw
     if len(plain) == 4 and _EARLIEST_YEAR <= int(plain) <= _LATEST_YEAR:
         return (
-            "the only number here is a year, not an amount. Write it as money "
-            "- Rs. 2000 or 2000.00 - if it is one"
-        )
-    if len(plain) >= _PHONE_DIGITS:
-        return (
-            "the only number here is long enough to be a phone number rather "
-            "than an amount"
+            f"'{plain}' is a year, not an amount. Write it as money - Rs. 2000 "
+            "or 2000.00 - if it is one"
         )
     return ""
 
@@ -275,20 +389,32 @@ def _amount(text: str) -> tuple[int | None, str]:
     """The total in paise, or None and the sentence the person reads.
 
     RULE 1 refuses invoice-shaped text outright rather than guessing at it.
-    RULE 2 allows exactly one number, and only when it survives the checks
-    above. RULE 3 - anything else - refuses, because choosing among several
+    RULE 2 allows exactly one CANDIDATE - a number nothing above disqualified.
+    RULE 3 - two candidates or more - refuses, because choosing among several
     numbers is the guess that produced the twenty wrong totals.
+
+    RULE 3 COUNTS CANDIDATES AND NOT NUMBERS, 2026-08-13. It used to count
+    every number in the text, including the ones RULE 2 would have thrown out
+    on sight, and measured over ten ordinary sentences - which is this
+    backend's whole job - six refused: a date, a quantity or a reference number
+    became a rival to the price. A number that cannot be the total cannot make
+    the total ambiguous. Refusing is not a wrong figure, but a backend that
+    refuses the sentences it exists for has been deleted rather than fixed.
     """
     if _invoice_shaped(text):
         return None, INVOICE_SHAPED
     found = _numbers(text)
     if not found:
         return None, ""
-    if len(found) > 1:
+    candidates = [number for number in found if not _not_an_amount(number)]
+    if not candidates:
+        # Every number was disqualified. The first one's reason is the one a
+        # person can act on, and each sentence names the number it is about, so
+        # it stays true when the text held several.
+        return None, _not_an_amount(found[0])
+    if len(candidates) > 1:
         return None, AMBIGUOUS_NUMBERS
-    if why := _not_an_amount(found[0]):
-        return None, why
-    return _to_paise(found[0].raw), ""
+    return _to_paise(candidates[0].raw), ""
 
 
 def _media_type(mime: str) -> str:

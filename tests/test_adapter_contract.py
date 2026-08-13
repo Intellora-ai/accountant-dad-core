@@ -1780,3 +1780,175 @@ def test_a_refused_amount_is_never_a_guess_carrying_a_low_score() -> None:
         assert record.total_paise is None, data[:30]
         assert record.per_field_source["total_paise"].startswith(f"{NOT_FOUND}: ")
         assert record.per_field_source["total_paise"].strip() != NOT_FOUND
+
+
+# =============================================================================
+# WHERE THE DETECTOR WAS WALKED AROUND, MEASURED 2026-08-13
+# =============================================================================
+#
+# Everything above this line held. What did not hold is the sentence "it
+# refuses invoice-shaped text", because "invoice-shaped" was not a property of
+# the text - it was the name of one function's specific holes. Measured on the
+# committed detector at dd96a26, through `pipeline.build_draft` +
+# `pipeline.evaluate` + `app.render_decision`:
+#
+#     TAX INVOICE / Invoice 2451 / paid Sharma Traders as per order /
+#     Amount: Rupees Four Thousand Two Hundred Only
+#         -> outcome VALID, amount_paise 245100, provenance "typed_text"
+#
+# The bill says four thousand two hundred rupees, in words, the way a cash memo
+# is written. 2451 is the invoice number. That is the same defect the section
+# above closes, on a document whose FIRST LINE SAYS TAX INVOICE, and it posted.
+#
+# Three holes let it through, and each has its own test below:
+#
+#     a bare header line was worth one signal, and one is not enough
+#     the invoice-number mark only matched "invoice no", never "Invoice 2451"
+#     an identifier was only spotted when a separator GLUED it to a word
+
+#: Four texts a person would call a bill on sight. Each returned the invoice,
+#: bill or challan NUMBER as the amount, at the gate's full confidence.
+WALKED_AROUND_THE_DETECTOR = (
+    b"TAX INVOICE\nInvoice 2451\npaid Sharma Traders as per order\n"
+    b"Amount: Rupees Four Thousand Two Hundred Only\n",
+    b"TAX INVOICE\nInvoice 7788\nSharma Traders\n",
+    b"SHARMA TRADERS\nTax Invoice\nBill 3097\n",
+    b"DELIVERY CHALLAN\nChallan 6612\nSharma Traders\ngoods delivered\n",
+)
+
+
+@pytest.mark.parametrize("data", WALKED_AROUND_THE_DETECTOR)
+def test_a_document_whose_own_first_line_calls_it_a_bill_is_a_layout(
+    data: bytes,
+) -> None:
+    """A line that says nothing but INVOICE / BILL / CHALLAN is not somebody
+    talking. Nobody types that line into a one-line box, and no sentence
+    contains it, so on its own it settles the question the two-signal rule was
+    invented to hedge."""
+    record = TypedTextExtractor().extract(data, "text/plain")
+
+    assert record.total_paise is None, data[:24]
+    assert "looks like an invoice" in record.per_field_source["total_paise"]
+
+
+def test_the_control_a_total_a_person_typed_is_not_a_header_line() -> None:
+    """THE CONTROL ON THE HEADER RULE, and the one it must not break. `TOTAL
+    4200` carries a word AND a figure, so it is not a bare header, and a rule
+    that scored it as one would delete this backend's whole job."""
+    typed = TypedTextExtractor().extract(b"TOTAL 4200", "text/plain")
+    bulleted = TypedTextExtractor().extract(b"- total 4200", "text/plain")
+
+    assert typed.total_paise == 420000
+    assert bulleted.total_paise == 420000
+
+
+def test_the_invoice_number_form_a_supplier_actually_prints_is_a_signal() -> None:
+    """`invoice\\s*(?:no|number|#)` never matched `Invoice 2451`, which is the
+    commonest form there is. Two signals here, neither of them a header line,
+    so this goes red if the mark alone is dropped."""
+    record = TypedTextExtractor().extract(
+        b"Invoice 2451\nPLACE OF SUPPLY: GUJARAT\nAmount 4200\n", "text/plain"
+    )
+
+    assert record.total_paise is None
+    assert "looks like an invoice" in record.per_field_source["total_paise"]
+
+
+def test_a_total_line_is_a_total_line_behind_whatever_the_printer_put_first() -> None:
+    """`^[ \\t|]*` scored zero on a leader or a rule character in front of the
+    word. The decoration a supplier prints is not evidence about the line."""
+    record = TypedTextExtractor().extract(
+        b"..... TOTAL 4200\nGSTIN: 24ABCDE1234F1Z5\n", "text/plain"
+    )
+
+    assert record.total_paise is None
+    assert "looks like an invoice" in record.per_field_source["total_paise"]
+
+
+#: A number that follows one of these words is that identifier. No separator
+#: glues any of them, so the positional check saw an ordinary amount.
+LABELLED_IDENTIFIERS = (
+    (b"HSN 998311 for Sharma Traders", b"HSN"),
+    (b"Order 45231 from Sharma Traders", b"Order"),
+    (b"cheque 887654 to Sharma Traders", b"cheque"),
+    (b"invoice 4471 for repair charges", b"invoice"),
+    (b"batch 0001 from Sharma", b"batch"),
+)
+
+
+@pytest.mark.parametrize(("data", "word"), LABELLED_IDENTIFIERS)
+def test_the_word_in_front_of_a_number_says_it_is_not_an_amount(
+    data: bytes, word: bytes
+) -> None:
+    """SANITY CHECK 3, semantic rather than positional. `GT/0001` was caught
+    because of the slash; `HSN 998311` was ₹9,98,311 because of the space."""
+    record = TypedTextExtractor().extract(data, "text/plain")
+
+    assert record.total_paise is None, data
+    assert word.decode() in record.per_field_source["total_paise"]
+
+
+def test_the_control_a_currency_symbol_beats_the_identifier_words() -> None:
+    """THE CONTROL ON THE IDENTIFIER RULE. Nobody writes a reference number
+    with rupees in front of it, so `bill Rs 1200` is the bill's amount and
+    refusing it would be the fix refusing the case it exists to serve."""
+    record = TypedTextExtractor().extract(b"phone bill Rs 1200", "text/plain")
+
+    assert record.total_paise == 120000
+
+
+def test_ten_digits_is_a_phone_number_even_with_rupees_in_front_of_it() -> None:
+    """SANITY CHECK 2, unreachable until now. `money_marked` short-circuited
+    every check below it, so `Rs.` in front of a mobile number bought it
+    ₹98,76,543.21 and a comma did the same on its own."""
+    for data in (b"paid on Rs. 9876543210", b"transfer 9,876,543,210"):
+        record = TypedTextExtractor().extract(data, "text/plain")
+
+        assert record.total_paise is None, data
+        assert "phone number" in record.per_field_source["total_paise"]
+
+
+def test_the_control_the_year_check_still_lets_rent_written_as_money_through() -> None:
+    """THE CONTROL ON THAT ORDER. The escape hatch was moved, not deleted:
+    `Rs. 2000` is a rent and must not be read as a year."""
+    record = TypedTextExtractor().extract(b"paid Landlord Rs. 2000 rent", "text/plain")
+
+    assert record.total_paise == 200000
+
+
+#: Ten ordinary sentences, which is this backend's entire job. Six of them
+#: refused at dd96a26 because a date, a quantity or a reference counted as a
+#: second number and RULE 3 fired. A refusal is not a wrong total, but a
+#: backend that refuses the sentences it exists for has been deleted, not fixed.
+ORDINARY_SENTENCES = (
+    (b"paid Sharma Traders Rs 4200 on 12/08/2026", 420000),
+    (b"bought 50 bags of cement from Sharma Traders for Rs 4200", 420000),
+    (b"paid rent 15000 for August 2026", 1500000),
+    (b"diesel 3500 for the truck on 5 Aug", 350000),
+    (b"repair charges Rs. 900 invoice 4471", 90000),
+    (b"paid Sharma Traders 4200 for cement", 420000),
+)
+
+
+@pytest.mark.parametrize(("data", "paise"), ORDINARY_SENTENCES)
+def test_a_number_that_cannot_be_an_amount_is_not_a_rival_to_the_one_that_can(
+    data: bytes, paise: int
+) -> None:
+    """RULE 3 counted every number, including the ones RULE 2 would have thrown
+    out on sight. A date component and a reference number are not candidates
+    for the total, so they cannot make the total ambiguous."""
+    record = TypedTextExtractor().extract(data, "text/plain")
+
+    assert record.total_paise == paise, record.per_field_source["total_paise"]
+    assert record.per_field_source["total_paise"] == "typed_text"
+
+
+def test_the_control_two_real_amounts_are_still_ambiguous() -> None:
+    """THE CONTROL ON THAT WIDENING, and the one that keeps RULE 3 alive. Two
+    numbers that could each be the total is the guess that produced the 20."""
+    record = TypedTextExtractor().extract(
+        b"paid Sharma Traders 1180 for cement plus 180 GST", "text/plain"
+    )
+
+    assert record.total_paise is None
+    assert "Multiple numbers were found" in record.per_field_source["total_paise"]
