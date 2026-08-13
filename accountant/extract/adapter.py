@@ -76,21 +76,28 @@ NOT_FOUND = "not_found"
 #:                     `placeholder.PlaceholderReader`, which carries no values
 #:                     and states no scores, and `tests/test_no_reader.py` pins
 #:                     that.
-#:     reader_service  ON THIS LIST TO PRESERVE A DECISION, NOT BECAUSE ITS TIER
-#:                     WAS VERIFIED - and it is the open question here. A remote
-#:                     service's `{"confidence": {"party": 1.0}}` is believed
-#:                     verbatim (`service.py:266`), and whether a paid API that
-#:                     read PIXELS should be able to name a supplier that way is
-#:                     an owner's call about a backend nobody has selected -
-#:                     `registry.DEFAULT_BACKEND` is `ladder`. Reversing it here
-#:                     would invert the control in `test_adapter_contract.py::
-#:                     test_a_backend_that_states_no_confidence_does_not_name_
-#:                     the_supplier`, which asserts on purpose that a service
-#:                     stating its certainty DOES name the supplier. Recorded
-#:                     and reported rather than changed under the owner.
-ENTITLED_TO_EXACT: frozenset[str] = frozenset(
-    {"pdf_text_layer", "typed_text", "stub", "reader_service"}
-)
+#:
+#: `reader_service` WAS THE FOURTH MEMBER AND WAS REMOVED, 2026-08-13, OWNER
+#: DECISION 3, verbatim: "No reader that works off pixels (local OCR or remote
+#: API) is allowed to be treated as 'exact' in the sense of bypassing safety
+#: checks." The entry above it recorded the open question and the owner has now
+#: closed it. A remote reader may be reading a PHOTOGRAPH - the bytes we send it
+#: are whatever was uploaded - and a paid API is not a different TIER from a free
+#: one, only a better-funded guess at the same pixels.
+#:
+#: A REMOTE READER MAY REPORT CONFIDENCE 1.0. THIS IS TREATED AS MAXIMUM
+#: CONFIDENCE FROM THAT READER, NOT AS EXACTNESS. ALL SAFETY CHECKS STILL APPLY.
+#: The number is not clamped, not dropped and not rewritten: `service.py` carries
+#: it verbatim onto the record, `cage/gate.py::_sure` hands it to the decision
+#: layer, and it is weighed against `ASK_FLOOR` and `AUTO_POST_FLOOR` exactly as
+#: any other reader's number is. Every conservation law and every hard rule -
+#: GST, period, the write-is-what-was-checked rule - runs on that record
+#: unchanged. What the 1.0 lost is one specific power, and only one: the right to
+#: mean "nothing was estimated", which is what this list grants and what lets a
+#: value become a vendor IDENTITY at `pipeline.py:320` with no question asked.
+#: `tests/test_remote_reader_not_exact.py` holds both halves - the refusal, and
+#: the number surviving the refusal.
+ENTITLED_TO_EXACT: frozenset[str] = frozenset({"pdf_text_layer", "typed_text", "stub"})
 
 #: The one media type a sentence a person typed arrives as.
 #:
@@ -237,6 +244,14 @@ class ExtractedRecord:
         answers True here, and `pipeline.build_draft` makes the name on a
         PHOTOGRAPH a vendor identity. `ENTITLED_TO_EXACT` is the list of sources
         whose claim is believed, and it fails closed.
+
+        CONFIDENCE IS NOT EXACTNESS, AND THIS IS THE ONE FUNCTION THAT KNOWS THE
+        DIFFERENCE. `confidence_of` above returns the reader's own number to
+        anybody who asks, unchanged, whatever tier stated it. A remote reader may
+        report confidence 1.0 and that 1.0 is treated as maximum confidence from
+        that reader, not as exactness - all safety checks still apply to it. This
+        method answers the narrower question, and answers it False for a reader
+        that works off pixels however sure it sounds.
         """
         return (
             self.value_of(name) is not None

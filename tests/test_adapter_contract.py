@@ -679,6 +679,13 @@ def service_backend() -> ServiceExtractor:
     `test_a_backend_that_states_no_confidence_does_not_name_the_supplier`
     below rather than being folded in here: a party name that was estimated -
     or whose certainty nobody stated - is never used as a supplier's identity.
+
+    SINCE 2026-08-13 THE SAME IS TRUE OF THIS ONE EVEN THOUGH IT SPEAKS. Owner
+    decision 3 took `reader_service` off `adapter.ENTITLED_TO_EXACT`, so the
+    `EXACT` stated here is carried, readable and weighed - and is no longer read
+    as the claim that nothing was estimated. It is still stated here for the
+    original reason: a backend that says nothing about its own certainty is not
+    telling us what the stub tells us.
     """
     return service_for(
         BILL,
@@ -689,6 +696,26 @@ def service_backend() -> ServiceExtractor:
 
 
 SWAPPABLE: tuple[Callable[[], Extractor], ...] = (stub_backend, service_backend)
+
+#: Whether each swappable backend's stated `EXACT` is read as EXACTNESS.
+#:
+#: NOT A FACT ABOUT THE BILL AND NOT A FACT ABOUT THE SEAM. Both backends state
+#: the same values, the same 1.0 and their own source name. What differs is
+#: whether `adapter.ENTITLED_TO_EXACT` believes the TIER when it claims nothing
+#: was estimated. `stub` is believed: `StubExtractor` hands back the values its
+#: constructor was given and reads nothing at all. `reader_service` was removed
+#: from that list on 2026-08-13, owner decision 3 - a remote API is posted
+#: whatever was uploaded, and that may be a photograph.
+#:
+#: SO THE SWAP IS NO LONGER FREE, AND THIS IS WHERE THE PRICE IS WRITTEN DOWN.
+#: Everything the seam carries is still identical across the two: the record, the
+#: values, the sources, the amount, the date, the reader's own score. What is not
+#: identical is one flag with one consumer - `pipeline.py:320`, where a read name
+#: becomes a vendor identity. The four tests below used to assert plain equality
+#: and now assert equality everywhere except there. That is the change the owner
+#: asked for, not a weakening of them: each still pins BOTH backends, and a
+#: backend that stopped working would fail its own half.
+BELIEVED: dict[str, bool] = {"stub_backend": True, "service_backend": False}
 
 
 def test_two_backends_given_the_same_facts_produce_the_same_record() -> None:
@@ -725,6 +752,19 @@ def test_two_backends_given_the_same_facts_differ_only_in_who_they_say_they_are(
     )
 
 
+def identity_from(backend: Extractor, t: FakeTally) -> tuple[str, str]:
+    """The party and the debit account this backend's reading actually becomes.
+
+    Both, because they are two different failures with the same cause: the name
+    must not be written on the voucher, and it must not be looked up to propose
+    an account either.
+    """
+    draft = pipeline.build_draft(
+        COMPANY, BILL, "text/plain", backend, memory_for(t), today=TODAY
+    )
+    return draft.voucher.party, draft.voucher.debit_account
+
+
 def test_a_backend_that_states_no_confidence_does_not_name_the_supplier() -> None:
     """The price of silence, asserted rather than assumed. F-03.
 
@@ -735,67 +775,100 @@ def test_a_backend_that_states_no_confidence_does_not_name_the_supplier() -> Non
 
     The reading is NOT thrown away: the record still carries the name, the
     source and the fact that no score was stated. Only the identity is withheld.
+
+    THE CONTROL WAS RE-AIMED, 2026-08-13, OWNER DECISION 3. It used to be the
+    same service SPEAKING: a `reader_service` stating `EXACT` did name the
+    supplier, and this test asserted that on purpose. It no longer does - "No
+    reader that works off pixels (local OCR or remote API) is allowed to be
+    treated as 'exact' in the sense of bypassing safety checks." So the speaking
+    service is pinned here too, and pinned on both halves: its 1.0 is still
+    stated, still carried and still readable, and it names nobody. The control
+    that stops this passing on a change that refuses EVERYTHING moved to
+    `typed_text` - an entitled tier, the same bytes, the same name, still an
+    identity.
     """
     silent = service_for(BILL, party=PARTY, total_paise=TOTAL)
     record = silent.extract(BILL, "text/plain")
-
-    assert record.party == PARTY
-    assert record.confidence_of("party") is None
-    assert not record.read_exactly("party")
-
+    speaking = service_backend().extract(BILL, "text/plain")
     t = tally(past(PARTY, "Purchases", n=40))
-    draft = pipeline.build_draft(
-        COMPANY, BILL, "text/plain", silent, memory_for(t), today=TODAY
-    )
 
-    assert draft.voucher.party == ""
-    assert draft.voucher.debit_account == ""
-    # The control on the same two lines: the SAME service, saying how sure it
-    # is, names the supplier exactly as before. Without this the assertion
-    # above would also pass if the service backend had simply stopped working.
-    speaking = pipeline.build_draft(
-        COMPANY, BILL, "text/plain", service_backend(), memory_for(t), today=TODAY
-    )
+    assert (record.party, record.confidence_of("party")) == (PARTY, None)
+    assert not record.read_exactly("party")
+    assert identity_from(silent, t) == ("", "")
 
-    assert speaking.voucher.party == PARTY
-    assert speaking.voucher.debit_account == "Purchases"
+    assert (speaking.party, speaking.confidence_of("party")) == (PARTY, EXACT)
+    assert not speaking.read_exactly("party")
+    assert identity_from(service_backend(), t) == ("", "")
+
+    assert identity_from(TypedTextExtractor(), t) == (PARTY, "Purchases")
 
 
 @pytest.mark.parametrize("make", SWAPPABLE, ids=lambda m: m.__name__)
-def test_two_backends_given_the_same_facts_produce_the_same_draft(
+def test_two_backends_given_the_same_facts_produce_the_same_draft_but_the_identity(
     make: Callable[[], Extractor],
 ) -> None:
+    """CORRECTED 2026-08-13, owner decision 3. It was
+    `test_two_backends_given_the_same_facts_produce_the_same_draft`, and the
+    equality it asserted is now false in exactly one place: a reader working off
+    pixels does not name a supplier. Every other figure still has to match, and
+    the RECORD still has to carry the name - a reading that had lost it would be
+    a different defect wearing this test's pass.
+    """
     t = tally(past(PARTY, "Purchases", n=40))
     draft = pipeline.build_draft(
         COMPANY, BILL, "text/plain", make(), memory_for(t), today=TODAY
     )
+    believed = BELIEVED[make.__name__]
 
-    assert draft.voucher.party == PARTY
+    assert draft.record.party == PARTY
     assert draft.voucher.amount_paise == TOTAL
-    assert draft.voucher.debit_account == "Purchases"
     assert draft.voucher.gst_paise is None
     assert draft.voucher.date == TODAY
+    assert draft.voucher.party == (PARTY if believed else "")
+    assert draft.voucher.debit_account == ("Purchases" if believed else "")
 
 
 @pytest.mark.parametrize("make", SWAPPABLE, ids=lambda m: m.__name__)
-def test_two_backends_given_the_same_facts_produce_the_same_decision(
+def test_two_backends_given_the_same_facts_either_post_or_ask_who_it_was(
     make: Callable[[], Extractor],
 ) -> None:
+    """CORRECTED 2026-08-13, owner decision 3. It was
+    `test_two_backends_given_the_same_facts_produce_the_same_decision`.
+
+    The believed tier still posts on "nothing unclear and nothing surprising".
+    The unbelieved one neither refuses nor guesses: it reaches the answer the
+    product already had for "I do not know who this is" and ASKS. `unclear` with
+    `no party name` is an existing path reached, not a new one invented.
+    """
     t = tally(past(PARTY, "Purchases", n=40))
     d = pipeline.run(COMPANY, BILL, "text/plain", make(), t, memory_for(t), today=TODAY)
 
+    if not BELIEVED[make.__name__]:
+        assert (d.outcome, d.reason) == (Outcome.UNCLEAR, "no party name")
+        return
     assert d.outcome is Outcome.VALID
     assert d.reason == "nothing unclear and nothing surprising"
 
 
 @pytest.mark.parametrize("make", SWAPPABLE, ids=lambda m: m.__name__)
-def test_two_backends_given_the_same_facts_post_the_same_voucher(
+def test_only_a_believed_backend_posts_and_the_other_writes_nothing(
     make: Callable[[], Extractor],
 ) -> None:
+    """CORRECTED 2026-08-13, owner decision 3. It was
+    `test_two_backends_given_the_same_facts_post_the_same_voucher`.
+
+    The posted voucher is unchanged where one is posted at all, and that is the
+    half that still has to hold exactly: the swap may not move a single paise of
+    what lands in Tally. What it now changes is WHETHER, in the safe direction -
+    a reading whose supplier is a guess writes nothing and asks.
+    """
     t = tally(past(PARTY, "Purchases", n=40))
     d = pipeline.run(COMPANY, BILL, "text/plain", make(), t, memory_for(t), today=TODAY)
     back = t.read_by_operation_id(COMPANY, d.operation_id)
 
+    if not BELIEVED[make.__name__]:
+        assert (d.posted_tally_id, back) == (None, None)
+        return
     assert d.posted_tally_id is not None
     assert back is not None
     assert (back.party, back.amount_paise, back.debit_account, back.credit_account) == (
@@ -806,23 +879,30 @@ def test_two_backends_given_the_same_facts_post_the_same_voucher(
     )
 
 
-def test_two_backends_move_the_trial_balance_by_the_same_paise() -> None:
-    moves: list[dict[str, int]] = []
+def test_only_a_believed_backend_moves_the_trial_balance() -> None:
+    """CORRECTED 2026-08-13, owner decision 3. It was
+    `test_two_backends_move_the_trial_balance_by_the_same_paise`.
+
+    The paise are still the point and they have not moved: the believed backend
+    shifts exactly the two ledgers it always did, by exactly the amount it always
+    did. The other shifts nothing, asserted as an empty map rather than left out
+    - "posted nothing" and "was never run" look identical in a test that only
+    checks the first backend.
+    """
+    moves: dict[str, dict[str, int]] = {}
     for make in SWAPPABLE:
         t = tally(past(PARTY, "Purchases", n=40))
         before = t.trial_balance(COMPANY)
         pipeline.run(COMPANY, BILL, "text/plain", make(), t, memory_for(t), today=TODAY)
         after = t.trial_balance(COMPANY)
-        moves.append(
-            {
-                ledger: after.get(ledger, 0) - before.get(ledger, 0)
-                for ledger in set(before) | set(after)
-                if after.get(ledger, 0) != before.get(ledger, 0)
-            }
-        )
+        moves[make.__name__] = {
+            ledger: after.get(ledger, 0) - before.get(ledger, 0)
+            for ledger in set(before) | set(after)
+            if after.get(ledger, 0) != before.get(ledger, 0)
+        }
 
-    assert moves[0] == {"Purchases": TOTAL, "Cash": -TOTAL}
-    assert moves[0] == moves[1]
+    assert moves["stub_backend"] == {"Purchases": TOTAL, "Cash": -TOTAL}
+    assert moves["service_backend"] == {}
 
 
 def test_a_backend_that_finds_nothing_still_leaves_the_posting_gate_shut() -> None:
