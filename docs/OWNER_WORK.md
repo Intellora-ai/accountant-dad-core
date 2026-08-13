@@ -624,3 +624,44 @@ reader produces per-field confidence yet, and three of the four conservation
 laws have no inputs on that path — but it is the one that needs a live Tally
 rather than more code.
 
+### A bill whose own numbers contradict each other — ASK or BLOCK? NOT BLOCKING
+
+**Nothing posts either way.** Only the label and the sentence differ, so this is
+not holding anything up. It is written down because two parts of the product
+disagree and neither should quietly win.
+
+`demo_safety_cage.py` and `accountant/cage/decision.py` label two cases the
+opposite way round:
+
+| the bill | the demo, following your criterion | `decide()` |
+|---|---|---|
+| its own numbers contradict each other — line items out by a paisa, net + tax ≠ gross, debits ≠ credits | BLOCK | ASK |
+| it has no party on it at all | ASK | BLOCK |
+
+**The reading I believe is right, and why.** Your five hard rules — each of
+which always blocks — are: tax on the bill, a law INDETERMINATE, the period
+closed, the party unknown, and the question budget spent. A conservation law
+that **FAILED** is not one of the five. Your band list then says ASK covers "any
+conservation law FAIL at any confidence", explicitly. So `decide()` returning
+ASK for a bill that does not add up is your own rule applied literally, and the
+unknown party blocking is your fourth hard rule applied literally. On that
+reading `decide()` is right on both rows and the demo is following the wording
+of the acceptance criterion rather than the wording of the rules.
+
+**The reading that says the demo is right.** "Refuse every bad one" is the
+acceptance criterion in your own words, and a bill whose arithmetic contradicts
+itself is bad in the plainest sense — nothing a person answers makes 45,000 +
+74,999 equal 120,000. On that reading ASK spends one of the five questions on
+something no answer can fix, which is the same objection
+`checks.py::tax_lines_can_be_posted` records under `problems.UNANSWERABLE_CHECKS`.
+
+**What is not being done.** Neither side has been changed to match the other.
+The disagreement is named in `demo_safety_cage.DIVERGENCE`, printed on every
+demo run, and asserted in `tests/test_demo_i54.py`, so a test fails the day
+either side moves without the other.
+
+**If you want it settled:** one line changes in `decision.py::_asking` (move a
+failed law from the ask list to the block list) plus its test, or one line
+changes in the demo's `DIVERGENCE`. Say which, and it is a small edit either
+way.
+
