@@ -354,6 +354,21 @@ def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
     read the two printings differently; exact matching saw only one of them and
     answered it, tolerance sees both, they disagree, and `labels.the_one`
     refuses rather than picking. A wrong value became a question.
+
+    THIS TEST REQUIRES THE `tesseract` BINARY AND FAILS, NOT SKIPS, WITHOUT IT.
+    Deliberate. Every other OCR test in this repository carries
+    `skipif(shutil.which("tesseract") is None, ...)` — `test_pagereader.py:76`,
+    `test_labels.py:88`, `test_freeocr.py:126` — and these two must not, because
+    they are the only CI coverage of the whole `s2_extraction` table. A skip
+    here would delete that coverage and still read green, which is the one
+    outcome worse than a red run.
+
+    So the `party` counts above are engine-dependent and the environment is part
+    of the claim. With no engine on PATH, `party` collapses from 23 to 20 —
+    measured 2026-08-13, `PATH=/usr/bin:/bin`, `{'party': 20} != {'party': 23}`,
+    failing in 0.22s. **20 is the signature of a missing binary, not of a reader
+    regression**, and the date and amount counts do not move when it happens.
+    CI therefore has to install the engine: `docs/CI_OCR_INSTALL.md`.
     """
     section = runner.Section(name="s2_extraction")
     runner.run_s2(section)
@@ -508,6 +523,19 @@ def test_a_refusal_that_states_a_reason_is_still_a_refusal():
     separator, and on these pages it is the amount and date LABEL WORDS that the
     engine destroys - `TOTAL` comes back as `For.` and `DATE:` as `Dares`.
     Nothing here mends a word.
+
+    THIS TEST REQUIRES THE `tesseract` BINARY AND FAILS, NOT SKIPS, WITHOUT IT,
+    for the same reason as the test above: these two are the only CI coverage of
+    the `s2_extraction` benchmark, so a `skipif` guard would silently remove the
+    benchmark from CI rather than report that the engine is absent.
+
+    `party` 28 is therefore a claim about this machine as well as this backend.
+    With no engine on PATH it collapses to 20 — measured 2026-08-13,
+    `PATH=/usr/bin:/bin`, `{'party': 20} != {'party': 28}` — and 20 is the
+    measured signature of a missing binary, not of a backend that stopped
+    answering. The three other fields are unchanged by the engine's absence,
+    which is how the two causes are told apart. Installing it in CI is
+    `docs/CI_OCR_INSTALL.md`.
     """
     section = runner.Section(name="s2_extraction")
     runner.run_s2(section)
