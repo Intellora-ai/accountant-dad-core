@@ -297,7 +297,19 @@ def test_the_paise_conversion_is_the_pack_representation_not_a_rounding():
 
 def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
     """Two different claims. A backend that reads nothing and one that invents a
-    value both fail EXIT 1; only the second also fails EXIT 2."""
+    value both fail EXIT 1; only the second also fails EXIT 2.
+
+    CORRECTED 2026-08-13. This asserted four zeros, and four zeros was the right
+    answer while `run_s2` scored `StubExtractor`. It now scores the `ladder`
+    backend by name, so the numbers below are two real readers against the
+    corpus and are pinned exactly rather than loosely — a benchmark whose
+    expected values are `>= 0` cannot notice a reader getting worse.
+
+    Where each number comes from is `docs/EXTRACTION_MEASURED.md`. The short
+    version: 20 PDFs are read exactly, 6 of them refuse an ambiguous DD/MM date
+    rather than guess it, and the other 60 cases reach no rung that can read
+    them.
+    """
     section = runner.Section(name="s2_extraction")
     runner.run_s2(section)
 
@@ -310,11 +322,49 @@ def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
     assert section.facts["truth_label"] == "GENERATED_TRUTH"
     assert section.facts["corpus_label"] == "SYNTHETIC_EVIDENCE"
 
-    # Owner decision Q4 = B. The stub reads nothing, so EXIT 1 fails and says so.
+    # 20 of 80, against a required 76, so EXIT 1 fails and says so.
     assert names["exit1_generated_truth_extraction"].status == runner.FAIL
-    assert section.facts["exit1_exact_per_field"] == dict.fromkeys(
-        ("date", "party", "total_paise", "tax_paise"), 0
-    )
+    assert section.facts["exit1_exact_per_field"] == {
+        "date": 14,
+        "party": 20,
+        "total_paise": 20,
+        "tax_paise": 20,
+    }
+
+    # THE NUMBER THAT MATTERS MORE THAN THE SCORE, and the reason this fact
+    # exists: 22 fields came back with a value and a source on them, and were
+    # not the truth. Every one is `typed_text` reading an invoice number as a
+    # total. Unread is safe; wrong at a stated source is what the cage is for.
+    assert section.facts["exit1_wrong_per_field"] == {
+        "date": 0,
+        "party": 0,
+        "total_paise": 20,
+        "tax_paise": 2,
+    }
+    assert len(section.facts["exit1_wrong_examples"]) == 10
+
+    # The tier split, so one number cannot hide four different stories.
+    assert section.facts["s2_rung_that_answered"] == {
+        "ladder": 60,
+        "pdf_text_layer": 20,
+        "typed_text": 20,
+    }
+    assert section.facts["s2_by_input_type"]["PDF"]["party"] == {
+        "exact": 20,
+        "refused": 0,
+        "wrong": 0,
+    }
+    assert section.facts["s2_by_input_type"]["text"]["total_paise"] == {
+        "exact": 0,
+        "refused": 0,
+        "wrong": 20,
+    }
+
+    # And the run says out loud that it did not score the running application.
+    assert section.facts["s2_backend"] == runner.S2_BACKEND
+    assert section.facts["s2_backend_is_the_application_default"] is False
+    assert section.facts["s2_application_default"] == "typed_text"
+
     # EXIT 2 is about safety, not accuracy, and it holds.
     assert names["exit2_unrenderable_input_is_explicit"].status == runner.PASS
     assert section.facts["exit2_unsafe"] == []
@@ -328,13 +378,27 @@ def test_a_refusal_that_states_a_reason_is_still_a_refusal():
     EXIT 2 requires - that comparison stopped matching, so a stub that read
     nothing reported 100 of 100 fields sourced and the gate flipped from FAIL to
     PASS. Measured on this branch before the fix, not argued.
+
+    CORRECTED 2026-08-13, and the correction makes the case HARDER rather than
+    softer. The old expectation was four zeros from a stub, which a broken
+    comparison would have turned into four hundreds - a large, obvious jump.
+    The backend now scored really does speak to some fields, so the numbers
+    below are neither 0 nor 100 and a regression to either end is visible.
+
+    `total_paise` is 40 and not 20: `typed_text` speaks to the total on all 20
+    text cases and is WRONG on all 20 of them. Sourced and wrong is exactly what
+    this fact counts - it is a count of fields SPOKEN TO, never of fields right,
+    and `exit1_wrong_per_field` is where the difference is reported.
     """
     section = runner.Section(name="s2_extraction")
     runner.run_s2(section)
 
-    assert section.facts["s2_per_field"] == dict.fromkeys(
-        ("date", "party", "total_paise", "tax_paise"), 0
-    )
+    assert section.facts["s2_per_field"] == {
+        "date": 14,
+        "party": 20,
+        "total_paise": 40,
+        "tax_paise": 22,
+    }
     scored = {g.name: g for g in section.gates}["s2_extraction_scored"]
     assert scored.status == runner.FAIL
 

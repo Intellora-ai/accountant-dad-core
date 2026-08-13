@@ -1,15 +1,15 @@
 {
   "verdict": "FAIL",
   "exit_code": 1,
-  "generated_at": "2026-08-10T14:12:48.268340+00:00",
+  "generated_at": "2026-08-13T01:02:37.203097+00:00",
   "harness_error": "",
   "provenance": {
-    "cwd": "/private/tmp/claude-501/-Users-tanveersidhu-ACCOUNTANT/173e27c0-9c4e-4793-a6c4-594143728ef9/scratchpad/wt-gt",
-    "accountant__file__": "/private/tmp/claude-501/-Users-tanveersidhu-ACCOUNTANT/173e27c0-9c4e-4793-a6c4-594143728ef9/scratchpad/wt-gt/accountant/__init__.py",
+    "cwd": "/Users/tanveersidhu/ACCOUNTANT",
+    "accountant__file__": "/Users/tanveersidhu/ACCOUNTANT/accountant/__init__.py",
     "python": "3.14.6",
-    "commit": "b2b2958472a3adc3e01fc4f335d0286f2d57f388",
-    "branch": "phase8/ground-truth-harness",
-    "worktree": "/private/tmp/claude-501/-Users-tanveersidhu-ACCOUNTANT/173e27c0-9c4e-4793-a6c4-594143728ef9/scratchpad/wt-gt",
+    "commit": "6916e3d2b09c725ed6bcc4f03bde6e226716a8f4",
+    "branch": "cage/safety-layer",
+    "worktree": "/Users/tanveersidhu/ACCOUNTANT",
     "dirty": "yes"
   },
   "sections": [
@@ -47,8 +47,8 @@
         {
           "name": "exit1_generated_truth_extraction",
           "status": "FAIL",
-          "measured": "{\"date\": 0, \"party\": 0, \"tax_paise\": 0, \"total_paise\": 0}",
-          "detail": "stub backend, 80 renderable cases, exact matches per field {'date': 0, 'party': 0, 'total_paise': 0, 'tax_paise': 0}, required 76. GENERATED_TRUTH from canonical JSON, SYNTHETIC_EVIDENCE, and never evidence about real-world reader accuracy. Owner decision Q4 = B: no production backend is selected, so a stub cannot pass this."
+          "measured": "{\"date\": 14, \"party\": 20, \"tax_paise\": 20, \"total_paise\": 20}",
+          "detail": "ladder backend, 80 renderable cases, exact matches per field {'date': 14, 'party': 20, 'total_paise': 20, 'tax_paise': 20}, required 76; WRONG rather than unread, per field, over all 100 cases: {'date': 0, 'party': 0, 'total_paise': 20, 'tax_paise': 2}. Rung that answered: {'ladder': 60, 'pdf_text_layer': 20, 'typed_text': 20}. The application default is 'typed_text', which is NOT the backend scored here. GENERATED_TRUTH from canonical JSON, SYNTHETIC_EVIDENCE, and never evidence about real-world reader accuracy. 40 of the 80 renderable cases carry no readable image at all - docs/OCR_CORPUS_FINDING.md and docs/EXTRACTION_MEASURED.md say which, and why 76 is out of reach for reasons that are not the reader's."
         },
         {
           "name": "exit2_unrenderable_input_is_explicit",
@@ -59,26 +59,163 @@
         {
           "name": "s2_extraction_scored",
           "status": "FAIL",
-          "measured": "{\"date\": 0, \"party\": 0, \"tax_paise\": 0, \"total_paise\": 0}",
-          "detail": "stub backend, 100 cases, per-field hits {'date': 0, 'party': 0, 'total_paise': 0, 'tax_paise': 0}. Owner decision Q4 = B: no production backend is selected, so a stub cannot satisfy the real extraction-quality exit."
+          "measured": "{\"date\": 14, \"party\": 20, \"tax_paise\": 22, \"total_paise\": 40}",
+          "detail": "ladder backend, 100 cases, per-field hits {'date': 14, 'party': 20, 'total_paise': 40, 'tax_paise': 22}. This asks whether every field was SPOKEN TO, which two of the five input types cannot be: a DOCX and a pixel-free JPEG reach no rung, and a refusal is the correct answer rather than a hit."
         }
       ],
       "facts": {
         "s2_cases_scored": 100,
         "s2_per_field": {
-          "date": 0,
-          "party": 0,
-          "total_paise": 0,
-          "tax_paise": 0
+          "date": 14,
+          "party": 20,
+          "total_paise": 40,
+          "tax_paise": 22
         },
-        "s2_backend": "stub",
+        "s2_backend": "ladder",
+        "s2_backend_is_the_application_default": false,
+        "s2_application_default": "typed_text",
+        "s2_rung_that_answered": {
+          "ladder": 60,
+          "pdf_text_layer": 20,
+          "typed_text": 20
+        },
+        "s2_by_input_type": {
+          "DOCX": {
+            "date": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            },
+            "party": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            },
+            "total_paise": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            },
+            "tax_paise": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            }
+          },
+          "JPG": {
+            "date": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            },
+            "party": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            },
+            "total_paise": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            },
+            "tax_paise": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            }
+          },
+          "PDF": {
+            "date": {
+              "exact": 14,
+              "refused": 6,
+              "wrong": 0
+            },
+            "party": {
+              "exact": 20,
+              "refused": 0,
+              "wrong": 0
+            },
+            "total_paise": {
+              "exact": 20,
+              "refused": 0,
+              "wrong": 0
+            },
+            "tax_paise": {
+              "exact": 20,
+              "refused": 0,
+              "wrong": 0
+            }
+          },
+          "PNG": {
+            "date": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            },
+            "party": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            },
+            "total_paise": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            },
+            "tax_paise": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            }
+          },
+          "text": {
+            "date": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            },
+            "party": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            },
+            "total_paise": {
+              "exact": 0,
+              "refused": 0,
+              "wrong": 20
+            },
+            "tax_paise": {
+              "exact": 0,
+              "refused": 18,
+              "wrong": 2
+            }
+          }
+        },
         "exit1_renderable_cases": 80,
         "exit1_exact_per_field": {
+          "date": 14,
+          "party": 20,
+          "total_paise": 20,
+          "tax_paise": 20
+        },
+        "exit1_wrong_per_field": {
           "date": 0,
           "party": 0,
-          "total_paise": 0,
-          "tax_paise": 0
+          "total_paise": 20,
+          "tax_paise": 2
         },
+        "exit1_wrong_examples": [
+          "GT-0001 text total_paise: 100 sourced 'typed_text'",
+          "GT-0002 text total_paise: 200 sourced 'typed_text'",
+          "GT-0003 text total_paise: 300 sourced 'typed_text'",
+          "GT-0004 text total_paise: 400 sourced 'typed_text'",
+          "GT-0005 text total_paise: 500 sourced 'typed_text'",
+          "GT-0006 text total_paise: 600 sourced 'typed_text'",
+          "GT-0007 text total_paise: 700 sourced 'typed_text'",
+          "GT-0008 text total_paise: 800 sourced 'typed_text'",
+          "GT-0009 text total_paise: 900 sourced 'typed_text'",
+          "GT-0010 text total_paise: 1000 sourced 'typed_text'"
+        ],
         "exit1_required": 76,
         "exit2_unrenderable_cases": 20,
         "exit2_unsafe": [],

@@ -318,6 +318,31 @@ def run_manifest(section: Section) -> None:
 EXIT1_RENDERABLE_CASES = 80
 EXIT1_MATCHES_REQUIRED = 76
 
+#: The backend this section scores, BY NAME, resolved through the registry.
+#:
+#: WHY A NAME AND NOT `registry.default_extractor()`. Those are two different
+#: questions and only one of them is what a benchmark is for:
+#:
+#:     default_extractor()   what the shipped application does today
+#:     build(S2_BACKEND)     what the readers in this repository can do
+#:
+#: `DEFAULT_BACKEND` is `typed_text` and stays there until an owner decides that
+#: the web process may hand externally-supplied bytes to `pypdf`. Scoring the
+#: default would therefore measure that decision rather than the readers, and
+#: the pack exists to measure the readers. The two are reported side by side in
+#: the facts and in every gate detail below, so a run can never be read as a
+#: statement about a backend it did not score.
+#:
+#: WHY IT IS NOT A STUB ANY MORE. It was `StubExtractor()` until 2026-08-13,
+#: which was the honest answer while no reader existed. Two do now.
+#:
+#: Annotated `str` and not left to infer `Literal["ladder"]`, so that the two
+#: comparisons against `registry.DEFAULT_BACKEND` below stay real comparisons.
+#: Inferred as literals, a type checker proves them constant-false and is right
+#: to complain — and the day somebody points the two at the same backend, a
+#: report that had hard-coded "NOT the backend scored here" would be lying.
+S2_BACKEND: str = "ladder"
+
 
 def paise_from_decimal(text: object) -> int | None:
     """`"147.50"` -> `14750`. None when the pack does not state the field."""
@@ -360,10 +385,24 @@ def run_s2(section: Section) -> None:
     scores zero and a backend that invents a value both fail EXIT 1; only one of
     them also fails EXIT 2, and merging the two numbers would hide which.
 
-    Owner decision Q4 = B. `StubExtractor` returns `not_found` for every field it
-    was not handed, so EXIT 1 is expected to read zero until a production backend
-    is selected. That zero is the correct reading of the world, not a defect in
-    the benchmark, and `PHASE_8_EXTRACTION = INCOMPLETE` is what it means.
+    UNREAD AND WRONG ARE COUNTED SEPARATELY, 2026-08-13, and this is the change
+    that matters most here. `exit1_exact_per_field` alone cannot tell a backend
+    that refused sixty fields from one that invented sixty values: both are
+    "not an exact match" and both subtract from the same number. Those are not
+    the same event. A refusal is visible and asks the person a question; a value
+    that is wrong states a source, carries a confidence, and reaches the ledger.
+    So `exit1_wrong_per_field` counts the second on its own.
+
+    It is a FACT and not a gate, deliberately. Turning it into one means setting
+    the number a run may carry, and thresholds in this pack are the owner's:
+    `ARCHITECTURE.md:616` forbids tuning one to make a metric pass, and writing
+    a new one has the same authority problem in the other direction. What it is
+    NOT is unreported — `docs/EXTRACTION_MEASURED.md` opens with it.
+
+    Owner decision Q4 = B is no longer why EXIT 1 fails. Until 2026-08-13 this
+    scored `StubExtractor`, which read nothing, and the zero was the correct
+    reading of a world with no reader. Two readers exist now; the number is
+    theirs, and `docs/OCR_CORPUS_FINDING.md` is why it cannot reach 76.
     """
     loader, blocked = pack_loader()
     if loader is None:
@@ -374,12 +413,19 @@ def run_s2(section: Section) -> None:
         section.facts["s2_reason"] = blocked or BLOCKED
         return
 
-    from accountant.extract.adapter import NOT_FOUND, ExtractedRecord, StubExtractor
+    from accountant.extract import registry
+    from accountant.extract.adapter import NOT_FOUND, ExtractedRecord
 
     cases = list(loader(GT))
-    extractor = StubExtractor()
+    extractor = registry.build(S2_BACKEND)
     per_field = dict.fromkeys(ExtractedRecord.FIELDS, 0)
     exact = dict.fromkeys(ExtractedRecord.FIELDS, 0)
+    wrong = dict.fromkeys(ExtractedRecord.FIELDS, 0)
+    #: Per input type, so a single 20/80 cannot hide four different stories.
+    #: `by_type[kind][field]` is `[exact, refused, wrong]`.
+    by_type: dict[str, dict[str, list[int]]] = {}
+    rungs: dict[str, int] = {}
+    wrong_examples: list[str] = []
     scored = 0
     renderable = 0
     unrenderable = 0
@@ -394,6 +440,36 @@ def run_s2(section: Section) -> None:
             payload = payload.encode()
         record = extractor.extract(payload, str(case.get("mime", "text/plain")))
         scored += 1
+        # Which RUNG answered, not which backend was asked for. A router that
+        # reports only its own name cannot be evidence about either rung, and
+        # telling them apart is the whole content of the split below.
+        rungs[record.backend] = rungs.get(record.backend, 0) + 1
+        kind = str(case.get("input_type", "unknown"))
+        tally = by_type.setdefault(
+            kind, {name: [0, 0, 0] for name in ExtractedRecord.FIELDS}
+        )
+        for name in ExtractedRecord.FIELDS:
+            spoke = not record.per_field_source.get(name, NOT_FOUND).startswith(
+                NOT_FOUND
+            )
+            hit = field_matches(name, record, case.get("expected") or {})
+            if hit:
+                tally[name][0] += 1
+            elif not spoke:
+                tally[name][1] += 1
+            else:
+                # SPOKE AND MISSED. The one this pack could not previously see:
+                # a value with a source on it that is not the truth. Counted
+                # over all 100 cases, renderable or not, because a fabrication
+                # on an unreadable document is worse rather than out of scope.
+                tally[name][2] += 1
+                wrong[name] += 1
+                if len(wrong_examples) < 10:
+                    wrong_examples.append(
+                        f"{case['case_id']} {kind} {name}: "
+                        f"{getattr(record, name)!r} sourced "
+                        f"{record.per_field_source.get(name, '')!r}"
+                    )
         for name in ExtractedRecord.FIELDS:
             # `startswith`, never `!=`. A refusal is `not_found` plus a reason,
             # so an equality test against the bare sentinel counts every
@@ -424,9 +500,23 @@ def run_s2(section: Section) -> None:
 
     section.facts["s2_cases_scored"] = scored
     section.facts["s2_per_field"] = per_field
-    section.facts["s2_backend"] = extractor.name
+    section.facts["s2_backend"] = S2_BACKEND
+    section.facts["s2_backend_is_the_application_default"] = (
+        S2_BACKEND == registry.DEFAULT_BACKEND
+    )
+    section.facts["s2_application_default"] = registry.DEFAULT_BACKEND
+    section.facts["s2_rung_that_answered"] = dict(sorted(rungs.items()))
+    section.facts["s2_by_input_type"] = {
+        kind: {
+            name: dict(zip(("exact", "refused", "wrong"), v, strict=True))
+            for name, v in fields.items()
+        }
+        for kind, fields in sorted(by_type.items())
+    }
     section.facts["exit1_renderable_cases"] = renderable
     section.facts["exit1_exact_per_field"] = exact
+    section.facts["exit1_wrong_per_field"] = wrong
+    section.facts["exit1_wrong_examples"] = wrong_examples
     section.facts["exit1_required"] = EXIT1_MATCHES_REQUIRED
     section.facts["exit2_unrenderable_cases"] = unrenderable
     section.facts["exit2_unsafe"] = unsafe
@@ -438,11 +528,21 @@ def run_s2(section: Section) -> None:
         renderable == EXIT1_RENDERABLE_CASES
         and all(v >= EXIT1_MATCHES_REQUIRED for v in exact.values()),
         (
-            f"{extractor.name} backend, {renderable} renderable cases, exact "
-            f"matches per field {exact}, required {EXIT1_MATCHES_REQUIRED}. "
-            "GENERATED_TRUTH from canonical JSON, SYNTHETIC_EVIDENCE, and never "
-            "evidence about real-world reader accuracy. Owner decision Q4 = B: "
-            "no production backend is selected, so a stub cannot pass this."
+            f"{S2_BACKEND} backend, {renderable} renderable cases, exact "
+            f"matches per field {exact}, required {EXIT1_MATCHES_REQUIRED}; "
+            f"WRONG rather than unread, per field, over all {scored} cases: "
+            f"{wrong}. Rung that answered: {dict(sorted(rungs.items()))}. "
+            f"The application default is {registry.DEFAULT_BACKEND!r}, which is "
+            + (
+                "the backend scored here. "
+                if S2_BACKEND == registry.DEFAULT_BACKEND
+                else "NOT the backend scored here. "
+            )
+            + "GENERATED_TRUTH from canonical JSON, SYNTHETIC_EVIDENCE, and never "
+            "evidence about real-world reader accuracy. 40 of the 80 renderable "
+            "cases carry no readable image at all - docs/OCR_CORPUS_FINDING.md "
+            "and docs/EXTRACTION_MEASURED.md say which, and why 76 is out of "
+            "reach for reasons that are not the reader's."
         ),
         measured=json.dumps(exact, sort_keys=True),
     )
@@ -462,9 +562,10 @@ def run_s2(section: Section) -> None:
         "s2_extraction_scored",
         ok,
         (
-            f"{extractor.name} backend, {scored} cases, per-field hits {per_field}. "
-            "Owner decision Q4 = B: no production backend is selected, so a stub "
-            "cannot satisfy the real extraction-quality exit."
+            f"{S2_BACKEND} backend, {scored} cases, per-field hits {per_field}. "
+            "This asks whether every field was SPOKEN TO, which two of the five "
+            "input types cannot be: a DOCX and a pixel-free JPEG reach no rung, "
+            "and a refusal is the correct answer rather than a hit."
         ),
         measured=json.dumps(per_field, sort_keys=True),
     )
