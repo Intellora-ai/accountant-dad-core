@@ -2080,3 +2080,40 @@ def test_the_control_a_real_date_beside_a_month_name_is_still_a_date() -> None:
 
     assert day.total_paise == 350000
     assert year.total_paise == 1500000
+
+
+def test_a_confidence_outside_zero_to_one_is_refused_when_the_record_is_built() -> None:
+    """`ExtractedRecord.__post_init__` states this invariant and nothing ran it.
+
+    The reason it matters is in the comment beside it: a score above 1.0 clears
+    `AUTO_POST_FLOOR` by accident, and this record reaches callers that never
+    build a `wall.Field` and so never meet that class's identical check. A
+    backend computing `confidence / 10` instead of `/ 100` is the shape of the
+    mistake, and it should fail where it is made rather than three layers away
+    at the moment it authorises a post."""
+    with pytest.raises(ValueError, match=r"between 0\.0 and 1\.0"):
+        ExtractedRecord(
+            date=None,
+            party="SHARMA TRADERS",
+            total_paise=None,
+            tax_paise=None,
+            per_field_source=dict.fromkeys(ExtractedRecord.FIELDS, "stub"),
+            per_field_confidence={"party": 1.4},
+        )
+
+
+def test_the_control_a_confidence_at_each_end_of_the_range_is_accepted() -> None:
+    """THE CONTROL. A check written `0.0 < score < 1.0` would pass the test
+    above and would then refuse every field the text layer read exactly, and
+    every field a reader looked at and read nothing in."""
+    record = ExtractedRecord(
+        date=None,
+        party="SHARMA TRADERS",
+        total_paise=None,
+        tax_paise=None,
+        per_field_source=dict.fromkeys(ExtractedRecord.FIELDS, "stub"),
+        per_field_confidence={"party": 1.0, "date": 0.0},
+    )
+
+    assert record.confidence_of("party") == 1.0
+    assert record.confidence_of("date") == 0.0

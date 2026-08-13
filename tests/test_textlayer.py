@@ -1532,3 +1532,23 @@ def test_the_reader_still_answers_when_the_repair_check_itself_breaks(
 
     assert reading.outcome is Outcome.READ
     assert reading.pdf_repaired is True
+
+
+@pytest.mark.parametrize(
+    ("data", "why"),
+    [
+        (b"%PDF-1.4\nno pointer anywhere in here\n", "states no pointer at all"),
+        (b"%PDF-1.4\nstartxref\n\n%%EOF\n", "states the word and then no number"),
+        (b"", "is not even bytes enough to look at"),
+    ],
+)
+def test_bytes_that_state_no_offset_are_called_repaired(data: bytes, why: str) -> None:
+    """The sentence `xref_was_rebuilt`'s docstring already made, now measured.
+
+    "True for bytes that state no pointer at all." Nothing tested it, so the
+    two `return True` arms that answer it were the only unexecuted lines in the
+    guard - which is a poor place to have them, because they are the arms that
+    decide what happens to a file this cannot check. A document that states
+    nothing about where its table lives has told us nothing to have followed,
+    and the safe reading of nothing is "verify this carefully"."""
+    assert xref_was_rebuilt(data) is True, why
