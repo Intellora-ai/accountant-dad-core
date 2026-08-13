@@ -233,26 +233,72 @@ name, three runtime dependencies by name, one `subprocess` exception for
 was deleted. Two guards never fired and still do not: this module opens no file
 and evaluates no code.
 
-## The gap that is left
+## The gap that is left — CLOSED 2026-08-13
 
-**Nothing decides which words are the total.** `read_words` returns every word
-on the page; `Reading` says which words make up each field; and the function
-between them does not exist in this repository.
+**Something decides which words are the total now.**
+`accountant/extract/pagereader.py`, and it is not a heuristic.
 
-That is field detection, and it is the one part of reading a bill that cannot be
-checked without labelled data. `H-02` — a pile of invoices where somebody
-already knows the right answer — does not exist here. A heuristic written
-without it would be unmeasured, unfalsifiable and confident, and the engine's own
-confidence would not catch it: `field_confidence` scores how legible a word was,
-not whether it was the right word to look at.
+`read_words` returns every word on the page and `read_lines` returns the same
+words grouped into the lines the engine reported them on. `Reading` says which
+words make up each field. The function between them runs the **same label logic
+the PDF rung already uses** — `TOTAL`, `GRAND TOTAL`, `AMOUNT PAYABLE`, the
+vocabulary now shared in `accountant/extract/labels.py` — over those lines. A
+number with no label on it is not a total on a photograph any more than it is
+in a PDF, which is the defect `adapter.TYPED_TEXT_MIME` records twenty times.
 
-Three things are needed before that piece is worth writing, in this order:
+**The confidence difference survives the join, by construction.** A text-layer
+field is `confidence.EXACT`, which is 1.0, because there is nothing to be unsure
+about. The page reader computes no confidence at all: it reports WORDS, each
+carrying the engine's own 0-100 score, and `freeocr._judge` runs them through
+`field_confidence` — the worst word, times format validity, times the
+conservation law.
 
-1. `H-02`, the labelled corpus. Without it there is no way to tell a good rule
-   from a bad one, and "it looked right on three bills" is not a measurement.
-2. The **deadline** number above, from the owner.
-3. Registration. `registry._READY` does not carry this backend, and
+### What was said to be needed first, and what actually happened
+
+1. **`H-02`, the labelled corpus.** It existed, in a narrow form nobody here had
+   used for this: `artifacts/ground_truth/` carries 80 cases with expected
+   fields, 20 of them PNGs. So the reader is **measured** rather than asserted
+   about. `H-02` remains open for REAL customer bills, and no number below is a
+   claim about those.
+2. **The deadline.** `accountant/extract/pagereader.py::READING_DEADLINE_SECONDS`
+   is 30 seconds. It is the number this repository already uses everywhere it
+   waits on something outside the process, and it is a BOUND rather than a
+   target: the slowest of the twenty corpus PNGs reads in 0.151s.
+3. **Registration.** `registry._READY` carries `free_ocr`, and
    `tests/test_adapter_contract.py` asserts `registry.available()` is exactly
-   `("no_reader", "stub", "typed_text", "unavailable")`. **Nothing reaches this
-   code by uploading a document today**, which is correct while the field step
-   is missing — an unwired reader refuses nothing and invents nothing.
+   seven names. `ladder.py` routes all five of `freeocr.READABLE_MEDIA` to it.
+
+### What it measures, on the corpus, through the wired path
+
+| | |
+|---|---|
+| fields with a value, of 80 | 4, all of them the supplier |
+| exactly right | 2, at confidence 0.48 and 0.61 |
+| wrong | 2 — `IVER. ELECTRICALS` for `IYER ELECTRICALS` — at 0.37 and 0.08 |
+| refused | 76 |
+
+Nothing comes back wrong at a confidence that would auto-post, and that is the
+number that matters: the band is 0.95. A reader that reads nothing is never
+wrong and is also never useful.
+
+The corpus PNGs are rendered in a **5x7 bitmap font** and the engine mostly
+cannot read it. `GT-0041.png` reads nothing at all, and the reason is one
+character: its `SUPPLIER:` comes back as `SUPPLIER?`, so no label matched.
+
+**No image processing is done, and that is a decision with evidence behind it.**
+Scaling the pictures up was tried: at 2x the engine reads GT-0041's supplier
+perfectly, at 3x it returns `ADUANCED`, at 4x it returns `pec`. A factor chosen
+by which one flatters the corpus is fitted to the corpus, and interpolation
+invents ink that was never on the page. Page segmentation mode was tried too —
+`--psm 4`, `6` and `11` give byte-identical field results to the default.
+
+### What is still not wired, and it is not a code change
+
+`registry.DEFAULT_BACKEND` is still `typed_text`, so **nothing reaches this code
+by uploading a document to the running application**. Moving it is an owner
+decision about which bytes the customer-facing process hands to a third-party
+parser, and the reason is written under that constant.
+
+The container image installs no `tesseract` binary, on purpose and by a test
+that says so. On a machine without one this backend answers
+`freeocr.ENGINE_MISSING` — a refusal in plain words, not a crash.
