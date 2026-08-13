@@ -10,10 +10,28 @@ and **40 of those 80 contain no readable image** — so the highest score any
 reader can honestly reach is about **40/80**, and no choice of OCR engine
 changes that.
 
+> **CORRECTED 2026-08-13, after the readers were wired and the harness actually
+> scored them. Two things below are wrong, and `docs/EXTRACTION_MEASURED.md`
+> carries the measured version.**
+>
+> 1. **The scored 80 is every type except JPG, not every type except DOCX.**
+>    DOCX *is* in the denominator and contributes 0/20; the 20 JPEGs are the
+>    ones held out — `scripts/run_ground_truth.py` says so beside
+>    `EXIT1_RENDERABLE_CASES`. The ceiling table at the bottom is right about
+>    the number and wrong about which four types make it up.
+> 2. **"20 TXT exact — existing regex path" is false.** The TXT tier scores
+>    **0/20** and returns **20 fabricated totals**. The corpus `.txt` files are
+>    the same invoice layout as the PDFs, not typed sentences, and `typed_text`
+>    reads `INVOICE NO: GT/0001` as a total of one rupee. Measured, not argued.
+>
+> The headline — about 40 of 80 achievable against a required 76 — survives
+> both corrections by coincidence rather than by the reasoning given here. What
+> is actually achievable today is **20**.
+
 ## What is actually in the corpus
 
 100 documents, 20 of each type. The harness scores the 80 that are
-"renderable" — every type except DOCX.
+"renderable" — every type except JPG.
 
 | Type | n | What the bytes contain | Readable? |
 |---|---|---|---|
@@ -84,8 +102,10 @@ can read, it reads perfectly.
 
 ## What I did not do, and why
 
-**I did not move the threshold.** `ARCHITECTURE.md:616` forbids tuning a
-threshold to make a metric pass, blocker B-C is still standing, and the owner's
+**I did not move the threshold.** `docs/ARCHITECTURE.md:671` forbids *"tuning a
+threshold so a metric passes"* (the line was cited as 616 here until
+2026-08-13; the line numbers had drifted), blocker B-C is still standing, and
+the owner's
 standing rule 10 is "never set a number I did not give you." Moving 76 to 40
 would make the harness green and would tell the owner nothing true.
 

@@ -540,9 +540,10 @@ def run_s2(section: Section) -> None:
             )
             + "GENERATED_TRUTH from canonical JSON, SYNTHETIC_EVIDENCE, and never "
             "evidence about real-world reader accuracy. 40 of the 80 renderable "
-            "cases carry no readable image at all - docs/OCR_CORPUS_FINDING.md "
-            "and docs/EXTRACTION_MEASURED.md say which, and why 76 is out of "
-            "reach for reasons that are not the reader's."
+            "cases reach no rung that can read them at all: 20 DOCX, which no "
+            "reader here opens, and 20 PNG, whose tier is not wired. "
+            "docs/EXTRACTION_MEASURED.md carries the split per input type and "
+            "the count of fields that came back WRONG rather than unread."
         ),
         measured=json.dumps(exact, sort_keys=True),
     )

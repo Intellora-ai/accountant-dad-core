@@ -14,7 +14,7 @@ quoted with the commit beside them.
 | cwd | `/Users/tanveersidhu/ACCOUNTANT` |
 | accountant__file__ | `/Users/tanveersidhu/ACCOUNTANT/accountant/__init__.py` |
 | python | `3.14.6` |
-| commit | `6916e3d2b09c725ed6bcc4f03bde6e226716a8f4` |
+| commit | `e7e6704ebfe6bf06baaf24f0dd9535c9fe1203eb` |
 | branch | `cage/safety-layer` |
 | worktree | `/Users/tanveersidhu/ACCOUNTANT` |
 | dirty | `yes` |
@@ -26,7 +26,7 @@ quoted with the commit beside them.
 | manifest | `ground_truth_manifest_validates` | **PASS** | — | every manifest entry checked out |
 | manifest | `ground_truth_hashes_verify` | **PASS** | — | hashes verified by scripts/validate_ground_truth.py |
 | manifest | `gst_rule_cases_readable` | **PASS** | 5b2e44fe065b6bb58f81dda423f671783215ad3cef0f6dbfae4628afe6fbdb2c | sha256 5b2e44fe065b6bb5… |
-| s2_extraction | `exit1_generated_truth_extraction` | **FAIL** | {"date": 14, "party": 20, "tax_paise": 20, "total_paise": 20} | ladder backend, 80 renderable cases, exact matches per field {'date': 14, 'party': 20, 'total_paise': 20, 'tax_paise': 20}, required 76; WRONG rather than unread, per field, over all 100 cases: {'date': 0, 'party': 0, 'total_paise': 20, 'tax_paise': 2}. Rung that answered: {'ladder': 60, 'pdf_text_layer': 20, 'typed_text': 20}. The application default is 'typed_text', which is NOT the backend scored here. GENERATED_TRUTH from canonical JSON, SYNTHETIC_EVIDENCE, and never evidence about real-world reader accuracy. 40 of the 80 renderable cases carry no readable image at all - docs/OCR_CORPUS_FINDING.md and docs/EXTRACTION_MEASURED.md say which, and why 76 is out of reach for reasons that are not the reader's. |
+| s2_extraction | `exit1_generated_truth_extraction` | **FAIL** | {"date": 14, "party": 20, "tax_paise": 20, "total_paise": 20} | ladder backend, 80 renderable cases, exact matches per field {'date': 14, 'party': 20, 'total_paise': 20, 'tax_paise': 20}, required 76; WRONG rather than unread, per field, over all 100 cases: {'date': 0, 'party': 0, 'total_paise': 20, 'tax_paise': 2}. Rung that answered: {'ladder': 60, 'pdf_text_layer': 20, 'typed_text': 20}. The application default is 'typed_text', which is NOT the backend scored here. GENERATED_TRUTH from canonical JSON, SYNTHETIC_EVIDENCE, and never evidence about real-world reader accuracy. 40 of the 80 renderable cases reach no rung that can read them at all: 20 DOCX, which no reader here opens, and 20 PNG, whose tier is not wired. docs/EXTRACTION_MEASURED.md carries the split per input type and the count of fields that came back WRONG rather than unread. |
 | s2_extraction | `exit2_unrenderable_input_is_explicit` | **PASS** | 0 | 20 unrenderable cases; every named field explicit not_found with a reason. ADAPTER_CONTRACT, never reader accuracy. no silent blank, no fabricated value |
 | s2_extraction | `s2_extraction_scored` | **FAIL** | {"date": 14, "party": 20, "tax_paise": 22, "total_paise": 40} | ladder backend, 100 cases, per-field hits {'date': 14, 'party': 20, 'total_paise': 40, 'tax_paise': 22}. This asks whether every field was SPOKEN TO, which two of the five input types cannot be: a DOCX and a pixel-free JPEG reach no rung, and a refusal is the correct answer rather than a hit. |
 | gst_rules | `uncited_production_rules_is_zero` | **PASS** | — | 0 |

@@ -4611,3 +4611,63 @@ patched:
   key in its original slot on update.
 - Line 2918 showed covered in one `-n auto` run and missed in the next with no
   source change. Worth a look before anyone tightens the coverage gate.
+
+---
+
+## §50 Extraction, measured — and the wrong count is not zero
+
+**2026-08-13.** The two readers `D-30` cleared are now reachable by name, and
+the Ground-Truth Pack scores them instead of a stub. The full numbers are in
+[`docs/EXTRACTION_MEASURED.md`](EXTRACTION_MEASURED.md). Four things belong
+here because they change what is believed rather than only what is recorded.
+
+**The score is 20 of 80, not the ~40 that was predicted.** `s2_extraction`
+still FAILS against its required 76 and the threshold was not touched. Per
+field, of the 80 renderable cases: date 14, party 20, total 20, tax 20. Every
+hit is the PDF text layer, which is exact on the 20 PDFs and refuses 6 dates
+for being ambiguous `DD/MM` rather than guessing at them.
+
+**22 fields came back WRONG rather than unread**, and that is the finding.
+All 22 are `typed_text` — `DEFAULT_BACKEND`, what the application runs today —
+reading `INVOICE NO: GT/0001` as a total of one rupee and stating
+`source = "typed_text"` on it. It refuses by media type and never by shape, so
+an invoice pasted as `text/plain` is indistinguishable to it from a typed
+sentence. The harness could not previously see this: a refusal and a
+fabrication both subtracted from `exit1_exact_per_field`. `exit1_wrong_per_field`
+now counts them apart. **No gate covers it** — `exit2` forbids a fabricated
+value only on the 20 unrenderable JPEGs — and writing that gate means setting a
+number, which is the owner's.
+
+**The OCR tier scored nothing, and the engine is not why.** `tesseract` 5.5.3
+is installed and was run for real: it reads all 20 PNGs (42–132 ms each) and
+its generous ceiling there is party 6/20, everything else 0/20 — party is
+*better* than predicted. All 20 JPEGs raise `UnidentifiedImageError`, because
+they contain no pixels at all. The tier is unreachable from the product for a
+different reason: `FreeReader` needs an injected page reader and nothing here
+turns words into "this one is the total". That is field detection, it needs
+`H-02`, and it sits in `registry._NEEDS_WIRING` saying so.
+
+**`DEFAULT_BACKEND` did not move**, and not because the tests break — measured
+with `ladder` as the default the suite is 4114 passed / 1 failed, and that one
+failure pins the default's identity. It did not move because it would hand
+externally-supplied bytes to `pypdf` inside the web process, and `D-30`
+approved a module rather than a route. **That is an owner decision.**
+
+### §50.1 What the numbers do not establish
+
+Nothing about real supplier bills. The corpus is `SYNTHETIC_EVIDENCE` from
+`scripts/build_ground_truth.py`, and `S2 = NOT_MEASURED` against real documents
+is unchanged. By the rule of three, 20 clean reads bound the true error rate at
+**15%** — about 1 bill in 7. "It reads bills" needs ~100 real bills; "safe to
+post without review" needs ~3,000. The gap is two orders of magnitude of real
+documents, and it is a data-collection problem, not a code problem.
+
+### §50.2 One defect found, deliberately not fixed here
+
+`textlayer._NEXT_LABEL` requires two or more spaces before the next label, so
+`SUPPLIER: NORTHERN TRAINS LIMITED HSN/SAC: 998311` returns the party with the
+next label glued on — reproduced through the shipped `pdf_text_layer` backend
+on a real PDF, sourced as read, at confidence EXACT. A wrong supplier name
+reaches `propose_account`, where a name not matching history is a new vendor.
+The one-character fix is worse than the bug (it truncates the party to empty),
+so it needs its own change and its own tests.
