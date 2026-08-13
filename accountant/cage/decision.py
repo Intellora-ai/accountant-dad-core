@@ -104,6 +104,7 @@ did, and nobody-looked blocks.
 
 from __future__ import annotations
 
+import datetime
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final, cast
@@ -115,6 +116,7 @@ from accountant.cage.conservation import (
     balance_delta_equals_entry,
 )
 from accountant.cage.wall import DECIDING_MODULE, LedgerEntry, Observation
+from accountant.money import format_inr
 from accountant.questions import QUESTION_CAP
 
 #: Owner-set. At or above this, and with everything else clean, the entry is
@@ -215,18 +217,9 @@ _LOST_COUNT: Final = (
     "nothing was posted."
 )
 
-_PERIOD_CLOSED: Final = (
-    "The books for this date are closed, so nothing can be added to them."
-)
-
 _PERIOD_UNKNOWN: Final = (
     "I could not tell whether the books for this date are still open, so "
     "nothing was posted."
-)
-
-_PARTY_UNKNOWN: Final = (
-    "I do not know who this bill is from. I will never add a new name to your "
-    "books on my own, so this one is saved for you to finish."
 )
 
 _PARTY_NOT_LOOKED_UP: Final = (
@@ -284,6 +277,98 @@ _WHICH_WAY_ROUND: Final = (
 _POSTED: Final = (
     "Everything on this bill was checked and everything agreed, so it was posted."
 )
+
+
+# ---- naming the bill the refusal is about -----------------------------------
+# A person with four bills in flight cannot act on "the books for this date are
+# closed" - it does not say which one. Everything below reads what the
+# `Observation` already carries and NEVER invents anything: there is no bill
+# reference in this system, so none is made up, and a field that was not read
+# produces no clause at all rather than the word "None" on somebody's screen.
+
+
+def _party_named(seen: Observation) -> str:
+    """The party as it was read, or "" when what arrived is not a name."""
+    party = seen.party.value
+    if type(party) is not str or not party.strip():
+        return ""
+    return party.strip()
+
+
+def _amount_named(seen: Observation) -> str:
+    """The total in rupees, through `money.format_inr` and nothing else.
+
+    `type(...) is not int` refuses `bool` as well, the same as everywhere else
+    money is handled here: `True == 1`, and "the ₹0.01 bill" is a worse thing to
+    print than no amount at all.
+    """
+    amount = seen.total_paise.value
+    if type(amount) is not int:
+        return ""
+    return format_inr(amount)
+
+
+def _date_named(seen: Observation) -> str:
+    """The date exactly as it was read, and deliberately NOT reformatted.
+
+    There is no one date renderer in this repository the way `money.format_inr`
+    is the one money renderer. `tallyio/audit.py` writes `%Y-%m-%d`,
+    `web/app.py` writes `%d %b %H:%M`, and Tally's wire writes `%Y%m%d`.
+    Inventing a fourth here is exactly the defect `money.py` was written to
+    undo, so the date is echoed back in the form it arrived in - which is also
+    the form the person typed it in.
+    """
+    when = seen.date.value
+    if type(when) is datetime.date:
+        return when.isoformat()
+    if type(when) is str and when.strip():
+        return when.strip()
+    return ""
+
+
+def _which_bill(seen: Observation) -> str:
+    """ " That is the ₹1,200.00 bill from Sharma Stationers.", or "".
+
+    A leading space, because this is appended to a finished sentence. Empty
+    when neither the party nor the amount was read: a refusal that names nothing
+    is bad, and one that names a value nobody read is worse.
+    """
+    party, amount = _party_named(seen), _amount_named(seen)
+    if party and amount:
+        return f" That is the {amount} bill from {party}."
+    if party:
+        return f" That is the bill from {party}."
+    if amount:
+        return f" That is the {amount} bill."
+    return ""
+
+
+def _period_closed(seen: Observation) -> str:
+    when = _date_named(seen)
+    return (
+        f"The books for {when} are closed, so nothing can be added to them."
+        if when
+        else "The books for this date are closed, so nothing can be added to them."
+    )
+
+
+def _party_unknown(seen: Observation) -> str:
+    """Name the party we do not recognise, because that is the whole content.
+
+    "I do not know who this bill is from" is true and useless: the person has to
+    open the bill to find out which name we mean. The name IS what they need to
+    act - add them in Tally, or tell us the name already on the books.
+    """
+    who = _party_named(seen)
+    opening = (
+        f"I have never seen {who} in your books."
+        if who
+        else "I do not know who this bill is from."
+    )
+    return (
+        f"{opening} I will never add a new name to your books on my own, so "
+        "this one is saved for you to finish."
+    )
 
 
 @dataclass(frozen=True)
@@ -469,23 +554,34 @@ def _budget_blocks(asked: object) -> list[str]:
     return []
 
 
-def _world_blocks(situation: Situation) -> list[str]:
+def _world_blocks(situation: Situation, seen: Observation) -> list[str]:
     """The three facts somebody had to look up, and what happens if they did not.
 
     `is not True` and `is not False` rather than truthiness, deliberately. A
     caller passing `0` or `""` where a looked-up fact belonged is a caller who
     did not look it up, and truthiness would read it as a definite no.
+
+    Each refusal names what it can off the `Observation` - the date for a closed
+    period, the party for an unknown one, the party and amount for the tax rule,
+    which has none of its own. `seen` is real by the time this is reached;
+    `_blocking` returns before it otherwise.
     """
     reasons: list[str] = []
     if situation.carries_gst is not False:
-        reasons.append(GST_IS_OFF if situation.carries_gst is True else _GST_UNKNOWN)
+        reasons.append(
+            GST_IS_OFF + _which_bill(seen)
+            if situation.carries_gst is True
+            else _GST_UNKNOWN + _which_bill(seen)
+        )
     if situation.period_open is not True:
         reasons.append(
-            _PERIOD_CLOSED if situation.period_open is False else _PERIOD_UNKNOWN
+            _period_closed(seen) if situation.period_open is False else _PERIOD_UNKNOWN
         )
     if situation.party_known is not True:
         reasons.append(
-            _PARTY_UNKNOWN if situation.party_known is False else _PARTY_NOT_LOOKED_UP
+            _party_unknown(seen)
+            if situation.party_known is False
+            else _PARTY_NOT_LOOKED_UP
         )
     return reasons
 
@@ -528,12 +624,12 @@ def _blocking(situation: Situation) -> tuple[str, ...]:
     reasons.extend(_moment_blocks(situation.moment))
     reasons.extend(_conservation_blocks(situation.conservation, situation.moment))
     reasons.extend(_budget_blocks(situation.questions_asked))
-    reasons.extend(_world_blocks(situation))
+    reasons.extend(_world_blocks(situation, seen))
     reasons.extend(_account_blocks(situation))
     if type(situation.ambiguous_fields) is not tuple:
         reasons.append(_UNCLEAR_LIST_UNREADABLE)
     if seen.lowest_confidence < ASK_FLOOR:
-        reasons.append(_TOO_UNSURE)
+        reasons.append(_TOO_UNSURE + _which_bill(seen))
     return tuple(reasons)
 
 
@@ -552,7 +648,7 @@ def _asking(situation: Situation, seen: Observation) -> tuple[str, ...]:
         # arrive already formatted - `conservation.py` renders every amount
         # through `money.format_inr`, so nothing here reformats them and there
         # is no second place for the grouping to be wrong.
-        reasons.append(_NUMBERS_DISAGREE)
+        reasons.append(_NUMBERS_DISAGREE + _which_bill(seen))
         reasons.extend(r.said for r in failed)
     if situation.ambiguous_fields:
         count = len(situation.ambiguous_fields)
@@ -565,7 +661,7 @@ def _asking(situation: Situation, seen: Observation) -> tuple[str, ...]:
             "I need to check with you before anything is posted."
         )
     if seen.lowest_confidence < AUTO_POST_FLOOR:
-        reasons.append(_NOT_SURE_ENOUGH)
+        reasons.append(_NOT_SURE_ENOUGH + _which_bill(seen))
     if not situation.debit_account.strip() or not situation.credit_account.strip():
         reasons.append(_WHICH_WAY_ROUND)
     return tuple(reasons)

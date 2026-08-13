@@ -72,6 +72,7 @@ from accountant.cage.decision import (
     decide,
 )
 from accountant.cage.wall import DECIDING_MODULE, Field, LedgerEntry, Observation
+from accountant.money import format_inr
 from accountant.questions import QUESTION_CAP, Answer, Question
 
 # ---- builders ---------------------------------------------------------------
@@ -738,6 +739,53 @@ def test_a_block_with_two_separate_causes_says_both_of_them() -> None:
 def test_the_said_sentence_is_made_of_the_reasons_and_hides_none_of_them() -> None:
     decided = decide(a_situation(period_open=False, carries_gst=True))
     assert all(reason in decided.said for reason in decided.reasons)
+
+
+# ---- a refusal names the bill it is about, and says what to do next ---------
+
+
+def test_a_closed_period_refusal_names_the_date_it_is_refusing() -> None:
+    """With four bills in flight, "the books for this date are closed" does not
+    tell a person which one, and a refusal they cannot attach to a bill is a
+    refusal they cannot act on."""
+    assert "2026-08-12" in decide(a_situation(period_open=False)).said
+
+
+def test_an_unknown_party_refusal_names_the_party_it_does_not_know() -> None:
+    """ "I do not know who this bill is from" leaves the person guessing which
+    of the names we did not recognise."""
+    seen = an_observation(party="Kumar & Sons")
+    assert (
+        "Kumar & Sons" in decide(a_situation(observation=seen, party_known=False)).said
+    )
+
+
+def test_a_refusal_that_names_money_renders_it_through_the_one_formatter() -> None:
+    """`money.format_inr` or nothing. A second renderer here would group the
+    digits for a reader who does not exist - `10,00,000` is what an Indian
+    accountant reads and `1,000,000` is what `f"{n:,}"` produces."""
+    seen = an_observation(total_paise=1_000_000, confidence=0.80)
+    said = decide(a_situation(observation=seen)).said
+
+    assert format_inr(1_000_000) in said
+    assert "1,000,000" not in said
+
+
+def test_the_control_a_refusal_invents_nothing_when_nothing_was_read() -> None:
+    """THE CONTROL on all four above. A naming clause built without checking
+    what it was handed prints "None" or a bare number at a person, which is
+    worse than saying nothing - and inventing a bill reference is forbidden
+    outright because no such reference exists."""
+    seen = Observation(
+        date=Field(value="2026-08-12", confidence=0.99, source="test"),
+        party=Field(value=None, confidence=0.0, source="not_found: no party"),
+        total_paise=Field(value=None, confidence=0.0, source="not_found: no total"),
+        tax_paise=Field(value=0, confidence=0.99, source="test"),
+    )
+    said = decide(a_situation(observation=seen, period_open=False)).said
+
+    assert "None" not in said
+    assert "2026-08-12" in said
 
 
 # ---- shape, determinism, and the wall ---------------------------------------
