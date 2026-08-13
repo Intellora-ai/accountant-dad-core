@@ -1032,3 +1032,68 @@ def test_bytes_that_are_not_a_picture_at_all_become_a_sentence() -> None:
 #    the only way to remove it entirely is a fake engine, which would stop the
 #    test being about the real bounded wait. Recorded rather than papered over.
 # =============================================================================
+
+
+# =============================================================================
+# A PHOTOGRAPH THAT CLAIMS EXACTNESS, 2026-08-13
+# =============================================================================
+#
+# `field_confidence` is `min(word_conf) / 100` with no ceiling, and `_complaint`
+# accepts any score `0 <= conf <= 100` as in-contract. So a reading whose every
+# word carries 100 scores exactly 1.0, which is `confidence.EXACT` - and
+# `ExtractedRecord.read_exactly` was a bare `== EXACT` with no question about
+# WHO read it. `pipeline.py:320` is the one consumer that matters:
+#
+#     party = record.party if record.read_exactly("party") else None
+#
+# so a photograph could hand a name to `propose_account` and put it on a
+# voucher. The only thing preventing it was an unmeasured, unpinned property of
+# a third-party binary: measured on tesseract 5.5.3, the top word confidence is
+# 96 across the twenty corpus PNGs and 97 across ~900 synthetic renders. The
+# folklore "96 cap" is already wrong by one, and nothing in this repository
+# asserts the engine cannot emit 100.
+#
+# The SCORE is not capped and must not be - `test_pagereader.py::
+# test_the_control_the_same_words_at_full_confidence_do_reach_exactness` exists
+# to prove this file reports what the engine claimed rather than a number of
+# our own. What changed is the other half: exactness is a statement about the
+# TIER, which is what `read_exactly`'s own docstring already said it meant, and
+# the implementation now asks that question instead of reading a float.
+
+
+def _all_at(score: int) -> Reading:
+    """One legible bill where every word came back at the same confidence."""
+    return Reading(
+        date=(Word("2026-04-01", score),),
+        party=(Word("SHARMA", score), Word("TRADERS", score)),
+        total=(Word("1234.56", score),),
+        tax=(Word("188.32", score),),
+        net=(Word("1046.24", score),),
+    )
+
+
+def test_an_engine_reporting_a_hundred_still_never_reads_a_party_exactly() -> None:
+    """THE REPRODUCER, built rather than waited for.
+
+    Every word at 100 is in-contract for this module, and the record it makes
+    states 1.0 on all four fields. None of them is read EXACTLY, because
+    pixels were guessed at whatever the engine thinks of its own guessing."""
+    record = FreeReader(lambda _d, _m: _all_at(100)).extract(b"", PNG)
+
+    assert record.per_field_confidence["party"] == 1.0
+    assert record.party == "SHARMA TRADERS"
+    assert not record.read_exactly("party")
+    assert not any(record.read_exactly(f) for f in ExtractedRecord.FIELDS)
+
+
+def test_the_score_this_engine_reports_is_still_the_engine_s_own_number() -> None:
+    """THE CONTROL, and the reason the fix is not a cap on the arithmetic.
+
+    Clamping `field_confidence` below 1.0 would have made the test above pass
+    while quietly making this module lie about what it was told. The number is
+    reported unchanged; only the entitlement to be called exact is refused."""
+    ninety_six = FreeReader(lambda _d, _m: _all_at(96)).extract(b"", PNG)
+    hundred = FreeReader(lambda _d, _m: _all_at(100)).extract(b"", PNG)
+
+    assert ninety_six.confidence_of("party") == 0.96
+    assert hundred.confidence_of("party") == 1.0

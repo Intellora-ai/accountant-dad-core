@@ -31,6 +31,67 @@ from accountant.cage.confidence import EXACT
 
 NOT_FOUND = "not_found"
 
+#: The reading sources whose stated `EXACT` is BELIEVED - the ones allowed to
+#: turn a field into an identity. Named for what the list controls rather than
+#: for a claim about each member's insides, because one member's insides are
+#: not ours to know and the entry below says so.
+#:
+#: WHY THIS IS A LIST AND NOT A NUMBER, 2026-08-13. `EXACT` is 1.0 and
+#: `read_exactly` used to be a bare `confidence_of(name) == EXACT`. But the free
+#: OCR tier computes `min(word_confidence) / 100` with no ceiling, and 100 is an
+#: in-contract score - so a reading whose every word came back at 100 scores
+#: exactly 1.0, and `read_exactly("party")` answered True for a PHOTOGRAPH.
+#: `pipeline.build_draft` is the consumer that matters: it turns that answer
+#: into a vendor identity, which is F-03 reached by a different first step.
+#:
+#: MEASURED: nothing in the corpus reaches 100 - the top word confidence is 96
+#: across the twenty corpus PNGs and 97 across ~900 synthetic renders on
+#: tesseract 5.5.3 - so "a photograph never claims exactness" was true only by
+#: an unpinned accident of a third-party binary's build. Constructed by hand,
+#: the record states 1.0 on all four fields today.
+#:
+#: THE SCORE IS NOT CAPPED TO FIX THIS, deliberately. Clamping the OCR
+#: arithmetic below 1.0 would make that module lie about what the engine
+#: reported, and `tests/test_pagereader.py::test_the_control_the_same_words_at_
+#: full_confidence_do_reach_exactness` exists to prove it does not. Confidence
+#: is what the reader CLAIMED; exactness is whether its tier is believed when it
+#: claims it. `read_exactly`'s own docstring already drew that line - "which a
+#: text layer can make and a photograph cannot" - and the code read a float.
+#:
+#: FAILS CLOSED. A source not named here is an estimate, so a new backend is not
+#: believed until somebody adds it deliberately. The two mistakes are not the
+#: same size: a pixel tier wrongly trusted costs a supplier's balance for ever,
+#: and a character tier wrongly doubted costs a question on screen.
+#:
+#: MEMBER BY MEMBER, because a list like this rots when the reasons are not
+#: written next to it.
+#:
+#:     pdf_text_layer  reads the characters the producing program wrote. The
+#:                     tier the whole `EXACT` argument was made for.
+#:     typed_text      a person typed the sentence. No pixel, no estimate.
+#:     stub            `StubExtractor` returns the values its constructor was
+#:                     HANDED, so it reads nothing and estimates nothing - its
+#:                     own comment makes exactly this argument. Not reachable
+#:                     from an upload: a real one meets
+#:                     `placeholder.PlaceholderReader`, which carries no values
+#:                     and states no scores, and `tests/test_no_reader.py` pins
+#:                     that.
+#:     reader_service  ON THIS LIST TO PRESERVE A DECISION, NOT BECAUSE ITS TIER
+#:                     WAS VERIFIED - and it is the open question here. A remote
+#:                     service's `{"confidence": {"party": 1.0}}` is believed
+#:                     verbatim (`service.py:266`), and whether a paid API that
+#:                     read PIXELS should be able to name a supplier that way is
+#:                     an owner's call about a backend nobody has selected -
+#:                     `registry.DEFAULT_BACKEND` is `ladder`. Reversing it here
+#:                     would invert the control in `test_adapter_contract.py::
+#:                     test_a_backend_that_states_no_confidence_does_not_name_
+#:                     the_supplier`, which asserts on purpose that a service
+#:                     stating its certainty DOES name the supplier. Recorded
+#:                     and reported rather than changed under the owner.
+ENTITLED_TO_EXACT: frozenset[str] = frozenset(
+    {"pdf_text_layer", "typed_text", "stub", "reader_service"}
+)
+
 #: The one media type a sentence a person typed arrives as.
 #:
 #: PHASE 8 PR-1. `TypedTextExtractor.extract` took `_mime` and threw it away,
@@ -166,8 +227,22 @@ class ExtractedRecord:
         A value is required as well as a score. A field with no value cannot
         have been read exactly however it was labelled, and the two halves fail
         open in different cases - `wall.Field` refuses the same disagreement.
+
+        AND THE TIER IS ASKED, 2026-08-13, because the two halves above were not
+        enough. The sentence over them - "which a text layer can make and a
+        photograph cannot" - was the rule, and the code did not implement it: it
+        read a float, and the OCR tier's `min(word_confidence) / 100` reaches
+        exactly 1.0 whenever the engine reports 100 on every word, which is a
+        score it is contractually allowed to report. Built by hand that record
+        answers True here, and `pipeline.build_draft` makes the name on a
+        PHOTOGRAPH a vendor identity. `ENTITLED_TO_EXACT` is the list of sources
+        whose claim is believed, and it fails closed.
         """
-        return self.value_of(name) is not None and self.confidence_of(name) == EXACT
+        return (
+            self.value_of(name) is not None
+            and self.confidence_of(name) == EXACT
+            and self.per_field_source.get(name, "") in ENTITLED_TO_EXACT
+        )
 
     def value_of(self, name: str) -> object:
         """One named field by name, so a rule can be written once for all four."""

@@ -485,3 +485,75 @@ def test_a_refused_reading_states_no_confidence_rather_than_a_confident_zero() -
     assert refused.per_field_confidence == {}
     assert not refused.read_exactly("party")
     assert refused.confidence_of("party") is None
+
+
+# =============================================================================
+# THE OTHER WAY A PHOTOGRAPH BECOMES AN IDENTITY, 2026-08-13
+# =============================================================================
+#
+# Everything above is about a LOW score surviving the seam. Adversarial
+# verification found the mirror case: a HIGH one. `field_confidence` is
+# `min(word_confidence) / 100` with no ceiling, and 100 is a score the engine is
+# contractually allowed to report - so a photograph can state 1.0, and
+# `read_exactly` was a bare `== EXACT`. `IVER. ELECTRICALS` at 0.08 is refused
+# and `IVER. ELECTRICALS` at 1.0 was not, which is the same misreading with a
+# better opinion of itself.
+#
+# Measured on tesseract 5.5.3, the top word confidence is 96 over the twenty
+# corpus PNGs and 97 over ~900 synthetic renders. So the only thing standing
+# between this repository and that bug was a number nobody had pinned, in a
+# binary nobody here builds.
+
+
+def test_a_photograph_that_says_it_is_certain_still_names_no_supplier() -> None:
+    """The F-03 assertion again, against a reading that claims exactness.
+
+    Both halves, because they are different failures with the same cause: the
+    name must not be looked up, and it must not become a new key either."""
+    every_word_certain = Reading(
+        party=(Word(MISREAD.split()[0], 100), Word(MISREAD.split()[1], 100)),
+        total=(Word("4200.00", 100),),
+    )
+    record = FreeReader(lambda _d, _m: every_word_certain).extract(b"", "image/png")
+
+    assert record.confidence_of("party") == EXACT
+    assert not record.read_exactly("party")
+
+    draft = _draft(record, _memory())
+
+    assert MISREAD not in (draft.voucher.party, draft.voucher.debit_account)
+    assert draft.voucher.party == ""
+
+
+def test_the_control_the_same_certainty_from_the_text_layer_does_name_one() -> None:
+    """THE CONTROL, and it is the whole reason this is a list of sources rather
+    than a cap on the arithmetic.
+
+    A rule written as "1.0 is never believed" would pass the test above and
+    would cost the text-layer tier all twenty of its corpus parties. The
+    difference is WHO read it, so the same 1.0 off real PDF bytes still names
+    the supplier and still proposes the account the books already know."""
+    bill = pdf_bytes(["TAX INVOICE", f"SUPPLIER: {BOOKED}", "TOTAL: 4200.00"])
+
+    draft = build_draft(COMPANY, bill, "application/pdf", TextLayerReader(), _memory())
+
+    assert draft.record.confidence_of("party") == EXACT
+    assert draft.record.read_exactly("party")
+    assert draft.voucher.party == BOOKED
+    assert draft.voucher.debit_account == "Purchases"
+
+
+def test_a_source_nobody_put_on_the_list_is_an_estimate_however_sure_it_sounds() -> (
+    None
+):
+    """THE DIRECTION THE LIST FAILS IN, which is the property worth pinning.
+
+    A backend added next year states `EXACT` and is not believed until somebody
+    puts it on the list on purpose. Written against a name that is not on it
+    rather than against a real backend, because the point is the default and a
+    real backend would one day be added and quietly make this vacuous."""
+    invented = _record(MISREAD, source="a_backend_from_next_year", confidence=EXACT)
+
+    assert invented.confidence_of("party") == EXACT
+    assert not invented.read_exactly("party")
+    assert _draft(invented, _memory()).voucher.party == ""
