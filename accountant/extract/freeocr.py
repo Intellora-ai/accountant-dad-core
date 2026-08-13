@@ -874,6 +874,14 @@ class FreeReader:
             raw_text="",
             backend=self.name,
             per_field_source=dict(answer.sources),
+            # THE SCORES, CARRIED, 2026-08-13. `observe` below has reported
+            # these since the rung was written and `extract` - built from the
+            # same `_Answer`, three lines away - threw them away, because
+            # `ExtractedRecord` had nowhere to put them. So the pipeline path
+            # got the party this engine read at 0.08 with no 0.08 attached, and
+            # `pipeline.build_draft` made it a vendor identity. The cage saw the
+            # number and refused; the shipped path could not see it.
+            per_field_confidence=dict(answer.confidences),
         )
 
     def observe(self, data: bytes, mime: str) -> Observation:

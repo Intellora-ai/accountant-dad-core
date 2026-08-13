@@ -20,6 +20,15 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Protocol, runtime_checkable
 
+# The one name for "nothing was estimated", taken rather than written as a bare
+# 1.0. Same exception, same reasoning as `wall.py` importing `money`:
+# `cage/confidence.py` imports `datetime` and `Final` and nothing else, so it
+# touches no network, no filesystem and no Tally. `extract/textlayer.py` already
+# imports it across the same boundary. Writing `1.0` here instead would put a
+# second definition of exactness in the codebase, and two definitions of a
+# constant is how one of them stops meaning what the other does.
+from accountant.cage.confidence import EXACT
+
 NOT_FOUND = "not_found"
 
 #: The one media type a sentence a person typed arrives as.
@@ -74,6 +83,36 @@ class ExtractedRecord:
     #: auto-post one of these existed and nothing could reach it.
     pdf_repaired: bool | None = None
 
+    #: How sure the reader was, PER FIELD. A field absent from this map is a
+    #: field NOBODY SCORED, and that is not the same as a field scored 1.0.
+    #:
+    #: ADDED 2026-08-13, the day `registry.DEFAULT_BACKEND` became `ladder` and
+    #: the OCR tier went live on the upload path. Until then this record had
+    #: four values, four sources and no score, so a name the picture rung
+    #: GUESSED and a name the text layer READ arrived downstream identical. The
+    #: measured case: `IYER ELECTRICALS` read as `IVER. ELECTRICALS`, handed
+    #: over with `per_field_source["party"] == "free_ocr"` - a READ source, not
+    #: a refusal - at a confidence of 0.08. `cage/decision.py` sees that 0.08
+    #: and refuses; `pipeline.build_draft` could not see it and made the misread
+    #: name a vendor identity. That is F-03, and its cost is one supplier's
+    #: balance wrong for ever.
+    #:
+    #: PER FIELD AND NOT PER RECORD, which is `cage/wall.py`'s reasoning and
+    #: applies here without change: a bill is not uniformly legible. The total
+    #: is printed large and clean while the party is a smudged letterhead, and
+    #: one number for the document averages a certainty with a guess into
+    #: something that describes neither.
+    #:
+    #: EMPTY BY DEFAULT, AND THE DEFAULT IS THE WHOLE SAFETY PROPERTY. A default
+    #: of `EXACT` would have labelled every OCR guess an exact reading and made
+    #: this field worse than not having it - the record would then be ASSERTING
+    #: certainty nobody measured, and every consumer below would believe it.
+    #: Absent means "nobody said", and nobody-said is never confident. Every
+    #: rung that can score a field states its score; a backend that cannot score
+    #: says nothing and its fields are treated as estimates, which is the
+    #: direction a missing statement has to fail in.
+    per_field_confidence: dict[str, float] = field(default_factory=dict[str, float])
+
     FIELDS = ("date", "party", "total_paise", "tax_paise")
 
     def __post_init__(self) -> None:
@@ -82,10 +121,57 @@ class ExtractedRecord:
             raise ValueError(
                 f"incomplete record: no source stated for {', '.join(missing)}"
             )
+        outside = {
+            name: score
+            for name, score in self.per_field_confidence.items()
+            if not 0.0 <= score <= 1.0
+        }
+        if outside:
+            # The same invariant `wall.Field` enforces, and for the same reason:
+            # a score above 1.0 clears the auto-post band by accident. Enforced
+            # here as well because this record reaches callers that never build
+            # a `Field` at all.
+            raise ValueError(
+                f"confidence must be between 0.0 and 1.0: {outside}. A score "
+                "outside that range means the reader computed it wrongly."
+            )
 
     @property
     def complete(self) -> bool:
         return all(f in self.per_field_source for f in self.FIELDS)
+
+    def confidence_of(self, name: str) -> float | None:
+        """The score this reader stated for one field, or `None` when it stated
+        none.
+
+        `None` rather than `0.0`, and the difference is load-bearing in the
+        opposite direction from the usual one. `0.0` is a reader saying "I
+        looked and read nothing" - a real answer. `None` is nobody having
+        spoken. Collapsing them would let a backend with no scoring machinery at
+        all look like one that measured zero, and a consumer would then be
+        reading an assertion where there is only a silence.
+        """
+        return self.per_field_confidence.get(name)
+
+    def read_exactly(self, name: str) -> bool:
+        """Was this field read off the document with NOTHING estimated?
+
+        THE ONE QUESTION A CONSUMER ASKS BEFORE TREATING A FIELD AS AN IDENTITY,
+        and it carries no threshold. `confidence.EXACT` is not a band and it is
+        not tunable: it is the statement that no pixel was guessed at, which a
+        text layer can make and a photograph cannot. Comparing against it needs
+        no owner number, so `ASK_FLOOR` and `AUTO_POST_FLOOR` stay the only two
+        bands in the product and keep meaning exactly what they say.
+
+        A value is required as well as a score. A field with no value cannot
+        have been read exactly however it was labelled, and the two halves fail
+        open in different cases - `wall.Field` refuses the same disagreement.
+        """
+        return self.value_of(name) is not None and self.confidence_of(name) == EXACT
+
+    def value_of(self, name: str) -> object:
+        """One named field by name, so a rule can be written once for all four."""
+        return getattr(self, name, None) if name in self.FIELDS else None
 
 
 @runtime_checkable
@@ -602,6 +688,27 @@ class TypedTextExtractor:
             raw_text=text,
             backend=self.name,
             per_field_source=src,
+            # EXACT, and this backend is entitled to it for the same reason
+            # `textlayer.py` is: there is no pixel here and no estimate. A
+            # person typed these characters and this class parses them or
+            # refuses - the one case where it could have guessed at a letter,
+            # a non-UTF-8 byte, is a refusal above and not a `errors="replace"`
+            # substitution, which is exactly the `party == "Caf"` defect.
+            #
+            # Stated only for the fields that came back with a value. A field
+            # that refused is unscored rather than scored zero: this backend has
+            # no scoring machinery, so "0.0" here would be a measurement it
+            # never made, and the sentence on `per_field_source` is the real
+            # answer for those.
+            per_field_confidence={
+                name: EXACT
+                for name, value in (
+                    ("party", party),
+                    ("total_paise", total),
+                    ("tax_paise", tax),
+                )
+                if value is not None
+            },
         )
 
 
@@ -663,6 +770,22 @@ class StubExtractor:
             raw_text=data.decode("utf-8", errors="replace"),
             backend=self.name,
             per_field_source=src,
+            # EXACT for a field it was HANDED, and nothing for a field it was
+            # not. This stub reads no document, so it estimates nothing: the
+            # value is verbatim the one its constructor was given, and a test
+            # that hands it `party="Sharma Traders"` is stating a fact about
+            # that draft rather than measuring a letterhead.
+            #
+            # It is the one place in this file where "certain" is written down
+            # next to a value nobody read off a page, so it is worth being
+            # explicit about what could go wrong: if this stub ever became a
+            # production backend, this line would be a lie. It cannot - the
+            # backend a real upload meets while no reader is chosen is
+            # `placeholder.PlaceholderReader`, which has no values at all and
+            # so states no scores, and `tests/test_no_reader.py` pins that.
+            per_field_confidence={
+                name: EXACT for name, value in supplied.items() if value is not None
+            },
         )
 
 

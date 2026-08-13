@@ -65,7 +65,7 @@ from accountant.extract.adapter import (
     ExtractedRecord,
     Extractor,
 )
-from accountant.extract.freeocr import FreeReader
+from accountant.extract.freeocr import FreeReader, Reading, Word
 from accountant.extract.textlayer import SOURCE as TEXT_LAYER
 from accountant.memory.bootstrap import bootstrap
 from accountant.memory.company import CompanyMemory, propose_account
@@ -341,17 +341,57 @@ def test_the_sentence_on_the_leg_names_the_tier_that_guessed() -> None:
 # =============================================================================
 
 
-def test_the_free_ocr_rung_states_its_own_confidence_on_the_record() -> None:
-    """The rung already computed this per field. It was dropped at the record.
+def _smudged_letterhead(_data: bytes, _mime: str) -> Reading:
+    """One page: a letterhead the engine is 8 out of 100 sure of, and a clean
+    total.
 
-    `FreeReader.observe` has carried these numbers since the rung was written;
-    `FreeReader.extract` built the record beside it and threw them away. Both
-    now come from the same `_Answer`, so the record and the observation cannot
-    disagree about the same document.
+    The two together are the point. A bill is not uniformly legible, so a single
+    score for the record would average this 0.08 with the total's 0.99 and
+    describe neither field.
+    """
+    return Reading(
+        party=(
+            Word(text="IVER.", confidence=8),
+            Word(text="ELECTRICALS", confidence=92),
+        ),
+        total=(Word(text="420000", confidence=99),),
+    )
+
+
+def test_the_free_ocr_rung_states_its_own_confidence_on_the_record() -> None:
+    """The rung already computed this per field. The record threw it away.
+
+    `FreeReader.observe` has reported these numbers since the rung was written;
+    `FreeReader.extract` built the record from the SAME `_Answer` three lines
+    away and dropped them, because `ExtractedRecord` had nowhere to put them.
+
+    Asserted against `observe` rather than against a literal: the invariant
+    worth holding is that the record and the observation cannot say different
+    things about one document, and a hand-typed 0.08 on both sides would pass
+    even after they had come apart.
+    """
+    rung = FreeReader(_smudged_letterhead)
+
+    record = rung.extract(b"", "image/png")
+    seen = rung.observe(b"", "image/png")
+
+    assert record.party == "IVER. ELECTRICALS"
+    assert record.per_field_source["party"] == "free_ocr"
+    assert record.confidence_of("party") == seen.party.confidence == 0.08
+    assert record.confidence_of("total_paise") == seen.total_paise.confidence == 0.99
+    assert not record.read_exactly("party")
+
+
+def test_a_refused_reading_states_no_confidence_rather_than_a_confident_zero() -> None:
+    """A backend that never looked says nothing, and nothing is not certain.
+
+    `FreeReader` refuses through `UnavailableExtractor`, the one class in the
+    package that builds an all-`not_found` record. It states no scores, which
+    is the honest answer - the engine was never asked - and the default being
+    absent rather than `EXACT` is what makes that answer safe.
     """
     refused = FreeReader(lambda _d, _m: None).extract(b"", "application/pdf")
 
-    # A refusal states 0.0 for everything rather than stating nothing: the rung
-    # DID look, and "we looked and read nothing" is a fact worth carrying.
-    assert refused.per_field_confidence == dict.fromkeys(ExtractedRecord.FIELDS, 0.0)
+    assert refused.per_field_confidence == {}
     assert not refused.read_exactly("party")
+    assert refused.confidence_of("party") is None

@@ -952,6 +952,16 @@ class TextLayerReader:
                 name: reading.fields[name].source
                 for name in ("date", "party", "total_paise", "tax_paise")
             },
+            # The same `EXACT` this reading already states on every field it
+            # read, carried rather than recomputed. `ExtractedRecord` had no
+            # column for it until 2026-08-13, so the tier that is entitled to
+            # 1.0 and the tier that guesses at pixels arrived downstream
+            # indistinguishable - and the consumer that could not tell them
+            # apart was the one turning a party name into a vendor identity.
+            per_field_confidence={
+                name: reading.fields[name].confidence
+                for name in ("date", "party", "total_paise", "tax_paise")
+            },
             # The fact travels with the evidence, 2026-08-13. This line was
             # missing and `ExtractedRecord` had nowhere to put it, so a
             # repaired PDF became an ordinary record here and the decision

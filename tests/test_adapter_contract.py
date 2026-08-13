@@ -63,6 +63,7 @@ from dataclasses import replace
 import pytest
 
 from accountant import pipeline
+from accountant.cage.confidence import EXACT
 from accountant.extract import ladder, registry
 from accountant.extract.adapter import (
     NOT_FOUND,
@@ -666,7 +667,25 @@ def stub_backend() -> StubExtractor:
 
 
 def service_backend() -> ServiceExtractor:
-    return service_for(BILL, party=PARTY, total_paise=TOTAL)
+    """The same facts as `stub_backend`, INCLUDING how sure it says it is.
+
+    `confidence` joined the answer on 2026-08-13, when `ExtractedRecord` grew a
+    per-field score. It is stated here because "the same facts" has to mean the
+    same facts: a service that says nothing about its own certainty is not
+    telling us what the stub tells us, and the drafts below would then differ
+    for a real reason rather than because a backend was swapped.
+
+    Which is itself the new rule, and it is asserted separately in
+    `test_a_backend_that_states_no_confidence_does_not_name_the_supplier`
+    below rather than being folded in here: a party name that was estimated -
+    or whose certainty nobody stated - is never used as a supplier's identity.
+    """
+    return service_for(
+        BILL,
+        party=PARTY,
+        total_paise=TOTAL,
+        confidence={"party": EXACT, "total_paise": EXACT},
+    )
 
 
 SWAPPABLE: tuple[Callable[[], Extractor], ...] = (stub_backend, service_backend)
@@ -704,6 +723,42 @@ def test_two_backends_given_the_same_facts_differ_only_in_who_they_say_they_are(
             raw_text=a.raw_text,
         )
     )
+
+
+def test_a_backend_that_states_no_confidence_does_not_name_the_supplier() -> None:
+    """The price of silence, asserted rather than assumed. F-03.
+
+    A service that reports no per-field confidence is not a service that read
+    the bill exactly - it is one that never said. Absent is not certain, so its
+    party name is not handed to `propose_account` and does not land on the
+    voucher; the person is asked who it was instead.
+
+    The reading is NOT thrown away: the record still carries the name, the
+    source and the fact that no score was stated. Only the identity is withheld.
+    """
+    silent = service_for(BILL, party=PARTY, total_paise=TOTAL)
+    record = silent.extract(BILL, "text/plain")
+
+    assert record.party == PARTY
+    assert record.confidence_of("party") is None
+    assert not record.read_exactly("party")
+
+    t = tally(past(PARTY, "Purchases", n=40))
+    draft = pipeline.build_draft(
+        COMPANY, BILL, "text/plain", silent, memory_for(t), today=TODAY
+    )
+
+    assert draft.voucher.party == ""
+    assert draft.voucher.debit_account == ""
+    # The control on the same two lines: the SAME service, saying how sure it
+    # is, names the supplier exactly as before. Without this the assertion
+    # above would also pass if the service backend had simply stopped working.
+    speaking = pipeline.build_draft(
+        COMPANY, BILL, "text/plain", service_backend(), memory_for(t), today=TODAY
+    )
+
+    assert speaking.voucher.party == PARTY
+    assert speaking.voucher.debit_account == "Purchases"
 
 
 @pytest.mark.parametrize("make", SWAPPABLE, ids=lambda m: m.__name__)

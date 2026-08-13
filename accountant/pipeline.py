@@ -58,6 +58,24 @@ from accountant.tax.decision import TaxDecision, decide_tax
 #: gate rather than only written, so it is named once.
 FROM_COMPANY_HISTORY = "company_history"
 
+#: What the voucher's provenance says about a party name that was ESTIMATED.
+#:
+#: `NOT_FOUND`-prefixed on purpose, because that prefix is already the one rule
+#: two readers share: `cage/gate.py::_was_read` and `web/app.py` both treat a
+#: source beginning `not_found` as an absence whatever value came with it. The
+#: leg IS absent - `voucher.party` is blank - so the line beside it has to say
+#: absent, or the evidence record contradicts the thing it is evidence about.
+#:
+#: It names the tier, because "no party" and "a party we would not act on" are
+#: different facts and the reviewer reading this voucher afterwards needs to
+#: know which one they are looking at. The reading itself is NOT deleted: it
+#: stays on `Draft.record`, with its own source and its own score.
+ESTIMATED_NOT_AN_IDENTITY = (
+    f"{NOT_FOUND}: {{backend}} estimated this name rather than reading it, and "
+    "an estimated name is never used as a supplier's identity - so this one is "
+    "being asked about instead"
+)
+
 #: D-06. The vendor whose remembered account the CURRENT ledger contradicts.
 #:
 #: A distinct problem id, not `which_account`. The two are asked in opposite
@@ -220,6 +238,22 @@ def _leg_source(proposed: str) -> str:
     return FROM_COMPANY_HISTORY if proposed else NOT_FOUND
 
 
+def _party_not_taken(record: ExtractedRecord, party: str | None) -> dict[str, str]:
+    """The one provenance line to overwrite when a read name was not taken.
+
+    Empty in every other case, and that is deliberate rather than tidy. The
+    record's own source line is the truth about what the reader did, and the
+    only situation it stops describing the VOUCHER is this one: the reader
+    stated a name and a real backend beside it, and the leg is blank anyway.
+
+    A field the reader genuinely did not read already carries `not_found` and
+    the reader's own sentence, which is better than anything this could write.
+    """
+    if party is not None or record.party is None:
+        return {}
+    return {"party": ESTIMATED_NOT_AN_IDENTITY.format(backend=record.backend)}
+
+
 def build_draft(
     company: str,
     data: bytes,
@@ -277,13 +311,21 @@ def build_draft(
 
     record = extractor.extract(data, mime)
 
-    proposed_debit = propose_account(memory, record.party) if record.party else None
+    # AN ESTIMATED NAME IS NOT AN IDENTITY. This is the whole of the F-03 fix
+    # and it is one line, because this is the one place a read party name turns
+    # into one. Everything downstream keys off `Voucher.party` - `evaluate`
+    # hands it to `funding_from_history`, to `memory.lookup`, to the detectors
+    # and to `disagrees_with_live_history` - so a name refused here is refused
+    # in all five without five separate guards to keep in step.
+    party = record.party if record.read_exactly("party") else None
+
+    proposed_debit = propose_account(memory, party) if party else None
     proposed_debit = proposed_debit or ""
 
     voucher = Voucher(
         id=f"draft-{uuid.uuid4().hex[:8]}",
         date=record.date or (today or datetime.date.today()),
-        party=record.party or "",
+        party=party or "",
         narration=record.raw_text.strip(),
         debit_account=proposed_debit,
         # Absent on purpose. The funding leg is proposed in `evaluate`, which
@@ -294,6 +336,7 @@ def build_draft(
         amount_paise=record.total_paise or 0,
         gst_paise=record.tax_paise,
         provenance=dict(record.per_field_source)
+        | _party_not_taken(record, party)
         | {
             "credit_account": NOT_FOUND,
             "debit_account": _leg_source(proposed_debit),
