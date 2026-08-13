@@ -1,0 +1,865 @@
+"""The text-layer reader. The rung of the ladder that needs no pixels.
+
+WHY THIS FILE EXISTS, AND WHY IT IS FIRST
+------------------------------------------
+A GST e-invoice, an emailed bill and a supplier's PDF all carry a TEXT LAYER -
+the characters the producing program wrote, still in the file. For those
+documents OCR is the wrong tool. Text extraction is EXACT, costs about ten
+milliseconds, needs no model, no network and no training data, and returns the
+same answer on every machine that has ever run it.
+
+OCR is for photographs and scans. They are a DIFFERENT RUNG, not a competitor,
+and noticing that these two are a ladder rather than a choice is the whole
+saving: the cheap deterministic reader handles the documents that are already
+machine-readable, and the expensive uncertain one is only reached by the
+documents that actually need it.
+
+WHY A FIELD FROM HERE CARRIES CONFIDENCE EXACTLY 1.0
+-----------------------------------------------------
+`confidence.EXACT` is 1.0, and this module is the only reader entitled to it.
+The reason is not that this reader is good. It is that there is nothing here to
+be unsure ABOUT: the file says `584.10` in characters, and the alternative
+readings of those characters number zero. A score of 0.99 would be a claim
+about an uncertainty that does not exist, and 1.0 on a guess would be a lie.
+
+So the rule this module holds itself to is the strict form of that sentence:
+
+    a value it returns was READ. Anything that required a guess is not
+    returned at all.
+
+That is why a `06/10/2026` comes back UNREAD. Read day-first it is the 6th of
+October; read month-first it is the 10th of June; both are somebody's national
+convention and neither is in the document. A guessed date at confidence 1.0
+files a GST return in the wrong month with nothing on screen to notice. Six of
+the twenty corpus PDFs are refused for exactly this and that is the correct
+answer, not a gap. Whether the product should assume `DD/MM` for an Indian
+supplier is an OWNER DECISION about locale, not a fact this reader can read.
+
+WHAT IT DOES WHEN THERE IS NO TEXT LAYER
+------------------------------------------
+It says so, and stops. `Outcome.NO_TEXT_LAYER` is a scan or a photograph, and
+it is neither an error nor an empty bill. It does not fall through to OCR -
+this module contains no OCR and must not acquire any, because a ladder whose
+top rung silently does the bottom rung's work is one rung with two names.
+
+FAILS CLOSED, AND WHY THAT MATTERS MORE HERE THAN ANYWHERE
+------------------------------------------------------------
+`pypdf` parses UNTRUSTED bytes in this process. Somebody emails a bill; the
+bytes arrive from outside and are handed straight to a parser. So:
+
+    a parse failure is a REFUSAL, never a traceback. `pipeline.build_draft`
+    calls its extractor with nothing around it and `web/app.py` turns an
+    escaping exception into "Something in Accountant Dad broke" - which is
+    what a person sees today when their upload was merely truncated.
+
+    nothing is unzipped, executed, decrypted or followed. This module reads
+    `PdfReader(...).pages[n].extract_text()` and nothing else. It never touches
+    attachments, `/EmbeddedFiles`, `/OpenAction`, `/Launch`, `/URI` or
+    `decrypt()`. An encrypted file is refused, not opened - we hold no password
+    and guessing one is not reading.
+
+    every unread field says WHY, in the sentence a person reads.
+
+`BaseException` is deliberately not caught, for the reason
+`registry.GuardedExtractor` gives: a KeyboardInterrupt is somebody stopping the
+process and answering it with a tidy record would fight them.
+
+WHAT THIS FILE DOES NOT PROVE
+------------------------------
+That a field it read is CORRECT. Exactness is about the READING, not about the
+document. A supplier who prints the wrong total has it read perfectly. The
+conservation laws run afterwards and are what catch that.
+
+That it reads every PDF. It refuses anything not beginning `%PDF-`, which
+rejects the small number of real files carrying junk before the header. That is
+a refusal, and refusing is the safe direction.
+
+That the label vocabulary below is complete. `TOTAL`, `GRAND TOTAL`, `AMOUNT
+PAYABLE` and the rest are the names suppliers in the corpus print. A bill using
+a name not on the list has its total UNREAD and the person is asked. Widening
+the list is safe; guessing at an unlabelled number is not.
+
+NO NETWORK, NO CLOCK, NO FILESYSTEM. Bytes in, a reading out.
+"""
+
+from __future__ import annotations
+
+import datetime
+import io
+import re
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+from enum import StrEnum
+from typing import Final
+
+from pypdf import PdfReader
+
+from accountant.cage.confidence import EXACT
+from accountant.cage.wall import Field, Observation
+from accountant.extract.adapter import (
+    NOT_FOUND,
+    ExtractedRecord,
+    LineItem,
+    UnavailableExtractor,
+)
+
+#: What every field this module reads says about where it came from.
+SOURCE: Final = "pdf_text_layer"
+
+#: The media type this backend reads. Anything else is refused rather than
+#: sniffed: `TypedTextExtractor` spent months returning invented totals because
+#: it ran a money regex over whatever container it was handed.
+PDF_MIME: Final = "application/pdf"
+
+#: The first five bytes of every PDF. Checked before `pypdf` is reached so the
+#: commonest mistake - a JPEG or a text file sent as a PDF - produces a sentence
+#: naming the real problem instead of a parser's internal error.
+PDF_MAGIC: Final = b"%PDF-"
+
+#: The five fields this tier answers, in the order everything here reports them.
+FIELDS: Final[tuple[str, ...]] = (
+    "date",
+    "party",
+    "total_paise",
+    "tax_paise",
+    "line_paise",
+)
+
+
+class Outcome(StrEnum):
+    """What happened to the document, which is not the same as what was read.
+
+    Three, and not two, for the same reason `conservation.Verdict` has three.
+    `NO_TEXT_LAYER` and `UNREADABLE` both return nothing, and collapsing them
+    sends somebody hunting a corrupt file when what they have is a scan - or
+    worse, sends a genuinely broken file to an OCR tier that will read noise
+    out of it.
+    """
+
+    READ = "read"
+    NO_TEXT_LAYER = "no_text_layer"
+    UNREADABLE = "unreadable"
+
+
+@dataclass(frozen=True)
+class LineRead:
+    """One line item, as printed. Integer paise, and its own description."""
+
+    description: str
+    amount_paise: int
+
+
+@dataclass(frozen=True)
+class TextLayerReading:
+    """What the text layer said, and what it did not say.
+
+    Frozen. A reading that can be edited after the fact is not evidence, which
+    is the same rule the nine types in `schema.py` are built on.
+
+    `observation` is the cage's own type, so this plugs into the decision layer
+    without a translation step. `fields` exposes all FIVE as `Field` objects -
+    `Observation.line_paise` is a bare tuple with no confidence slot, and a
+    reader whose line items carried no stated confidence would be making the
+    exact silent-blank claim this repository keeps finding.
+    """
+
+    outcome: Outcome
+    observation: Observation
+    fields: dict[str, Field]
+    said: str
+    lines: tuple[LineRead, ...] = ()
+    text: str = ""
+    pages: int = 0
+
+
+# =============================================================================
+# money
+# =============================================================================
+
+_HUNDRED: Final = Decimal(100)
+
+#: Decoration a supplier prints around an amount. Removed before the number is
+#: parsed; never used to decide what the number MEANS. This reader does no
+#: currency conversion and would be wrong to - `£606.00` on an Indian purchase
+#: bill is a fact about the bill, and converting it here would invent a rate.
+#: The non-breaking space is written as an escape because a literal one is
+#: invisible in a diff - `ingest/spend.py` says the same about the same
+#: character, and it turns up inside published amounts often enough to matter.
+_DECORATION: Final[tuple[str, ...]] = (
+    "\u20b9",
+    "\u00a3",
+    "\u00a0",
+    "RS.",
+    "RS",
+    "INR",
+    "GBP",
+    ",",
+    " ",
+)
+
+#: What is left must be exactly a number. `Decimal` accepts `NaN`, `Infinity`
+#: and `1e5`; the first two turn into an OverflowError inside the conversion
+#: and the third into a number nobody printed. None of them is an amount a
+#: supplier wrote, so the shape is checked before `Decimal` sees it.
+_JUST_A_NUMBER: Final = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def paise_or_none(text: str) -> int | None:
+    """A printed rupee amount as integer paise, or None if it is not one.
+
+    `"1,234.56"` is 123456. `"RS. 1,234.56"` and `"1,234.56 GBP"` are the same
+    number wearing the decoration a supplier printed.
+
+    REFUSES SUB-PAISE RATHER THAN ROUNDING. `"10.005"` is None, not 1000.
+    `tallyio.paise_from_rupees` has always refused that string, and two money
+    parsers in one repository disagreeing about it is how a reconciliation
+    breaks three months later. This one returns None where that one raises,
+    because an unreadable amount on a bill is a QUESTION for the person, not a
+    500 in the web app.
+    """
+    cleaned = text.strip().upper()
+    for junk in _DECORATION:
+        cleaned = cleaned.replace(junk, "")
+    if not _JUST_A_NUMBER.fullmatch(cleaned):
+        return None
+    try:
+        rupees = Decimal(cleaned)
+    except InvalidOperation:
+        return None
+    scaled = rupees * _HUNDRED
+    paise = int(scaled)
+    return paise if scaled == paise else None
+
+
+# =============================================================================
+# reading one labelled thing off a page
+# =============================================================================
+
+#: A label counts when it starts the line or follows a run of spaces wide enough
+#: to be a column gap. `SUPPLIER: CORNWALL COUNCIL        HSN/SAC: 998311` is one
+#: line carrying two fields, and a reader anchored only to line starts reads the
+#: second field into the first one's value.
+_LABEL_AT: Final = r"(?:^|\s{2,})"
+
+#: Where a value stops: the next column's label. Without this the party above
+#: comes back as `CORNWALL COUNCIL        HSN/SAC: 998311`, which does not match
+#: any vendor in history, so it is proposed as a NEW supplier. A wrong party is
+#: worse than a missing one.
+_NEXT_LABEL: Final = re.compile(r"\s{2,}[A-Z][A-Z0-9 /]*:")
+
+_CURRENCY: Final = r"(?:RS\.?|INR|GBP|₹|£)"
+
+#: `GST @ 18%` and `GST 18%` are the same label wearing its rate. The rate is
+#: consumed, never read: a percentage is not the tax amount, and computing the
+#: tax from it would be arithmetic on a number the bill already states.
+_RATE: Final = r"(?:\s*@?\s*\d{1,2}(?:\.\d+)?\s*%)?"
+
+#: After the label, the rest of the line must be the amount and nothing else.
+#: This is what stops `TAX INVOICE 2026` being read as 2026 rupees of tax.
+_ONLY_AMOUNT: Final = re.compile(
+    rf"^[\s:|]*{_CURRENCY}?\s*(-?[\d,]+(?:\.\d+)?)\s*{_CURRENCY}?\s*\|?\s*$"
+)
+
+#: A line item: a description, then an amount with a decimal point in it.
+#: Requiring the decimals is what keeps `PAGE 1 OF 2` and `GT/0021` out of the
+#: line items - and it is how a bill actually prints money.
+_ITEM: Final = re.compile(
+    rf"^\|?\s*(?P<desc>\S.*?)\s*\|?\s*{_CURRENCY}?\s*"
+    rf"(?P<amount>-?[\d,]+\.\d{{2,}})\s*{_CURRENCY}?\s*\|?\s*$"
+)
+
+_ITEM_HEADER: Final = re.compile(r"^DESCRIPTION\b.*\bAMOUNT\b")
+
+#: A printed rule closes the itemised block. It must carry at least one drawn
+#: character: a BLANK line is not a rule, and treating it as one meant that a
+#: page break falling between the column header and the first row closed the
+#: block before a single item was read. `_text_of` joins pages with a newline,
+#: so that blank line is an artefact of OUR join, not something the bill prints.
+_RULE: Final = re.compile(r"^[\s|]*[-=_][-=_\s|]*$")
+_BLANK: Final = re.compile(r"^\s*$")
+
+#: Names a supplier gives the amount payable. Longest first, so `TOTAL DUE` is
+#: reported as itself rather than as `TOTAL`. `SUBTOTAL` is absent on purpose
+#: and the match is anchored, so it can never be read as the total - a
+#: substring match there leaves the bill short by the whole of its tax.
+_TOTAL_LABELS: Final[tuple[str, ...]] = (
+    "GRAND TOTAL",
+    "TOTAL DUE",
+    "AMOUNT PAYABLE",
+    "AMOUNT DUE",
+    "TOTAL",
+)
+
+#: Tax printed as HALVES of one figure. An intra-state Indian bill prints CGST
+#: and SGST, and reading one of them posts half the input credit - real money
+#: lost, with a bill that still looks read.
+_TAX_PARTS: Final[tuple[str, ...]] = ("CGST", "SGST", "UTGST")
+
+#: Tax printed as ONE figure. Kept apart from the halves because adding all of
+#: them together double-counts, and a bill showing both is refused rather than
+#: guessed at.
+_TAX_WHOLE: Final[tuple[str, ...]] = (
+    "OUTPUT TAX",
+    "INPUT TAX",
+    "IGST",
+    "GST",
+    "TAX",
+)
+
+#: Labels the party is printed under. Vocabulary, not policy: an unmatched
+#: label leaves the party unread and the person is asked who this bill is from.
+_PARTY_LABELS: Final[tuple[str, ...]] = (
+    "SUPPLIER",
+    "VENDOR",
+    "BILLED BY",
+    "SOLD BY",
+)
+
+#: Written down rather than taken from `%b`, which follows the machine's
+#: locale. A bill that parses on one machine and not another is not a reading.
+#: `ingest/spend.py` carries the same twelve for the same reason; importing
+#: them would make document extraction depend on the UK-spend CSV loader, and
+#: that coupling is worse than three lines of month names.
+_MONTHS: Final[tuple[str, ...]] = (
+    "JAN",
+    "FEB",
+    "MAR",
+    "APR",
+    "MAY",
+    "JUN",
+    "JUL",
+    "AUG",
+    "SEP",
+    "OCT",
+    "NOV",
+    "DEC",
+)
+
+_ISO_DATE: Final = re.compile(r"^(\d{4})-(\d{1,2})-(\d{1,2})$")
+_NUMERIC_DATE: Final = re.compile(r"^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$")
+_LONG_DATE: Final = re.compile(r"^(\d{1,2})[ -]([A-Z]{3})[A-Z]*[ -](\d{4})$")
+
+
+def _labelled(text: str, label: str) -> tuple[str, ...]:
+    """Every value printed under `label`, in the order they appear."""
+    pattern = re.compile(rf"{_LABEL_AT}{re.escape(label)}\s*:\s*(.*)$", re.M)
+    found = (
+        _NEXT_LABEL.split(match.group(1), maxsplit=1)[0]
+        for match in pattern.finditer(text)
+    )
+    return tuple(value.strip() for value in found if value.strip())
+
+
+def _amount_on(line: str, label: str) -> int | None:
+    """The amount printed against `label` on this line, or None.
+
+    None covers three different situations on purpose - the label is not here,
+    the rest of the line is not an amount, or the amount will not parse - and
+    all three mean the same thing to the caller: this line states no figure for
+    that label.
+    """
+    head = re.match(rf"{re.escape(label)}\b{_RATE}", line)
+    if head is None:
+        return None
+    tail = _ONLY_AMOUNT.match(line[head.end() :])
+    return None if tail is None else paise_or_none(tail.group(1))
+
+
+def _amounts_for(lines: tuple[str, ...], labels: tuple[str, ...]) -> tuple[int, ...]:
+    """Every amount on the page printed against any of `labels`."""
+    found: list[int] = []
+    for line in lines:
+        for label in labels:
+            amount = _amount_on(line, label)
+            if amount is not None:
+                found.append(amount)
+                break
+    return tuple(found)
+
+
+def _the_one[T](values: tuple[T, ...], what: str) -> tuple[T | None, str]:
+    """One value that every printing of it agreed on, or None and the reason.
+
+    A continuation sheet repeats the header, so REPETITION is ordinary and is
+    not refused. DISAGREEMENT is refused: one of the two is wrong, nothing here
+    can say which, and picking the first is a coin toss that posts money.
+    """
+    if not values:
+        return None, f"{NOT_FOUND}: nothing on this document is labelled as {what}"
+    distinct = list(dict.fromkeys(values))
+    if len(distinct) > 1:
+        return None, (
+            f"{NOT_FOUND}: this document states {what} more than once and the "
+            f"statements disagree ({', '.join(str(v) for v in distinct)}), so "
+            "nothing is read from it"
+        )
+    return distinct[0], ""
+
+
+# =============================================================================
+# the five fields
+# =============================================================================
+
+
+def _date_from(printed: str) -> tuple[datetime.date | None, str]:
+    """The date this string states, or None and the reason it states none.
+
+    `2026-09-21` and `28 APR 2026` name their parts. `26/02/2026` does not, and
+    is read only when ARITHMETIC settles the order: 26 is not a month, so the
+    day is first and no convention was assumed. When both numbers could be
+    either, this refuses. See the module docstring - a locale guess wearing
+    confidence 1.0 is how a return gets filed in the wrong month.
+    """
+    text = printed.strip().upper()
+
+    iso = _ISO_DATE.match(text)
+    if iso is not None:
+        return _real_date(int(iso[1]), int(iso[2]), int(iso[3]))
+
+    spelled = _LONG_DATE.match(text)
+    if spelled is not None and spelled[2] in _MONTHS:
+        month = _MONTHS.index(spelled[2]) + 1
+        return _real_date(int(spelled[3]), month, int(spelled[1]))
+
+    numeric = _NUMERIC_DATE.match(text)
+    if numeric is None:
+        return None, (
+            f"{NOT_FOUND}: {printed.strip()!r} is not a date this reader reads"
+        )
+    return _ordered_date(int(numeric[1]), int(numeric[2]), int(numeric[3]))
+
+
+def _ordered_date(
+    first: int, second: int, year: int
+) -> tuple[datetime.date | None, str]:
+    """`26/02/2026` when only one reading of it is a real date.
+
+    Equal numbers are determined too: `05/05/2026` is the 5th of May either
+    way round, so there is nothing to guess.
+    """
+    if first == second or (first > 12 >= second):
+        return _real_date(year, second, first)
+    if second > 12 >= first:
+        return _real_date(year, first, second)
+    return None, (
+        f"{NOT_FOUND}: {first:02d}/{second:02d}/{year} is either the "
+        f"{first} of month {second} or the {second} of month {first}, and the "
+        "document does not say which. A date read the wrong way round files a "
+        "return in the wrong month, so it is asked rather than assumed"
+    )
+
+
+def _real_date(year: int, month: int, day: int) -> tuple[datetime.date | None, str]:
+    """A date that exists. The 34th of a month is a misread 04th, not a date."""
+    try:
+        return datetime.date(year, month, day), ""
+    except ValueError:
+        return None, (
+            f"{NOT_FOUND}: {year}-{month:02d}-{day:02d} is not a day that "
+            "exists, so it was misread or misprinted"
+        )
+
+
+def _read_date(text: str) -> tuple[datetime.date | None, str]:
+    printed, why = _the_one(_labelled(text, "DATE"), "its date")
+    return (None, why) if printed is None else _date_from(printed)
+
+
+def _read_party(text: str) -> tuple[str | None, str]:
+    values: tuple[str, ...] = ()
+    for label in _PARTY_LABELS:
+        values += _labelled(text, label)
+    return _the_one(values, "its supplier")
+
+
+def _read_total(lines: tuple[str, ...]) -> tuple[int | None, str]:
+    return _the_one(_amounts_for(lines, _TOTAL_LABELS), "its total")
+
+
+def _split_tax(lines: tuple[str, ...]) -> tuple[int | None, str, bool]:
+    """CGST + SGST + UTGST, each agreed with its OWN repeats before adding.
+
+    Agreed first, and that is not a detail. Summing every printing of a split
+    tax made a two-page bill whose footer repeats read 376.64 where the
+    document says 188.32 twice - double the tax, at confidence 1.0, from a
+    document that never contradicted itself. Repetition is what a continuation
+    sheet does; only DISAGREEMENT is refused, exactly as it is for the total.
+
+    The third value is "were any split labels printed at all", which the caller
+    needs and cannot get from the sum: a bill with no CGST line and a bill
+    whose CGST is zero are different facts.
+    """
+    added = 0
+    printed_any = False
+    for label in _TAX_PARTS:
+        printed = _amounts_for(lines, (label,))
+        if not printed:
+            continue
+        printed_any = True
+        stated, why = _the_one(printed, f"its {label}")
+        if stated is None:
+            return None, why, True
+        added += stated
+    return (added if printed_any else None), "", printed_any
+
+
+def _read_tax(lines: tuple[str, ...]) -> tuple[int | None, str]:
+    """The tax on this bill, whether printed whole or printed in halves.
+
+    Adding CGST to SGST is arithmetic on two figures that were both READ
+    exactly, so the answer is still read rather than estimated. A bill printing
+    BOTH a combined figure and its halves is refused: adding them double-counts
+    and taking one assumes the other is a breakdown of it, and neither of those
+    is something the document said.
+    """
+    split, why_split, has_split = _split_tax(lines)
+    whole = _amounts_for(lines, _TAX_WHOLE)
+    if has_split and whole:
+        return None, (
+            f"{NOT_FOUND}: this bill prints its tax both as one figure and as "
+            "separate parts, and adding them would count the same tax twice"
+        )
+    if has_split:
+        return split, why_split
+    return _the_one(whole, "its tax")
+
+
+#: Labels that belong to a bill's FOOTER rather than to its items. `SUBTOTAL`
+#: is here and deliberately absent from `_TOTAL_LABELS`: it closes the itemised
+#: block without ever being readable as the amount payable.
+_FOOTER_LABELS: Final[tuple[str, ...]] = (
+    "SUBTOTAL",
+    *_TOTAL_LABELS,
+    *_TAX_WHOLE,
+    *_TAX_PARTS,
+)
+
+
+def _is_footer_row(line: str) -> bool:
+    """Is this the footer starting, rather than another line item?
+
+    Tested as "a footer label and then NOTHING BUT an amount", never as a
+    prefix. An item called `TAX CONSULTANCY   500.00` begins with a tax label
+    and is not a footer; closing the block on it would drop every line after it,
+    the lines would stop adding up to the total, and `lines_sum_to_total` would
+    blame the bill for the reader.
+
+    This is what lets a blank line be skipped safely. Without it, a table whose
+    closing rule is missing would run on and read `SUBTOTAL` as an item.
+    """
+    return any(_amount_on(line, label) is not None for label in _FOOTER_LABELS)
+
+
+def _read_lines(lines: tuple[str, ...]) -> tuple[tuple[LineRead, ...] | None, str]:
+    """The itemised block, or None when the bill did not itemise.
+
+    NONE, NOT AN EMPTY TUPLE. `conservation.lines_sum_to_total` reads `()` as
+    "we read the lines and there were none", which contradicts any non-zero
+    total and comes back FAIL. A bill saying "supply as per agreement" is not a
+    bill whose arithmetic is wrong - it is one whose arithmetic we could not
+    check, which is INDETERMINATE, and the difference is the difference between
+    accusing a supplier and asking a question.
+
+    A SECOND HEADER IS REFUSED, NOT APPENDED. A continuation sheet that
+    reprints the table used to come back as the same items twice - a two-line
+    bill answering `(100000, 4624, 100000, 4624)`, which does not add up to its
+    own total, so `lines_sum_to_total` would report the BILL as wrong when the
+    READER is what failed. Nothing in the bytes says whether a second table is
+    the first one reprinted or genuinely more items, so it is asked.
+    """
+    found: list[LineRead] = []
+    inside = False
+    headed = False
+    for line in lines:
+        if _ITEM_HEADER.match(line):
+            if headed:
+                return None, (
+                    f"{NOT_FOUND}: this document prints its itemised table more "
+                    "than once, and nothing in it says whether the second is the "
+                    "first reprinted on a continuation sheet or a further set of "
+                    "items. Adding them would invent line items"
+                )
+            headed = True
+            inside = True
+            continue
+        if not inside:
+            continue
+        if _BLANK.match(line):
+            # A page join, not the end of the table. `_text_of` puts this
+            # newline here; the bill never printed it. Closing the block on it
+            # meant a page break falling between the column header and the
+            # first row left the whole table unread.
+            continue
+        if _RULE.match(line) or _is_footer_row(line):
+            inside = False
+            continue
+        item = _ITEM.match(line)
+        amount = None if item is None else paise_or_none(item.group("amount"))
+        if item is None or amount is None:
+            return None, (
+                f"{NOT_FOUND}: {line.strip()!r} sits in this bill's itemised "
+                "block and no amount could be read from it. Skipping it would "
+                "produce lines that do not add up to the total, and the bill "
+                "would be reported as wrong when the reading is what failed"
+            )
+        found.append(
+            LineRead(description=item.group("desc").strip(" |"), amount_paise=amount)
+        )
+    if not found:
+        return None, (
+            f"{NOT_FOUND}: this bill has no itemised block, so its line items "
+            "were not read. That is not the same as a bill with no items"
+        )
+    return tuple(found), ""
+
+
+# =============================================================================
+# the reading
+# =============================================================================
+
+
+#: One field's value and, when there is none, the sentence saying why not.
+type Answered[T] = tuple[T | None, str]
+
+#: The answer for a field nothing was read for. The reason is filled in from
+#: the reading's own sentence, so a refusal cannot produce a blank with no why.
+_NOTHING: Final[Answered[object]] = (None, "")
+
+
+def _field(value: object, why: str, fallback: str) -> Field:
+    """One field, at `EXACT` when it was read and at 0.0 when it was not.
+
+    There is no middle value on this rung and there must never be one. A number
+    between the two would mean somebody estimated, and estimating is the job of
+    the tier that looks at pixels.
+
+    `fallback` is the whole reading's sentence, used when a field has no reason
+    of its own - which is every field of a document that could not be opened.
+    `Field` refuses an empty source, so this is what stops a refusal producing
+    four blanks that cannot say what happened.
+    """
+    if value is None:
+        return Field(value=None, confidence=0.0, source=why or fallback)
+    return Field(value=value, confidence=EXACT, source=SOURCE)
+
+
+def _reading(
+    outcome: Outcome,
+    said: str,
+    *,
+    date: Answered[datetime.date] = _NOTHING,
+    party: Answered[str] = _NOTHING,
+    total: Answered[int] = _NOTHING,
+    tax: Answered[int] = _NOTHING,
+    items: Answered[tuple[LineRead, ...]] = _NOTHING,
+    text: str = "",
+    pages: int = 0,
+) -> TextLayerReading:
+    """Assemble one reading. The ONE place a `TextLayerReading` is built.
+
+    One place, for the reason `registry.GuardedExtractor.outage` gives about
+    outage records: two constructors is how one of them ends up without a
+    reason on a blank field, which is a silent blank wearing a label.
+    """
+    found = items[0]
+    line_paise = None if found is None else tuple(i.amount_paise for i in found)
+    fields = {
+        "date": _field(date[0], date[1], said),
+        "party": _field(party[0], party[1], said),
+        "total_paise": _field(total[0], total[1], said),
+        "tax_paise": _field(tax[0], tax[1], said),
+        "line_paise": _field(line_paise, items[1], said),
+    }
+    return TextLayerReading(
+        outcome=outcome,
+        observation=Observation(
+            date=fields["date"],
+            party=fields["party"],
+            total_paise=fields["total_paise"],
+            tax_paise=fields["tax_paise"],
+            line_paise=line_paise,
+        ),
+        fields=fields,
+        said=said,
+        lines=found or (),
+        text=text,
+        pages=pages,
+    )
+
+
+def _text_of(data: bytes) -> tuple[str, int]:
+    """The whole document's text layer, and its page count.
+
+    `extract_text` and nothing else. No attachment is listed, no embedded file
+    is opened, no action is followed and nothing is decrypted - see the module
+    docstring for why that list is written down rather than assumed.
+    """
+    reader = PdfReader(io.BytesIO(data))
+    if reader.is_encrypted:
+        raise _Refused(
+            "this PDF is encrypted and we hold no password for it. Guessing "
+            "one is not reading, so nothing was taken from it"
+        )
+    pages = len(reader.pages)
+    if pages == 0:
+        raise _Refused(
+            "this PDF declares no pages, so there is no document in it to read"
+        )
+    return "\n".join(page.extract_text() for page in reader.pages), pages
+
+
+class _Refused(Exception):
+    """A refusal this module states in its own words rather than a parser's."""
+
+
+def read(data: bytes) -> TextLayerReading:
+    """Read the text layer of `data`, or say why nothing was read.
+
+    NEVER RAISES. Every failure inside `pypdf` - a truncated upload, a cyclic
+    page tree, a stream that ends early - comes back as `Outcome.UNREADABLE`
+    with a sentence, because the alternative is an HTTP 503 telling a person
+    the application is broken when their upload merely got cut off.
+    """
+    if not data.startswith(PDF_MAGIC):
+        return _reading(
+            Outcome.UNREADABLE,
+            f"{NOT_FOUND}: these bytes are not a PDF - they do not begin with "
+            f"{PDF_MAGIC.decode('ascii')}, so nothing was parsed from them",
+        )
+    try:
+        text, pages = _text_of(data)
+    except _Refused as refusal:
+        return _reading(Outcome.UNREADABLE, f"{NOT_FOUND}: {refusal}")
+    except Exception as exc:
+        return _reading(
+            Outcome.UNREADABLE,
+            f"{NOT_FOUND}: this PDF could not be parsed "
+            f"({type(exc).__name__}), so nothing was read from it",
+        )
+
+    if not text.strip():
+        return _reading(
+            Outcome.NO_TEXT_LAYER,
+            f"{NOT_FOUND}: this PDF carries no text layer. It is a scan or a "
+            "photograph, and reading pixels is the other tier's job - nothing "
+            "here guesses at one",
+            text=text,
+            pages=pages,
+        )
+    return _parse(text, pages)
+
+
+def _parse(text: str, pages: int) -> TextLayerReading:
+    lines = tuple(line.rstrip() for line in text.splitlines())
+    answers: dict[str, Answered[object]] = {}
+    date = answers["date"] = _read_date(text)
+    party = answers["party"] = _read_party(text)
+    total = answers["total_paise"] = _read_total(lines)
+    tax = answers["tax_paise"] = _read_tax(lines)
+    items = answers["line_paise"] = _read_lines(lines)
+    return _reading(
+        Outcome.READ,
+        _said_about(pages, answers),
+        date=date,
+        party=party,
+        total=total,
+        tax=tax,
+        items=items,
+        text=text,
+        pages=pages,
+    )
+
+
+def _said_about(pages: int, answers: dict[str, Answered[object]]) -> str:
+    """The one sentence for the whole reading, naming every field it missed.
+
+    A reading that said only "read" would put the person in front of a form
+    with four blanks and no explanation of any of them.
+    """
+    missed = [name for name in FIELDS if answers[name][0] is None]
+    said = f"read the text layer of this {pages}-page PDF"
+    if not missed:
+        return said + "."
+    why = "; ".join(f"{name} - {answers[name][1]}" for name in missed)
+    return f"{said}. Not read: {why}."
+
+
+# =============================================================================
+# the seam
+# =============================================================================
+
+
+class TextLayerReader:
+    """The text-layer tier, as an `adapter.Extractor`.
+
+    The seam already exists and is not redesigned here: `pipeline.build_draft`
+    takes an `Extractor` and never names a class, so this rung joins the same
+    Protocol the other backends satisfy. Registering it is one line in
+    `registry._READY` and that file chooses backends; this one is a backend.
+
+    THE RECORD IS NOT THE READING. `ExtractedRecord` has no confidence on it,
+    which is the whole reason `accountant/cage/wall.py` exists. Callers inside
+    the cage want `read()` and its `Observation`; this class is for the
+    existing pipeline, and both come from the same parse.
+    """
+
+    name = SOURCE
+
+    def _refuse(self, reason: str) -> ExtractedRecord:
+        """Every field `not_found`, with this reason on each.
+
+        `UnavailableExtractor`, which is the one class in this package that
+        builds an outage record. A second shape that resembles it is how one of
+        them ends up with no reason on it.
+        """
+        return UnavailableExtractor(reason, name=self.name).extract(b"", "")
+
+    def extract(self, data: bytes, mime: str) -> ExtractedRecord:
+        declared = _declared_media_type(mime)
+        if declared != PDF_MIME:
+            return self._refuse(
+                f"{self.name} reads the text layer of a PDF and was handed "
+                f"{declared or 'no media type'}; reading that is another "
+                "tier's job and nothing here guesses at its contents"
+            )
+        reading = read(data)
+        return ExtractedRecord(
+            date=_as_date(reading.fields["date"].value),
+            party=_as_str(reading.fields["party"].value),
+            total_paise=_as_int(reading.fields["total_paise"].value),
+            tax_paise=_as_int(reading.fields["tax_paise"].value),
+            line_items=tuple(
+                LineItem(description=item.description, amount_paise=item.amount_paise)
+                for item in reading.lines
+            ),
+            raw_text=reading.text,
+            backend=self.name,
+            per_field_source={
+                name: reading.fields[name].source
+                for name in ("date", "party", "total_paise", "tax_paise")
+            },
+        )
+
+
+def _declared_media_type(mime: str) -> str:
+    """`application/pdf; qs=0.001` -> `application/pdf`.
+
+    The same one line as `adapter._media_type`, and written again rather than
+    imported because that one is private and pyright's strict mode is right to
+    refuse a private name crossing a module boundary. It reads the CALLER'S own
+    declaration and never the bytes; refusing a real form's charset parameter
+    would be a refusal nobody could act on.
+    """
+    return mime.split(";", 1)[0].strip().lower()
+
+
+def _as_date(value: object) -> datetime.date | None:
+    return value if isinstance(value, datetime.date) else None
+
+
+def _as_str(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _as_int(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
