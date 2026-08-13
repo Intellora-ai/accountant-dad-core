@@ -1406,3 +1406,129 @@ def test_the_control_a_table_that_points_where_it_says_is_not_a_repair() -> None
     assert honest == set()
     assert xref_was_rebuilt(pdf_bytes(BILL)) is False
     assert xref_was_rebuilt(pdf_bytes(BILL, pages=3)) is False
+
+
+# =============================================================================
+# BYTES AFTER %%EOF, WHERE THE READER AND THE GUARD DISAGREE, 2026-08-13
+# =============================================================================
+#
+# `read` promises NEVER RAISES and it did. Adversarial verification found the
+# seam: `pypdf` stops at the LAST `%%EOF`, while `xref_was_rebuilt` does
+# `data.rfind(b"startxref")` over the whole buffer. So bytes appended after the
+# end marker are invisible to the parser and authoritative for the guard, and
+# the guard is called OUTSIDE the try that makes the promise.
+#
+# Behind that seam sat two unguarded `int()` calls, and CPython refuses to
+# convert an integer literal longer than 4300 digits. Append `startxref` and
+# 4301 zeros to a PDF that reads perfectly and the whole call raises
+# `ValueError` out of `extract`. The numeric VALUE is zero; only the written
+# form is long, so no arithmetic anywhere had to be wrong for this to fire.
+#
+# Both cases below are the measured reproducers, kept as the bytes rather than
+# as a description of them.
+
+
+def appended_after_eof(data: bytes, tail: bytes) -> bytes:
+    """The same PDF with `tail` after its last `%%EOF`, which still reads.
+
+    A PDF is defined by its trailer, so a parser that has found the end marker
+    has finished. That is what makes this the interesting shape: the two
+    components disagree about which bytes are the document.
+    """
+    return data + tail
+
+
+def test_a_startxref_after_the_eof_marker_cannot_raise_out_of_the_reader() -> None:
+    """THE REPRODUCER. 4301 zeros, a valid PDF in front of them.
+
+    Before the fix this raised `ValueError: Exceeds the limit (4300 digits)`
+    out of `read`, through `Ladder.extract`, past a docstring promising it
+    never raises."""
+    poison = appended_after_eof(pdf_bytes(BILL), b"startxref\n" + b"0" * 4301 + b"\n")
+
+    reading = read(poison)
+
+    assert reading.pdf_repaired is True
+    assert xref_was_rebuilt(poison) is True
+
+
+def test_a_decoy_table_after_the_eof_marker_cannot_raise_either() -> None:
+    """THE SECOND ROUTE, and why capping one call site was not the fix.
+
+    A `startxref` past the end marker aimed at an `xref` keyword parked in a
+    comment sends the guard into `_table_lies`, where a subsection header's
+    own digits were converted just as unguardedly."""
+    decoy = b"%\nxref\n0 " + b"9" * 5000 + b"\n0000000000 65535 f \n"
+    body = b"%PDF-1.4\n" + decoy + pdf_bytes(BILL)[9:]
+    at = body.index(b"xref")  # the decoy's keyword, which is the first in the file
+    poison = appended_after_eof(body, b"startxref\n%d\n" % at)
+
+    reading = read(poison)
+
+    assert reading.pdf_repaired is True
+
+
+def padded_startxref(data: bytes, offset: bytes) -> bytes:
+    """The same PDF whose `startxref` names `offset` in 4400 columns of zeros.
+
+    Long enough that CPython will not convert it, and worth exactly what the
+    unpadded number is worth.
+    """
+    at = data.rfind(b"startxref")
+    return data[:at] + b"startxref\n" + b"0" * 4400 + offset + b"\n%%EOF\n"
+
+
+def test_the_control_a_padded_offset_still_names_the_place_it_points_at() -> None:
+    """THE CONTROL, and the one that stops the fix becoming a rubber stamp.
+
+    Answering "repaired" for every long digit string would pass all three
+    tests above it and would then put "verify this carefully" on any document
+    whose writer pads its offsets - the failure mode
+    `test_the_control_none_of_the_twenty_corpus_pdfs...` exists to prevent.
+
+    So the zeros are stripped BEFORE the length is judged, and the pair is the
+    proof: padded-and-true is not a repair, padded-and-false is, and a blanket
+    refusal could not tell them apart."""
+    data = pdf_bytes(BILL)
+    true_offset = data[data.rfind(b"startxref") + 9 :].strip().split(b"\n")[0].strip()
+
+    assert xref_was_rebuilt(padded_startxref(data, true_offset)) is False
+    assert xref_was_rebuilt(padded_startxref(data, b"999999")) is True
+
+
+def test_a_padded_offset_is_refused_by_the_parser_rather_than_crashing() -> None:
+    """MEASURED, and stated rather than assumed: `pypdf` will not read the file
+    above at all - it raises `PdfReadError` on the padded number itself. That
+    is the right shape of answer and it is not the one that was in doubt: the
+    reading comes back as a refusal carrying a sentence, from inside the try,
+    which is what `read` promises for every unreadable upload."""
+    data = pdf_bytes(BILL)
+    true_offset = data[data.rfind(b"startxref") + 9 :].strip().split(b"\n")[0].strip()
+
+    reading = read(padded_startxref(data, true_offset))
+
+    assert reading.outcome is Outcome.UNREADABLE
+    assert reading.observation.total_paise.value is None
+    assert reading.observation.total_paise.source.startswith(NOT_FOUND)
+
+
+def test_the_reader_still_answers_when_the_repair_check_itself_breaks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The STRUCTURAL half, which does not depend on the two fixes above.
+
+    `read` promises never to raise. That promise was resting on every line of
+    a guard being correct, and one of them was not. The next bug in that guard
+    should cost a warning, not a traceback - so the call sits inside a try, and
+    the answer on failure is `True`, because "verify this carefully" is the
+    conservative thing to say about bytes we could not finish checking."""
+
+    def explode(_: bytes) -> bool:
+        raise ValueError("the guard is broken again")
+
+    monkeypatch.setattr("accountant.extract.textlayer.xref_was_rebuilt", explode)
+
+    reading = read(pdf_bytes(BILL))
+
+    assert reading.outcome is Outcome.READ
+    assert reading.pdf_repaired is True

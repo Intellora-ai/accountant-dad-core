@@ -254,6 +254,13 @@ _SUBSECTION: Final = re.compile(rb"\s*(\d+)\s+(\d+)\s*?[\r\n]+")
 #: pattern rather than a slice because writers disagree about the last two.
 _XREF_ENTRY: Final = re.compile(rb"(\d{10}) (\d{5}) ([nf])[ \r\n]{1,2}")
 
+#: How many digits a number in this structure may have before it is stating
+#: something no file can be. 2**63 has 19 digits, so 19 covers every offset,
+#: object number and entry count any real PDF can carry - and CPython refuses
+#: to convert a literal past 4300 digits at all, which is what turned an
+#: unguarded `int()` here into a crash rather than a large number.
+_MOST_DIGITS: Final = 19
+
 
 def xref_was_rebuilt(data: bytes) -> bool:
     """Did `pypdf` have to RECONSTRUCT this file's object table to read it?
@@ -313,8 +320,8 @@ def xref_was_rebuilt(data: bytes) -> bool:
     digits = tail[: len(tail) - len(tail.lstrip(_DIGITS))]
     if not digits:
         return True
-    offset = int(digits)
-    if not 0 < offset < len(data):
+    offset = _stated_number(digits)
+    if offset is None or not 0 < offset < len(data):
         return True
     here = data[offset : offset + _ENOUGH]
     if here.startswith(_XREF_KEYWORD):
@@ -335,23 +342,37 @@ def _table_lies(data: bytes, at: int) -> bool:
     document nobody read anything off - and the twenty corpus bills are the
     control that this stayed a detector rather than becoming a rubber stamp.
     """
-    for number, offset in _table_entries(data, at):
+    entries = _table_entries(data, at)
+    if entries is None:
+        return True
+    for number, offset in entries:
         here = data[offset : offset + _ENOUGH]
         if not re.match(rb"%d\s+\d+\s+obj\b" % number, here):
             return True
     return False
 
 
-def _table_entries(data: bytes, at: int) -> list[tuple[int, int]]:
+def _table_entries(data: bytes, at: int) -> list[tuple[int, int]] | None:
     """`(object number, offset)` for every in-use entry of a classic table.
 
     Empty when the bytes are not a table this reads, which is the same answer
     as a table with nothing wrong in it. That is deliberate: this function
     reports what it could check, and `_table_lies` is what decides.
+
+    `None` is the THIRD answer and it is not the same as empty: a subsection
+    header stating an object number or a count of more digits than any file can
+    hold is a table this could not finish reading, and `_table_lies` calls that
+    a repair. Answering empty there would report "nothing wrong" about bytes
+    that were never checked.
+
+    `int(entry[1])` below needs no such guard - `_XREF_ENTRY` matches exactly
+    ten digits, so the pattern is already the bound.
     """
     entries: list[tuple[int, int]] = []
     while (head := _SUBSECTION.match(data, at)) is not None:
-        first, count = int(head[1]), int(head[2])
+        first, count = _stated_number(head[1]), _stated_number(head[2])
+        if first is None or count is None:
+            return None
         at = head.end()
         for index in range(count):
             entry = _XREF_ENTRY.match(data, at)
@@ -361,6 +382,34 @@ def _table_entries(data: bytes, at: int) -> list[tuple[int, int]]:
             if entry[3] == b"n":
                 entries.append((first + index, int(entry[1])))
     return entries
+
+
+def _stated_number(digits: bytes) -> int | None:
+    """The number these ASCII digits state, or `None` when no file is that big.
+
+    THE LEADING ZEROS ARE STRIPPED BEFORE THE LENGTH IS JUDGED, and that is the
+    whole of the care in this function. `0000000245` is 245, and a `startxref`
+    padded out to four thousand columns still names the offset it names - so
+    the caller asking `0 < offset < len(data)` gets the answer it always got,
+    and an honest document is never called repaired for its formatting.
+
+    What is refused is a number too long to be an offset into anything: 2**63
+    has 19 digits and no upload is 10**19 bytes. The caller answers True for
+    that, which is the same answer `0 < offset < len(data)` would have reached
+    on its own - CPython simply will not convert a literal past 4300 digits to
+    let it, and the unguarded `int()` that used to be here raised `ValueError`
+    straight out of a `read` whose docstring promises it never raises.
+
+    MEASURED 2026-08-13: a 588-byte PDF that reads correctly, with `startxref`
+    and 4301 zeros appended AFTER its `%%EOF`. `pypdf` stops at the last end
+    marker so it never saw those bytes; this guard does `rfind` over the whole
+    buffer, so they were the only pointer it read. The offset's value was zero.
+    Only its written form was long.
+    """
+    lean = digits.lstrip(b"0")
+    if not lean:
+        return 0
+    return int(lean) if len(lean) <= _MOST_DIGITS else None
 
 
 # =============================================================================
@@ -847,7 +896,25 @@ def read(data: bytes) -> TextLayerReading:
     # about data that came back, and a refusal brings none: telling somebody to
     # verify a reading carefully when there is no reading is noise on the one
     # warning that has to be read.
-    repaired = xref_was_rebuilt(data)
+    #
+    # INSIDE A TRY AS OF 2026-08-13, and it was not before. This call sat
+    # outside the one above and broke the NEVER RAISES promise in the docstring
+    # over it. The seam: `pypdf` stops at the last `%%EOF` while the guard does
+    # `rfind` over the whole buffer, so bytes appended after the end marker are
+    # invisible to the parser and authoritative for the guard - and an
+    # unguarded `int()` behind them raised `ValueError` out of `extract`.
+    #
+    # The digit lengths are bounded now, so this should not fire. It is here
+    # because the promise was resting on every line of that guard being right
+    # and one of them was not, and the next such line should cost a warning
+    # rather than a traceback. True is the answer on failure: "verify this
+    # carefully" is the conservative thing to say about bytes we could not
+    # finish checking, and False would tell the decision layer the reading was
+    # trustworthy on the strength of a check that crashed.
+    try:
+        repaired = xref_was_rebuilt(data)
+    except Exception:
+        repaired = True
 
     if not text.strip():
         return _reading(
