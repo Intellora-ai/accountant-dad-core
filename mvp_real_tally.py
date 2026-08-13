@@ -32,6 +32,7 @@ import datetime
 import os
 import sys
 
+from accountant.money import format_inr
 from accountant.tallyio import audit, errors, writedoor
 from accountant.tallyio.masters import Masters
 from accountant.tallyio.real import HttpTransport, TallyConfig
@@ -126,7 +127,7 @@ def main() -> int:
     for entry in ledger.entries:
         print(
             f"    {entry.date or '?'}  {entry.voucher_type or 'Purchase':10}"
-            f"  {entry.amount_paise / 100:>12,.2f}  {entry.narration}"
+            f"  {format_inr(entry.amount_paise):>16}  {entry.narration}"
         )
 
     book = reports.day_book(when, when)

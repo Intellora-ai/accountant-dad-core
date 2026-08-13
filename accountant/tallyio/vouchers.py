@@ -85,6 +85,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 from xml.sax.saxutils import escape
 
+from accountant.money import format_inr
 from accountant.tallyio import audit, errors, writedoor
 from accountant.tallyio.client import operation_id_in, stamp
 from accountant.tallyio.masters import Masters, Problem, Validation
@@ -760,7 +761,7 @@ class Vouchers:
                 success=True,
                 would_send_xml=xml,
                 summary=(
-                    f"dry run: would post {amount_paise / 100:.2f} {subject} on "
+                    f"dry run: would post {format_inr(amount_paise)} {subject} on "
                     f"{when:%d-%m-%Y}. Nothing was sent."
                 ),
             )
@@ -862,7 +863,7 @@ class Vouchers:
                 summary=(
                     f"Created {vchtype} voucher"
                     + (f" #{number}" if number else "")
-                    + f" for {amount_paise / 100:.2f} {subject} on "
+                    + f" for {format_inr(amount_paise)} {subject} on "
                     f"{when:%d-%m-%Y}"
                     + ("" if confirmed else " - but read-back did not find it")
                 ),

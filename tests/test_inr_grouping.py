@@ -50,10 +50,21 @@ decision, taken 2026-08-13, and it is not derived from anything here. A
 company selling into a market that groups in threes would need this reopened,
 not worked around at the call site.
 
-That every screen calls it. This pins the function and the four call sites
-that exist today. A new call site that writes its own `f"{n:,}"` is caught by
-nothing in this file - `test_no_source_file_groups_rupees_the_western_way`
-below is the guard for that, and it reads the source, not the output.
+That every screen calls it. This pins the function and the five call sites
+that exist today. A new one is caught by
+`test_no_source_file_builds_a_rupee_figure_by_hand` at the bottom, which reads
+SOURCE rather than output - and which, until 2026-08-13, could not see the
+defect it was written to prevent. It flagged a format spec containing a comma,
+so `f"{amount_paise / 100:.2f}"` sailed through it twice in
+`tallyio/vouchers.py` and once in `mvp_real_tally.py`, a file its root did not
+even reach. It now catches paise arithmetic and figures assembled beside the
+symbol as well, over four times the source it used to read.
+
+That NO amount escapes. One class still does, and it is pinned rather than
+described: `test_the_blind_spot_a_bare_paise_integer_reaches_a_person_uncaught`.
+`f"{voucher.amount_paise} paise"` is an INR amount a person reads, it does not
+come through `format_inr`, and nothing here catches it. Twenty-eight of them
+exist. Read that test before removing it.
 
 Nothing here touches TALLY'S WIRE FORMAT, which is a separate decision.
 `tallyio/real.py::rupees_from_paise` writes `<AMOUNT>4200.50</AMOUNT>` with no
@@ -71,14 +82,28 @@ from __future__ import annotations
 
 import ast
 import pathlib
+from collections.abc import Iterator
 
 import pytest
 
 from accountant import money as M
 from accountant import questions as Q
-from accountant.tallyio import real
+from accountant.tallyio import audit, real, vouchers
 from accountant.taxonomy import report as taxreport
 from accountant.web import app
+
+
+class _NeverAsked:
+    """A transport that fails the test if a dry run reaches the network.
+
+    `Vouchers` defaults to a real `HttpTransport`, so a dry run that stopped
+    being dry would quietly try to reach TallyPrime on localhost rather than
+    say so.
+    """
+
+    def send(self, payload: str, *, retry: bool) -> str:
+        raise AssertionError(f"a dry run sent {len(payload)} bytes, retry={retry}")
+
 
 # ---- the five the owner named ----------------------------------------------
 
@@ -283,6 +308,37 @@ def test_the_crore_report_groups_a_six_figure_crore_amount_the_indian_way() -> N
     assert taxreport.crore(paise_from_crore(1719, 44)) == "1,719.44 crore"
 
 
+def test_the_voucher_a_person_is_asked_to_authorise_shows_indian_groups(
+    tmp_path: pathlib.Path,
+) -> None:
+    """FIXED 2026-08-13. `tallyio/vouchers.py` wrote `{amount_paise / 100:.2f}`
+    in both of the two sentences it hands back - the dry run a person reads
+    BEFORE authorising a write, and the confirmation they read after.
+
+    Three defects in one expression, and the float is the worst of them: no
+    symbol, no grouping, and `/` on a value the module's own docstring says is
+    integer paise precisely so no float exists on the path to somebody's books.
+
+    A twenty lakh supplier bill was previewed as `2000000.00`, which is the
+    figure the whole of `money.py` exists to stop being shown to an Indian
+    accountant, and the guard at the bottom of this file could not see it.
+    """
+    posting = vouchers.Vouchers(
+        "TANVEER SIDHU",
+        transport=_NeverAsked(),
+        log=audit.JsonLineAuditLogger(tmp_path / "log", tmp_path / "xml"),
+    ).create_purchase_voucher(
+        "12082026",
+        "Sharma Traders",
+        200_000_000,
+        operation_id="inr_grouping_dry_run",
+        dry_run=True,
+    )
+
+    assert "₹20,00,000.00" in posting.summary
+    assert "2000000.00" not in posting.summary
+
+
 # ---- what is deliberately NOT grouped ---------------------------------------
 
 
@@ -304,34 +360,221 @@ def test_the_amount_tally_receives_carries_no_separators_and_no_symbol(
     assert "₹" not in rendered
 
 
-def _western_format_specs(tree: ast.AST) -> list[int]:
-    """Line numbers of every f-string field whose format spec groups digits.
+# ---- the source guard: what a file may do with a paise value ----------------
+#
+# STRENGTHENED 2026-08-13, because the first version could not see the defect
+# it was written to prevent. It flagged a format spec CONTAINING A COMMA, so it
+# proved "no WESTERN GROUPING in `accountant/`" - which is a strictly weaker
+# claim than the owner's rule, "every INR amount a person reads comes through
+# `format_inr`". `f"{amount_paise / 100:.2f}"` has no comma in its spec and
+# sailed straight through, twice, in `tallyio/vouchers.py`, and a third time in
+# `mvp_real_tally.py`, which the old guard's root did not even reach.
+#
+# The rule now has three parts, and each is a SHAPE the source can be caught
+# in rather than a string the output can be searched for:
+#
+#   1. a format spec that groups digits          `f"{n:,}"`
+#   2. ARITHMETIC on a paise value in an f-string `f"{amount_paise / 100:.2f}"`
+#   3. a figure assembled beside the symbol       `f"₹{amount_paise}"`
+#
+# Rule 2 is the one that matters. Dividing paise by 100 inside the string IS
+# the act of building a rupee figure by hand, whatever is done with it after,
+# and there is no legitimate reason to do it on the screen path.
 
-    Parsed, not grepped: `web/app.py::rupees` quotes the expression it
-    replaced inside its own docstring, and a grep cannot tell that apart from
-    the live code it is warning about.
+#: Functions that turn paise into a string NO PERSON READS, keyed by their own
+#: name. Both write a machine's input, and both are excluded here DELIBERATELY,
+#: so that the exclusion is a decision on the record rather than a gap:
+#:
+#:   `_rupees`       `tallyio/vouchers.py` - Tally's `<AMOUNT>` field. A comma
+#:                   or a ₹ there is a parse failure or a silently different
+#:                   number in somebody's statutory books.
+#:   `group_western` `scripts/build_ground_truth.py` - renders SYNTHETIC
+#:                   INVOICES, which are INPUT to the reader, not output to a
+#:                   person. `build_ground_truth.py:695` picks Indian or
+#:                   western grouping per document on purpose, because a real
+#:                   bill may be typed either way and the reader has to survive
+#:                   both. Grouping it the Indian way would delete half the
+#:                   corpus's variation and measure the product as SAFER while
+#:                   testing it LESS.
+#:
+#: Keyed on the function name, not the file, so the licence travels with the
+#: function and does not quietly cover its neighbours.
+_NOT_READ_BY_A_PERSON = frozenset({"_rupees", "group_western"})
+
+
+def _f_strings(node: ast.AST, inside: str = "") -> Iterator[tuple[str, ast.JoinedStr]]:
+    """Every f-string in the tree, paired with the function enclosing it.
+
+    Parsed, not grepped: `web/app.py::rupees` and `questions.py::rupees` both
+    quote the broken expression they replaced inside their own docstrings, and
+    a grep cannot tell a warning about dead code from the live code itself.
     """
+    for child in ast.iter_child_nodes(node):
+        here = (
+            child.name
+            if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef)
+            else inside
+        )
+        if isinstance(child, ast.JoinedStr):
+            yield here, child
+        yield from _f_strings(child, here)
+
+
+def _names_paise(expr: ast.AST) -> bool:
+    """Does this expression reach a value called `..._paise`?"""
+    return any(
+        "paise" in (n.id if isinstance(n, ast.Name) else n.attr).lower()
+        for n in ast.walk(expr)
+        if isinstance(n, ast.Name | ast.Attribute)
+    )
+
+
+def _offences(field: ast.FormattedValue, before: ast.expr | None) -> list[str]:
+    """Which of the three rules this one f-string field breaks."""
+    spec = field.format_spec
+    broken: list[str] = []
+    if spec is not None and any(
+        isinstance(p, ast.Constant) and "," in str(p.value) for p in ast.walk(spec)
+    ):
+        broken.append("western grouping")
+    # The arithmetic must be ON the paise value, not merely near it: an index
+    # like `voucher(n - 1).amount_paise` computes a POSITION, not an amount,
+    # and a guard that cannot tell those apart gets switched off.
+    if any(
+        _names_paise(n)
+        for n in ast.walk(field.value)
+        if isinstance(n, ast.BinOp | ast.UnaryOp)
+    ):
+        broken.append("paise arithmetic")
+    if (
+        isinstance(before, ast.Constant)
+        and str(before.value).rstrip().endswith(M.RUPEE_SIGN)
+        and not isinstance(field.value, ast.Call)
+    ):
+        broken.append("a figure built beside the symbol")
+    return broken
+
+
+def _guard(tree: ast.AST) -> list[str]:
+    """`["12: paise arithmetic", ...]` for one parsed module."""
     return [
-        node.lineno
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FormattedValue) and node.format_spec is not None
-        for part in ast.walk(node.format_spec)
-        if isinstance(part, ast.Constant) and "," in str(part.value)
+        f"{field.lineno}: {broken}"
+        for enclosing, joined in _f_strings(tree)
+        if enclosing not in _NOT_READ_BY_A_PERSON
+        for index, field in enumerate(joined.values)
+        if isinstance(field, ast.FormattedValue)
+        for broken in _offences(field, joined.values[index - 1] if index else None)
     ]
 
 
-def test_no_source_file_groups_digits_the_western_way() -> None:
+def _every_source_file() -> list[pathlib.Path]:
+    """Every file a figure can reach a person from.
+
+    WIDENED 2026-08-13. The old root was `accountant/` alone, so `scripts/`,
+    `ci/` and the three top-level scripts were unscanned - and one of them,
+    `mvp_real_tally.py`, was printing a party's whole ledger through
+    `f"{entry.amount_paise / 100:>12,.2f}"`.
+
+    `tests/` is EXCLUDED and has to be: the control below plants the very
+    patterns this guard exists to reject, and so does
+    `test_the_control_python_own_grouping_disagrees_at_a_lakh_and_above`. A
+    guard that scans its own controls is a guard that cannot have one.
+    """
+    repo = pathlib.Path(__file__).resolve().parent.parent
+    found = [
+        p for d in ("accountant", "scripts", "ci") for p in (repo / d).rglob("*.py")
+    ]
+    return sorted(found + list(repo.glob("*.py")))
+
+
+def test_no_source_file_builds_a_rupee_figure_by_hand() -> None:
     """The guard for the FIFTH renderer, which does not exist yet.
 
-    Every test above reads output. This one reads source, so a new screen that
-    writes its own `f"{whole:,}"` fails here rather than shipping grouped in
-    threes to an Indian accountant.
+    Every test above this one reads OUTPUT and so can only pin the call sites
+    that exist today. This one reads SOURCE, so a new screen that divides
+    paise by 100 itself fails here rather than shipping to an Indian
+    accountant - which is exactly what the two `vouchers.py` sites did while
+    the comma-only version of this test passed.
     """
-    root = pathlib.Path(__file__).resolve().parent.parent / "accountant"
+    repo = pathlib.Path(__file__).resolve().parent.parent
     offenders = [
-        f"{path.relative_to(root)}:{n}"
-        for path in sorted(root.rglob("*.py"))
-        for n in _western_format_specs(ast.parse(path.read_text()))
+        f"{path.relative_to(repo)}:{hit}"
+        for path in _every_source_file()
+        for hit in _guard(ast.parse(path.read_text()))
     ]
 
-    assert offenders == [], f"western grouping reached a person: {offenders}"
+    assert offenders == [], f"a rupee figure was built by hand: {offenders}"
+
+
+@pytest.mark.parametrize(
+    ("planted", "caught"),
+    [
+        ('f"₹{whole:,}.{part:02d}"', "western grouping"),
+        ('f"dry run: would post {amount_paise / 100:.2f}"', "paise arithmetic"),
+        ('f"{total_paise // 100}.{total_paise % 100:02d}"', "paise arithmetic"),
+        ('f"{-gst_paise}"', "paise arithmetic"),
+        ('f"you owe ₹{amount_paise}"', "a figure built beside the symbol"),
+    ],
+)
+def test_the_control_a_planted_violation_fails_the_guard(
+    planted: str, caught: str
+) -> None:
+    """THE CONTROL. Without it, "no offenders" cannot be told apart from a
+    guard that reports nothing whatever it is shown - which is precisely the
+    state the comma-only version was in for the two `vouchers.py` lines.
+
+    Every string here is a real shape: the first four are what the repository
+    actually contained, and the last is the one nobody has written yet.
+    """
+    assert caught in str(_guard(ast.parse(planted)))
+
+
+@pytest.mark.parametrize(
+    "innocent",
+    [
+        'f"would post {format_inr(amount_paise)} to {party}"',
+        'f"{money(draft.amount_paise)}"',
+        'f"entry {voucher(count - 1).amount_paise} of {count}"',
+        'f"{seen / 100:.1f} percent of the run"',
+        'f"amounts are integer paise, never {type(paise).__name__}"',
+    ],
+)
+def test_the_control_the_repaired_form_and_its_neighbours_are_left_alone(
+    innocent: str,
+) -> None:
+    """THE OTHER HALF OF THE CONTROL: a guard that flags everything is as
+    useless as one that flags nothing, and is deleted faster.
+
+    Line three is the one worth having. `voucher(count - 1).amount_paise`
+    subtracts to find a POSITION, not to convert an amount, and a guard that
+    cannot tell those apart makes false accusations in `ci/acceptance_cli.py`
+    until somebody turns it off.
+    """
+    assert _guard(ast.parse(innocent)) == []
+
+
+def test_the_blind_spot_a_bare_paise_integer_reaches_a_person_uncaught() -> None:
+    """WHAT THIS GUARD STILL CANNOT SEE, pinned rather than described.
+
+    `f"{voucher.amount_paise} paise"` renders an INR amount to a person -
+    `checks.py` and `detect/detectors.py` write five of these and `app.py`
+    puts them in the evidence block at the bottom of the draft card - and
+    nothing above catches it. No arithmetic, no comma, no symbol.
+
+    It is NOT the grouping defect: no separators means no second convention on
+    the screen, so a figure cannot be misread as ten times itself. It is the
+    OTHER half of the owner's rule, "through the one renderer", and it is a
+    separate change with a separate blast radius - `amount is 0 paise` is
+    pinned by name in three test files that belong to the decision path, and
+    the wording is the audit/evidence record, which `web/app.py` documents as
+    the owner's to move.
+
+    MEASURED 2026-08-13: 28 such fields across `accountant/`, `scripts/`,
+    `ci/` and the top-level scripts. Requiring every one of them to be wrapped
+    is a 28-entry exception list on day one, which is a guard nobody keeps.
+
+    This test fails the moment somebody strengthens the guard to catch the
+    class - which is the intent. It is here so the limit is read before it is
+    removed, not discovered afterwards by an accountant.
+    """
+    assert _guard(ast.parse('f"{voucher.amount_paise} paise to {account}"')) == []
