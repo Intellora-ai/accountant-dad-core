@@ -142,9 +142,22 @@ same answer.
 Typed entry and born-digital PDFs are unaffected either way — those go through
 `pypdf`, or through no reader at all.
 
-**No image was built for this change.** See "Evidence class" below: the tests
-prove the `Dockerfile` *instructs* this install. Nothing here is evidence that a
-photograph was read inside a container.
+**The image was built and a photograph was read inside it, 2026-08-13.** What
+the two packages actually cost, now that the numbers exist rather than being
+accepted sight-unseen:
+
+| | |
+|---|---|
+| `tesseract-ocr` + `tesseract-ocr-eng` layer | **107 MB** uncompressed — the single largest layer in the image, larger than the interpreter's own build layer (45 MB) and four times the virtualenv (25.8 MB) |
+| Build time for that one `RUN` | **12.0 s** of a 39 s cold build |
+| Engine that arrived | `tesseract 5.5.0` / `leptonica 1.84.1`, from Debian trixie |
+| Languages present | `eng` and `osd`, and nothing else — `tesseract --list-langs` inside the image confirms the constraint the table above asserts |
+
+The engine is on `PATH` at `/usr/bin/tesseract` and `pytesseract` finds it:
+`pytesseract.get_tesseract_version()` returns `5.5.0` inside the container. The
+apt install did not silently no-op.
+
+See "Evidence class" at the foot of this document for the per-field readings.
 
 ## What this image cannot do yet
 
@@ -188,21 +201,27 @@ it is not in this task's scope.
 this image must not be scaled to two replicas writing the same volume. One
 container, one volume.
 
-### 4. Nothing has been pulled, and nothing has been installed
+### 4. Nothing has been pushed, and no host has run it
 
-No Docker is available where these files were written, and no `docker build`
-has been run — deliberately, not as an oversight. Three things are therefore
-**asserted and not verified**: that `python:3.14.6-slim` exists, that
-`uv==0.12.2` installs into it, and that `uv sync --locked` resolves inside it.
-Two commands settle all three, and the second is the one that matters:
+This item used to read "Nothing has been pulled, and nothing has been
+installed". **That stopped being true on 2026-08-13**: the image was built on
+both architectures, the base image was pulled, the wheels were installed and a
+photograph was read inside a container. "Evidence class" at the foot of this
+document carries the numbers.
 
-```bash
-docker manifest inspect python:3.14.6-slim
-docker build -t accountant-dad:check .
-```
+What is still **asserted and not verified**:
 
-Until somebody runs the second, "the image installs its dependencies" means
-what the tests can read out of the file, not what a build did.
+- **No registry has this image.** `scripts/deploy` has never pushed. Every
+  registry named in this repository is under `.invalid` and cannot resolve.
+- **No host has run it.** Blockers 1 and 2 above are why, and neither was
+  weakened by the build — running the image with its default `CMD` exits **1**
+  with `REAL TALLY REQUIRED`, which is blocker 1 happening rather than being
+  predicted.
+- **apt pins nothing, and now there is a number attached.** The build on
+  2026-08-13 got `tesseract 5.5.0` from Debian trixie. Nothing in the
+  `Dockerfile` holds it there. The next build may get another, and the
+  measurement below shows that the engine version *moves the confidence
+  score* — see "The one disagreement" in the evidence class.
 
 ## Document upload is enabled at launch
 
@@ -410,26 +429,218 @@ up running a build nobody selected.
 
 ## Evidence class
 
-`NOT MEASURED`. No image has been built, pulled, run or pushed. Every check in
-`tests/test_deploy_artefacts.py` is a check on the **text** of these files, plus
-one behavioural check that runs `scripts/deploy` against a recorded stand-in for
-the `docker` CLI. Nothing here is evidence that a container starts.
+`MEASURED — BUILT AND RUN, NOT DEPLOYED`. Measured 2026-08-13 on Docker
+29.5.2 / Docker Desktop, 10 CPU, 8 GB, Apple Silicon. This section used to read
+`NOT MEASURED`, correctly, because no Docker existed where these files were
+written. One is available now, so the costs the owner accepted in writing above
+are numbers rather than acceptances.
 
-That applies to the dependency install added on 2026-08-13 without exception.
-The tests prove the Dockerfile *instructs* an exact, lockfile-pinned install
-and that `uv.lock` resolves exactly what `pyproject.toml` declares. They do not
-prove a wheel was fetched, a virtualenv was built or an import succeeded — no
-`docker build` was run, and the file was fixed rather than the pipeline.
+Everything below was **observed**. Nothing in it is read out of a file.
 
-**It applies to the Tesseract install added the same day just as strictly.**
-The tests read the `apt-get` line out of the `Dockerfile` and check its two
-package names, its `--no-install-recommends`, and that the package lists are
-deleted in the layer that downloaded them. No image was built, no package was
-fetched, no photograph was read inside a container, and the image's size and
-build time — the costs the owner accepted in writing above — are **unmeasured
-here**. `docker build` is the only thing that settles any of that:
+### The build
+
+| | linux/arm64 (native) | linux/amd64 (emulated) |
+|---|---|---|
+| Result | **success**, exit 0 | **success**, exit 0 |
+| Cold wall-clock | **39 s** | **40 s** |
+| Image size, to transfer | **93,414,173 B ≈ 93.4 MB** | **94,226,116 B ≈ 94.2 MB** |
+| Image size, unpacked on disk | **389 MB** | — |
+
+Cold means the base image was pulled inside that 39 s and no build cache
+existed; this repository had never been built. Both architectures were built
+because the machine is Apple Silicon and any cloud host is overwhelmingly
+likely to be amd64 — an image that only builds on the developer's laptop is a
+deployment defect that a single-arch build cannot see.
+
+Where the 39 s and the 93.4 MB go, from `docker history` and the build log:
+
+| Layer | Size | Time |
+|---|---|---|
+| `apt-get install tesseract-ocr tesseract-ocr-eng` | **107 MB** | 12.0 s |
+| base `python:3.14.6-slim` interpreter build layer | 45 MB | (pulled) |
+| `COPY /app/.venv` — pypdf, pytesseract, Pillow | 25.8 MB | 1.0 s to resolve |
+| `COPY accountant/` | 3.96 MB | 0.0 s |
+| `pip install uv==0.12.2` (stage 1, does not ship) | — | 13.9 s |
+| base image pull | — | 4.5 s |
+
+**Tesseract is the largest single thing in this image.** 107 MB for an engine
+that read one field of four off the corpus photograph. That is the owner's
+accepted cost, stated as the number rather than as the acceptance.
+
+The base tag resolved to a **real digest**, which the `Dockerfile` header says
+is the next step and correctly declined to invent:
+
+```
+python:3.14.6-slim  ->  sha256:7bec7ddcddeff7975d6ba9b4be7dd6f6b2f55e7491539145e2978f7f97ce9144   (index)
+                        sha256:34bf30c914ac17d2a0f7ecf94866e54380669d618ae4673672445516603ad8d7   (linux/arm64)
+                        sha256:b921fe7e7522f828d45197a47656ec465a9b15689b27fa8e1fba2864fca5b967   (linux/amd64)
+```
+
+### The binary is there
+
+```
+$ docker run --rm accountant-dad:check tesseract --version
+tesseract 5.5.0
+ leptonica-1.84.1
+  libgif 5.2.2 : libjpeg 6b (libjpeg-turbo 2.1.5) : libpng 1.6.48 : libtiff 4.7.0 :
+  zlib 1.3.1 : libwebp 1.5.0 : libopenjp2 2.5.3
+
+$ docker run --rm accountant-dad:check sh -c 'command -v tesseract; tesseract --list-langs'
+/usr/bin/tesseract
+List of available languages in "/usr/share/tesseract-ocr/5/tessdata/" (2):
+eng
+osd
+```
+
+Checked because an image whose `apt-get` silently no-opped would still build.
+It did not: the engine is on `PATH`, `pytesseract.get_tesseract_version()`
+returns `5.5.0` from inside the container, and the only trained data present is
+English plus orientation detection — the "English only" constraint above,
+verified rather than asserted.
+
+The wheels are the ones the suite ran against: `pypdf 6.15.0` and
+`Pillow 12.3.0` inside the container, **identical to the host virtualenv**.
+`uv sync --locked` did what the four properties above claim.
+
+The container runs as `uid=10001(accountant) gid=10001(accountant)`.
+
+### The reading, per field
+
+Three corpus documents, through `registry.default_extractor().extract(...)` —
+the exact call `accountant/web/app.py` makes on an upload. `DEFAULT_BACKEND`
+resolved to `ladder` inside the container. **arm64 and amd64 returned identical
+values for all three.**
+
+**`GT-0041.png`, `image/png` — a photograph. Backend `free_ocr`.**
+
+| Field | Truth | Container returned | Verdict | Confidence |
+|---|---|---|---|---|
+| `party` | `ADVANCED PROPULSION CENTRE UK LTD` | `AQUANCED PROPULSION CENTRE UK LTO` | **READ-BUT-WRONG** — 2 characters | **0.33** |
+| `date` | `2026-05-13` | `not_found` | not read | 0.0 |
+| `total_paise` | `1020.70` | `not_found` | not read | 0.0 |
+| `tax_paise` | `155.70` | `not_found` | not read | 0.0 |
+
+**One field of four was read. Zero of four were correct.** The owner's pass
+criterion for this measurement was *"at least one field is read, even if
+confidence is low"*, and that is met — `party` carries the source `free_ocr`,
+which is a READING, not a refusal. It is also wrong, and the confidence says so:
+**0.33 against `ASK_FLOOR` 0.70** (`accountant/cage/decision.py`), so the cage
+refuses to treat this name as a vendor identity and asks the person. That is the
+F-03 guard doing its job on a real container. The three unread fields carry
+`not_found` with a stated reason, not blanks.
+
+This is what "the corpus numbers are poor" means in practice, and it is the same
+poor number the host produces. The image is not the problem; reading a
+photograph is.
+
+**`GT-0021.pdf`, `application/pdf` — born digital. Backend `pdf_text_layer`.**
+
+| Field | Truth | Container returned | Verdict | Confidence |
+|---|---|---|---|---|
+| `date` | `2026-09-21` | `2026-09-21` | **CORRECT** | 1.0 |
+| `party` | `BALFOUR BEATTY VINCI JV - HS2 (N2)` | `BALFOUR BEATTY VINCI JV - HS2 (N2)` | **CORRECT** | 1.0 |
+| `total_paise` | `584.10` | `58410` | **CORRECT** | 1.0 |
+| `tax_paise` | `89.10` | `8910` | **CORRECT** | 1.0 |
+| line item | `CONSULTANCY RETAINER` / `495.00` | `CONSULTANCY RETAINER` / `49500` | **CORRECT** | — |
+
+Four of four, byte-identical to the host. `pypdf` behaves the same in the
+container as on the machine the tests ran on.
+
+**`GT-0061.jpg`, `image/jpeg` — a JPEG container with no image data.**
+
+All four fields `not_found`, each carrying:
+
+> *this file says it is a picture but there is no picture inside it, so there is
+> nothing on it to read. Please send the original photograph or scan*
+
+No confidence is stated for any field, which is correct — nobody scored them.
+**Nothing raised.** A crash here would have been a real defect; a refusal is the
+designed behaviour, and it survived the container.
+
+### Nothing raised, anywhere
+
+Across all three documents on both architectures, no exception escaped
+`extract()`. The probe caught `BaseException` specifically so that a crash could
+not be mistaken for a refusal, and reported `anything_raised: false` every time.
+
+### The one disagreement with the host
+
+The container and the host returned the same strings, the same fields, the same
+sources and the same refusals — with **one** exception:
+
+| | Host | Container |
+|---|---|---|
+| Tesseract | 5.5.3 (Homebrew), leptonica 1.87.0 | **5.5.0** (Debian trixie), leptonica 1.84.1 |
+| `party` read off `GT-0041.png` | `AQUANCED PROPULSION CENTRE UK LTO` | *same* |
+| `party` confidence | **0.30** | **0.33** |
+
+**The number moved and the behaviour did not.** Both are far below `ASK_FLOOR`
+(0.70) and further below `AUTO_POST_FLOOR` (0.95), so the cage reaches the same
+decision — ask the person — on both. Nothing downstream can tell them apart.
+
+It is still worth writing down, because it is **apt's unpinned install visible
+in an output number**. The engine version is not held by anything in the
+`Dockerfile`, the confidence score depends on it, and confidence is what decides
+whether a value is questioned or believed. Today the gap is 0.03 in a region
+where every value is refused anyway. The day a Debian upgrade moves a score
+across 0.70, an image and a test suite would disagree about whether to ask a
+human, and nothing in this repository would notice. That is the cost of an
+unpinned apt line, measured rather than argued.
+
+### Reproducing all of it
 
 ```bash
+# 1. Build. Both architectures; the cloud one is not the laptop's.
 docker build -t accountant-dad:check .
-docker image inspect accountant-dad:check --format '{{.Size}}'
+docker build --platform linux/amd64 -t accountant-dad:check-amd64 .
+
+# 2. The costs.
+docker image inspect accountant-dad:check --format '{{.Size}} {{.Architecture}}'
+docker history accountant-dad:check --format '{{.Size}}\t{{.CreatedBy}}'
+
+# 3. The binary is really there.
+docker run --rm accountant-dad:check tesseract --version
+docker run --rm accountant-dad:check sh -c 'command -v tesseract; tesseract --list-langs'
+
+# 4. Read the three documents through the shipped default path.
+#    docker cp rather than a bind mount: artifacts/ is in .dockerignore and a
+#    bind mount would also have to clear Docker Desktop's file sharing.
+cat > /tmp/probe.py <<'PY'
+import sys
+from accountant.extract import registry
+for name, mime in (("GT-0041.png", "image/png"),
+                   ("GT-0021.pdf", "application/pdf"),
+                   ("GT-0061.jpg", "image/jpeg")):
+    data = open(f"/docs/{name}", "rb").read()
+    r = registry.default_extractor().extract(data, mime)   # app.py's exact call
+    print(name, r.backend, r.date, repr(r.party), r.total_paise, r.tax_paise)
+    print("  conf:", dict(r.per_field_confidence))
+PY
+docker create --name probe accountant-dad:check python /probe.py
+docker cp /tmp/probe.py probe:/probe.py
+docker cp artifacts/ground_truth/documents probe:/docs
+docker start -a probe
+docker rm probe
+
+# 5. Blocker 1, happening rather than predicted. Exits 1.
+docker run --rm -e ACCOUNTANT_TENANT=probe-tenant accountant-dad:check; echo $?
 ```
+
+### What is still NOT measured
+
+`tests/test_deploy_artefacts.py` is unchanged by any of this and remains a check
+on the **text** of these files, plus one behavioural check that runs
+`scripts/deploy` against a recorded stand-in for the `docker` CLI. The build
+above was run by hand, once. **No gate runs it**, so this section is a
+measurement with a date on it, not a property that stays true.
+
+Still unproven, and each for a reason no build can fix:
+
+- **That any registry has this image.** Nothing has been pushed.
+- **That any host runs it.** Blockers 1 and 2 are unchanged; the default `CMD`
+  exits 1 in any environment without a reachable TallyPrime, which is every
+  cloud.
+- **That the next build gets `tesseract 5.5.0`.** apt pins nothing.
+- **That the amd64 image runs on real amd64 hardware.** It was built and
+  executed under emulation on Apple Silicon. Emulation is strong evidence and
+  not the same statement.
