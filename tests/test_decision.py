@@ -663,12 +663,22 @@ def test_a_repaired_file_that_is_otherwise_perfect_is_asked_about() -> None:
 
 
 def test_the_control_a_file_that_needed_no_repair_still_posts() -> None:
-    """THE CONTROL, and it carries the whole weight of the pair above.
+    """THE CONTROL. It catches ONE specific way of getting this wrong, and the
+    mutation run corrected what this docstring first claimed about it.
 
-    Without it, a "ceiling" implemented as a blanket refusal - or as a rule that
-    fires on every bill regardless of the flag - passes every assertion above
-    and looks like a correct implementation. This is the identical situation
-    with the one field moved, and it must still reach the books.
+    A ceiling that fires on every bill whatever the flag says is killed HERE and
+    nowhere else in this section - the tests above it all pass under that
+    mutant, because every one of them only ever looks at the repaired side.
+
+    What it does NOT catch, measured: a ceiling widened into a full block. Under
+    that one `False` and `None` still post, so this stays green and the ask
+    tests above are what go red. Two different ways to be wrong, one test each,
+    and neither covers the other - which is why both halves are here rather than
+    the one that reads like the important one.
+
+    Both no-ceiling values, because they mean different things and must behave
+    the same: `False` is "it is a PDF and it did not need repairing", `None` is
+    "not a PDF, nothing to repair".
     """
     for nothing_to_repair in (False, None):
         decided = decide(a_situation(pdf_repaired=nothing_to_repair))
