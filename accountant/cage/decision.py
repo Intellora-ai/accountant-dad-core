@@ -712,7 +712,9 @@ def _conservation_blocks(results: object, moment: object) -> list[str]:
         one verdict INDETERMINATE only. A pre-write FAIL still counts: a caller
                     who supplied real balances and got a contradiction is
                     telling us something true, and when it arrived does not make
-                    it less true. `_asking` picks that up and refuses the post.
+                    it less true. `_failed_laws_block` picks that up and refuses
+                    the bill outright - it used to be `_asking`, until the owner
+                    made a FAIL a hard rule on 2026-08-13.
 
     A `moment` that is not a `Moment` grants nothing - `is` against the member,
     so anything else falls through to blocking on all four.
