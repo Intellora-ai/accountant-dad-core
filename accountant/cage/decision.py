@@ -419,8 +419,11 @@ def _asking(situation: Situation, seen: Observation) -> tuple[str, ...]:
     failed = [r for r in situation.conservation if r.verdict is Verdict.FAIL]
     if failed:
         # The law's own sentence names the figures and the difference. "The
-        # numbers do not add up" is not something a person can check; "out by
-        # 1 paise" is.
+        # numbers do not add up" is not something a person can check; "₹1,199.99
+        # against a stated total of ₹1,200.00, out by 1 paisa" is. The figures
+        # arrive already formatted - `conservation.py` renders every amount
+        # through `money.format_inr`, so nothing here reformats them and there
+        # is no second place for the grouping to be wrong.
         reasons.append(_NUMBERS_DISAGREE)
         reasons.extend(r.said for r in failed)
     if situation.ambiguous_fields:
@@ -460,11 +463,22 @@ def decide(situation: Situation) -> Decided:
     if asking:
         return _spoken(Action.ASK, asking)
 
+    # These two are here for the SENTENCE, not for the outcome, and a mutation
+    # run is what made the difference visible: deleting the amount check changes
+    # nothing about what happens - the wall refuses a float too, and the block
+    # below catches it - but it changes what the person reads to "amount_paise
+    # must be a whole number of paise, not float", which is our variable name on
+    # a stranger's screen. The wall's message is written for a developer reading
+    # a traceback; these two are written for the person whose bill it is.
     amount = seen.total_paise.value
     if type(amount) is not int:
         return _spoken(Action.BLOCK, (_AMOUNT_NOT_MONEY,))
     party = seen.party.value
     if type(party) is not str:
+        # This one is load-bearing for the outcome as well. `decided` calls
+        # `party.strip()`, so a number here raises `AttributeError` - which the
+        # block below does NOT catch, because catching every exception would
+        # turn a real bug into a quiet refusal nobody ever investigates.
         return _spoken(Action.BLOCK, (_PARTY_NOT_A_NAME,))
 
     try:
@@ -476,11 +490,11 @@ def decide(situation: Situation) -> Decided:
             credit_account=situation.credit_account,
         )
     except ValueError as refused:
-        # The wall's rules are not copied up here. One home for "an entry must
-        # be for a positive amount" means one place to change it, and this
-        # branch is what stops that refusal arriving at a person as a traceback.
-        # Its message names amounts and never a ledger, so nothing jargon-shaped
-        # leaks into the sentence.
+        # The wall's VALUE rules - positive amount, named party, two different
+        # ledgers - are not copied up here. One home for each means one place to
+        # change it, and this branch is what stops the refusal arriving at a
+        # person as a traceback. Every message it can carry names amounts and
+        # never a ledger, so nothing jargon-shaped leaks into the sentence.
         return _spoken(
             Action.BLOCK,
             (

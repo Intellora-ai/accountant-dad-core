@@ -328,15 +328,19 @@ def test_the_one_paisa_error_is_named_to_the_paisa_in_the_sentence() -> None:
     """ "Does not add up" is not actionable. "Out by 1" is, and one paisa is the
     smallest disagreement arithmetic can see.
 
-    The wording is `conservation.py`'s own and says "out by 1 paise" where a
-    person would say "1 paisa". Asserted as it ships rather than as it should
-    read: this file may not edit a shipped sentence to make its own test pass,
-    and the singular is reported to the owner instead.
+    THE ASSERTIONS WERE CORRECTED 2026-08-13, not weakened. They read
+    `"out by 1 paise"` and `"119999" in said`, and both pinned defects this
+    file had already reported to the owner rather than patched: the wrong
+    singular, and a raw paise count on a person's screen against the closed
+    rule that every INR amount a user sees is Indian-grouped. The owner fixed
+    `conservation.py`; the sentence is now the one a person can read, so this
+    asserts that instead.
     """
     said = demo.run_demo()[4].sentence
 
-    assert "out by 1 paise" in said
-    assert "119999" in said and "120000" in said
+    assert "out by 1 paisa" in said
+    assert "₹1,199.99" in said and "₹1,200.00" in said
+    assert "119999" not in said
 
 
 def test_a_bill_carrying_tax_is_refused_because_posting_tax_is_switched_off() -> None:
