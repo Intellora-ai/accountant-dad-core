@@ -332,6 +332,28 @@ def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
     5x7 bitmap font and saying so - it comes back at confidence 0.37 and 0.08,
     nowhere near the 0.95 that would post it. A reader that reads nothing is
     never wrong, and it is also never useful.
+
+    CORRECTED A FOURTH TIME 2026-08-13, when `labels.Printing` let the picture
+    rung tolerate a mangled SEPARATOR. `party` exact went 22 -> 23 and `party`
+    wrong went 2 -> 5. MEASURED cause: the engine reads `SUPPLIER:` as
+    `SUPPLIER?`, `SUPPLIER!`, `SUPPLIER®` or `SUPPLIER'` on six of the twenty
+    corpus PNGs, and exact matching threw all six away over one character of
+    punctuation. Five of the six come back misread, which is the SAME event as
+    the paragraph above and not the one two paragraphs above: the engine is
+    guessing at ink and says how unsure it is - the worst of the five is 0.48
+    and the rest are 0.30, 0.16, 0.10 and 0.08.
+
+    **The PDF numbers did not move, and that is the control.** `date` 14,
+    `party` 20, `total_paise` 20, `tax_paise` 20, ZERO wrong, pinned per input
+    type below. The tolerance is scoped by a `Printing` the caller states and
+    the text-layer rung states `EXACT_CHARACTERS`; if that scoping ever breaks,
+    the PDF row moves and this test says so.
+
+    GT-0058 LEFT the wrong list, which is the safe direction and is why the
+    examples are pinned by name. It prints its supplier twice and the engine
+    read the two printings differently; exact matching saw only one of them and
+    answered it, tolerance sees both, they disagree, and `labels.the_one`
+    refuses rather than picking. A wrong value became a question.
     """
     section = runner.Section(name="s2_extraction")
     runner.run_s2(section)
@@ -349,7 +371,7 @@ def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
     assert names["exit1_generated_truth_extraction"].status == runner.FAIL
     assert section.facts["exit1_exact_per_field"] == {
         "date": 14,
-        "party": 22,
+        "party": 23,
         "total_paise": 20,
         "tax_paise": 20,
     }
@@ -361,17 +383,22 @@ def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
     # source is what the cage is for, and this is the line that would go red.
     assert section.facts["exit1_wrong_per_field"] == {
         "date": 0,
-        "party": 2,
+        "party": 5,
         "total_paise": 0,
         "tax_paise": 0,
     }
-    # PINNED BY NAME AND NOT COUNTED. A count going from 0 to 2 says a number
-    # moved; these two say WHICH bill, WHICH field and WHICH backend, which is
+    # PINNED BY NAME AND NOT COUNTED. A count going from 2 to 5 says a number
+    # moved; these five say WHICH bill, WHICH field and WHICH backend, which is
     # the difference between noticing a regression and being able to act on it.
-    # Both are the engine misreading a letter and stating that it did.
+    # Every one is the engine misreading a letter and stating that it did, and
+    # every one is `party` on a PNG - no amount and no date has ever come back
+    # wrong from any rung, which is the line that would go red.
     assert section.facts["exit1_wrong_examples"] == [
+        "GT-0041 PNG party: 'AQUANCED PROPULSION CENTRE UK LTO' sourced 'free_ocr'",
+        "GT-0046 PNG party: '“GUPTA HARONARE STORES' sourced 'free_ocr'",
+        "GT-0050 PNG party: 'GECCAN LOGISTICS PUT LTO' sourced 'free_ocr'",
+        "GT-0055 PNG party: 'UK HEALTH SECURITY AGENCY <UKHSAD' sourced 'free_ocr'",
         "GT-0056 PNG party: '\"NARHAGR PACKAGING CO' sourced 'free_ocr'",
-        "GT-0058 PNG party: 'IVER. ELECTRICALS' sourced 'free_ocr'",
     ]
 
     # The tier split, so one number cannot hide four different stories.
@@ -385,19 +412,26 @@ def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
     # and twenty JPEGs that hold no picture at all. The twenty still counted
     # under `ladder` are the DOCX and the empty media type, which reach no rung.
     assert section.facts["s2_by_input_type"]["PNG"]["party"] == {
-        "exact": 2,
-        "refused": 16,
-        "wrong": 2,
+        "exact": 3,
+        "refused": 12,
+        "wrong": 5,
     }
     assert section.facts["s2_by_input_type"]["JPG"]["party"] == {
         "exact": 0,
         "refused": 20,
         "wrong": 0,
     }
-    assert section.facts["s2_by_input_type"]["PDF"]["party"] == {
-        "exact": 20,
-        "refused": 0,
-        "wrong": 0,
+    # THE CONTROL ON THE SEPARATOR TOLERANCE, AND THE ROW THAT MUST NEVER MOVE.
+    # The picture rung got looser on 2026-08-13 and the text-layer rung did not,
+    # because `labels.Printing` is stated by the caller rather than inferred.
+    # Every field of every corpus PDF, pinned: if a tolerance ever leaks across
+    # the tier boundary it shows up here first, as a `refused` becoming a
+    # `wrong` on a document whose bytes were never ambiguous.
+    assert section.facts["s2_by_input_type"]["PDF"] == {
+        "date": {"exact": 14, "refused": 6, "wrong": 0},
+        "party": {"exact": 20, "refused": 0, "wrong": 0},
+        "total_paise": {"exact": 20, "refused": 0, "wrong": 0},
+        "tax_paise": {"exact": 20, "refused": 0, "wrong": 0},
     }
     # The whole of DECISION 1, in one row. It read `0 / 0 / 20` — twenty
     # values, none of them right, none of them refused.
@@ -464,13 +498,23 @@ def test_a_refusal_that_states_a_reason_is_still_a_refusal():
     A RISE here is the opposite event to the drop above - a backend that started
     answering - and it is only good news alongside `exit1_wrong_per_field` in
     the test above, which says how many of those answers were not the truth.
+
+    CORRECTED A FOURTH TIME 2026-08-13, when `labels.Printing` let the picture
+    rung tolerate a mangled separator: `party` 24 -> 28. Four more corpus PNGs
+    are SPOKEN TO. Three of the four are spoken to wrongly, which is the whole
+    honest content of this number and why it is never read on its own -
+    `exit1_wrong_per_field` above went 2 -> 5 in the same run. `date`,
+    `total_paise` and `tax_paise` did not move by one: the tolerance is for the
+    separator, and on these pages it is the amount and date LABEL WORDS that the
+    engine destroys - `TOTAL` comes back as `For.` and `DATE:` as `Dares`.
+    Nothing here mends a word.
     """
     section = runner.Section(name="s2_extraction")
     runner.run_s2(section)
 
     assert section.facts["s2_per_field"] == {
         "date": 14,
-        "party": 24,
+        "party": 28,
         "total_paise": 20,
         "tax_paise": 20,
     }

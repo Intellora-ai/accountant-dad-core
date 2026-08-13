@@ -29,6 +29,20 @@ So every function here answers with the value AND the half-open character range
 matching itself is unchanged, which is the point: a range that came from a
 different match than the value would be worse than no range at all.
 
+AND THE SECOND THING, WHICH IS ONE CHARACTER WIDE
+---------------------------------------------------
+A text layer's bytes say `SUPPLIER:` exactly. A photograph's do not, and the
+character an engine loses first is the separator. MEASURED with `tesseract` on
+the twenty corpus PNGs, counting what it produced where the truth prints
+`SUPPLIER:`
+
+    `:` 5    `S` 8    `!` 2    `®` 2    `?` 1    `'` 1
+
+so exact matching threw away three quarters of the suppliers the engine had
+already located on the page. `Printing` is how a caller says which of those two
+worlds it is in, and the tolerance it unlocks is the SEPARATOR ONLY - see that
+class for what is deliberately not tolerated and what it costs.
+
 WHY A RANGE AND NOT A LIST OF WORDS
 ------------------------------------
 Because this module must not know what a word is. It is handed strings, it
@@ -51,6 +65,12 @@ safe; guessing at an unlabelled number is not, and that guess is exactly what
 That a value it locates is CORRECT. It reports what was printed under a label.
 Whether those characters were read correctly off a page is the caller's problem
 and, for the reading engine, the whole content of its confidence.
+
+That a value it locates under a tolerated separator is even the RIGHT SHAPE.
+`SUPPLIER? AQUANCED PROPULSION CENTRE UK LTO` comes back as `AQUANCED
+PROPULSION CENTRE UK LTO`, which is a misread supplier, and it is handed over
+misread. Mending it would be inventing data; refusing it hides a reading the
+engine scored at 0.30 from the layer built to argue with exactly that.
 """
 
 from __future__ import annotations
@@ -58,6 +78,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+from enum import StrEnum
 from typing import Final
 
 from accountant.extract.adapter import NOT_FOUND
@@ -119,6 +140,68 @@ def paise_or_none(text: str) -> int | None:
     scaled = rupees * _HUNDRED
     paise = int(scaled)
     return paise if scaled == paise else None
+
+
+# =============================================================================
+# which of the two worlds these characters came out of
+# =============================================================================
+
+
+class Printing(StrEnum):
+    """How the characters being matched came to exist.
+
+    **There is no default and it is never inferred.** A caller must say, for
+    the reason `cage/decision.Moment` gives about the same shape of argument: a
+    tier that can be guessed at will be guessed at wrongly, and the wrong guess
+    here is a PDF quietly reading like a photograph. The obvious alternative -
+    work it out from the media type - puts the decision in whichever module
+    happens to hold a MIME string, which is how two callers end up disagreeing
+    about the same bill.
+
+    THE TWO ARE NOT SYMMETRICAL, AND THE ASYMMETRY IS THE WHOLE POINT.
+    `EXACT_CHARACTERS` has nothing to tolerate: the bytes say `SUPPLIER:` and a
+    reader that accepted `SUPPLIER?` there would be reading something the
+    document does not say. That tier measures 20/20 party, 20/20 total, 20/20
+    tax and 14/20 date on the twenty corpus PDFs with ZERO wrong, and that is
+    worth more than any number of photographs.
+    """
+
+    #: A text layer. The characters are IN THE FILE and the alternative
+    #: readings of them number zero.
+    EXACT_CHARACTERS = "exact_characters"
+
+    #: A reading engine's guess at ink. Every character is an estimate,
+    #: including the punctuation.
+    READ_OFF_A_PHOTOGRAPH = "read_off_a_photograph"
+
+
+#: What may sit between a label and its value, per printing.
+#:
+#: THE SEPARATOR IS TOLERATED AND THE LABEL WORD IS NOT, and that line is drawn
+#: at "is this character a letter". MEASURED: the corpus engine reads
+#: `SUPPLIER:` as `SUPPLIERS` eight times out of twenty - more often than any
+#: mark - so accepting a letter would recover those eight AND read `SUPPLIERS OF
+#: FINE GOODS` as a supplier called `OF FINE GOODS`. A plural and a mangled
+#: colon are the same characters, nothing here can tell them apart, and the
+#: eight readings are not worth a heading in somebody's ledger. Those eight
+#: stay UNREAD, which is a question for a person rather than a wrong answer.
+#:
+#: A MARK RUN MUST BE FOLLOWED BY A SPACE. `SUPPLIER-MANAGED STOCK` and
+#: `SUPPLIER/CUSTOMER DETAILS` are one word carrying a mark, not a label and a
+#: value, and without this they read as a supplier called `MANAGED STOCK`. The
+#: colon alternative keeps its own rule instead, so `SUPPLIER:MUMBAI` printed
+#: tight still reads on both tiers.
+#:
+#: NOT APPLIED TO AMOUNTS, and that is a measurement rather than an oversight.
+#: `_ONLY_AMOUNT` already accepts a bare space, which is what every amount label
+#: on the corpus PNGs is followed by, so tolerance there buys nothing - while a
+#: wider leading class would swallow the `-` of a credit note and post a refund
+#: as a charge. An unread amount is a question; a sign flipped by a regex is
+#: money moving the wrong way.
+_SEPARATOR: Final[dict[Printing, str]] = {
+    Printing.EXACT_CHARACTERS: r"\s*:\s*",
+    Printing.READ_OFF_A_PHOTOGRAPH: r"\s*(?::|[^\w\s]+(?=\s))\s*",
+}
 
 
 # =============================================================================
@@ -245,14 +328,21 @@ class Amount:
     end: int
 
 
-def _values_on(line: str, label: str) -> tuple[tuple[str, int, int], ...]:
+def _values_on(
+    line: str, label: str, printing: Printing
+) -> tuple[tuple[str, int, int], ...]:
     """Every value printed under `label` on this line, and where each sat.
 
     A blank value is dropped rather than returned. A field holding `"   "` is a
     silent blank, which is the single thing `ExtractedRecord` exists to make
     impossible.
+
+    `printing` decides ONE thing: what may stand where the colon should be. The
+    label word, the value and every rule about where a value stops are the same
+    on both tiers, because a reader that answered differently about the same
+    characters depending on how they arrived would be two readers again.
     """
-    pattern = re.compile(rf"{_LABEL_AT}{re.escape(label)}\s*:\s*(.*)$")
+    pattern = re.compile(rf"{_LABEL_AT}{re.escape(label)}{_SEPARATOR[printing]}(.*)$")
     located: list[tuple[str, int, int]] = []
     for match in pattern.finditer(line):
         cut = _NEXT_LABEL.split(match.group(1), maxsplit=1)[0]
@@ -264,8 +354,15 @@ def _values_on(line: str, label: str) -> tuple[tuple[str, int, int], ...]:
     return tuple(located)
 
 
-def values_for(lines: tuple[str, ...], labels: tuple[str, ...]) -> tuple[Found, ...]:
+def values_for(
+    lines: tuple[str, ...], labels: tuple[str, ...], *, printing: Printing
+) -> tuple[Found, ...]:
     """Every value on the page printed under any of `labels`.
+
+    `printing` IS KEYWORD-ONLY AND HAS NO DEFAULT. A positional third argument
+    would be one `True` away from turning a PDF into a photograph at a call
+    site nobody re-reads, and a default would mean a caller who never thought
+    about the question still got an answer to it.
 
     LABEL BY LABEL, then line by line, which is the order the whole-document
     form this replaced produced: it ran one `re.MULTILINE` scan per label and
@@ -280,7 +377,7 @@ def values_for(lines: tuple[str, ...], labels: tuple[str, ...]) -> tuple[Found, 
     found: list[Found] = []
     for label in labels:
         for index, line in enumerate(lines):
-            for printed, start, end in _values_on(line, label):
+            for printed, start, end in _values_on(line, label, printing):
                 found.append(Found(printed=printed, line=index, start=start, end=end))
     return tuple(found)
 

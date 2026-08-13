@@ -140,12 +140,20 @@ from accountant.extract.labels import (
     TOTAL_LABELS,
     Amount,
     Found,
+    Printing,
     amount_on,
     amounts_for,
     paise_or_none,
     the_one,
     values_for,
 )
+
+#: THIS TIER READS BYTES, NEVER PIXELS, AND SAYS SO AT EVERY CALL SITE.
+#: `labels.Printing` has no default for the reason `cage/decision.Moment` has
+#: none: a tolerance that could be inherited silently would be, and the field
+#: this module is proudest of - 20/20 party, 20/20 total, 20/20 tax, ZERO wrong
+#: on the twenty corpus PDFs - is exactly the one a tolerance would cost.
+_PRINTING: Final = Printing.EXACT_CHARACTERS
 
 #: What every field this module reads says about where it came from.
 SOURCE: Final = "pdf_text_layer"
@@ -549,12 +557,16 @@ def _paise(found: tuple[Amount, ...]) -> tuple[int, ...]:
 
 
 def _read_date(lines: tuple[str, ...]) -> tuple[datetime.date | None, str]:
-    printed, why = the_one(_printed(values_for(lines, (DATE_LABEL,))), "its date")
+    printed, why = the_one(
+        _printed(values_for(lines, (DATE_LABEL,), printing=_PRINTING)), "its date"
+    )
     return (None, why) if printed is None else _date_from(printed)
 
 
 def _read_party(lines: tuple[str, ...]) -> tuple[str | None, str]:
-    return the_one(_printed(values_for(lines, PARTY_LABELS)), "its supplier")
+    return the_one(
+        _printed(values_for(lines, PARTY_LABELS, printing=_PRINTING)), "its supplier"
+    )
 
 
 def _read_total(lines: tuple[str, ...]) -> tuple[int | None, str]:

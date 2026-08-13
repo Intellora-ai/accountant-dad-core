@@ -92,22 +92,34 @@ the honest fix is geometry, which is a change to what a `Word` is.
 
 WHAT THIS FILE DOES NOT PROVE
 ------------------------------
-That anything it points at was read CORRECTLY. MEASURED on the twenty corpus
-PNGs, which are rendered in a 5x7 bitmap font, through the wired product path:
+That anything it points at was read CORRECTLY. It mostly is not. MEASURED on
+the twenty corpus PNGs, which are rendered in a 5x7 bitmap font, through the
+wired product path, AFTER the separator tolerance landed on 2026-08-13:
 
-    4 of 80 fields come back with a value, and all four are the supplier
-    2 of those 4 are exactly right, at 0.48 and 0.61
-    2 are wrong - `IVER. ELECTRICALS` for `IYER ELECTRICALS` - at 0.37 and 0.08
-    76 are refused
+    8 of 80 fields come back with a value, and all eight are the supplier
+    3 of those 8 are exactly right, at 0.48, 0.61 and 0.74
+    5 are wrong, at 0.48, 0.30, 0.16, 0.10 and 0.08
+    72 are refused
 
-A fifth page matches the `SUPPLIER:` label and still comes back with nothing:
-on GT-0051 the engine reported `COMMISSION` at confidence 0, and a field is
-carried only where a confidence above zero can be stated for it. That is
-`freeocr`'s rule working, not a reading being lost.
+It was 4 with a value - 2 right, 2 wrong - before the tolerance. THE WRONG
+COUNT WENT UP AND THAT IS THE POINT: `AQUANCED PROPULSION CENTRE UK LTO` at
+0.30 is a misreading the cage can block or ask about, and the same misreading
+unread is a page the engine had already half-read and nobody could see. Nothing
+here reads a letter better than it did.
 
-`GT-0041.png` reads NOTHING, and the reason is worth writing down because it is
-not a reader defect: the engine returns its `SUPPLIER:` as `SUPPLIER?`, so no
-label matched. The colon is one character and it is the whole of the field.
+A ninth page matches the `SUPPLIER` label and still comes back with nothing: on
+GT-0051 the engine reported `COMMISSION` at confidence 0, and a field is carried
+only where a confidence above zero can be stated for it. That is `freeocr`'s
+rule working, not a reading being lost.
+
+GT-0058 LOST a wrong answer to the tolerance, which is the safe direction and
+worth writing down. It prints its supplier twice; the engine read the two
+printings as `IVER. ELECTRICALS` and `IVER ELECTRICALS`. Exact matching saw
+only the one with a surviving colon and answered it. Both are visible now, they
+DISAGREE, and `the_one` refuses - so a value that used to reach a record at
+0.37 is a question instead. It is also the case this file's "it does not say
+WHY a field is missing" limitation names: the sentence a person gets says the
+engine scored no word here, and the truth is that the page said two things.
 
 That an amount it points at survives. Usually it does not, and that is the cage
 working: on GT-0041 scaled up, the engine read a total of 1,626.70 against a
@@ -132,10 +144,21 @@ from accountant.extract.labels import (
     TOTAL_LABELS,
     Amount,
     Found,
+    Printing,
     amounts_for,
     the_one,
     values_for,
 )
+
+#: THIS TIER READS PIXELS, AND EVERY CHARACTER ON IT IS AN ESTIMATE - INCLUDING
+#: THE PUNCTUATION. `labels.Printing` unlocks exactly one tolerance for saying
+#: so: a mark standing where the colon should be. It does NOT loosen the label
+#: word, and it does not loosen the value. MEASURED on the twenty corpus PNGs,
+#: where the truth prints `SUPPLIER:` the engine produced `:` 5 times, `S` 8,
+#: `!` 2, `®` 2, `?` 1 and `'` 1; this recovers the six that are marks and
+#: leaves the eight `S` unread, because a plural and a mangled colon are the
+#: same character and guessing between them reads a heading as a supplier.
+_PRINTING: Final = Printing.READ_OFF_A_PHOTOGRAPH
 
 #: How long this application gives the engine to read ONE page.
 #:
@@ -272,8 +295,12 @@ def read_page(lines: tuple[tuple[Word, ...], ...]) -> Reading:
     """
     page = _page_of(lines)
     return Reading(
-        date=_words_for(page, values_for(page.lines, (DATE_LABEL,))),
-        party=_words_for(page, values_for(page.lines, PARTY_LABELS)),
+        date=_words_for(
+            page, values_for(page.lines, (DATE_LABEL,), printing=_PRINTING)
+        ),
+        party=_words_for(
+            page, values_for(page.lines, PARTY_LABELS, printing=_PRINTING)
+        ),
         total=_words_for_amount(page, amounts_for(page.lines, TOTAL_LABELS)),
         tax=_words_for_amount(page, amounts_for(page.lines, TAX_WHOLE)),
         net=_words_for_amount(page, amounts_for(page.lines, NET_LABELS)),
