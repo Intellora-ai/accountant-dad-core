@@ -61,11 +61,12 @@ THE NUMBERS HERE, AND WHERE EACH ONE CAME FROM
     0.95 / 0.70   the confidence bands. Owner-set, read from
                   `decision.AUTO_POST_FLOOR` and `decision.ASK_FLOOR`.
     5             the question cap, `questions.QUESTION_CAP`. Owner-set.
-    10 MiB        the upload cap, read from `accountant.web.app`. **The brief
-                  for this task said 100 MB; the shipped constant is 10 MiB.**
-                  Nothing is edited here to match the brief - a demo that
-                  changes the product to agree with its own script proves
-                  nothing - and the difference is reported to the owner.
+    100 MB        the upload cap, read from `accountant.web.app`. This demo
+                  reported the gap rather than papering over it: the owner's
+                  closed decision said 100 MB and the shipped constant said
+                  10 MiB, a tenth of it. The constant was corrected on
+                  2026-08-13 and this line still reads it from the product, so
+                  the demo cannot drift from the door it is demonstrating.
     01-04-2026    the date this company's books open. SCENARIO DATA, not a
                   product threshold: nothing in this repository implements a
                   closed period, so the demo states the boundary the way it

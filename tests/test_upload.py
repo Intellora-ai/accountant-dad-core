@@ -56,6 +56,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Iterator
+from io import BufferedIOBase
+from typing import cast
 
 import pytest
 
@@ -339,6 +341,70 @@ def test_a_file_over_the_limit_is_refused_with_413_and_a_plain_sentence(
     assert app.DRAFTS == {}
 
 
+# ---- a body that says whether anybody read it --------------------------------
+
+
+class ReadRecorder:
+    """The request body, wrapped, remembering every read anybody asked for.
+
+    "Refused before it was read" is a claim about ORDER, and order is invisible
+    in a status code: a door that buffers a hundred megabytes and refuses
+    afterwards answers 413 exactly like a door that never touched the body. So
+    the body sits behind something that counts.
+
+    ONLY `read` IS RECORDED, and the split is the stdlib's own, not ours:
+    `BaseHTTPRequestHandler` takes the request line and the headers with
+    `readline`, and the body with `read`. Recording `read` alone therefore
+    records exactly the question worth asking - did anything touch the body,
+    and how much did it ask for in one go.
+
+    `asked_for` matters more than the byte count. The whole hazard is
+    `rfile.read(n)`, which allocates whatever `n` says before a single byte
+    arrives, so a limit that lets `n` be the declared length prevents nothing.
+    """
+
+    def __init__(self, wrapped: BufferedIOBase) -> None:
+        self._wrapped = wrapped
+        #: Every `n` in every `read(n)`, in order.
+        self.asked_for: list[int] = []
+        #: How many bytes of body actually came back.
+        self.delivered = 0
+
+    def read(self, size: int = -1) -> bytes:
+        self.asked_for.append(size)
+        data = self._wrapped.read(size)
+        self.delivered += len(data)
+        return data
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._wrapped, name)
+
+
+@pytest.fixture
+def recording(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[ReadRecorder]]:
+    """Wrap every connection's body, and hand the test the recorders.
+
+    Installed on `Handler.setup`, which is where `BaseHTTPRequestHandler` makes
+    `rfile` in the first place, so this is the real shipped route with one
+    counter around it rather than a re-implementation of the route. NOT a second
+    server: `tests/test_web.py::serving` is still the one spin-up path, and the
+    handler class it serves is patched here for the length of one test.
+    """
+    seen: list[ReadRecorder] = []
+    original = app.Handler.setup
+
+    def setup(handler: app.Handler) -> None:
+        original(handler)
+        recorder = ReadRecorder(handler.rfile)
+        seen.append(recorder)
+        # The recorder is a `read`/`readline` stand-in, not a `BufferedIOBase`
+        # subclass, so the cast is what lets it sit where the real body sat.
+        handler.rfile = cast(BufferedIOBase, recorder)
+
+    monkeypatch.setattr(app.Handler, "setup", setup)
+    yield seen
+
+
 def raw_post(base: str, request: bytes) -> str:
     """Send exact bytes at the server the fixture already started, and read back.
 
@@ -356,6 +422,112 @@ def raw_post(base: str, request: bytes) -> str:
         while piece := wire.recv(65536):
             chunks.append(piece)
     return b"".join(chunks).decode("latin-1")
+
+
+def an_upload_declaring(base: str, declared: int, body: bytes) -> str:
+    """A real `POST /upload` whose `Content-Length` says `declared`.
+
+    `declared` and `len(body)` are allowed to disagree, and that is the point:
+    urllib cannot send such a request, and the refusal under test is made from
+    the header alone. Written out here rather than imported from
+    `tests/test_app_coverage_c.py` for the reason that file gives about
+    `raw_post` - a test that depends on another test file's helper fails for
+    two reasons at once and neither of them is the product.
+    """
+    return raw_post(
+        base,
+        b"POST /upload HTTP/1.1\r\n"
+        + f"Host: {base_host(base)}\r\n".encode()
+        + f"Content-Type: multipart/form-data; boundary={BOUNDARY}\r\n".encode()
+        + f"Content-Length: {declared}\r\n\r\n".encode()
+        + body,
+    )
+
+
+def test_the_cap_is_the_hundred_megabytes_the_owner_set() -> None:
+    """Owner decision, closed: any type, up to 100 MB, 413 before the body is
+    read. The shipped constant was 10 MiB - a tenth of it - so a phone
+    photograph of a multi-page bill was refused by a limit nobody chose.
+
+    Written as `100 * 1024 * 1024` rather than `104857600` so a reader can see
+    it is a hundred and not a ten, which is the digit that was wrong.
+    """
+    assert app.MAX_UPLOAD_BYTES == 100 * 1024 * 1024
+
+
+def test_the_page_and_the_refusal_both_say_the_size_the_constant_holds(
+    uploading: str,
+) -> None:
+    """The number is stated once and read everywhere. A page advertising 100 MB
+    over a door that refuses at 10 is worse than either limit on its own."""
+    offered = get(uploading)
+    refused = an_upload_declaring(uploading, app.MAX_UPLOAD_BYTES + 1, b"x")
+
+    assert "100 MB" in offered
+    assert "larger than the 100 MB" in refused
+
+
+def test_the_413_is_decided_from_the_header_and_no_read_asks_for_the_body(
+    uploading: str, recording: list[ReadRecorder]
+) -> None:
+    """THE ORDER, measured rather than asserted from the code path.
+
+    `rfile.read(n)` allocates whatever `n` says before a byte arrives, so a
+    size check made after the read is a check made after the damage - one
+    request takes the process down without a credential. The only read this
+    route may make on an oversized body is a bounded drain chunk, which is
+    never accumulated and never kept, and which exists so the browser gets the
+    sentence instead of a dropped connection.
+    """
+    answer = an_upload_declaring(uploading, app.MAX_UPLOAD_BYTES + 1, MARKER)
+    asked = [n for r in recording for n in r.asked_for]
+
+    assert answer.startswith("HTTP/1.0 413 ")
+    assert asked, "the recorder saw no request at all"
+    assert max(asked) <= app.UPLOAD_DRAIN_CHUNK
+    assert sum(r.delivered for r in recording) < app.UPLOAD_DRAIN_CHUNK
+    assert MARKER.decode() not in answer
+    assert app.DRAFTS == {}
+
+
+def test_the_control_an_upload_inside_the_cap_really_does_have_its_body_read(
+    uploading: str, recording: list[ReadRecorder]
+) -> None:
+    """THE CONTROL on the test above, and without it that test proves nothing.
+
+    A recorder wired to a body nobody could read, or one whose counter never
+    moved, would report "never touched" for every request ever made and pass
+    the 413 test while the door buffered a hundred megabytes. Here the size
+    gate passes, the route reads the whole declared length in one go because
+    that is what an accepted upload does, and the counter says so.
+    """
+    body = multipart_body()
+
+    status, _ = send(uploading, body)
+    asked = [n for r in recording for n in r.asked_for]
+
+    assert status == 200
+    assert len(body) in asked
+    assert sum(r.delivered for r in recording) >= len(body)
+
+
+def test_an_upload_declaring_exactly_the_cap_is_not_refused_for_its_size(
+    uploading: str,
+) -> None:
+    """The boundary is `>`, not `>=`. A file of exactly the stated maximum is
+    inside the stated maximum, and a person who trims a photo to the advertised
+    number and is refused anyway has been lied to by the page.
+
+    Declared, not sent: proving where the boundary sits needs no hundred
+    megabytes on a socket. The size gate passes, the truncated body reaches the
+    parser, and the parser refuses it in its own words - a DIFFERENT refusal,
+    which is what tells the two paths apart.
+    """
+    answer = an_upload_declaring(uploading, app.MAX_UPLOAD_BYTES, multipart_body()[:40])
+
+    assert not answer.startswith("HTTP/1.0 413 ")
+    assert "larger than" not in answer
+    assert "Something in Accountant Dad broke" not in answer
 
 
 def test_an_upload_that_does_not_say_how_big_it_is_is_refused_unread(

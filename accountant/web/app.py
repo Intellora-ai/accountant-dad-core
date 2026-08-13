@@ -291,12 +291,25 @@ _CACHE_LOCK = threading.Lock()
 #: The largest upload accepted, refused on the DECLARED length before a byte is
 #: read into memory.
 #:
-#: 10 MiB because that is a phone photograph of a bill with room to spare, and
-#: because the number has to be somewhere: with no limit, `self.rfile.read(n)`
+#: 100 MB, owner-set and closed: *any type, <= 100 MB, 413 BEFORE body read*.
+#: Written `100 * 1024 * 1024` rather than `104857600` so a reader can see at a
+#: glance that it is a hundred and not a ten. IT SHIPPED AS `10 * 1024 * 1024`
+#: until 2026-08-13, a tenth of the decision, and the case that limit refused
+#: is the ordinary one: a phone photograph of a multi-page bill.
+#:
+#: The number has to be somewhere. With no limit, `self.rfile.read(n)`
 #: allocates whatever a caller says, and a single request can take the process
 #: down without a credential. The refusal is therefore made from the header,
 #: which is the only point at which a size limit can prevent anything.
-MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+#:
+#: KNOWN COST OF THE LARGER NUMBER, stated rather than discovered later: an
+#: ACCEPTED upload is still read with one `rfile.read(length)`, so a request
+#: inside the cap may allocate 100 MB, and `ThreadingHTTPServer` caps nothing.
+#: Ten concurrent uploads is a gigabyte. Bounding that means streaming the body
+#: to the parser instead of buying it whole, which is a change to
+#: `multipart.py` and not to a constant. Reported to the owner; not smuggled in
+#: here under a number change.
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 
 #: How much of an oversized body is drained before the socket is closed.
 #:

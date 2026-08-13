@@ -234,7 +234,7 @@ was no way to hand this product a document at all. There is now.
 What shipped:
 
 - `POST /upload` in `accountant/web/app.py`, reachable from a file input on the
-  home page. Authenticated like every other route; a maximum of **10 MB**
+  home page. Authenticated like every other route; a maximum of **100 MB**
   refused with `413` on the declared length **before the body is read**; an
   allow-list of `application/pdf`, `image/jpeg`, `image/png` refused with `415`;
   a malformed body answered with `400` and a sentence rather than a crash.

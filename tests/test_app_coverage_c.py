@@ -239,7 +239,7 @@ def test_an_oversize_upload_that_stops_short_is_still_answered_rather_than_read_
 ) -> None:
     """The drain has to end at the end of the body, not at the declared length.
 
-    Declared 10MB and a byte, sent sixteen bytes, then hung up — the ordinary
+    Declared the cap and a byte, sent sixteen bytes, then hung up — the ordinary
     shape of a browser or a phone losing its connection mid-upload. `read()`
     answers b"" from there on, so a drain loop that only stops when its
     countdown reaches zero never stops: it spins on empty reads holding a
