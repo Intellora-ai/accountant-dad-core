@@ -12,9 +12,21 @@ The bands are owner-set:
 
     post    confidence 0.95 or better AND every conservation law PASS AND the
             party known AND the period open AND no hard rule broken
-    ask     confidence 0.70 to just under 0.95, OR any conservation law FAIL at
-            any confidence, OR something on the bill readable two ways
-    block   confidence under 0.70, OR any hard rule broken
+    ask     confidence 0.70 to just under 0.95, OR something on the bill
+            readable two ways
+    block   confidence under 0.70, OR any hard rule broken - and a conservation
+            law that FAILED became one of them on 2026-08-13
+
+A CONSERVATION FAIL BLOCKS. THAT REVERSED ON 2026-08-13.
+---------------------------------------------------------
+It used to ASK, and the band list above used to say so. The owner closed it:
+"Conservation FAIL -> BLOCK, always. This is now a hard rule." Nothing a person
+can answer makes 45,000 + 74,999 equal 120,000, so a question about it spends
+one of five questions on something no answer fixes.
+
+Every test in this file that asserted ASK on a failing law was therefore
+asserting the wrong thing. Each one is CORRECTED rather than deleted, with the
+date and the direction in its own docstring.
 
 THE ONE ASSERTION THAT MATTERS MOST
 ------------------------------------
@@ -67,6 +79,7 @@ from accountant.cage.decision import (
     DOCUMENT_LAWS,
     GST_IS_OFF,
     LAW_ABOUT_THE_BOOKS,
+    NUMBERS_DO_NOT_ADD_UP,
     Action,
     Decided,
     Moment,
@@ -269,10 +282,16 @@ def test_being_completely_sure_never_overrides_a_failed_conservation_check() -> 
     Confidence describes pixels; a conservation law describes arithmetic. If
     being sure could outvote the arithmetic, a confidently misread number would
     reach the books - which is the exact failure this cage exists to stop.
+
+    CORRECTED 2026-08-13. This asserted `Action.ASK`, and the owner closed the
+    question that way round on that date: a conservation FAIL blocks, always,
+    and it is now a hard rule. The assertion moved from ASK to BLOCK. What the
+    test is FOR did not move an inch - certainty still does not outvote
+    arithmetic, and it now loses harder than it did.
     """
     sure = an_observation(confidence=1.0)
     decided = decide(a_situation(observation=sure, conservation=one_law(Verdict.FAIL)))
-    assert decided.action is Action.ASK
+    assert decided.action is Action.BLOCK
     assert decided.entry is None
 
 
@@ -284,20 +303,79 @@ def test_the_control_the_identical_bill_with_that_law_passing_is_posted() -> Non
     assert decided.action is Action.POST
 
 
-def test_the_ask_repeats_what_the_failing_law_actually_said() -> None:
+def test_the_refusal_repeats_what_the_failing_law_actually_said() -> None:
     """ "The numbers do not add up" is not actionable. The law's own sentence
     names the figures and the difference, and that is what a person can check.
 
-    CORRECTED 2026-08-13. This asserted `"out by 1 paise" in said`, which was a
-    substring test that happened to start at the reason's first character - so
-    it broke when `_spoken` started capitalising each reason, and it was testing
-    the wrong thing anyway. What matters is that the FIGURES survive the join,
-    not the case of the first letter, so the assertion moved off the first word
-    and onto the numbers a person reconciles against the bill.
+    CORRECTED 2026-08-13, twice, and this is the second one. It asserted
+    `"out by 1 paise" in said`, which was a substring test that happened to start
+    at the reason's first character - so it broke when `_spoken` started
+    capitalising each reason, and it was testing the wrong thing anyway. What
+    matters is that the FIGURES survive the join, not the case of the first
+    letter.
+
+    RENAMED the same day, when the owner made a conservation FAIL a hard rule:
+    this is a refusal now and not a question, and a test named `..._the_ask_...`
+    would have described an outcome the module no longer produces. The figures
+    still have to reach the person - a block a person cannot check against the
+    bill is as useless as a question they cannot answer.
     """
     broken = one_law(Verdict.FAIL, said="out by 1 paise on a 2,500 rupee bill.")
     decided = decide(a_situation(conservation=broken))
+    assert decided.action is Action.BLOCK
     assert "1 paise on a 2,500 rupee bill" in decided.said
+
+
+def test_a_bill_whose_numbers_do_not_add_up_is_refused_and_never_asked_about() -> None:
+    """Owner decision, 2026-08-13, verbatim: "Conservation FAIL -> BLOCK,
+    always. This is now a hard rule." No auto-post, no ask, at any confidence.
+
+    Asserted for every one of the four laws by name rather than for the first
+    one, because a rule written with the wrong law list is exactly the shape of
+    defect that leaves one law still only asking.
+    """
+    for law in LAWS:
+        decided = decide(a_situation(conservation=named_law(law, Verdict.FAIL)))
+        assert decided.action is Action.BLOCK, law
+        assert decided.entry is None, law
+
+
+def test_the_refusal_for_a_bill_that_does_not_add_up_is_the_owners_own_words() -> None:
+    """The literal, so the owner's sentence cannot drift into a paraphrase.
+
+    Pinned here as a string rather than only against the module's constant: an
+    assertion that imports the sentence it is checking proves the constant
+    reaches `said` and nothing at all about what the constant says.
+    """
+    decided = decide(a_situation(conservation=one_law(Verdict.FAIL)))
+    assert decided.said.startswith(
+        "The numbers in this bill do not add up. Please check the original and "
+        "upload a correct version."
+    )
+    assert NUMBERS_DO_NOT_ADD_UP in decided.said
+
+
+def test_the_control_could_not_check_and_checked_and_wrong_stay_two_facts() -> None:
+    """THE CONTROL the owner asked for by name, and it is not decoration.
+
+    "I could not check this" and "I checked it and it does not add up" are
+    different facts about a bill and they now share an outcome. A fix that
+    collapsed them - one branch answering both - would pass every BLOCK
+    assertion in this file while telling a person the wrong thing about their
+    own bill: one of them means send a readable copy, the other means the
+    figures on the page contradict each other.
+
+    So both block, and the sentences must differ.
+    """
+    unchecked = decide(a_situation(conservation=one_law(Verdict.INDETERMINATE)))
+    wrong = decide(a_situation(conservation=one_law(Verdict.FAIL)))
+
+    assert unchecked.action is Action.BLOCK
+    assert wrong.action is Action.BLOCK
+    assert unchecked.said != wrong.said
+    assert NUMBERS_DO_NOT_ADD_UP not in unchecked.said
+    assert "not checked is not the same as checked and fine" in unchecked.said.lower()
+    assert "not checked is not the same as checked and fine" not in wrong.said.lower()
 
 
 # ---- before the write, and after it -----------------------------------------

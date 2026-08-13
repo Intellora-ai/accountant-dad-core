@@ -51,7 +51,15 @@ Run on all 200, on the permissive posture described above:
     crashes                             0
     posts                               0
     files refused by the classifier    72, every one carrying a sentence
-    decisions                         200 - 199 block, 1 ask, 0 post
+    decisions                         200 - 200 block, 0 ask, 0 post
+                                      RE-MEASURED the same day: it read
+                                      199 block / 1 ask until the owner made a
+                                      conservation FAIL a hard rule. The one ask
+                                      was the bill whose line items do not sum,
+                                      and it is a block now. Nothing moved
+                                      towards the books - 0 posts before and 0
+                                      after - which is the only column that
+                                      would have been a finding.
     decisions carrying a sentence     200
     entries carried by a refusal        0
 
@@ -812,13 +820,22 @@ def test_the_near_miss_bills_are_read_deeply_enough_to_reach_the_safety_layer() 
     assert len(read_everything) >= 2, read_everything
 
 
-def test_a_bill_whose_line_items_do_not_sum_is_asked_about_and_not_posted() -> None:
+def test_a_bill_whose_line_items_do_not_sum_is_refused_and_not_posted() -> None:
     """Conservation is what stops this one - every field was read and the
     arithmetic is what disagrees. The sentence names both figures, because
-    "the numbers do not add up" is not something a person can check."""
+    "the numbers do not add up" is not something a person can check.
+
+    CORRECTED AND RENAMED 2026-08-13. It asserted `Action.ASK`, which is what
+    `decision.py` did until the owner closed the question that morning:
+    "Conservation FAIL -> BLOCK, always. This is now a hard rule." Nothing was
+    posted before or after; the label and the sentence moved. The two figures
+    are still asserted, and they matter more now than they did - a refusal a
+    person cannot check against the bill leaves them nowhere, where a question
+    at least invited a reply.
+    """
     run = named("a_bill_whose_line_items_do_not_sum")
 
-    assert run.decided is not None and run.decided.action is Action.ASK
+    assert run.decided is not None and run.decided.action is Action.BLOCK
     assert "₹2,000.00" in run.decided.said
     assert "₹4,200.00" in run.decided.said
 

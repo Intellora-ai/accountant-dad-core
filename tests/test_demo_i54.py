@@ -462,16 +462,20 @@ def test_the_disagreeing_rows_are_exactly_the_ones_written_down() -> None:
     """A disagreement about what "refuse" means may not live in a comment.
 
     This fails the day either side changes without the other, which is the only
-    way an owner ever finds out that one of them moved.
+    way an owner ever finds out that one of them moved. It has now done that
+    job: it went red on 2026-08-13 when the cage started refusing a failed
+    conservation law, which is what the owner had decided that morning.
+
+    CORRECTED 2026-08-13. Rows 5, 6 and 7 were listed here as `Action.ASK` and
+    they are gone, not weakened - the cage and this demo now agree that a bill
+    whose own numbers contradict each other is refused, so there is no
+    disagreement left on those three rows to assert. Two remain.
     """
     results = demo.run_demo()
     cage = {r.number: r.cage_action for r in results if r.diverged}
 
     assert set(cage) == set(demo.DIVERGENCE)
     assert cage == {
-        5: demo.Action.ASK,
-        6: demo.Action.ASK,
-        7: demo.Action.ASK,
         17: demo.Action.POST,
         20: demo.Action.BLOCK,
     }
@@ -481,16 +485,21 @@ def test_the_control_every_other_row_that_reached_the_cage_agrees_with_it() -> N
     """THE CONTROL on the test above.
 
     Twelve rows get as far as having a bill to decide about; the other eight are
-    refused over bytes, before there is anything for `decide` to read. Five of
-    the twelve disagree and seven agree, and pinning both halves is what stops
-    the divergence list quietly growing to cover a demo that ignored the cage.
+    refused over bytes, before there is anything for `decide` to read. Two of
+    the twelve disagree and ten agree, and pinning both halves is what stops the
+    divergence list quietly growing to cover a demo that ignored the cage.
+
+    CORRECTED 2026-08-13, and this number is the measurement of the owner's
+    decision: it was five disagreeing and seven agreeing. Three rows moved from
+    one side to the other and none was added or dropped, which is what a
+    disagreement being SETTLED looks like as opposed to being hidden.
     """
     results = demo.run_demo()
 
     reached = [r for r in results if r.cage_action is not None]
 
     assert len(reached) == 12
-    assert len([r for r in reached if not r.diverged]) == 7
+    assert len([r for r in reached if not r.diverged]) == 10
 
 
 def test_the_disagreement_is_printed_in_the_demo_the_owner_watches() -> None:

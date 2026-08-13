@@ -50,17 +50,26 @@ outcome) and a non-empty sentence.
 ```
 post    >= 0.95  AND every conservation law PASS  AND party known
                  AND period open  AND no hard rule broken
-ask     0.70 to just under 0.95, OR any law FAIL at ANY confidence,
-                 OR a field readable more than one way
-block   under 0.70, OR any hard rule broken
+ask     0.70 to just under 0.95, OR a field readable more than one way
+block   under 0.70, OR any hard rule broken — and a law that FAILED
+                 is one of them, at ANY confidence
 ```
+
+**A conservation FAIL blocks, and that reversed on 2026-08-13.** It used to
+`ASK`, and the band list above used to say so. Owner decision, verbatim:
+*"Conservation FAIL → BLOCK, always. This is now a hard rule."* Nothing a person
+can answer makes 45,000 + 74,999 equal 1,20,000, so the question spent one of
+five and ended in the same refusal. The sentence is the owner's own: *"The
+numbers in this bill do not add up. Please check the original and upload a
+correct version."*, followed by the failing law's own line so the person has the
+two figures to reconcile against the bill.
 
 **Certainty never outvotes arithmetic.** A confidence score says how legible some
 pixels were; a conservation law says whether numbers agree. They are not on the
-same scale and do not trade off, so a failing law sends a bill to ASK at
-confidence 1.0 exactly as it does at 0.71. This is the single behaviour the whole
-cage exists for: `confidence.py` cannot see a value the engine misread
-*confidently*, arithmetic can, but only if arithmetic is allowed to win.
+same scale and do not trade off, so a failing law refuses a bill at confidence
+1.0 exactly as it does at 0.71. This is the single behaviour the whole cage
+exists for: `confidence.py` cannot see a value the engine misread *confidently*,
+arithmetic can, but only if arithmetic is allowed to win.
 
 ## Three laws are about the bill. The fourth is about the books.
 
@@ -89,12 +98,13 @@ and each is why it is safe:**
 balance absent because it cannot exist yet and one absent because the caller
 forgot are the same `None`.
 
-## Five hard rules, each of which always blocks
+## Six hard rules, each of which always blocks
 
 | Rule | Why |
 |---|---|
+| a law `FAIL` | owner decision, 2026-08-13, and it **reversed** what this module did: a failed law used to ASK. Nothing a person can answer makes 45,000 + 74,999 equal 1,20,000 |
 | tax on the bill | owner decision Q3 = D. Writing the bill without its tax line leaves a wrong statutory entry |
-| a document law `INDETERMINATE` | "could not check" is not "checked and fine" |
+| a document law `INDETERMINATE` | "could not check" is not "checked and fine". **A separate rule from the first one**, deliberately: they share an outcome and not a sentence, because one means send a readable copy and the other means the figures disagree with each other |
 | the period closed | the books for that date are shut |
 | the party unknown | a name is never added to somebody's chart of accounts. The person is asked |
 | the question budget spent | a product that will not take no for an answer is worse than one that hands the entry back |

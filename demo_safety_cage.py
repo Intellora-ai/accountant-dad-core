@@ -30,22 +30,31 @@ about bytes rather than about a bill:
 and then the sentence a person reads, which is the cage's own sentence plus the
 one thing the cage does not say: what to do next.
 
-WHERE THE CAGE AND THE OWNER'S CRITERION DISAGREE — FOUR ROWS, READ THIS
+WHERE THE CAGE AND THE OWNER'S CRITERION DISAGREE — TWO ROWS, READ THIS
 -------------------------------------------------------------------------
-They disagree about one thing, and they disagree about it in both directions:
+IT WAS FIVE ROWS UNTIL 2026-08-13. THREE OF THEM ARE GONE, AND THIS DEMO WON.
+
+They used to disagree in both directions:
 
     the bill is WRONG        owner: refuse it        decision.py: ask about it
     the bill is INCOMPLETE   owner: ask about it     decision.py: refuse it
 
-`decision.py` sends a failed conservation law to ASK ("the numbers do not add
-up, so I will not post it without checking with you first") and sends a field it
-could not read at all to BLOCK ("too little to even ask about"). The owner's
-criterion groups the three arithmetic rows under *refuse* and the missing-field
-row under *ask*.
+The first line is settled. The owner closed it - "Conservation FAIL -> BLOCK,
+always. This is now a hard rule." - so rows 5, 6 and 7 no longer diverge: the
+cage refuses them itself, in its own words, and the override this file used to
+apply to them is deleted rather than left as a coincidence. The demo's
+expectation was right all along; it did not become right by being asserted here.
+
+What is left is the other direction, and rows 17 and 20:
+
+    row 17   the cage cleared a bill it has no way to know was already posted.
+             A guard the cage does not contain is what stopped it.
+    row 20   a field nobody could read at all. The cage says "too little to even
+             ask about"; the owner's criterion asks for it.
 
 Nothing is posted either way, so no books are at risk on this. What differs is
 the label and therefore the sentence. **This demo follows the owner's criterion
-on those four rows, records what `decision.decide` said about each of them
+on those two rows, records what `decision.decide` said about each of them
 anyway, and prints the disagreement.** It is named in `DIVERGENCE`, asserted in
 `tests/test_demo_i54.py`, and it is for the owner to settle - not for either
 file to quietly win.
@@ -152,14 +161,18 @@ KNOWN_PARTIES = (PARTY_ONE, PARTY_TWO)
 #: module docstring. The demo states the boundary so the case can be shown.
 BOOKS_OPEN_FROM = datetime.date(2026, 4, 1)
 
-#: The four rows where `decision.decide` labels the outcome differently from the
+#: The rows where `decision.decide` labels the outcome differently from the
 #: owner's acceptance criterion, and the direction of each. Written down so the
 #: disagreement is a fact in the code rather than a paragraph in a report, and
 #: so a test fails the day either side changes without the other.
+#:
+#: ROWS 5, 6 AND 7 WERE HERE UNTIL 2026-08-13, all three reading "cage asks
+#: about a failed law; the owner refuses a wrong bill". The owner settled it in
+#: the demo's favour - a conservation FAIL is a hard rule now - so there is
+#: nothing left to disagree about and the entries are deleted. A divergence
+#: entry for a divergence that no longer exists is worse than none: it makes the
+#: report print a disagreement the product does not have.
 DIVERGENCE: dict[int, str] = {
-    5: "cage asks about a failed law; the owner refuses a wrong bill",
-    6: "cage asks about a failed law; the owner refuses a wrong bill",
-    7: "cage asks about a failed law; the owner refuses a wrong bill",
     17: "cage has no duplicate guard at all; the register read is what stopped it",
     20: "cage refuses a field it could not read; the owner asks for it",
 }
@@ -195,8 +208,14 @@ AS_OUTCOME: dict[Action, Outcome] = {
 #: already used. Leaving this entry filled printed the same instruction twice in
 #: a row at the person, which is its own defect. An empty string here is the
 #: demo saying the cage already answered, not the demo giving up.
+#:
+#: THE ARITHMETIC ROW EMPTIED THE SAME DAY, for the same reason and after the
+#: same kind of decision. It read "Check that against the bill and send it again"
+#: while the cage's own refusal now ends "Please check the original and upload a
+#: correct version" - the same instruction, twice, in two wordings, at somebody
+#: already holding a bill that does not add up.
 NEXT_STEP: dict[str, str] = {
-    "arithmetic": "Check that against the bill and send it again.",
+    "arithmetic": "",
     "tax": "",
     "party": "Add them in Tally, or tell me which name you already have.",
     "period": "Ask your accountant to open that period, or check the date.",
@@ -686,10 +705,17 @@ def settle(
 ) -> Result:
     """Turn what the cage said into what this demo shows, and post if it posts.
 
-    The two overrides are the whole of `DIVERGENCE` and they are here, in one
-    place, named, rather than smeared through the guards. Neither of them
-    weakens anything: an override that turns ASK into BLOCK refuses more, and an
-    override that turns BLOCK into ASK still posts nothing.
+    The one override left is the whole of `DIVERGENCE` on the rows that reach a
+    bill, and it is here, in one place, named, rather than smeared through the
+    guards. It does not weaken anything: turning BLOCK into ASK still posts
+    nothing.
+
+    THE SECOND OVERRIDE IS DELETED, 2026-08-13. It read `if stage ==
+    "arithmetic": refuse(...)` and it existed because the cage asked about a
+    bill whose own numbers contradict each other while the owner's criterion
+    refused it. The owner settled that in the demo's favour, so the cage refuses
+    it now - and an override that agrees with what it is overriding is not a
+    safety net, it is a copy of the answer that hides the day the answer moves.
     """
     stage = stage_for(seen, laws, watched)
     outcome = AS_OUTCOME[decided.action]
@@ -702,11 +728,6 @@ def settle(
         return result_for(
             row, Outcome.ASK, "confidence", asked[0], questions=asked, **extra
         )
-
-    if stage == "arithmetic":
-        # DIVERGENCE, the other way. The cage asks; the owner refuses a bill
-        # whose own numbers contradict each other.
-        return refuse(row, stage, f"{decided.said} {NEXT_STEP[stage]}", **extra)
 
     if outcome is not Outcome.POST:
         # On an ASK the question IS the next step, and the cage does not build

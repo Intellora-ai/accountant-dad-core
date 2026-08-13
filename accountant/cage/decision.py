@@ -17,8 +17,8 @@ THE BANDS ARE OWNER-SET
 ------------------------
     post    confidence 0.95 or better AND every conservation law PASS AND the
             party known AND the period open AND no hard rule broken
-    ask     confidence from 0.70 to just under 0.95, OR any conservation law
-            FAIL at any confidence, OR something readable more than one way
+    ask     confidence from 0.70 to just under 0.95, OR something readable more
+            than one way
     block   confidence under 0.70, OR any hard rule broken
 
 Whether 0.95 and 0.70 are the RIGHT numbers is a question for a corpus run
@@ -30,13 +30,20 @@ CERTAINTY NEVER OUTVOTES ARITHMETIC
 -------------------------------------
 A confidence score is a statement about how legible some pixels were. A
 conservation law is a statement about whether numbers agree. They are not on the
-same scale and they do not trade off, so a failing law sends a bill to ASK at
+same scale and they do not trade off, so a failing law refuses a bill at
 confidence 1.0 exactly as it does at 0.71. This is the single behaviour the cage
 exists for: `confidence.py` cannot see a value the engine misread *confidently*,
 and arithmetic can - but only if arithmetic is allowed to win.
 
-SEVEN HARD RULES, EACH OF WHICH ALWAYS BLOCKS
+EIGHT HARD RULES, EACH OF WHICH ALWAYS BLOCKS
 -----------------------------------------------
+    a law FAIL             OWNER DECISION, 2026-08-13, and it REVERSED what this
+                           module did until that day: a failed conservation law
+                           used to send the bill to ASK, and the bands list
+                           above used to say so. It blocks now, always, at any
+                           confidence. Nothing a person can answer makes 45,000
+                           plus 74,999 equal 1,20,000, so the question spent one
+                           of five and ended in this refusal anyway.
     tax on the bill        owner decision Q3=D, tax posting is off. Writing the
                            bill without its tax line leaves a wrong statutory
                            entry in real books.
@@ -51,7 +58,12 @@ SEVEN HARD RULES, EACH OF WHICH ALWAYS BLOCKS
     a law INDETERMINATE    "could not check" is not "checked and fine". Three of
                            the four laws, always - see the paragraph below for
                            the fourth, which is not an exception to the rule but
-                           a different kind of question.
+                           a different kind of question. A SEPARATE RULE FROM
+                           THE FIRST ONE, deliberately: "nobody could check
+                           this" and "it was checked and it does not add up" are
+                           different facts, they get different sentences, and
+                           the person does something different about each. They
+                           share only the outcome.
     the period closed      the books for that date are shut.
     the party unknown      we never add a name to somebody's chart of accounts.
                            The person is asked; nothing is invented.
@@ -301,9 +313,18 @@ _PARTY_NOT_A_NAME: Final = (
     "What I read as the name on this bill is not a name, so nothing was posted."
 )
 
-_NUMBERS_DISAGREE: Final = (
-    "The numbers on this bill do not add up, so I will not post it without "
-    "checking with you first."
+#: Owner's wording, kept verbatim, from the decision of 2026-08-13 that made a
+#: conservation FAIL a hard rule. It REPLACED "The numbers on this bill do not
+#: add up, so I will not post it without checking with you first", which
+#: promised a question the module no longer asks - a sentence that offers to
+#: check with somebody, on an outcome that refuses them, is a refusal wearing a
+#: question's face.
+#:
+#: Public for the same reason `GST_IS_OFF` is: it is the owner's sentence, and a
+#: test pins the literal so a paraphrase cannot arrive by way of a helpful edit.
+NUMBERS_DO_NOT_ADD_UP: Final = (
+    "The numbers in this bill do not add up. Please check the original and "
+    "upload a correct version."
 )
 
 _NOT_SURE_ENOUGH: Final = (
@@ -668,6 +689,44 @@ def _conservation_blocks(results: object, moment: object) -> list[str]:
     return []
 
 
+def _failed_laws_block(results: object, seen: Observation) -> list[str]:
+    """A law that was checked and came back FAIL. Owner's hard rule, 2026-08-13.
+
+    IT USED TO ASK, AND THIS IS THE WHOLE OF WHAT CHANGED. The owner closed it
+    in one sentence: "Conservation FAIL -> BLOCK, always. This is now a hard
+    rule." The reason is the one `checks.py` already records under
+    `problems.UNANSWERABLE_CHECKS` - nothing a person can answer makes 45,000
+    plus 74,999 equal 1,20,000, so a question about it spends one of five on
+    something no answer fixes and ends in the same refusal anyway.
+
+    THIS IS A DIFFERENT FACT FROM `_conservation_blocks`, WHICH IS WHY IT IS A
+    DIFFERENT FUNCTION. That one refuses INDETERMINATE - "nobody could check
+    this". This one refuses FAIL - "it was checked and the numbers contradict
+    each other". They now share an outcome and they do NOT share a sentence: one
+    means send a copy somebody can read, the other means the figures on the page
+    disagree with each other, and a person given the wrong one of those does the
+    wrong thing next. `_asking` no longer looks at FAIL at all.
+
+    The law's own sentence follows the owner's, every failing law, because "the
+    numbers do not add up" is not something a person can check against a bill
+    and "₹1,199.99 against a stated total of ₹1,200.00, out by 1 paisa" is. The
+    figures arrive already formatted - `conservation.py` renders every amount
+    through `money.format_inr` - so nothing here reformats them and there is no
+    second place for the grouping to be wrong.
+
+    Nothing when the results are not intact: `_conservation_blocks` has already
+    refused that bill, and a second sentence about verdicts nobody can read
+    would report one defect twice in two different vocabularies.
+    """
+    if not _checks_are_intact(results):
+        return []
+    checked = cast(tuple[ConservationResult, ...], results)
+    failed = [r for r in checked if r.verdict is Verdict.FAIL]
+    if not failed:
+        return []
+    return [NUMBERS_DO_NOT_ADD_UP + _which_bill(seen), *(r.said for r in failed)]
+
+
 def _write_is_what_was_checked(situation: Situation, seen: Observation) -> list[str]:
     """The amount the laws were run on must be the amount that gets written.
 
@@ -814,6 +873,10 @@ def _blocking(situation: Situation) -> tuple[str, ...]:
     # is actually in the calling code.
     reasons.extend(_moment_blocks(situation.moment))
     reasons.extend(_conservation_blocks(situation.conservation, situation.moment))
+    # "Could not check" first, then "checked, and it does not add up". Both are
+    # hard rules and they are two different facts about the same bill, so they
+    # are two entries in this list rather than one branch answering both.
+    reasons.extend(_failed_laws_block(situation.conservation, seen))
     # Immediately after the verdicts, because it is a question about them: the
     # laws ran, and this is whether they ran on the number this bill would put
     # in somebody's books.
@@ -832,19 +895,12 @@ def _asking(situation: Situation, seen: Observation) -> tuple[str, ...]:
     """Every reason to put a question to the person, in one fixed order.
 
     Reached only when nothing blocks, so the accounts are known to be strings
-    and the conservation results are known to be four intact verdicts.
+    and the conservation results are known to be four intact verdicts - and,
+    since 2026-08-13, known to contain no FAIL. A failing law was the first
+    entry in this list until the owner made it a hard rule; it is now refused in
+    `_failed_laws_block` and this function never sees one.
     """
     reasons: list[str] = []
-    failed = [r for r in situation.conservation if r.verdict is Verdict.FAIL]
-    if failed:
-        # The law's own sentence names the figures and the difference. "The
-        # numbers do not add up" is not something a person can check; "₹1,199.99
-        # against a stated total of ₹1,200.00, out by 1 paisa" is. The figures
-        # arrive already formatted - `conservation.py` renders every amount
-        # through `money.format_inr`, so nothing here reformats them and there
-        # is no second place for the grouping to be wrong.
-        reasons.append(_NUMBERS_DISAGREE + _which_bill(seen))
-        reasons.extend(r.said for r in failed)
     if situation.ambiguous_fields:
         count = len(situation.ambiguous_fields)
         thing = "thing" if count == 1 else "things"

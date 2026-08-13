@@ -19,10 +19,21 @@ half and is worthless. So there are five hundred clean non-GST purchases as
 well, and if the cage refuses those, the refusal rate on the other half means
 nothing.
 
-WHAT IT MEASURED, 2026-08-13 (re-measured when the two holes closed)
+WHAT IT MEASURED, 2026-08-13 (re-measured when a conservation FAIL became a
+hard rule; the reading before that decision is kept beside it)
 ----------------------------------------------------------------------
-    invalid   502/502 refused - 200 ask, 302 block, 0 post. The owner's floor
+    invalid   502/502 refused - 38 ask, 464 block, 0 post. The owner's floor
               is 99.5%, which is 500. Nothing was adjusted to reach it.
+
+              IT WAS 200 ask / 302 block that morning, on the same 502 cases.
+              162 cases moved from ask to block and not one moved in the other
+              direction, which is the shape a hard rule has: the owner made a
+              conservation FAIL refuse rather than ask, so the arithmetic family
+              (120), the failing halves of the lying family (30) and the two
+              band edges that carry a broken law (12) all crossed. The refusal
+              RATE did not move at all - it was already 502/502 - and that is
+              the honest summary: this decision changed what the product SAYS to
+              a person, not how much it lets through.
     writable  0/500 refusals came back holding a `LedgerEntry`. This is the
               claim that matters, and it is stronger than the percentage above:
               not "it said block" but "there is nothing in the result anybody

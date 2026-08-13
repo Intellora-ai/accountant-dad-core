@@ -319,10 +319,19 @@ def test_a_bill_with_every_fact_supplied_and_every_law_holding_posts() -> None:
     assert decided.entry.party == PARTY
 
 
-def test_a_bill_whose_lines_do_not_add_up_is_asked_about() -> None:
+def test_a_bill_whose_lines_do_not_add_up_is_refused() -> None:
+    """CORRECTED AND RENAMED 2026-08-13. It was
+    `test_a_bill_whose_lines_do_not_add_up_is_asked_about` and it asserted ASK.
+
+    The owner closed that question on that date, this way round: "Conservation
+    FAIL -> BLOCK, always. This is now a hard rule." A question about a bill
+    whose own lines contradict its total spends one of five on something no
+    answer can fix. Nothing was posted either way; what moved is the label and
+    the sentence the person reads.
+    """
     record = a_record(line_items=(LineItem("cement", 410_000),))
     decided = asked(a_draft(record))
-    assert decided.action is Action.ASK
+    assert decided.action is Action.BLOCK
     assert decided.entry is None
 
 
@@ -432,9 +441,18 @@ def test_a_caller_amount_that_is_not_paise_blocks_rather_than_raising() -> None:
     assert decided.action is Action.BLOCK
 
 
-def test_a_bill_whose_books_moved_by_the_wrong_amount_is_asked_about() -> None:
+def test_a_bill_whose_books_moved_by_the_wrong_amount_is_refused() -> None:
+    """CORRECTED AND RENAMED 2026-08-13, the same way and on the same owner
+    decision as the lines test above: a conservation FAIL is a hard rule now, so
+    a balance that moved by the wrong amount blocks instead of asking.
+
+    The sentence assertion is kept and is doing more work than it looks: the
+    owner's own refusal is "The numbers in this bill do not add up", so the
+    substring survives the reversal - which is exactly why the ACTION is
+    asserted beside it rather than left to the words.
+    """
     decided = asked(a_draft(), balance_after_paise=BEFORE + 1)
-    assert decided.action is Action.ASK
+    assert decided.action is Action.BLOCK
     assert "do not add up" in decided.said
 
 
