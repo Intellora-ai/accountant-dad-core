@@ -1323,9 +1323,13 @@ def test_the_lockfile_resolves_exactly_the_dependencies_pyproject_declares() -> 
 def test_the_image_installs_no_system_package_including_tesseract() -> None:
     """tesseract is a BINARY, not a wheel, and this image does not carry it.
 
-    Three measured reasons, all in the Dockerfile beside the decision: nothing
-    in this repository builds `freeocr.FreeReader` (`registry._NEEDS_WIRING`),
-    so the binary would have no caller; apt would install whatever version
+    Three measured reasons, all in the Dockerfile beside the decision. The
+    first one CHANGED on 2026-08-13 and did not go away: `registry.build
+    ("free_ocr")` now does construct `freeocr.FreeReader`, so the binary has a
+    caller — but `DEFAULT_BACKEND` is still `typed_text`, so nothing in the
+    running application reaches it, and a machine without the binary answers
+    `freeocr.ENGINE_MISSING` rather than failing. Apt would install whatever
+    version
     Debian serves that morning, which is the one thing the lockfile install
     exists to prevent; and a missing binary is already a clean refusal —
     `pytesseract.TesseractNotFoundError` maps to `freeocr.ENGINE_MISSING`.

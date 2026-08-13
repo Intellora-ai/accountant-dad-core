@@ -72,6 +72,7 @@ from accountant.extract.adapter import (
     TypedTextExtractor,
     UnavailableExtractor,
 )
+from accountant.extract.freeocr import FreeReader
 from accountant.extract.ladder import Ladder
 from accountant.extract.placeholder import PlaceholderReader
 from accountant.extract.service import (
@@ -478,18 +479,21 @@ def test_every_extractor_the_package_defines_returns_the_same_type() -> None:
 
 
 def test_the_registry_builds_every_backend_it_says_is_available() -> None:
-    """CORRECTED 2026-08-13: four names became six when the readers were wired.
+    """CORRECTED 2026-08-13 TWICE: four names became six, then six became seven.
 
     `pdf_text_layer` and `ladder` joined `_READY` the day `D-30` cleared the two
-    reader modules. The old four-name tuple was not weakened to a subset and is
-    not going to be: this is still an EXACT equality, because the thing it
-    guards is that a backend cannot appear in the registry without somebody
-    writing its name down here — and a reader arriving unannounced is precisely
-    the event this repository spends `tests/test_no_reader.py` on.
+    reader modules; `free_ocr` joined it the day `pagereader.py` gave
+    `FreeReader` the page reader it had always been missing. The tuple was not
+    weakened to a subset either time and is not going to be: this is still an
+    EXACT equality, because the thing it guards is that a backend cannot appear
+    in the registry without somebody writing its name down here — and a reader
+    arriving unannounced is precisely the event this repository spends
+    `tests/test_no_reader.py` on.
     """
     built = {name: registry.build(name) for name in registry.available()}
 
     assert registry.available() == (
+        "free_ocr",
         "ladder",
         "no_reader",
         "pdf_text_layer",
@@ -519,28 +523,26 @@ def test_the_registry_says_what_a_backend_still_needs_instead_of_unknown() -> No
     assert "ServiceExtractor" in str(caught.value)
 
 
-def test_the_picture_reader_says_what_it_still_needs_rather_than_being_absent() -> None:
-    """ADDED 2026-08-13. `free_ocr` is on disk and is not buildable by name.
+def test_the_picture_reader_builds_from_its_name_now_that_it_has_a_page_reader() -> (
+    None
+):
+    """CORRECTED 2026-08-13. `free_ocr` used to be the second `_NEEDS_WIRING`
+    entry, because `FreeReader` takes a page reader — the thing that says which
+    words on a page are the total, the tax, the date and the supplier — and
+    nothing here answered it. `accountant/extract/pagereader.py` does, so the
+    name builds and the table entry would now be a lie.
 
-    It is the second entry in `_NEEDS_WIRING` and the distinction it draws is
-    the one that file exists for: "there is no such backend" and "the backend
-    exists and something it needs has not been decided" send a person to
-    completely different places. What it needs is field detection, which needs
-    `H-02`, which is a pile of real bills nobody has supplied.
+    The distinction `_NEEDS_WIRING` draws is not weakened by one name leaving
+    it: `reader_service` still demonstrates it in the test above, and the
+    assertion that `free_ocr` is no longer in it is what stops a backend being
+    listed as both buildable and blocked.
     """
-    with pytest.raises(registry.UnknownBackend, match="it needs a page reader") as bad:
-        registry.build("free_ocr")
+    built = registry.build("free_ocr")
 
-    assert "free_ocr" not in registry.available()
-    assert "FreeReader" in str(bad.value)
-    assert "H-02" in str(bad.value)
-
-    # Two sentences about one gap, on purpose, and the assertion says which is
-    # which rather than that they match. This one names a constructor and an
-    # argument, for somebody wiring a backend. `ladder.NEEDS_A_PAGE_READER`
-    # names what to do instead, for somebody who just uploaded a photograph.
-    assert "FreeReader" not in ladder.NEEDS_A_PAGE_READER
-    assert "type this one in" in ladder.NEEDS_A_PAGE_READER
+    assert isinstance(built, FreeReader)
+    assert built.name == "free_ocr"
+    assert "free_ocr" in registry.available()
+    assert "free_ocr" not in registry._NEEDS_WIRING  # pyright: ignore[reportPrivateUsage]
 
 
 def test_the_router_hands_typed_text_to_the_rung_that_already_read_it() -> None:
@@ -569,32 +571,58 @@ def test_the_router_hands_a_pdf_to_the_text_layer_rung_and_names_it() -> None:
 @pytest.mark.parametrize(
     ("label", "mime"),
     [
-        ("a photograph", "image/jpeg"),
-        ("a screenshot", "image/png"),
         ("a Word file", "application/vnd.openxmlformats-officedocument"),
+        ("a spreadsheet", "text/csv"),
         ("nothing declared", ""),
     ],
 )
-def test_the_router_refuses_what_no_rung_reads_and_says_what_is_missing(
+def test_the_router_refuses_what_no_rung_reads_and_says_what_to_do_instead(
     label: str, mime: str
 ) -> None:
     """A refusal that says "unsupported" tells a person to wait for a feature.
-    This one tells them what to do now, and it is the same sentence the registry
-    gives whoever tries to build the picture reader by name."""
+    This one tells them what to do now.
+
+    THE TWO IMAGE CASES LEFT THIS LIST ON 2026-08-13 and became the test below,
+    because they stopped being refusals: the picture rung is wired. The old
+    sentence asked the person to type the bill in instead, which would now be
+    asking them to retype a bill this system can read."""
     record = Ladder().extract(b"\xff\xd8\xff\xe0", mime)
 
     assert record.backend == "ladder", label
     assert not_found_fields(record) == set(ExtractedRecord.FIELDS)
     assert all(
-        ladder.NEEDS_A_PAGE_READER in source
+        ladder.NOT_A_KIND_WE_READ in source
         for source in record.per_field_source.values()
     )
 
 
+@pytest.mark.parametrize("mime", ["image/png", "image/jpeg"])
+def test_a_picture_reaches_the_reading_engine_rather_than_a_refusal(mime: str) -> None:
+    """The wiring, at the router. These bytes are not a picture, so what comes
+    back is still every field unread — but it is the READING ENGINE'S refusal,
+    under the engine's name, which is what proves the document got there. A
+    router that had swallowed it would answer under `ladder`."""
+    record = Ladder().extract(b"\xff\xd8\xff\xe0", mime)
+
+    assert record.backend == "free_ocr"
+    assert not_found_fields(record) == set(ExtractedRecord.FIELDS)
+    assert ladder.NOT_A_KIND_WE_READ not in record.per_field_source["total_paise"]
+
+
 def test_the_router_reads_only_what_it_says_it_reads() -> None:
     """The list is asserted rather than described, so a rung cannot arrive
-    without the count moving."""
-    assert Ladder().reads() == ("application/pdf", "text/plain")
+    without the count moving. The five picture types are `freeocr.READABLE_MEDIA`
+    and are not written twice — the router claiming to read a kind the rung
+    refuses is the drift this equality catches."""
+    assert Ladder().reads() == (
+        "application/pdf",
+        "image/bmp",
+        "image/jpeg",
+        "image/png",
+        "image/tiff",
+        "image/webp",
+        "text/plain",
+    )
 
 
 def test_the_default_backend_is_one_the_registry_can_actually_build() -> None:

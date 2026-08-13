@@ -180,6 +180,31 @@ def _ladder() -> Extractor:
     return Ladder()
 
 
+def _picture_reader() -> Extractor:
+    """The free reading engine, with the page reader it has always needed.
+
+    THE SECOND SEAM, FILLED 2026-08-13. `freeocr.FreeReader` takes a page reader
+    — something that says which words on a page are the total, the tax, the date
+    and the supplier — and until `accountant/extract/pagereader.py` landed
+    nothing in this repository answered that, which is why this name lived in
+    `_NEEDS_WIRING` and not here.
+
+    `page_reader` is called rather than passed a class, and the deadline is
+    passed EXPLICITLY although the constant has a home: `read_lines` takes it
+    with no default because an unbounded wait is a request that hangs, and a
+    caller that could forget it is a caller that eventually does.
+
+    Same deferred import as the two rungs above, for the same measured reason:
+    `pagereader.py` reaches `pytesseract` and `PIL`, and importing this file
+    must not put them on the path of a web application that will never be
+    handed a photograph.
+    """
+    from accountant.extract.freeocr import FreeReader
+    from accountant.extract.pagereader import READING_DEADLINE_SECONDS, page_reader
+
+    return FreeReader(page_reader(deadline_seconds=READING_DEADLINE_SECONDS))
+
+
 #: Backends that need nothing to be constructed.
 #:
 #: `no_reader` JOINED 2026-08-11 with the upload routes. It is the honest
@@ -203,6 +228,7 @@ _READY: Final[dict[str, Callable[[], Extractor]]] = {
     "typed_text": TypedTextExtractor,
     "pdf_text_layer": _text_layer_reader,
     "ladder": _ladder,
+    "free_ocr": _picture_reader,
     "stub": StubExtractor,
     "unavailable": UnavailableExtractor,
     "no_reader": PlaceholderReader,
@@ -212,33 +238,26 @@ _READY: Final[dict[str, Callable[[], Extractor]]] = {
 #: saying what they still need. Separated from "unknown" because the two lead a
 #: person to completely different next actions.
 #:
-#: `free_ocr` is the second of those and it is NOT an oversight. The class is
-#: on disk, it satisfies `Extractor`, and `tesseract` 5.5.3 is installed on the
-#: machine this was written on. What is missing is the thing that turns a list
-#: of words into "this one is the total" — field detection, which cannot be
-#: checked without a pile of bills whose answers are already known (`H-02`), and
-#: which written without one would be unmeasured, unfalsifiable and confident.
-#: A name that built it anyway would be this file choosing a reader nobody has
-#: graded, which is the one thing it exists not to do.
+#: `free_ocr` WAS THE SECOND ENTRY HERE AND LEFT ON 2026-08-13. What it needed
+#: was a page reader — the thing that says which words on a page are the total,
+#: the tax, the date and the supplier — and the reason it was missing was that
+#: field detection cannot be checked without a pile of bills whose answers are
+#: already known. That pile turned out to exist: `artifacts/ground_truth/` holds
+#: eighty cases with expected fields, twenty of them pictures. So the reader was
+#: written against the field logic `textlayer.py` already uses and MEASURED
+#: against those answers rather than asserted about, and a table entry that
+#: exists to say "nobody has decided this" stopped being true of it.
 #:
-#: The sentence below is NOT `ladder.NEEDS_A_PAGE_READER` and does not import
-#: it, on the argument `freeocr.refusal_for` already makes about not reusing
-#: `service.reason_for`: these are two audiences. This one is read by somebody
-#: wiring a backend and names a constructor and an argument. That one is read by
-#: somebody who just uploaded a photograph of a bill and names what to do
-#: instead. One string covering both would be a string neither can act on.
+#: What is measured, and it is not flattering: on the twenty corpus PNGs the
+#: engine yields a supplier on five and is exactly right on two. The other
+#: fifteen are refused. That is a reading with a number on it, which is what
+#: this table was holding out for; it is not an accuracy claim about anybody's
+#: real bills, and `H-02` stays open for those.
 _NEEDS_WIRING: Final[dict[str, str]] = {
     "reader_service": (
         "it needs a transport; construct "
         "accountant.extract.service.ServiceExtractor(call) where the "
         "deployment owns `call`"
-    ),
-    "free_ocr": (
-        "it needs a page reader; construct "
-        "accountant.extract.freeocr.FreeReader(read_page) where the deployment "
-        "owns `read_page` — something that says which words on the page are the "
-        "total, the tax, the date and the supplier. Nothing in this repository "
-        "does that, because it cannot be checked without H-02"
     ),
 }
 

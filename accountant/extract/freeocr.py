@@ -136,7 +136,7 @@ from typing import Final, cast
 # every call site - and the run-time checks in `_complaint` are what actually
 # hold, because a stub would only have been a promise anyway.
 import pytesseract  # pyright: ignore[reportMissingTypeStubs]
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from pytesseract import Output  # pyright: ignore[reportMissingTypeStubs]
 
 from accountant.cage.confidence import field_confidence, looks_like_a_date
@@ -198,8 +198,24 @@ MALFORMED_READING: Final = (
     "the text reading program answered with something we cannot use"
 )
 
-#: Every refusal above, so a test can prove they are five distinct sentences and
-#: that none of them is empty.
+#: What a person is told about a file that SAYS it is a picture and holds no
+#: picture. MEASURED 2026-08-13 on the twenty corpus JPEGs: every one of them is
+#: a JFIF header followed by comment segments, with no frame header and no scan
+#: - zero pixels in the file. `Image.open` raises `UnidentifiedImageError` and
+#: no reader can do better, because there is nothing in there to read.
+#:
+#: A SEPARATE SENTENCE FROM `ENGINE_FAILED`, and it earns the separation the way
+#: `EngineMissing` and `EngineTimedOut` earn theirs: the two lead a person to
+#: different next actions. "The reading program could not read this file" sends
+#: somebody to check their engine install for a problem the engine never saw.
+#: This one tells them the file is empty, which is the thing that is true.
+UNOPENABLE_PICTURE: Final = (
+    "this file says it is a picture but there is no picture inside it, so there "
+    "is nothing on it to read. Please send the original photograph or scan"
+)
+
+#: Every refusal above, so a test can prove they are distinct sentences and that
+#: none of them is empty.
 ALL_REFUSALS: Final[tuple[str, ...]] = (
     ENGINE_MISSING,
     ENGINE_TIMED_OUT,
@@ -207,6 +223,7 @@ ALL_REFUSALS: Final[tuple[str, ...]] = (
     ENGINE_FAILED,
     UNREADABLE_MEDIA,
     MALFORMED_READING,
+    UNOPENABLE_PICTURE,
 )
 
 
@@ -248,6 +265,10 @@ class EngineFailed(Exception):
 #: they already have.
 _REFUSAL_FOR: Final[tuple[tuple[type[BaseException], str], ...]] = (
     (EngineMissing, ENGINE_MISSING),
+    # BEFORE the two OSError siblings below, because `UnidentifiedImageError`
+    # subclasses `OSError` and a file with no picture in it is neither a missing
+    # program nor a permissions problem.
+    (UnidentifiedImageError, UNOPENABLE_PICTURE),
     # `TesseractNotFoundError` subclasses `OSError` but NOT `FileNotFoundError`,
     # so without this line it would fall through to the catch-all and a person
     # with no engine installed would be told the engine could not read the file.
@@ -369,6 +390,70 @@ def _whatever_the_engine_returned(page: object, deadline_seconds: float) -> obje
     )
 
 
+def _reported(data: bytes, deadline_seconds: float) -> object:
+    """The engine's whole answer about one page, or one of this file's failures.
+
+    ONE call site for the engine and one place that maps its failures, shared by
+    `read_words` and `read_lines`. A second copy of the four `except` clauses
+    below is how one of them ends up without the `TesseractError`-before-
+    `RuntimeError` ordering, and a person with a broken file is then told to try
+    a smaller picture.
+    """
+    # `type(...) in` and not `isinstance`, so a `bool` is refused: `True` is an
+    # int in Python and would become a one-second deadline that looks deliberate.
+    if type(deadline_seconds) not in (int, float) or deadline_seconds <= 0:
+        raise ValueError(
+            f"a reading deadline must be a positive number of seconds, not "
+            f"{deadline_seconds!r}. An unbounded wait is a request that hangs, "
+            "and this system refuses rather than hangs."
+        )
+    page = Image.open(io.BytesIO(data))
+    try:
+        return _whatever_the_engine_returned(page, deadline_seconds)
+    except pytesseract.TesseractNotFoundError as exc:
+        raise EngineMissing(str(exc)) from exc
+    except pytesseract.TesseractError as exc:
+        # BEFORE the RuntimeError clause, and the order is the whole of it:
+        # `TesseractError` subclasses `RuntimeError`, so reversed, an engine
+        # that exited with an error code would be reported as a timeout and a
+        # person would be told to try a smaller picture for a problem that has
+        # nothing to do with size.
+        raise EngineFailed(str(exc)) from exc
+    except RuntimeError as exc:
+        # The only bare `RuntimeError` the wrapper raises is from its own
+        # `timeout_manager`, which has already killed the process. Read off its
+        # source rather than matched on the message: matching on a third
+        # party's wording is a test that passes until they fix a typo.
+        raise EngineTimedOut(str(exc)) from exc
+
+
+def read_lines(data: bytes, *, deadline_seconds: float) -> tuple[tuple[Word, ...], ...]:
+    """The same words as `read_words`, in the LINES the engine reported them on.
+
+    WHY A SECOND SHAPE OF THE SAME ANSWER EXISTS. Everything that says which
+    words on a page are the total works on lines: `TOTAL   1,020.70` is one
+    line, and `TOTAL` on its own means nothing. Flattened to a single sequence
+    the page reads as one enormous line, `SUBTOTAL` and `TOTAL` sit beside each
+    other, and a reader anchored to the start of a line has no line to anchor
+    to. So a caller that needs to locate a field needs this and `read_words`
+    cannot give it.
+
+    THE GROUPING IS THE ENGINE'S OWN AND NOT GEOMETRY. `image_to_data` numbers
+    every row by block, paragraph and line, which is the same hierarchy
+    `WORD_ROW` already reads. No coordinate is touched here and `Word` still
+    carries none: what a line IS was decided by the engine, exactly as what a
+    word is was.
+
+    FAITHFUL, INCLUDING THE ROWS THAT CARRY NO CHARACTERS. MEASURED: on
+    `artifacts/ground_truth/documents/GT-0041.png` the engine reports a level-5
+    row whose text is empty and whose confidence is 95. It is not dropped here,
+    because dropping it would be this function editing the engine's answer.
+    Deciding whether a row with no characters belongs in a line's TEXT is the
+    job of whoever builds that text, and it is made once, in the page reader.
+    """
+    return _lines_from(_reported(data, deadline_seconds))
+
+
 def read_words(data: bytes, *, deadline_seconds: float) -> tuple[Word, ...]:
     """Every word the engine found on this page, with its own confidence.
 
@@ -391,34 +476,33 @@ def read_words(data: bytes, *, deadline_seconds: float) -> tuple[Word, ...]:
     Raises rather than returning a refusal, because it is one step below the
     `Extractor` seam. `FreeReader.extract` is where an exception stops.
     """
-    # `type(...) in` and not `isinstance`, so a `bool` is refused: `True` is an
-    # int in Python and would become a one-second deadline that looks deliberate.
-    if type(deadline_seconds) not in (int, float) or deadline_seconds <= 0:
-        raise ValueError(
-            f"a reading deadline must be a positive number of seconds, not "
-            f"{deadline_seconds!r}. An unbounded wait is a request that hangs, "
-            "and this system refuses rather than hangs."
-        )
-    page = Image.open(io.BytesIO(data))
-    try:
-        reported = _whatever_the_engine_returned(page, deadline_seconds)
-    except pytesseract.TesseractNotFoundError as exc:
-        raise EngineMissing(str(exc)) from exc
-    except pytesseract.TesseractError as exc:
-        # BEFORE the RuntimeError clause, and the order is the whole of it:
-        # `TesseractError` subclasses `RuntimeError`, so reversed, an engine
-        # that exited with an error code would be reported as a timeout and a
-        # person would be told to try a smaller picture for a problem that has
-        # nothing to do with size.
-        raise EngineFailed(str(exc)) from exc
-    except RuntimeError as exc:
-        # The only bare `RuntimeError` the wrapper raises is from its own
-        # `timeout_manager`, which has already killed the process. Read off its
-        # source rather than matched on the message: matching on a third
-        # party's wording is a test that passes until they fix a typo.
-        raise EngineTimedOut(str(exc)) from exc
+    return _words_from(_reported(data, deadline_seconds))
 
-    return _words_from(reported)
+
+def _lines_from(reported: object) -> tuple[tuple[Word, ...], ...]:
+    """The word rows of an `image_to_data` answer, split where the engine did.
+
+    A `dict` keyed on the engine's own three numbers, and not a comparison
+    against the previous row: the rows arrive in reading order today, and a
+    grouping that assumed so would silently produce one line per word the day
+    that stopped being true. Insertion order is what keeps the page in order,
+    which `dict` has guaranteed since 3.7.
+    """
+    columns = cast("dict[str, list[object]]", reported)
+    levels = columns["level"]
+    texts = columns["text"]
+    scores = columns["conf"]
+    blocks = columns["block_num"]
+    paragraphs = columns["par_num"]
+    rows = columns["line_num"]
+    lines: dict[tuple[object, object, object], list[Word]] = {}
+    for i in range(len(levels)):
+        if levels[i] != WORD_ROW:
+            continue
+        where = (blocks[i], paragraphs[i], rows[i])
+        word = Word(text=cast("str", texts[i]), confidence=cast("int", scores[i]))
+        lines.setdefault(where, []).append(word)
+    return tuple(tuple(words) for words in lines.values())
 
 
 def _words_from(reported: object) -> tuple[Word, ...]:

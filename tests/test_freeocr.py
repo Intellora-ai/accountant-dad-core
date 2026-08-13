@@ -37,15 +37,18 @@ That a high score means a right answer. Failure mode F-02 is the engine
 reporting 96 on a digit it got wrong. Nothing computed from the engine's own
 opinion of itself can see that.
 
-That the engine is wired into the product. It is not. CORRECTED 2026-08-13:
-`registry.available()` is now asserted to be exactly SIX names, and this
-backend is still not one of them — it sits in `registry._NEEDS_WIRING`, which
-is the table for a backend that exists and cannot be built from a name. What it
-needs is a page reader: something that says which words on a page are the
-total, the tax, the date and the supplier. Nothing in this repository does
-that, because it cannot be checked without `H-02`. So nothing reaches this code
-by uploading a document, the number in that sentence changed and the fact did
-not, and what blocks the wiring is `docs/OCR.md` and not a test change.
+That the engine reaches a customer's document today. CORRECTED 2026-08-13
+TWICE. This backend WAS in `registry._NEEDS_WIRING` for want of a page reader;
+`accountant/extract/pagereader.py` now supplies one, so `registry.available()`
+is asserted to be exactly SEVEN names and this is one of them, and the picture
+rung of `ladder.py` is wired to it.
+
+What still stands between it and a real upload is two decisions nobody here
+can make: `registry.DEFAULT_BACKEND` is still `typed_text`, so the running
+application does not route a document to the ladder at all; and the container
+image deliberately installs no `tesseract` binary, so on the deployed machine
+this backend answers `ENGINE_MISSING` — a refusal in plain words, not a crash.
+Both are owner decisions and neither is a test change.
 
 NO NETWORK. The only test here that starts a program is the one that measures
 the real engine, and it is SKIPPED WITH A STATED REASON when the engine is not
@@ -75,6 +78,7 @@ from accountant.extract.freeocr import (
     MALFORMED_READING,
     NO_SCORE_MARKER,
     READABLE_MEDIA,
+    UNOPENABLE_PICTURE,
     UNREADABLE_MEDIA,
     EngineMissing,
     EngineTimedOut,
@@ -969,7 +973,15 @@ def test_a_contradiction_between_amounts_leaves_the_party_alone() -> None:
 def test_bytes_that_are_not_a_picture_at_all_become_a_sentence() -> None:
     """A caller may declare `image/png` and send anything. Below the seam
     `read_words` raises; at the seam it has to be a sentence, because the
-    person uploaded the wrong file and that is not an application failure."""
+    person uploaded the wrong file and that is not an application failure.
+
+    THE PINNED SENTENCE CHANGED 2026-08-13 and the pin did not loosen. It used
+    to be `ENGINE_FAILED`, which was the catch-all: `Image.open` raises
+    `UnidentifiedImageError` before the engine is reached, so a person was told
+    the reading program could not read their file for a problem the reading
+    program never saw. `UNOPENABLE_PICTURE` is the specific sentence for the
+    specific failure, and it is what the twenty corpus JPEGs meet - every one
+    of them is a header with no picture behind it."""
 
     def read_page(data: bytes, _media: str) -> object:
         return Reading(total=read_words(data, deadline_seconds=30))
@@ -977,7 +989,9 @@ def test_bytes_that_are_not_a_picture_at_all_become_a_sentence() -> None:
     record = FreeReader(read_page).extract(b"this is not a picture", PNG)
 
     assert sourced(record) == set()
-    assert ENGINE_FAILED in record.per_field_source["total_paise"]
+    said = record.per_field_source["total_paise"]
+    assert said == f"{NOT_FOUND}: {UNOPENABLE_PICTURE}"
+    assert ENGINE_FAILED not in said
 
 
 # =============================================================================
