@@ -41,6 +41,11 @@ would average a certainty with a guess and produce a number that describes
 neither. So every field carries its own, and the record reports the **minimum** -
 because one misread digit ruins an amount, and a mean hides exactly the field
 that should have stopped the post.
+
+The minimum is taken over the fields that APPLY to the bill in hand, and the
+caller says which those are - see `Observation.lowest_confidence_where`. A bill
+with no tax line has nothing to read in its tax field, and scoring that as a
+failed reading refused the only bills this product is allowed to post.
 """
 
 from __future__ import annotations
@@ -121,19 +126,54 @@ class Observation:
     tax_paise: Field
     line_paise: tuple[int, ...] | None = None
 
+    def lowest_confidence_where(self, *, tax_applies: bool) -> float:
+        """The weakest field that applies to THIS bill, not the weakest field.
+
+        A field nobody read scores 0.0 and the minimum takes it. On a bill with
+        no tax line there is nothing in the tax field to read, so before this
+        the only kind of bill that CAN auto-post - owner decision Q3=D refuses
+        every bill that carries tax - scored 0.0 and was refused for not having
+        the thing it correctly does not have.
+
+        THE CALLER STATES IT; THIS RECORD DOES NOT WORK IT OUT. Whether a bill
+        carries tax is a fact about the world that somebody looked up, and it
+        lives on the caller as `decision.Situation.carries_gst` - the same
+        question `schema.Voucher.needs_tax_lines` asks on the write side. An
+        `Observation` that read its own tax field and concluded "no tax here"
+        would be deriving a world fact from the very thing it failed to read,
+        which is the shape of every defaulted world fact `Situation` has no
+        defaults in order to stop.
+
+        A BOOLEAN AND NOT A SET OF FIELD NAMES. Tax is the one field a real
+        bill can genuinely not have; an amount, a date and a party are needed
+        by all of them. A caller-supplied list of applicable fields would let a
+        typo drop the amount, so the wrong answer would be one string away.
+        Here it is unreachable rather than merely untaken.
+
+        KEYWORD-ONLY, AND NO DEFAULT. There is no call that silently means "no
+        tax": forgetting raises `TypeError` here rather than posting there.
+        """
+        applicable = [self.date, self.party, self.total_paise]
+        if tax_applies:
+            applicable.append(self.tax_paise)
+        return min(field.confidence for field in applicable)
+
     @property
     def lowest_confidence(self) -> float:
-        """The weakest field, not the average.
+        """The weakest field, not the average. Every field counts.
 
         A bill is not uniformly legible: a clean printed total next to a smudged
         letterhead averages to something that describes neither. One misread
         digit ruins an amount, so the whole record is only as trustworthy as its
         worst field.
+
+        THIS IS THE ANSWER FOR A CALLER THAT STATES NOTHING, and it is the
+        stricter of the two on purpose. Every field applies until somebody with
+        the world fact in hand says otherwise, so a caller who has not heard of
+        `lowest_confidence_where` asks or blocks where it might have posted.
+        Forgetting costs a question; the opposite default would cost a write.
         """
-        return min(
-            field.confidence
-            for field in (self.date, self.party, self.total_paise, self.tax_paise)
-        )
+        return self.lowest_confidence_where(tax_applies=True)
 
 
 @dataclass(frozen=True)

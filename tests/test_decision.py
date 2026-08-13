@@ -979,14 +979,44 @@ def test_a_tax_field_nobody_read_is_not_evidence_that_there_is_no_tax() -> None:
     assert "do not agree" not in said
 
 
-def test_the_control_that_unread_tax_bill_is_refused_for_being_unreadable() -> None:
-    """THE CONTROL on the test above: the sentence is absent because the tax
-    check did not fire, not because the bill sailed through. An unread field
-    drags `lowest_confidence` to 0.0, which is under the ask floor."""
+def test_that_same_unread_tax_bill_is_the_one_kind_this_product_may_post() -> None:
+    """CORRECTED 2026-08-13, OWNER PLAN ITEM 3. It asserted BLOCK until today.
+
+    What it used to say: the sentence above is absent because the tax check did
+    not fire, not because the bill sailed through - an unread field drags
+    `lowest_confidence` to 0.0, which is under the ask floor.
+
+    That assertion was the defect wearing the costume of a guard. The caller
+    looked the fact up and said this bill carries no tax; a bill with no tax
+    line has nothing to read in its tax field, and refusing it for that refused
+    the ONLY bills this product may post - owner decision Q3=D blocks every
+    bill that does carry tax. So the tax field no longer applies here and the
+    bill posts. `_tax_applies` is where that policy lives.
+
+    Its control work moves to the two tests above it, which are what prove the
+    disagreement check is still installed: the same bill with 18,000 paise of
+    tax READ off it blocks, and one with a confident zero posts.
+    """
     seen = an_observation(tax_paise=None)
     decided = decide(a_situation(observation=seen, carries_gst=False))
+    assert decided.action is Action.POST
+    assert decided.entry is not None
+
+
+def test_the_control_an_unread_tax_bill_that_carries_gst_is_still_refused() -> None:
+    """THE CONTROL on the correction above, and it is not the GST rule.
+
+    A bill nobody could read the tax off is refused whenever tax applies to it,
+    and the exclusion is scoped to the bills where it does not. `carries_gst`
+    unstated rather than `True`, deliberately: `True` blocks on the owner's own
+    Q3=D sentence and would pass this test with the confidence check deleted.
+    `None` blocks too, but it also keeps the tax field applicable - so the
+    unreadable sentence has to be there as well, and that is what is asserted.
+    """
+    seen = an_observation(tax_paise=None)
+    decided = decide(a_situation(observation=seen, carries_gst=None))
     assert decided.action is Action.BLOCK
-    assert decided.entry is None
+    assert "too little to even ask" in decided.said
 
 
 def test_a_tax_field_that_is_not_money_at_all_is_refused_not_waved_through() -> None:

@@ -143,6 +143,110 @@ def test_an_observation_with_an_unread_field_has_a_minimum_of_zero() -> None:
     assert seen.lowest_confidence == 0.0
 
 
+# ---- a field that does not apply is not a field we failed to read -----------
+#
+# OWNER PLAN ITEM 3, 2026-08-13: "For non-GST bills (needs_tax_lines is false),
+# treat tax confidence as not applicable when computing lowest_confidence.
+# lowest_confidence is the minimum over the APPLICABLE fields only (amount,
+# date, party)."
+#
+# MEASURED, and it is why this exists: an unread field scores 0.0 and the
+# minimum takes it, so a genuinely non-GST bill - the ONLY kind that can
+# auto-post, because owner decision Q3=D blocks every bill that carries tax -
+# scored 0.0 and failed the 0.70 floor. The cage refused everything it was
+# allowed to accept.
+#
+# THE CALLER STATES IT. `Observation` does not look at its own tax field and
+# conclude the bill has no tax, because that is a fact about the world that
+# somebody looked up (`decision.Situation.carries_gst`, the same question
+# `schema.Voucher.needs_tax_lines` asks on the write side). A record that
+# guesses its own applicability off the thing it failed to read is the same
+# class of defect as a world fact with a safe-looking default.
+
+
+def a_bill_read_cleanly_with_no_tax_figure() -> Observation:
+    """Amount, date and party read well; nothing in the tax field at all.
+
+    The three scores are deliberately different so that a minimum can be told
+    apart from a constant, and none of them is 1.0 - a helper that returned the
+    best field would also pass at 0.99.
+    """
+    return Observation(
+        date=a_field(confidence=0.99),
+        party=a_field(confidence=0.97),
+        total_paise=a_field(confidence=0.98),
+        tax_paise=Field(value=None, confidence=0.0, source="not_found: no tax line"),
+    )
+
+
+def test_a_non_gst_bill_is_not_dragged_to_zero_by_a_tax_field_nobody_read() -> None:
+    """The weakest APPLICABLE field, which on this bill is the party at 0.97.
+
+    Before this, the same reading answered 0.0 and blocked - a bill with no tax
+    line on it was refused for not having one.
+    """
+    seen = a_bill_read_cleanly_with_no_tax_figure()
+    assert seen.lowest_confidence_where(tax_applies=False) == 0.97
+
+
+def test_the_control_a_gst_bill_still_counts_the_tax_field_nobody_read() -> None:
+    """THE CONTROL, and without it the change above is a deleted guard.
+
+    A bill that DOES carry tax, whose tax figure nobody could read, is exactly
+    the bill that must not post. Both routes are asserted: the caller that says
+    tax applies, and the property that says nothing at all - because "excluded
+    unless somebody objects" would pass the test above and is the one shape
+    that would post a GST bill nobody read the tax off.
+    """
+    seen = a_bill_read_cleanly_with_no_tax_figure()
+    assert seen.lowest_confidence_where(tax_applies=True) == 0.0
+    assert seen.lowest_confidence == 0.0
+
+
+def test_only_tax_is_excusable_and_an_unread_amount_still_reports_zero() -> None:
+    """Tax is the one field a real bill can genuinely not have.
+
+    An amount, a date and a party are needed by every bill there is, so no
+    statement by any caller excuses one. `tax_applies` cannot even express it,
+    which is the point of a boolean rather than a list of field names: the
+    wrong answer is unreachable, not merely untaken.
+    """
+    seen = Observation(
+        date=a_field(confidence=0.99),
+        party=a_field(confidence=0.97),
+        total_paise=Field(value=None, confidence=0.0, source="not_found: no total"),
+        tax_paise=Field(value=None, confidence=0.0, source="not_found: no tax line"),
+    )
+    assert seen.lowest_confidence_where(tax_applies=False) == 0.0
+
+
+def test_the_same_observation_asked_twice_answers_the_same() -> None:
+    """A number that changes with how often it is asked is not a measurement.
+
+    The record is frozen and the answer is derived from it on every call. A
+    cached first answer, or one consumed on read, would drift between the block
+    check and the ask check - which read the same observation twice in one
+    `decide`.
+    """
+    seen = a_bill_read_cleanly_with_no_tax_figure()
+    assert seen.lowest_confidence_where(tax_applies=False) == 0.97
+    assert seen.lowest_confidence_where(tax_applies=False) == 0.97
+    assert seen.lowest_confidence == 0.0
+
+
+def test_a_caller_that_says_nothing_about_tax_cannot_get_the_looser_answer() -> None:
+    """Forgetting is a `TypeError` here, never a quiet exclusion there.
+
+    `tax_applies` is keyword-only and has no default, so there is no call that
+    silently means "no tax". The other way to forget - reaching for the
+    `lowest_confidence` property - lands on the stricter answer, which asks or
+    blocks. Both ways of forgetting fail closed.
+    """
+    seen = a_bill_read_cleanly_with_no_tax_figure()
+    with pytest.raises(TypeError):
+        seen.lowest_confidence_where()  # type: ignore[call-arg]
+
+
 def test_an_observation_cannot_be_edited_after_it_is_made() -> None:
     seen = Observation(
         date=a_field(), party=a_field(), total_paise=a_field(), tax_paise=a_field()

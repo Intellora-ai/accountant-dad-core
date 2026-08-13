@@ -580,6 +580,29 @@ def _reading_shows_tax(seen: Observation) -> bool:
     return not (type(tax) is int and tax == 0)
 
 
+def _tax_applies(situation: Situation) -> bool:
+    """Is the tax field on this reading describing something the bill has?
+
+    OWNER PLAN ITEM 3, 2026-08-13: "For non-GST bills (needs_tax_lines is
+    false), treat tax confidence as not applicable when computing
+    lowest_confidence."
+
+    THE POLICY IS HERE, WITH THE OTHER POLICY, and `wall.Observation` only
+    obeys it. Whether a bill carries tax is a fact somebody looked up - the same
+    question `schema.Voucher.needs_tax_lines` asks on the write side - and a
+    reading that decided its own applicability would be deriving that fact from
+    the field it failed to read.
+
+    `is not False`, not `is True`, for the reason `_world_blocks` gives about
+    the same flag one screen down: `None` is nobody having looked, and a bill
+    nobody checked keeps the stricter arithmetic. It changes no outcome today,
+    because `None` blocks on `_GST_UNKNOWN` in the same pass - it decides which
+    sentences a person reads, and it is the direction that stays safe if this
+    is ever asked somewhere the GST rule is not.
+    """
+    return situation.carries_gst is not False
+
+
 def _tax_disagrees(seen: Observation) -> str:
     """The flag says one thing, the reading in the same argument says another.
 
@@ -1127,7 +1150,10 @@ def _blocking(situation: Situation) -> tuple[str, ...]:
     reasons.extend(_account_blocks(situation))
     if type(situation.ambiguous_fields) is not tuple:
         reasons.append(_UNCLEAR_LIST_UNREADABLE)
-    if seen.lowest_confidence < ASK_FLOOR:
+    # The minimum over the fields that APPLY - `_tax_applies` says which, and a
+    # bill with no tax line is not "unread" for having nothing in its tax field.
+    sure = seen.lowest_confidence_where(tax_applies=_tax_applies(situation))
+    if sure < ASK_FLOOR:
         reasons.append(_TOO_UNSURE + _which_bill(seen))
     return tuple(reasons)
 
@@ -1186,7 +1212,13 @@ def _asking(situation: Situation, seen: Observation) -> tuple[str, ...]:
             f"{count} {thing} on this bill could be read more than one way, so "
             "I need to check with you before anything is posted."
         )
-    if seen.lowest_confidence < AUTO_POST_FLOOR:
+    # The same question `_blocking` asked, over the same applicable fields, so
+    # the two bands cannot come to disagree about which fields count. Reached
+    # only when nothing blocked, which means `carries_gst` is `False` - but it
+    # is asked rather than assumed, because that is a fact about another
+    # function and this line would be silently wrong the day it changed.
+    sure = seen.lowest_confidence_where(tax_applies=_tax_applies(situation))
+    if sure < AUTO_POST_FLOOR:
         reasons.append(_NOT_SURE_ENOUGH + _which_bill(seen))
     if not situation.debit_account.strip() or not situation.credit_account.strip():
         reasons.append(_WHICH_WAY_ROUND)
