@@ -13,8 +13,10 @@ carried over from a previous report.**
 > stayed at 0**, because the harness never asks which backend exists.
 
 Nothing in this document changes a threshold, and nothing in it asks for one to
-be changed. `docs/ARCHITECTURE.md:671` lists **"tuning a threshold so a metric
-passes"** as forbidden, and `tests/test_gst_ground_truth_runner.py:230` pins the
+be changed. `docs/ARCHITECTURE.md` §4.10, the **Forbidden** row of the
+scoring-harness table, lists **"tuning a threshold so a metric passes"** as
+forbidden — line 712 as of 2026-08-13, and the section is the reliable handle
+because the line number has drifted twice. `tests/test_gst_ground_truth_runner.py:230` pins the
 two numbers with the comment *"80 and 76 are owner-set, 2026-08-10. Neither is
 derived, tuned or rounded."* The measurement is reported as it came out.
 

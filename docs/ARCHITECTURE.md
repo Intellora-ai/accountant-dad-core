@@ -192,6 +192,20 @@ type system says which of them has been checked.
 weakened, removed, or made conditional on a confidence score. A high score never
 unlocks a failed conservation check, and a test asserts exactly that.
 
+**Known limitation — the `period open` check in the VALIDATION rung is drawn
+above but is not on the live path. Owner ruling, 2026-08-13, in the owner's
+words:**
+
+> "Period check is currently off the live path because Tally open/closed bounds
+> are not read. This is a known limitation for this MVP. A future task will read
+> SVFROMDATE/SVTODATE from Tally and enable this gate on the live pipeline."
+
+The diagram shows the design. `period_open` has no source today: Tally holds the
+financial-year bounds and refuses an out-of-range date at the write door, but
+nothing reads those bounds beforehand, so the gate is passed `None`. **No
+further action, and it is deliberately not being built** — the background sits
+in [`OWNER_WORK.md`](./OWNER_WORK.md) under *`period_open` has no source*.
+
 **Two guards, not one, and the reason is defect J1.** *A unit test of a guard
 proves the guard works and says nothing about whether the guard is installed.*
 So every runtime guard in the cage has a paired AST guard proving the call site
@@ -597,6 +611,33 @@ the connector needs localhost access to Tally.
 | list | every voucher we wrote, with bulk reverse |
 
 **Forbidden:** mobile, styling beyond legibility.
+
+**Known limitation — uploads are read fully into memory. Owner ruling,
+2026-08-13, in the owner's words:**
+
+> "Uploads up to 100 MB are currently read fully into memory per request. This
+> is acceptable for a single local user. Before multi-tenant hosting, this must
+> be changed to streaming with concurrency limits."
+
+**This is MANDATORY before any multi-tenant hosting or public deployment. It is
+not optional, and it is not a nice-to-have — it is deferred past this MVP and
+nothing more.** One person on their own machine sending one 100 MB body is fine;
+the same design under many tenants is a memory figure multiplied by however many
+requests arrive at once, and nothing today caps that number.
+
+Two things have to change together when it is done:
+
+1. **Stream into the multipart parser** (`accountant/web/multipart.py`) instead
+   of handing it one whole body. Streaming alone is not enough — it lowers the
+   per-request cost without bounding the total.
+2. **Cap concurrency** — a limit on how many uploads may be in flight at once,
+   so the worst case is a number somebody chose rather than a number the
+   internet chooses.
+
+**No code change now.** The 100 MB ceiling, the `413` on the declared length
+before the body is read, and the media-type allow-list all stay exactly as they
+are; this note records what that design costs and when the cost stops being
+acceptable.
 
 > **AMENDED 2026-08-11 BY THE OWNER, IN WORDS, AND RECORDED RATHER THAN APPLIED
 > SILENTLY.** This line read *"Forbidden: multi-user, login, accounts, cloud

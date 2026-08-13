@@ -4622,7 +4622,10 @@ the Ground-Truth Pack scores them instead of a stub. The full numbers are in
 here because they change what is believed rather than only what is recorded.
 
 **The score is 20 of 80, not the ~40 that was predicted.** `s2_extraction`
-still FAILS against its required 76 and the threshold was not touched. Per
+still FAILS against its required 76 and the threshold was not touched — and as
+of 2026-08-13 that FAIL is a **ruled, closed limitation** rather than an open
+question: the corpus is unreadable on purpose and the gate is red by design for
+this MVP. See §51.1. Per
 field, of the 80 renderable cases: date 14, party 20, total 20, tax 20. Every
 hit is the PDF text layer, which is exact on the 20 PDFs and refuses 6 dates
 for being ambiguous `DD/MM` rather than guessing at them.
@@ -4671,3 +4674,56 @@ on a real PDF, sourced as read, at confidence EXACT. A wrong supplier name
 reaches `propose_account`, where a name not matching history is a new vendor.
 The one-character fix is worse than the bug (it truncates the party to empty),
 so it needs its own change and its own tests.
+
+---
+
+## §51 Three known limitations the owner ruled on — 2026-08-13
+
+**These are CLOSED. They are limitations, not open questions, and nobody should
+re-ask them or quietly "fix" them.** Each is recorded here because this is where
+a person looks for what this product does not yet do; the full note for each
+lives beside the thing it constrains, linked below.
+
+### §51.1 `s2_extraction` is red by design — the OCR corpus is unreadable on purpose
+
+> "The OCR corpus is intentionally unreadable; s2_extraction is red by design
+> for this MVP. A future task will regenerate a realistic corpus and revisit
+> this gate."
+
+**No threshold moves and the gate is not split.** A red mark with a written
+reason is not a defect. The future task is to regenerate the OCR corpus with
+realistic fonts and images — real typefaces instead of the hand-built 5×7 bitmap
+font, and actual pixels in the JPEGs, which today carry none — and *only then*,
+optionally, to split the gate, because two thresholds are worth setting only
+when there is real data to set them from.
+
+Full note: [`OCR_CORPUS_FINDING.md`](./OCR_CORPUS_FINDING.md). Related: §50,
+where the measured score is recorded, and
+[`CAGE_FINDINGS.md`](./CAGE_FINDINGS.md) Finding 1.
+
+### §51.2 `period_open` is off the live path — Tally's open/closed bounds are not read
+
+> "Period check is currently off the live path because Tally open/closed bounds
+> are not read. This is a known limitation for this MVP. A future task will read
+> SVFROMDATE/SVTODATE from Tally and enable this gate on the live pipeline."
+
+**No further action. It is deliberately not being built.** Tally holds the
+financial-year bounds and refuses an out-of-range date at its own write door;
+nothing reads them beforehand, so the check is passed `None`.
+
+Full note: [`OWNER_WORK.md`](./OWNER_WORK.md) under *`period_open` has no
+source*. Design: [`ARCHITECTURE.md`](./ARCHITECTURE.md) §4.1b.
+
+### §51.3 Uploads are read fully into memory — streaming is mandatory before multi-tenant hosting
+
+> "Uploads up to 100 MB are currently read fully into memory per request. This
+> is acceptable for a single local user. Before multi-tenant hosting, this must
+> be changed to streaming with concurrency limits."
+
+**MANDATORY before any multi-tenant hosting or public deployment — not
+optional, just deferred past this MVP.** It needs both halves together:
+streaming into the multipart parser, and a cap on how many uploads may be in
+flight at once. Streaming on its own lowers the cost of one request without
+bounding the total. **No code change now.**
+
+Full note: [`ARCHITECTURE.md`](./ARCHITECTURE.md) §4.8.

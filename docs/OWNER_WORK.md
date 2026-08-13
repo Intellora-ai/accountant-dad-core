@@ -250,6 +250,20 @@ What shipped:
   told plainly. Nothing is written to disk and nothing is logged: the durable
   row records the decision, never the document.
 
+**One limitation of that 100 MB, ruled 2026-08-13 and deferred, not forgotten.**
+In your own words:
+
+> "Uploads up to 100 MB are currently read fully into memory per request. This
+> is acceptable for a single local user. Before multi-tenant hosting, this must
+> be changed to streaming with concurrency limits."
+
+**MANDATORY before any multi-tenant hosting or public deployment** — not an
+optional improvement, just deferred past this MVP. It needs two things together:
+streaming into the multipart parser instead of one whole body in memory, and a
+cap on how many uploads may be in flight at once. The full note lives in
+[`ARCHITECTURE.md`](./ARCHITECTURE.md) §4.8, beside the web application it
+constrains. **No code change now.**
+
 **What swapping in a real vendor costs, exactly.** Three edits, all inside
 `accountant/extract/`:
 
@@ -610,7 +624,22 @@ outcome turns into a real verdict on its own, and the strict-xfail pair around
 it fails loudly until somebody removes the now-passing half. Nothing else needs
 changing.
 
-### `period_open` has no source
+### `period_open` has no source — RULED 2026-08-13, CLOSED, and deferred
+
+**This is no longer an open question. Nothing is asked of you here.** It is a
+known limitation of this MVP, recorded so nobody re-opens it, and the ruling is
+in your own words:
+
+> "Period check is currently off the live path because Tally open/closed bounds
+> are not read. This is a known limitation for this MVP. A future task will read
+> SVFROMDATE/SVTODATE from Tally and enable this gate on the live pipeline."
+
+**No further action, and nothing is being built.** The future task is named
+above and is not started. Do not wire the period check onto the live pipeline as
+part of some other change.
+
+The background, unchanged, so the limitation is understandable rather than just
+asserted:
 
 `period_open` has no source. Tally knows the financial-year bounds and refuses
 an out-of-range date at the write door; nothing reads them beforehand. Until

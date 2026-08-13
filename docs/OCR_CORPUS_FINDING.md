@@ -3,6 +3,13 @@
 **Dated 2026-08-13. Measured with the real Tesseract binary against the real
 corpus. Not predicted, not estimated.**
 
+> **RULED BY THE OWNER 2026-08-13 — option 3, and the question is CLOSED.** The
+> corpus is intentionally unreadable and `s2_extraction` is **red by design for
+> this MVP**. The threshold does not move and the gate is not split. The wording
+> and the future task are at
+> [The owner's ruling](#the-owners-ruling--2026-08-13-option-3-closed) at the
+> foot of this page.
+
 ## The one sentence
 
 `s2_extraction` requires **76 exact field matches out of 80 renderable cases**,
@@ -102,10 +109,11 @@ can read, it reads perfectly.
 
 ## What I did not do, and why
 
-**I did not move the threshold.** `docs/ARCHITECTURE.md:671` forbids *"tuning a
-threshold so a metric passes"* (the line was cited as 616 here until
-2026-08-13; the line numbers had drifted), blocker B-C is still standing, and
-the owner's
+**I did not move the threshold.** `docs/ARCHITECTURE.md` §4.10, the **Forbidden**
+row of the scoring-harness table, forbids *"tuning a threshold so a metric
+passes"* — line 712 as of 2026-08-13 (cited as 616, then 671, on earlier days;
+the line number has now drifted twice, so search the **section** and not the
+number), blocker B-C is still standing, and the owner's
 standing rule 10 is "never set a number I did not give you." Moving 76 to 40
 would make the harness green and would tell the owner nothing true.
 
@@ -121,7 +129,7 @@ font would turn them into a genuine OCR benchmark and is probably the right
 answer — but it changes what a passing harness means, and that is the owner's
 call, not mine.
 
-## The three options, for the owner
+## The three options that were put to the owner
 
 1. **Regenerate the image corpus with a real font.** Makes `s2_extraction`
    measure what it claims to. Costs a font dependency in the generator and a new
@@ -133,9 +141,39 @@ call, not mine.
 3. **Leave it failing and say why.** `s2_extraction` stays red, this page is the
    explanation, and nothing in the product pretends otherwise.
 
-Until one is chosen, the harness stays at four sections PASS and
-`s2_extraction` FAIL, and the reason is written down here rather than left as a
-red mark somebody later "fixes".
+## The owner's ruling — 2026-08-13. Option 3. CLOSED
+
+In the owner's own words:
+
+> "The OCR corpus is intentionally unreadable; s2_extraction is red by design
+> for this MVP. A future task will regenerate a realistic corpus and revisit
+> this gate."
+
+**So the red mark is the design, not a defect.** `s2_extraction` stays FAIL for
+this MVP and this page is the reason. Anybody who finds it red and reaches for a
+fix should stop here.
+
+**What is forbidden now, explicitly.** Do not move the threshold. Do not split
+the gate. Do not regenerate the corpus as a side errand inside some other task.
+Each of those would need a number the owner has not given, and a green harness
+bought with an invented number tells nobody anything true.
+
+### The future task, written down so it is not lost
+
+1. **Regenerate the OCR corpus with realistic fonts and images.** Real
+   typefaces at a real size for the PNGs instead of the hand-built 5×7 bitmap
+   font, and actual pixel data for the JPEGs, which today are a JFIF wrapper
+   with no image inside them. That is the step that turns this corpus into
+   something an OCR engine can honestly be measured against, and it is why the
+   gate can be revisited afterwards.
+2. **Optionally split the gate — later, and only then.** Scoring the text-layer
+   path and the OCR path separately is still a reasonable idea, but it needs two
+   thresholds, and thresholds are worth setting only once there is real data
+   behind them. After the corpus is realistic there will be measurements to set
+   them from. Today there are not.
+
+The order is not decoration: regenerate, measure, and only then ask whether a
+split is worth having. Neither half is authorised today.
 
 ## How I would have caught this sooner
 

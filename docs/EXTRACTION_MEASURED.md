@@ -283,22 +283,37 @@ Nobody would accept 3% on their books. The gap between what this corpus can
 prove and what the product needs is **two orders of magnitude of real
 documents**, and it is a data-collection problem, not a code problem.
 
-**The threshold was not moved.** 76 of 80 stands. `docs/ARCHITECTURE.md:671`
-forbids *"tuning a threshold so a metric passes"*, and moving 76 to 20 would make the
+**The threshold was not moved.** 76 of 80 stands. `docs/ARCHITECTURE.md` §4.10,
+the **Forbidden** row of the scoring-harness table, forbids *"tuning a threshold
+so a metric passes"* — line 712 as of 2026-08-13, and search the section rather
+than the number, because it has drifted twice. Moving 76 to 20 would make the
 harness green and tell the owner nothing true.
 
 ## What would move the number
 
-Three, cheapest first. None is taken here; each is an owner decision.
+Three, cheapest first. None is taken here.
 
 1. **Route `text/plain` through the label parser instead of the regex.**
    Measured above as 20/20 on total, tax and date and 19/20 on party. It also
    deletes 22 fabrications outright. It needs the party defect fixed first,
-   and it changes what a typed sentence means.
+   and it changes what a typed sentence means. **Still an owner decision.**
 2. **Regenerate the image corpus with a real font, and the JPEGs with real
    pixels.** Turns `s2_extraction` into something that measures what it claims
    to. Costs a font dependency in the generator and a new set of expected
-   values.
+   values. **RULED 2026-08-13 — this is the named future task, and it is not
+   authorised now.**
 3. **Split the gate**, so a perfect text-layer reader is not marked failing by
    an OCR corpus that cannot be read. Needs two new thresholds, which are the
-   owner's to set.
+   owner's to set. **RULED 2026-08-13 — not now. Revisit only after item 2, when
+   real data can set real numbers.**
+
+**The owner closed the gate question on 2026-08-13, in these words:**
+
+> "The OCR corpus is intentionally unreadable; s2_extraction is red by design
+> for this MVP. A future task will regenerate a realistic corpus and revisit
+> this gate."
+
+So the `FAIL` above is the design, not a defect to be chased. **No threshold
+moves and the gate is not split.** Full note:
+[`OCR_CORPUS_FINDING.md`](./OCR_CORPUS_FINDING.md); index entry:
+[`PROJECT_STATE.md`](./PROJECT_STATE.md) §51.1.

@@ -51,8 +51,11 @@ known, and the period to be open.
 ## The threshold rule
 
 If the corpus run says `0.95` is the wrong band, that is **reported to the owner**.
-Thresholds are never retuned here to make a metric pass — `ARCHITECTURE.md:616`
-forbids it, because moving a threshold moves the measurement, not the product.
+Thresholds are never retuned here to make a metric pass — `ARCHITECTURE.md`
+§4.10, the **Forbidden** row of the scoring-harness table, forbids it, because
+moving a threshold moves the measurement, not the product. (This said `:616`
+until 2026-08-13; the line is 712 now, and the number has drifted twice, so the
+section is the handle to use.)
 
 ## Dependencies
 

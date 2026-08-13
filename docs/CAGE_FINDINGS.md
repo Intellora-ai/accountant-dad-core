@@ -5,14 +5,34 @@ measured, it says so.**
 
 The cage was built to stop a wrong entry reaching a customer's books. Building it
 surfaced three facts about the product that were true before it existed and that
-nothing had reported. All three need an owner decision. None of them blocks the
-rest of the work, and the rest of the work is done.
+nothing had reported. None of them blocks the rest of the work, and the rest of
+the work is done.
+
+**Where each of the three stands, as of 2026-08-13:**
+
+| # | Subject | Status |
+|---|---|---|
+| 1 | the OCR corpus and `s2_extraction` | **CLOSED by the owner 2026-08-13** — red by design for this MVP, see below |
+| 2 | the reader guard that nothing could land past | **RESOLVED in code** — the ban became an allow-list |
+| 3 | *not applicable* versus *could not check* | **still an owner decision** — nothing here has changed it |
 
 ---
 
-## Finding 1 — the extraction corpus cannot be read by any OCR engine
+## Finding 1 — the extraction corpus cannot be read by any OCR engine — CLOSED 2026-08-13
 
 Full evidence in [`OCR_CORPUS_FINDING.md`](./OCR_CORPUS_FINDING.md).
+
+**The owner ruled on 2026-08-13, in these words:**
+
+> "The OCR corpus is intentionally unreadable; s2_extraction is red by design
+> for this MVP. A future task will regenerate a realistic corpus and revisit
+> this gate."
+
+So this is settled: the gate stays red on purpose, **no threshold moves and the
+gate is not split**. The future task — regenerate the corpus with realistic
+fonts and images, and only then consider splitting the gate once real data can
+set real numbers — is written out in
+[`OCR_CORPUS_FINDING.md`](./OCR_CORPUS_FINDING.md). Do not re-ask this one.
 
 `s2_extraction` requires **76 exact field matches out of 80** renderable cases.
 Forty of those eighty contain nothing readable:
@@ -25,7 +45,7 @@ Forty of those eighty contain nothing readable:
   `TWoIte Not eT/a081`.
 
 **Honest ceiling ≈ 40/80**, and no engine choice changes it. The threshold was
-**not** moved. Three options are written out for the owner.
+**not** moved, and after the ruling above it does not move at all.
 
 ---
 
