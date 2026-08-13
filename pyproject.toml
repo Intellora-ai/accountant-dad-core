@@ -4,7 +4,17 @@ version = "0.0.1"
 description = "A safe, reversible decision-and-posting layer in front of Tally."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+# The first runtime dependencies this project has ever had. `dependencies = []`
+# was a posture, not an accident: it was the fact `tests/test_no_reader.py`
+# rested on to prove no document reader could exist here. These three were
+# cleared by the owner as D-30 (docs/DECISIONS.md, 2026-08-13) and are pinned
+# to lower bounds only. The set is asserted exactly - a fourth entry fails
+# `test_the_project_declares_exactly_the_dependencies_the_owner_approved`.
+dependencies = [
+    "pypdf>=5.0",       # PDF text layer - reads a born-digital bill
+    "pytesseract>=0.3", # thin wrapper over the tesseract binary, for scans
+    "Pillow>=11.0",     # decodes the image pytesseract hands to tesseract
+]
 
 [project.optional-dependencies]
 # One tool per responsibility. Black, Flake8, isort, Pylint, mypy, Poetry, tox,

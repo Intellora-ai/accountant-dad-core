@@ -59,6 +59,7 @@ SUPERSEDED                        a later decision replaced it; both are kept
 | `D-14` … `D-21` | [`CLOUD_ARCHITECTURE.md`](./CLOUD_ARCHITECTURE.md) §19 and [`DATA_POLICY.md`](./DATA_POLICY.md) |
 | `D-22` … `D-28` | [`CONTROL_PLANE.yaml`](./CONTROL_PLANE.yaml) |
 | `D-29` | this file, 2026-08-10, next free after `D-28` |
+| `D-30` | this file, 2026-08-13, next free after `D-29` |
 
 **Nothing has been renumbered and nothing ever will be.** These ids are linked
 from other documents and from commit messages; a renumbered id is an unauditable
@@ -709,9 +710,159 @@ passing test under its own name.
 
 ---
 
+## D-30 · The first runtime dependencies — `pypdf`, `pytesseract`, `Pillow`
+
+**Status: `ANSWERED` 2026-08-13 — approved. This is the completed eight-item
+register that `D-04`'s standing rule requires.**
+
+`D-04` did not say "never". It said *"no new runtime dependency is approved
+automatically"*, and it listed **eight things that must be written down before
+one is added, not after**. This entry is those eight things. `D-04` itself stays
+`OPEN` — it asks about a *web framework* for the front door, and no framework is
+approved here.
+
+> **Owner, 2026-08-13, word for word:**
+> *"Final authorization: you may add the free OCR + PDF reader dependencies
+> now."*
+>
+> Recorded in the approved plan §5.0 as
+> `B-A | pypdf + the free OCR stack as runtime dependencies | CLEARED — add
+> them, file the completed 8-item register`.
+
+### 1 · The exact dependency, by name and version
+
+| Package | Declared as | Resolved by `uv lock`, 2026-08-13 | What it is |
+|---|---|---|---|
+| `pypdf` | `pypdf>=5.0` | 6.15.0 | pure-Python PDF parser; reads the text layer |
+| `pytesseract` | `pytesseract>=0.3` | 0.3.13 | ~30 KB wrapper that shells out to the `tesseract` binary |
+| `Pillow` | `Pillow>=11.0` | 12.3.0 | image decoder; imported as `PIL` |
+
+**Lower bounds only.** The exact resolution is pinned in `uv.lock`, which the
+`lockfile` gate (`uv lock --check`) holds at zero drift. Pinning twice means one
+of the two pins goes stale silently.
+
+**There is a fourth thing, and it is not a Python package:** the `tesseract`
+binary itself. See item 5.
+
+### 2 · Why it is needed, and what breaks without it
+
+The owner answered `D-23` on 2026-08-11: the launch input types are **typed text
+plus PDF, PNG and JPG**. Three of those four are not text.
+
+- **without `pypdf`** — a born-digital PDF bill cannot be read at all. This is
+  the common case and the cheap one: the text is already in the file.
+- **without `pytesseract` + `Pillow`** — a photographed or scanned bill cannot
+  be read at all. `PNG`/`JPG` becomes an input type the product refuses in
+  every case, which is the same as not supporting it.
+
+What does **not** break: nothing already working. Every existing path is typed
+text and touches none of the three.
+
+### 3 · Licence
+
+| Package | Licence | Copyleft? |
+|---|---|---|
+| `pypdf` | BSD-3-Clause | no |
+| `pytesseract` | Apache-2.0 | no |
+| `Pillow` | MIT-CMU | no |
+| `tesseract-ocr` (the binary) | Apache-2.0 | no |
+
+All four are permissive. None requires this project to publish source, and none
+restricts commercial use. The `tesseract` binary is **not distributed by us** —
+it is installed on the host by whoever runs the software.
+
+### 4 · Security impact
+
+**This is the real cost of this decision, and it is `pypdf`.**
+
+- **`pypdf` parses untrusted PDFs IN-PROCESS.** A malicious PDF is attacker-
+  controlled input running through a parser inside our own interpreter, not
+  behind a sandbox. That is the risk, stated plainly. Three mitigations, all of
+  which already exist in the upload path:
+  1. the **size cap** — an oversized file is refused before it is parsed;
+  2. **nothing is ever unzipped or followed** — no embedded stream is executed,
+     no external reference is fetched;
+  3. **a parse failure is a refusal, not a crash** — the document ends
+     `UNCLEAR` and a person is asked.
+- **`pytesseract` shells out with a FIXED ARGV**, never a shell string. No
+  caller input reaches the argument list, so nothing a person uploads can become
+  a command. The wait is bounded and the subprocess is killed at the bound;
+  measured in [`OCR.md`](./OCR.md), the timeout path raises after 0.002 s.
+- **`Pillow` decodes untrusted images** — historically the most CVE-prone of the
+  three. Same in-process exposure as `pypdf`, same size cap in front of it. The
+  `dependency-audit` gate runs `pip-audit` over the exported lockfile on every
+  PR, so a new advisory blocks a merge rather than being noticed later.
+
+**Measured 2026-08-13:** `pip-audit` over the lockfile reports **no known
+vulnerabilities** for any of the three at the resolved versions.
+
+### 5 · Deployment impact
+
+**The `tesseract` binary must be on the host, and in CI.** `pytesseract` is a
+wrapper; installing it installs nothing that can read.
+
+```sh
+apt-get install -y tesseract-ocr   # Linux
+brew install tesseract             # macOS
+choco install tesseract            # Windows
+```
+
+**The application starts and refuses cleanly without it.** Verified: with `PATH`
+stripped, the call raises `FileNotFoundError`, which is caught and turned into
+*"the text reader is not installed on this machine"* — every field `not_found`,
+confidence `0.0`. It does **not** fail to import and it does **not** crash. A
+missing binary costs the OCR path, not the product.
+
+### 6 · Does it violate the current policy
+
+**Yes, and it is the first one ever.** `pyproject.toml` has read
+`dependencies = []` since the project began. That was a posture, not an
+accident: it was the load-bearing fact `tests/test_no_reader.py` used to prove
+that no document reader could exist anywhere in this repository.
+
+Two guards rested on it and both were **re-aimed, not deleted**, on 2026-08-13:
+
+| Guard | Was | Is now |
+|---|---|---|
+| `tests/test_no_reader.py` | no reader exists anywhere | an allow-list — two named modules, three named packages, everything else as forbidden as before |
+| `tests/test_reversal_history.py::test_no_authentication_dependency_was_added` | `dependencies == []` | no **identity or authentication** library in any group |
+
+The second one was never about dependency count. It protects owner decision
+`Q8 = A` — two coarse actor labels, no identity subsystem — and `== []` was an
+exact proxy for that only while the list was empty.
+
+**Widening either allow-list is an owner decision and still not a test change.**
+
+### 7 · The smallest alternative considered, and why it lost
+
+| Alternative | Why it lost |
+|---|---|
+| **Text layer only — `pypdf`, no OCR at all** | The genuinely smaller option, and it was taken *first*: `textlayer.py` reads born-digital PDFs and needs no binary. It loses **every photograph and every scan**, which is most of what a person actually has on a phone. It is a subset of this decision, not a substitute for it. |
+| **EasyOCR / PaddleOCR** | 500 MB – 2 GB of PyTorch, and **non-deterministic**: the neural engines sample, so the same bill read twice can produce different verdicts. This system's whole claim is that a refusal is reproducible. Measured: `tesseract` gave byte-identical output on 10 consecutive runs. |
+| **A paid cloud OCR API** | Forbidden. It sends customer bills to a third party, which is `D-14` territory and unanswered, and it adds a recurring cost and a network dependency to a path that must work offline. |
+| **Write our own reader** | Explicitly banned by Child 15 criterion 6, and it would be worse. |
+
+### 8 · The register entry
+
+This entry. Filed **`COMPLETED`**, not blocked — all seven items above are
+answered, none is deferred.
+
+**What this unblocks:** `accountant/extract/textlayer.py` and
+`accountant/extract/freeocr.py`, both of which were unlandable while the guard
+stood. **What stays blocked:** nothing new. `D-04`'s web-framework question is
+untouched and still `OPEN`; option C of `D-16` (`cryptography`) is **not**
+approved by this entry and needs its own register.
+
+**Why it is `ANSWERED` and not `IMPLEMENTED`.** `freeocr.py` was not on disk
+when this was written. It becomes `IMPLEMENTED_AFTER_OWNER_DECISION` when both
+approved modules exist and the allow-list in `tests/test_no_reader.py` passes
+against them.
+
+---
+
 ## Open at a glance
 
-**16 open and 1 blocked by the environment, of 29.**
+**16 open and 1 blocked by the environment, of 30.**
 
 Answered on 2026-08-10: `D-05`, `D-06`, `D-22` and the new `D-29`. `D-01` was
 answered too, but the answer does not unblock it — it is `BLOCKED_ENVIRONMENT`
