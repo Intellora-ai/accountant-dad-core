@@ -42,7 +42,13 @@ from typing import cast
 import pytest
 
 from accountant.cage.confidence import EXACT
-from accountant.cage.decision import GST_IS_OFF, Action, Decided, Moment
+from accountant.cage.decision import (
+    AUTO_POST_ALLOWED_TIERS,
+    GST_IS_OFF,
+    Action,
+    Decided,
+    Moment,
+)
 from accountant.cage.gate import gate, observed
 from accountant.extract.adapter import (
     INVOICE_SHAPED,
@@ -64,7 +70,24 @@ BEFORE = 1_000_000
 AFTER = BEFORE + TOTAL
 DATE = datetime.date(2026, 8, 12)
 PARTY = "Sharma Traders"
-READ_BY = "test_reader"
+#: CORRECTED 2026-08-13 BY OWNER DECISION 2, and it was `"test_reader"` - a tier
+#: name no reader in this repository has ever stamped. That cost nothing while
+#: nothing compared it to anything. It stopped costing nothing the moment
+#: auto-post started asking WHICH reader read the bill: every builder below
+#: describes a record that read everything cleanly, and every one of them was
+#: refused, because a reader nobody has heard of is on no allowlist.
+#:
+#: Taken from the reader that stamps it rather than typed again, so a rename
+#: there fails here loudly instead of quietly emptying the allowlist. A
+#: hand-typed copy of a name that lives somewhere else is not a constant.
+READ_BY = TextLayerReader.name
+
+#: A tier that reads PIXELS, for the tests that need a record the owner has not
+#: cleared to auto-post. Typed rather than imported, because pulling the picture
+#: reader in would drag Pillow and pytesseract into a file that reads nothing -
+#: and the property under test is that this string is NOT on the allowlist,
+#: which a rename cannot silently satisfy the way an absent name could.
+READ_BY_PICTURE = "free_ocr"
 
 
 def a_record(
@@ -378,6 +401,57 @@ def test_a_bill_with_every_fact_supplied_and_every_law_holding_posts() -> None:
     assert decided.entry is not None
     assert decided.entry.amount_paise == TOTAL
     assert decided.entry.party == PARTY
+
+
+# ---- the tier reaches the decision, and it comes off the record -------------
+#
+# Owner decision 2, 2026-08-13. `decision.decide` needs to know which reader
+# read the bill and may not import one to find out, so `gate._tiers` reads it
+# off `record.per_field_source` - the same dictionary the field sources come
+# from. These three are what say the wire is connected: without them `_tiers`
+# could return `()` for ever and only the demo would notice.
+
+
+def test_the_allowlist_names_the_tier_the_shipped_reader_actually_stamps() -> None:
+    """THE ANTI-DRIFT BIND, and it is the whole reason this test is in this file
+    rather than beside the constant.
+
+    `decision.py` cannot import a reader, so its allowlist holds a hand-typed
+    `"pdf_text_layer"`. The owner wrote `text_layer`, which is not that string
+    and not any other reader's either - so the failure mode this closes is real
+    and was one keystroke away: an allowlist naming a tier nothing stamps
+    refuses every bill in the product while looking exactly like a working
+    guard, and no test of `decision.py` alone could tell the difference.
+    """
+    assert TextLayerReader.name in AUTO_POST_ALLOWED_TIERS
+    assert READ_BY_PICTURE not in AUTO_POST_ALLOWED_TIERS
+
+
+def test_a_bill_read_off_pixels_is_asked_about_rather_than_posted() -> None:
+    """The same bill as the POST test above, every fact supplied and every law
+    holding, differing in one thing: which reader read it.
+
+    `test_a_bill_with_every_fact_supplied_and_every_law_holding_posts` is the
+    control - it is the same call with the shipped text-layer tier on it, and
+    it is what dies if `_tiers` starts refusing everything.
+    """
+    seen = a_record(sources=dict.fromkeys(ExtractedRecord.FIELDS, READ_BY_PICTURE))
+    decided = asked(a_draft(seen))
+
+    assert decided.action is Action.ASK
+    assert decided.entry is None
+
+
+def test_one_field_read_off_pixels_is_enough_to_stop_the_post() -> None:
+    """A ladder record: the total off the text layer, the party off a
+    photograph. `any` where `gate` and `decide` mean `all` would post a bill
+    whose supplier name came out of an OCR guess, and the supplier name is the
+    field whose cost is permanent."""
+    seen = a_record(sources={"party": READ_BY_PICTURE})
+    decided = asked(a_draft(seen))
+
+    assert decided.action is Action.ASK
+    assert decided.entry is None
 
 
 def test_a_bill_whose_lines_do_not_add_up_is_refused() -> None:
