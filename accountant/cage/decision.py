@@ -18,7 +18,8 @@ THE BANDS ARE OWNER-SET
     post    confidence 0.95 or better AND every conservation law PASS AND the
             party known AND the period open AND no hard rule broken
     ask     confidence from 0.70 to just under 0.95, OR something readable more
-            than one way
+            than one way, OR the file had to be repaired before anything could
+            be read off it
     block   confidence under 0.70, OR any hard rule broken
 
 Whether 0.95 and 0.70 are the RIGHT numbers is a question for a corpus run
@@ -70,6 +71,26 @@ EIGHT HARD RULES, EACH OF WHICH ALWAYS BLOCKS
     the question budget    `questions.QUESTION_CAP` questions already asked. A
                            product that will not take no for an answer is worse
                            than one that hands the entry back.
+
+A REPAIRED FILE IS A CEILING, NOT A NINTH HARD RULE
+-----------------------------------------------------
+Owner decision, 2026-08-13: "If the PDF had to be repaired: in the decision
+layer, if conservation checks and all other rules pass, allow confirm (ask), but
+do NOT auto-post. If anything else is uncertain or fails, block with a plain
+sentence."
+
+`Situation.pdf_repaired` is therefore NOT in the list above, and the difference
+is the whole of the design. A hard rule refuses. A ceiling lowers the BEST
+available outcome from post to ask and changes nothing else - so it is one more
+reason in `_asking` rather than an early return, and a repaired file that is
+also wrong about something still blocks. Written as an early `return ASK` it
+would have OVERTURNED those blocks, which is the opposite of the second half of
+the owner's own sentence.
+
+`None` there means "not a PDF, or nothing to repair" and grants the full post.
+That is the ONE field in `Situation` where `None` is not "nobody looked", it is
+written down on the field, and it is why the field has no default: the
+safe-looking default is the dangerous one here.
 
 THREE LAWS ARE ABOUT THE BILL. THE FOURTH IS ABOUT THE BOOKS.
 --------------------------------------------------------------
