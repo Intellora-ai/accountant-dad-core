@@ -10,49 +10,71 @@ Reproduce with:
 .venv/bin/python scripts/run_ground_truth.py
 ```
 
+**RE-MEASURED 2026-08-13, after PHASE 8 DECISION 1 and after the picture rung
+was wired.** Two changes landed between the first run on this page and this one,
+and both moved numbers here: invoice-shaped `text/plain` is now refused rather
+than read for its first number, and `image/png` now reaches `free_ocr` instead
+of being refused by the router. Every figure below is from the later run. Where
+a number moved, the old one is stated beside it, because a page that quietly
+restates itself cannot be checked.
+
 ---
 
 ## The number that matters most, first
 
-**22 fields came back with a value and a source on them, and the value was not
-the truth.**
+**2 fields came back with a value and a source on them, and the value was not
+the truth.** It was **22** before the two changes above.
 
-It is not zero. Every one of the 22 is the same failure, in the same backend,
-and that backend is the one the application runs today.
+Both survivors are `party`, both from `free_ocr`, and both are an engine
+misreading a letter:
 
-| field | wrong | where |
-|---|---|---|
-| `total_paise` | **20** | `typed_text`, on all 20 `text/plain` cases |
-| `tax_paise` | **2** | `typed_text`, GT-0013 and GT-0019 |
-| `date` | 0 | — |
-| `party` | 0 | — |
-
-What it does, on GT-0001:
+| field | wrong | was | where |
+|---|---|---|---|
+| `party` | **2** | 0 | `free_ocr`, GT-0056 and GT-0058 |
+| `total_paise` | **0** | 20 | — |
+| `tax_paise` | **0** | 2 | — |
+| `date` | **0** | 0 | — |
 
 ```
-document      INVOICE NO: GT/0001            (and TOTAL 147.50 eleven lines down)
-returned      total_paise = 100              i.e. one rupee
-source        "typed_text"                   not a refusal, not a blank
-truth         total_paise = 14750
+GT-0056  truth 'NARMADA PACKAGING CO'  ->  '"NARHAGR PACKAGING CO'   free_ocr
+GT-0058  truth 'IYER ELECTRICALS'      ->  'IVER. ELECTRICALS'       free_ocr
 ```
 
-`adapter._AMOUNT.findall(text)[0]` takes **the first number in the document**.
-On a typed sentence — *"paid Sharma Traders 4200 for cement"* — that is the
-amount. On anything laid out like an invoice it is the invoice number. The
-backend cannot tell the two apart, because it checks the **media type** and
-never the **shape**: `text/plain` is `text/plain` whether a person typed one
-line or pasted a whole bill.
+**The 20 that went away, and why that is not a reader getting better.**
+`adapter._AMOUNT.findall(text)[0]` took **the first number in the document**. On
+a typed sentence — *"paid Sharma Traders 4200 for cement"* — that is the amount.
+On anything laid out like an invoice it is the invoice number, and the backend
+could not tell the two apart because it checked the **media type** and never the
+**shape**: `text/plain` is `text/plain` whether a person typed one line or
+pasted a whole bill. On GT-0001 it answered `total_paise = 100` — one rupee,
+read off `GT/0001` — sourced `typed_text`, against a truth of `14750`.
 
-This is a known number in one place already —
-`tests/test_ground_truth_integrity.py` asserts `fabricated == 20` for
-`total_amount` — and it was invisible in the harness, because
-`exit1_exact_per_field` subtracts a refusal and a fabrication from the same
-total. `exit1_wrong_per_field` now counts them apart.
+The owner closed that. `adapter` now decides from the **shape** of the text, and
+invoice-shaped text is refused in the owner's own words:
 
-**Nothing gates it.** `exit2_unrenderable_input_is_explicit` forbids a
-fabricated value, but only on the 20 unrenderable JPEGs. All 22 fabrications are
-on renderable cases, which no gate covers. Writing that gate means setting the
+```
+GT-0001  total_paise = None
+source   'not_found: This document looks like an invoice, but the amount could
+          not be reliably read. Please upload a clearer image or a proper PDF.'
+```
+
+**Nothing reads better than it did. Twenty wrong totals stopped reaching the
+ledger.** The exact-match scores did not move at all — see the next table.
+
+**The 2 that remain are a different animal, and the difference decides how
+worried to be.** The 20 were a backend stating a source for a number it had no
+business reading. These two are an engine reading a 5×7 bitmap font, getting a
+letter wrong, and **saying how unsure it is**: GT-0056 comes back at confidence
+**0.08** and GT-0058 at **0.37**, nowhere near the `0.95` that would auto-post.
+A value that is wrong and scored is a value a threshold can argue with; a value
+that is wrong and unscored is outside the system built to catch it.
+
+**Nothing gates the count.** `exit2_unrenderable_input_is_explicit` forbids a
+fabricated value, but only on the 20 unrenderable JPEGs; both survivors are on
+renderable cases, which no gate covers. Writing that gate means setting the
 number a run may carry, and thresholds here are the owner's.
+`tests/test_gst_ground_truth_runner.py` pins all four counts exactly, so a
+rise fails a test rather than waiting to be noticed.
 
 ---
 
@@ -61,15 +83,22 @@ number a run may carry, and thresholds here are the owner's.
 | field | exact of 80 renderable | required | wrong (all 100) |
 |---|---|---|---|
 | `date` | **14** | 76 | 0 |
-| `party` | **20** | 76 | 0 |
-| `total_paise` | **20** | 76 | 20 |
-| `tax_paise` | **20** | 76 | 2 |
+| `party` | **22** | 76 | 2 |
+| `total_paise` | **20** | 76 | 0 |
+| `tax_paise` | **20** | 76 | 0 |
+
+`party` was 20 exact / 0 wrong before the picture rung was wired. **Both halves
+of that move are the same two documents**: two of the twenty corpus PNGs have
+their supplier read exactly, two more come back misread. A rung that answers
+gets both, and a rung that refuses gets neither.
 
 `s2_extraction` **FAILS**. Four other sections pass. The harness exits 1, which
 is the benchmark working, not a broken run.
 
-Wall clock for the whole harness: **0.42 s**. The extraction section is about
-30 ms of that.
+Wall clock for `scripts/run_ground_truth.py`, `/usr/bin/time -p`, two runs:
+**2.43 s and 2.32 s** end to end, interpreter start included. It was 0.42 s when
+no rung read a picture; the extra two seconds are twenty PNGs going through a
+real engine and twenty JPEGs being refused before one is reached.
 
 ## Per input type
 
@@ -77,11 +106,16 @@ Wall clock for the whole harness: **0.42 s**. The extraction section is about
 
 | type | mime | date | party | total | tax | rung that answered |
 |---|---|---|---|---|---|---|
-| text | `text/plain` | 0 / 20 / 0 | 0 / 20 / 0 | **0 / 0 / 20** | 0 / 18 / 2 | `typed_text` |
+| text | `text/plain` | 0 / 20 / 0 | 0 / 20 / 0 | **0 / 20 / 0** | 0 / 20 / 0 | `typed_text` |
 | PDF | `application/pdf` | 14 / 6 / 0 | 20 / 0 / 0 | 20 / 0 / 0 | 20 / 0 / 0 | `pdf_text_layer` |
-| PNG | `image/png` | 0 / 20 / 0 | 0 / 20 / 0 | 0 / 20 / 0 | 0 / 20 / 0 | `ladder` refused |
-| JPG | `image/jpeg` | 0 / 20 / 0 | 0 / 20 / 0 | 0 / 20 / 0 | 0 / 20 / 0 | `ladder` refused |
+| PNG | `image/png` | 0 / 20 / 0 | **2 / 16 / 2** | 0 / 20 / 0 | 0 / 20 / 0 | `free_ocr` |
+| JPG | `image/jpeg` | 0 / 20 / 0 | 0 / 20 / 0 | 0 / 20 / 0 | 0 / 20 / 0 | `free_ocr` refused |
 | DOCX | `…wordprocessingml.document` | 0 / 20 / 0 | 0 / 20 / 0 | 0 / 20 / 0 | 0 / 20 / 0 | `ladder` refused |
+
+**The text row is the whole of PHASE 8 DECISION 1.** It read `0 / 0 / 20` on
+`total` and `0 / 18 / 2` on `tax`; it now reads `0 / 20 / 0` on both. Nothing in
+that row got read. Everything in it that used to be invented is now refused with
+a sentence a person can act on.
 
 **The PDF tier is perfect on everything it does not refuse.** 20/20 party,
 20/20 total, 20/20 tax, and 14/20 date.
@@ -101,27 +135,39 @@ decision about locale, not a fact a reader can read.
 
 ## The tier split
 
-| tier | cases it answered | of which exact |
+Which **rung answered**, not which backend was asked for. The router is
+`ladder`; a case counted against `ladder` is one no rung below it could open.
+
+| rung | cases it answered | of which exact |
 |---|---|---|
 | `pdf_text_layer` (text layer) | 20 | 74 field-hits of 80 |
-| `typed_text` (regex) | 20 | 0 field-hits of 80, 22 wrong |
-| OCR | **0** | not wired — see below |
-| `ladder` refused outright | 60 | — |
+| `free_ocr` (picture) | **40** | 2 field-hits of 160, 2 wrong |
+| `typed_text` (regex) | 20 | 0 field-hits of 80, **0 wrong** |
+| `ladder` refused outright | 20 | — the DOCX, which no reader here opens |
 
-**The OCR tier handled zero cases, and not because the engine is missing.**
-`tesseract` 5.5.3 is installed on this machine and was called for real. The tier
-is not reachable from the product: `freeocr.FreeReader` takes an injected
-`PageReader` — something that says which words on a page are the total, the tax,
-the date and the supplier — and nothing in this repository does that. It is
-field detection, it cannot be checked without `H-02`, and it sits in
-`registry._NEEDS_WIRING` saying so rather than being quietly built.
+**The OCR tier answered nothing until 2026-08-13, and the engine was never the
+reason.** `tesseract` 5.5.3 was installed and was being called for real; what
+did not exist was a `PageReader` — something that says which words on a page are
+the total, the tax, the date and the supplier — so `freeocr.FreeReader` had
+nothing to inject and sat in `registry._NEEDS_WIRING` saying so.
+
+`accountant/extract/pagereader.py` is that function now. It is not a heuristic:
+it runs the **same label vocabulary the PDF rung uses**
+(`accountant/extract/labels.py`) over the lines the engine reports. The 40
+`free_ocr` cases are the 20 PNGs and the 20 JPEGs; the JPEGs are refused inside
+the rung, because there are no pixels in them to read.
+
+**Both halves of what wiring it bought are below**, and the section that follows
+is now a measurement of a live path rather than of an engine called on the side.
 
 ---
 
-## The engine, measured anyway
+## The engine, on its own
 
-The tier is not wired; the engine is real and was run directly on the corpus, so
-the ceiling is a number rather than a guess.
+Measured by calling the engine directly on the corpus, before the rung was
+wired, so the ceiling is a number rather than a guess. Kept because it bounds
+what any field detector on top of this engine could reach — the wired rung
+scores 2 exact against this bound of 6.
 
 ### PNG — 20 of 20 produced a reading
 
@@ -180,35 +226,45 @@ labelled metadata and never `source="ocr"`.
 
 ## Confidence, correct against incorrect
 
-**No distribution can be drawn, and the reason is worse than the missing data.**
+**Still no distribution, and n is still not the reason. The axis is now real for
+part of the data and flat for the rest.**
 
-- **Correct fields, n = 74.** Every one is from `pdf_text_layer`, and every one
-  carries `confidence.EXACT` = 1.0 by construction. One value, no spread.
-- **Incorrect fields, n = 22.** Every one is from `typed_text`, which produces
-  **no confidence at all**. `ExtractedRecord` has nowhere to put one, and
-  `typed_text` has no `observe()` — only `textlayer` and `freeocr` build an
-  `Observation`.
+- **Correct fields, n = 76.** 74 from `pdf_text_layer`, every one
+  `confidence.EXACT` = 1.0 by construction; 2 from `free_ocr`, and those two do
+  carry a measured score. One constant plus two points.
+- **Incorrect fields, n = 2.** Both from `free_ocr`, at **0.08** and **0.37**.
 
-So the two populations do not share a scale, and a curve through them would be
-drawing a line between a constant and an absence. **n is not too small; the
-axis does not exist.**
+**What changed here is the finding, not the chart.** This section used to read
+*"the 22 wrong fields carry no confidence, so no decision band can see them"* —
+a wrong value with no score is outside the system built to catch it. Those 22
+are gone, and the two that replaced them are the opposite case: both are scored,
+both score low, and both land far below the `0.95` auto-post floor and below the
+`0.70` ask floor in `accountant/cage/decision.py`. **A reader that is wrong and
+says so is a reader the cage can stop.**
 
-The consequence is the finding, not the missing chart: **the 22 wrong fields
-carry no confidence, so no decision band can see them.** A wrong value at 0.96
-would at least be a number a threshold could argue with. A wrong value with no
-score is outside the system that was built to catch it.
+The remaining gap is `typed_text`, which produces no confidence at all —
+`ExtractedRecord` has nowhere to put one and it has no `observe()`, only
+`textlayer` and `freeocr` build an `Observation`. That no longer matters for
+these numbers, because `typed_text` now returns **0 wrong fields**: it refuses
+instead. It would matter again the moment it reads anything.
 
 ---
 
 ## Two things I was told to expect that did not hold
 
-**1. "Roughly 40/80" — it is 20/80, and the 20 that are missing are not the
-ones anyone thought.**
+**1. "Roughly 40/80" — it is 20/80 on the fields that matter, and the 20 that
+are missing are not the ones anyone thought.**
 
 `docs/OCR_CORPUS_FINDING.md` puts the ceiling at `20 TXT exact + 20 PDF exact`.
-The PDF half is right. **The TXT half scores zero and fabricates twenty.** The
-corpus `.txt` files are not typed sentences — they are the same invoice layout
-as the PDFs, in plain text — and `typed_text` was never built for that shape.
+The PDF half is right. **The TXT half scores zero.** The corpus `.txt` files are
+not typed sentences — they are the same invoice layout as the PDFs, in plain
+text — and `typed_text` was never built for that shape.
+
+It also **fabricated twenty** when this page was first written. It does not any
+more: the same shape test that stops it reading an invoice number as a total
+makes it refuse the whole file. Scoring zero and inventing twenty look identical
+in an exact-match column and are not the same event, which is why
+`exit1_wrong_per_field` counts them apart.
 
 **2. That document also says the 80 renderable cases are "every type except
 DOCX". They are every type except JPG.** DOCX is *in* the scored 80 and
@@ -294,9 +350,11 @@ harness green and tell the owner nothing true.
 Three, cheapest first. None is taken here.
 
 1. **Route `text/plain` through the label parser instead of the regex.**
-   Measured above as 20/20 on total, tax and date and 19/20 on party. It also
-   deletes 22 fabrications outright. It needs the party defect fixed first,
-   and it changes what a typed sentence means. **Still an owner decision.**
+   Measured above as 20/20 on total, tax and date and 19/20 on party. It needs
+   the party defect fixed first, and it changes what a typed sentence means.
+   **Still an owner decision.** The 22 fabrications it would also have deleted
+   are already gone by the cheaper route — refusing invoice-shaped text — so
+   this item now buys exact matches only, and none of the safety it used to.
 2. **Regenerate the image corpus with a real font, and the JPEGs with real
    pixels.** Turns `s2_extraction` into something that measures what it claims
    to. Costs a font dependency in the generator and a new set of expected

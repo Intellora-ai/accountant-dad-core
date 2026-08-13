@@ -103,7 +103,7 @@ lives in `pyproject.toml`; version history and CI evidence live in
 | Choice | Architectural consequence |
 |---|---|
 | **Python** | the whole product; pinned to **3.14** via `.python-version` |
-| **Runtime dependencies: `[]`** | the app installs and runs with a stdlib Python and nothing else. No supply chain at runtime. `pyproject.toml` declares `dependencies = []` and names **no web framework**. |
+| **Runtime dependencies: exactly three, and only for reading a document** | `pypdf`, `pytesseract`, `Pillow` — cleared by the owner as **`D-30`, 2026-08-13**. `pyproject.toml` read `dependencies = []` until that date and the "stdlib and nothing else" claim was literally true; it is now "stdlib plus the three the reader needs", the set is **asserted exactly** by `test_the_project_declares_exactly_the_dependencies_the_owner_approved`, and a fourth entry fails a test. Still **no web framework**, and nothing on the posting path imports any of the three. |
 | **`accountant/web/app.py` — stdlib `http.server`** | **no framework is present.** No npm, no build step, no bundler. Introducing a framework is **not part of this architecture** unless separately approved. |
 | **TallyPrime / Tally.ERP 9 over HTTP/XML, host and port configurable** | Tally is Windows-only and exposes no public or cloud API. This forces the app to run on a machine that can reach the Tally host. |
 | **Windows VM on macOS (UTM)** | the development and first-slice environment. **`localhost` on the host and `localhost` in the VM are different machines** — the guest is reached over the VM's private bridge network, not over loopback. `TallyConfig` therefore takes a **host and a port** and does not assume `localhost:9000`. `TallyConfig.is_loopback` exists so a caller or a test can assert the tighter rule where it does apply. Plain HTTP with no authentication must stay on a private, trusted network. |
@@ -652,10 +652,15 @@ acceptable.
 >
 > What actually shipped under the amendment is narrower than the permission
 > given: multi-user, login and accounts are built (`docs/AUTH.md`); cloud
-> hosting has artefacts but no host (`docs/DEPLOY.md`); and **no runtime
-> dependency was added at all** — every task landed on the standard library, so
-> `pyproject.toml`'s `dependencies = []` still holds and the "zero runtime
-> dependency" claim two paragraphs above is still true.
+> hosting has artefacts but no host (`docs/DEPLOY.md`).
+>
+> **The runtime-dependency half of this note said "no runtime dependency was
+> added at all" and was true until 2026-08-13.** It is not any more. `D-30`
+> cleared exactly three — `pypdf`, `pytesseract`, `Pillow` — and none of them
+> arrived under this cloud amendment. They arrived to read a document, they are
+> imported only from `accountant/extract/`, and the posting path imports none of
+> them. See §3, *Technology choices that affect the design*, and
+> `pyproject.toml`, which states the reasoning beside the list.
 >
 > The local, single-user path is unchanged and still supported:
 > `LOCAL_DEV_MODE=1` skips authentication entirely and prints a loud warning on

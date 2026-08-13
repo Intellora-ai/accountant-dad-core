@@ -83,10 +83,10 @@ choco install tesseract
 ```python
 from accountant.extract.freeocr import FreeReader, Reading, read_words
 
-words = read_words(image_bytes, deadline_seconds=8)   # -> tuple[Word, ...]
-reader = FreeReader(my_page_reader)                   # -> Extractor
-record = reader.extract(image_bytes, "image/png")     # -> ExtractedRecord
-observed = reader.observe(image_bytes, "image/png")   # -> Observation, with scores
+words = read_words(image_bytes, deadline_seconds=8)  # -> tuple[Word, ...]
+reader = FreeReader(my_page_reader)  # -> Extractor
+record = reader.extract(image_bytes, "image/png")  # -> ExtractedRecord
+observed = reader.observe(image_bytes, "image/png")  # -> Observation, with scores
 ```
 
 - **`image_to_data`, `output_type=DICT`.** MEASURED: the engine's text output
