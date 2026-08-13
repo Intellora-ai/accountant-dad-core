@@ -345,10 +345,23 @@ def test_the_one_paisa_error_is_named_to_the_paisa_in_the_sentence() -> None:
 
 def test_a_bill_carrying_tax_is_refused_because_posting_tax_is_switched_off() -> None:
     """Owner decision Q3 = D. The refusal is a boundary, not a breakage, and the
-    sentence has to read like one."""
+    sentence has to read like one.
+
+    CORRECTED 2026-08-13. This asserted `"tax" in said.lower()` and went red when
+    the cage's own wording replaced the demo's appended one. The new sentence is
+    better, not worse - it says GST throughout, which is what an Indian user
+    calls it, and it now ends by telling the person to enter this one in Tally
+    themselves instead of stopping at "cannot be posted".
+
+    The assertion was pinning a WORD where it meant to pin a MEANING, so it
+    failed on a change that improved exactly the thing it was guarding. It now
+    checks the two claims that actually matter: the sentence names the tax, and
+    it does not dead-end. A refusal with no next step is a defect here.
+    """
     said = demo.run_demo()[3].sentence
 
-    assert "tax" in said.lower()
+    assert "gst" in said.lower() or "tax" in said.lower()
+    assert "tally" in said.lower(), "a refusal must say what would work"
     assert not demo.POSTING_ENABLED
 
 
@@ -356,15 +369,20 @@ def test_the_unknown_party_refusal_never_offers_to_invent_a_name() -> None:
     """We never create a ledger the accountant did not create. The sentence says
     so and hands the person the two things that would work.
 
-    It does NOT name the party. That is the cage's own wording and it is a real
-    gap - a person with four bills in flight cannot tell which one this is about
-    - but it is reported to the owner rather than patched from this file.
+    CORRECTED 2026-08-13. This asserted `"kumar & sons" not in said`, and the
+    docstring said why: the cage's refusal named no party, a person with four
+    bills in flight could not tell which one it was about, and the gap was
+    reported rather than patched from this file. `decision.py` has now closed it
+    - `_party_unknown` reads the name off the `Observation` it already has - so
+    the assertion is reversed. Naming the party is not "inventing" one: the two
+    things this test guards are that we never offer to CREATE a ledger, and that
+    the person is handed a move they can make.
     """
     said = demo.run_demo()[7].sentence.lower()
 
     assert "never add a new name" in said
     assert "tally" in said
-    assert "kumar & sons" not in said
+    assert "kumar & sons" in said
 
 
 def test_the_impossible_date_is_quoted_back_so_the_person_can_see_it() -> None:
