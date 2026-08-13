@@ -17,8 +17,11 @@ A `Draft`, plus keyword arguments:
 | `party_known` | **none** | keyword-only, no default |
 | `period_open` | **none** | keyword-only, no default |
 | `carries_gst` | **none** | keyword-only, no default |
+| `pdf_repaired` | **none** | keyword-only, no default — and here the safe-*looking* default is the dangerous one: `None` grants the full post, so defaulting it hands every caller that forgot exactly the permission the field exists to withhold |
+| `questions_asked` | **none** | keyword-only, no default. A count nobody supplied is not a count of zero |
 | `net_paise` | `None` | safe to default — see below |
 | `balance_before_paise` / `balance_after_paise` | `None` | **no longer safe on its own** — see below |
+| `ambiguous_fields` | `()` | safe to default: nothing recorded as readable two ways lowers nothing |
 
 The asymmetry is deliberate and is the whole point of the file. **Forgetting
 `net_paise` fails closed** — unread becomes `INDETERMINATE` on a document law
@@ -96,5 +99,12 @@ Steps 13 and 14 — and when `period_open` acquires a source. Both are recorded 
 
 ## Depends on
 
-`decision`, `conservation`, `wall`, `confidence`. Four, against a limit of five.
+`decision`, `conservation`, `wall`, `confidence` — and `extract.adapter` at run
+time, for `NOT_FOUND` and `ExtractedRecord`. **Five, against a limit of five.**
 No cycles.
+
+This row said *"Four"* until 2026-08-13 and omitted the fifth. The number
+matters because it is a budget: at four there was one import of headroom, and at
+five the next one has to displace something. `accountant.pipeline` is the import
+that is genuinely free — `Draft` comes in under `TYPE_CHECKING`, so the cage
+never depends on the pipeline at run time.

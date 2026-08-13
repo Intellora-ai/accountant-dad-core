@@ -59,7 +59,23 @@ the wrong direction for a guard. Passing it means a bypass has to write
 
 ## Dependencies
 
-**None.** Stdlib only.
+**`money`, and nothing else.** Stdlib otherwise.
+
+This row read **None. Stdlib only.** until 2026-08-13, and it was wrong on the
+day it was written: `wall.py` imports `accountant.money.format_inr`. The
+exception is the same one `conservation.md` documents, for the identical import
+and the identical reason — `accountant/money.py` is a pure `int -> str` renderer
+whose only import is `__future__`, so it costs none of what the rule protects.
+
+It buys one sentence. `LedgerEntry.decided` refuses a non-positive amount, and
+`decision.py` catches that `ValueError` and puts it **verbatim** into the text a
+person reads — so the refusal says *"an entry must be for a positive amount, got
+₹-0.05"* rather than *"got -5 paise"*. The author of that guard checked it for
+leaking ledger names and did not think of amounts.
+
+**What would make it unsafe:** `money` acquiring a dependency of its own — a
+locale, a config file, a store — because that dependency then arrives here
+behind an import nobody re-reads.
 
 ## Observability
 

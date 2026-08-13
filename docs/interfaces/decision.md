@@ -107,7 +107,7 @@ decision layer, if conservation checks and all other rules pass, allow confirm
 a plain sentence."*
 
 `pdf_repaired=True` adds one more reason to ask. It is deliberately **not** an
-early return and **not** a seventh hard rule: a ceiling lowers the best
+early return and **not** a ninth hard rule: a ceiling lowers the best
 available outcome from POST to ASK and changes nothing else, so a repaired file
 that is also wrong about something still blocks. Written as `return ASK` it
 would have *overturned* those blocks, which is the opposite of the second half
@@ -130,16 +130,68 @@ fields: the safe-*looking* default is the dangerous one. `None` grants the full
 post, so a default would hand every caller that forgot exactly the permission
 the field exists to withhold.
 
-## Six hard rules, each of which always blocks
+## Eight hard rules, each of which always blocks
+
+Listed in the order `_blocking` evaluates them, which is the order a person
+reads them in on screen.
 
 | Rule | Why |
 |---|---|
 | a law `FAIL` | owner decision, 2026-08-13, and it **reversed** what this module did: a failed law used to ASK. Nothing a person can answer makes 45,000 + 74,999 equal 1,20,000 |
 | tax on the bill | owner decision Q3 = D. Writing the bill without its tax line leaves a wrong statutory entry |
+| the tax flag and the tax figure disagree | `carries_gst` is the caller's; `tax_paise` is on the reading in the same argument. Two statements about one fact, and neither is trusted over the other — when they disagree, nothing is posted |
+| checked ≠ written | the amount the laws were run on is not the amount the entry would be for. See *The number checked and the number written* below; this is the one the rest of the page depends on being true |
 | a document law `INDETERMINATE` | "could not check" is not "checked and fine". **A separate rule from the first one**, deliberately: they share an outcome and not a sentence, because one means send a readable copy and the other means the figures disagree with each other |
 | the period closed | the books for that date are shut |
 | the party unknown | a name is never added to somebody's chart of accounts. The person is asked |
 | the question budget spent | a product that will not take no for an answer is worse than one that hands the entry back |
+
+## The number checked and the number written are the same number
+
+Every claim on this page is *"the arithmetic was checked before anything was
+written"*, and that sentence is only true if the amount checked and the amount
+written are one amount. They arrive from two places: the verdicts in
+`Situation.conservation` are computed by the **caller** from the caller's
+figures, and the entry is built from `observation.total_paise`. Until 2026-08-13
+nothing compared them — measured, laws passing on 1,00,000 paise authorised a
+write of 1,00,00,000 paise and returned POST.
+
+So `Situation` carries `checked_paise`, no default, and `decide` refuses any
+bill where it is not the amount that would be written. **The laws are not re-run
+here**: that would take a responsibility this module does not own, and a check
+that computes its own evidence cannot be contradicted by anybody — another check
+that cannot fail. The caller states what it checked; this compares two
+statements and believes neither on its own. Equality is exact, like
+`conservation._compare`: a one-paisa tolerance would absorb the misread digit
+this is most likely to catch.
+
+## The eight are the business rules. They are not every refusal.
+
+**Measured, not counted by eye: `decide` and `_blocking` hold 24 distinct
+block-producing branches.** A branch is a `return` or a `reasons.append` that
+puts a new refusal sentence into a BLOCK, each arm of a conditional counted
+separately because the two arms carry two different sentences about two
+different facts. The scan is
+`tests/test_interface_contract_pages.py::_block_branches`, and it derives the
+set of functions it walks from `_blocking` itself, so a helper added there is
+counted rather than exempt by omission.
+
+Eight of the 24 are the hard rules above. **A reader who takes that table for
+the complete list of what refuses a bill is wrong about two thirds of it.** The
+other sixteen:
+
+| Family | How many | What it is |
+|---|---|---|
+| malformed or absent input | 13 | a field that is not the type it must be, or a fact nobody looked up — a verdict that is not a `Verdict`, a question count that is not a number, `carries_gst=None`, an `observation` that is not an `Observation`. Every one fails **closed** |
+| both sides name one ledger | 1 | a typo, and no answer to any question makes it not one — `_account_blocks` |
+| confidence under `ASK_FLOOR` | 1 | the band stated above: too unsure to be worth spending a question on |
+| the wall's own refusal | 1 | `LedgerEntry.decided` raising `ValueError` — caught here and turned into a sentence rather than a traceback |
+
+They are unnamed because there is nothing to name: each is a single branch whose
+sentence is a module constant, and they are read in order in `_blocking`. That
+they are unnamed is not that they are minor — it is the *"never raises"* rule
+below doing its work. Malformed input becomes a refusal a person can read
+instead of an outage.
 
 ## Does NOT
 
