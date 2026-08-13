@@ -51,7 +51,24 @@ compute · stop at the first failure.
 
 ## Dependencies
 
-**None.** Stdlib only. Pure function.
+**May talk to: `money`, and nothing else.** Stdlib otherwise. Pure function.
+
+This row read **None** until 2026-08-13. The exception is safe because
+`accountant/money.py` is a pure `int -> str` renderer whose only import is
+`__future__`, so importing it costs none of what the rule protects — this module
+still evaluates with no fixtures, no network, no filesystem and no Tally, and
+returns the same verdict on a machine that has never seen an invoice. It buys
+the one thing arithmetic in paise cannot give a person: a refusal that reads
+*"₹1,199.99 against a stated total of ₹1,200.00, out by 1 paisa"* instead of
+*"119999 paise against 120000 paise"*, which the owner's closed INR-grouping
+rule requires of every amount a user sees.
+
+**What would make it unsafe:** `money` acquiring any dependency of its own — a
+locale, a config file, a store — because that dependency then arrives here
+behind an import nobody re-reads.
+`tests/test_conservation.py::test_the_control_money_itself_still_depends_on_nothing`
+fails on that day, and an allow-list test pins this module's import list to
+`money` alone. An undocumented exception is how a layered design becomes a mesh.
 
 ## Observability
 

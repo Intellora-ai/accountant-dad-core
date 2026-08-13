@@ -43,6 +43,31 @@ coerced, and so is a `bool` - `isinstance(True, int)` is True in Python and
 `True == 1`, so a flag passed where an amount belonged would otherwise balance a
 one-paisa entry. `checks.py::amount_is_integer_paise` already refuses bools for
 that reason; this matches it rather than inventing a second rule.
+
+INTEGER PAISE INSIDE, RUPEES ON THE SCREEN
+-------------------------------------------
+The arithmetic is paise. The SENTENCE is not. Until 2026-08-13 a refusal read
+"they come to 119999 paise against a stated total of 120000 paise", and nobody
+reconciles a bill against that: the owner's closed rule is that every INR
+amount a person sees carries Indian grouping and the rupee sign. So every
+figure in every sentence here goes through `money.format_inr`, which is the
+ONE renderer in this repository and not a copy of it.
+
+THE ONE DEPENDENCY, AND WHAT WOULD MAKE IT UNSAFE
+---------------------------------------------------
+`docs/interfaces/conservation.md` said this module depends on nothing. It now
+says `accountant.money`, and nothing else. The rule's PURPOSE is that this
+module stays evaluable with no fixtures, no network, no filesystem and no
+Tally, so its verdict is identical on a machine that has never seen an invoice.
+`money.py` is a pure `int -> str` function whose only import is `__future__`,
+so importing it costs none of that.
+
+It stops being safe the day `money` acquires a dependency of its own - a
+locale, a config file, a store - because that dependency would arrive here
+behind an import nobody re-reads.
+`tests/test_conservation.py::test_the_control_money_itself_still_depends_on_nothing`
+is what fails on that day, and an allow-list test pins the import list to
+`money` alone.
 """
 
 from __future__ import annotations
@@ -50,6 +75,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final
+
+from accountant.money import format_inr
 
 #: The four laws, in the order `run` always returns them. The order is part of
 #: the contract: a caller may index it, and a log line reads the same every run.
@@ -107,6 +134,24 @@ def _paise(value: object, name: str) -> int | None:
     return value
 
 
+def _out_by(paise: int) -> str:
+    """How far apart two figures are, in the words a person would use.
+
+    Under a rupee it stays a paise count. "Out by 1 paisa" is the sentence that
+    makes a single misread digit obvious; "out by ₹0.01" reads like a rounding
+    artefact somebody can ignore, and this module exists because that
+    particular disagreement is almost never rounding. A rupee or more is an
+    amount, so it goes through `format_inr` like every other amount here.
+
+    SINGULAR IS `paisa`. The plural is `paise`. One paisa, two paise - this is
+    on the screen of a reader whose own currency it is, and getting it wrong
+    there is not a typo, it is a reason not to trust the figure beside it.
+    """
+    if paise < 100:
+        return f"{paise} {'paisa' if paise == 1 else 'paise'}"
+    return format_inr(paise)
+
+
 def _unread(law: str, *names: str) -> ConservationResult:
     """The INDETERMINATE result, naming exactly which figures were missing."""
     missing = ", ".join(names)
@@ -137,7 +182,7 @@ def _compare(law: str, left: int, right: int, sentence: str) -> ConservationResu
         return ConservationResult(
             law=law,
             verdict=Verdict.PASS,
-            said=f"{law.replace('_', ' ')}: {left} paise on both sides.",
+            said=f"{law.replace('_', ' ')}: {format_inr(left)} on both sides.",
         )
     return ConservationResult(law=law, verdict=Verdict.FAIL, said=sentence)
 
@@ -155,8 +200,9 @@ def debits_equal_credits(
         law,
         debit,
         credit,
-        f"the two sides of this entry do not balance: {debit} paise debited "
-        f"against {credit} paise credited, out by {abs(debit - credit)} paise.",
+        f"the two sides of this entry do not balance: {format_inr(debit)} "
+        f"debited against {format_inr(credit)} credited, out by "
+        f"{_out_by(abs(debit - credit))}.",
     )
 
 
@@ -183,8 +229,8 @@ def lines_sum_to_total(
         added,
         total,
         f"the line items on this bill do not add up to its total: they come to "
-        f"{added} paise against a stated total of {total} paise, out by "
-        f"{abs(added - total)} paise.",
+        f"{format_inr(added)} against a stated total of {format_inr(total)}, "
+        f"out by {_out_by(abs(added - total))}.",
     )
 
 
@@ -217,8 +263,9 @@ def net_plus_tax_equals_gross(
         law,
         net + tax,
         gross,
-        f"the amounts on this bill do not agree: {net} paise plus {tax} paise "
-        f"of tax comes to {net + tax} paise, but the total says {gross} paise.",
+        f"the amounts on this bill do not agree: {format_inr(net)} plus "
+        f"{format_inr(tax)} of tax comes to {format_inr(net + tax)}, but the "
+        f"total says {format_inr(gross)}.",
     )
 
 
@@ -254,7 +301,8 @@ def balance_delta_equals_entry(
         moved,
         amount,
         f"the books did not move by the amount of this entry: the balance "
-        f"changed by {moved} paise but the entry was for {amount} paise.",
+        f"changed by {format_inr(moved)} but the entry was for "
+        f"{format_inr(amount)}.",
     )
 
 

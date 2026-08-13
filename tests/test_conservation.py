@@ -44,8 +44,14 @@ NO NETWORK, NO FIXTURES, NO IO. Every test here is integer arithmetic.
 
 from __future__ import annotations
 
+import ast
+import re
+from pathlib import Path
+
 import pytest
 
+from accountant import money
+from accountant.cage import conservation
 from accountant.cage.conservation import (
     LAWS,
     ConservationResult,
@@ -56,6 +62,88 @@ from accountant.cage.conservation import (
     net_plus_tax_equals_gross,
     run,
 )
+
+CONSERVATION_FILE = Path(conservation.__file__)
+MONEY_FILE = Path(money.__file__)
+
+#: Anything that can open a socket, and anything that can touch a disk. This
+#: module may import none of it - that is what makes it evaluable with no
+#: fixtures, no network and no Tally, which is the whole reason it is first.
+IMPURE_MODULES = frozenset(
+    {
+        "asyncio",
+        "http",
+        "httpx",
+        "io",
+        "os",
+        "pathlib",
+        "requests",
+        "shutil",
+        "socket",
+        "sqlite3",
+        "ssl",
+        "subprocess",
+        "tempfile",
+        "urllib",
+    }
+)
+
+#: The exception, written down: `money.format_inr` is a pure `int -> str`
+#: function whose own imports are `__future__` and nothing else, and a refusal
+#: that says `119999 paise` is not a sentence an Indian reader can act on.
+#: `docs/interfaces/conservation.md` carries the same allow-list in words.
+ALLOWED_IMPORTS = frozenset(
+    {"__future__", "accountant", "dataclasses", "enum", "typing"}
+)
+
+
+def imported_roots(path: Path) -> set[str]:
+    """The top-level module every import in one file reaches for.
+
+    The same scan `tests/test_ingest.py::imported_roots` runs over the load
+    path. Copied rather than imported across test files on purpose: a test that
+    depends on another test file's helper fails for two reasons at once.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    roots: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            roots.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module is not None:
+            roots.add(node.module.split(".")[0])
+    return roots
+
+
+def every_sentence() -> list[str]:
+    """One `said` from each law, on a failing and on a passing run.
+
+    Built from calls rather than from the module's string constants, because
+    the figures are interpolated and it is the interpolation that was wrong.
+    """
+    passing = run(
+        debit_paise=120_000,
+        credit_paise=120_000,
+        line_paise=(40_000, 80_000),
+        total_paise=120_000,
+        net_paise=120_000,
+        tax_paise=0,
+        gross_paise=120_000,
+        balance_before_paise=0,
+        balance_after_paise=120_000,
+    )
+    failing = run(
+        debit_paise=120_000,
+        credit_paise=119_999,
+        line_paise=(40_000, 79_999),
+        total_paise=120_000,
+        net_paise=100_000,
+        tax_paise=18_001,
+        gross_paise=118_000,
+        balance_before_paise=0,
+        balance_after_paise=119_999,
+    )
+    return [r.said for r in (*passing, *failing)]
+
 
 # ---- debits equal credits ---------------------------------------------------
 
@@ -78,9 +166,20 @@ def test_the_control_one_paisa_apart_does_not_balance() -> None:
 
 def test_the_failure_sentence_names_both_sides_and_the_difference() -> None:
     """A person reading the refusal has to be able to act on it. "Unbalanced"
-    is not actionable; "1,000.00 against 1,000.01, out by 0.01" is."""
+    is not actionable; "₹1,000.00 against ₹1,000.01, out by 1 paisa" is.
+
+    THE ASSERTION WAS CORRECTED 2026-08-13, not weakened. It read
+    `assert "100000" in said and "100001" in said`, which pinned the defect
+    rather than the behaviour: the raw paise count reached a person's screen,
+    against the owner's rule that every INR amount a user sees carries Indian
+    grouping and the rupee sign. This docstring already described the rupee
+    form on the day the assertion pinned the paise form.
+    """
     said = debits_equal_credits(100_000, 100_001).said
-    assert "100000" in said and "100001" in said and "1" in said
+
+    assert "₹1,000.00" in said
+    assert "₹1,000.01" in said
+    assert "out by 1 paisa" in said
 
 
 def test_an_unread_debit_is_indeterminate_not_a_pass() -> None:
@@ -320,6 +419,111 @@ def test_running_twice_on_the_same_input_gives_the_identical_answer() -> None:
         "balance_after_paise": 100_000,
     }
     assert run(**kwargs) == run(**kwargs)  # type: ignore[arg-type]
+
+
+# ---- the figures a person actually reads ------------------------------------
+# The owner's rule, closed: every INR amount visible to a user is formatted with
+# Indian grouping, through `accountant.money.format_inr` and no second copy.
+# `119999 paise` is not a figure anybody reconciles a bill against.
+
+
+def test_no_law_ever_prints_a_bare_paise_count_at_a_person() -> None:
+    """THE SWEEP, over every sentence all four laws can produce.
+
+    A count under a rupee stays a count - "out by 1 paisa" is what makes a
+    misread digit obvious, and "out by ₹0.01" reads like a rounding artefact.
+    Anything a rupee or larger is an amount and goes through `format_inr`, so
+    a three-digit paise figure in any sentence is the defect coming back.
+    """
+    for said in every_sentence():
+        for figure in re.findall(r"(\d+) pais[ae]", said):
+            assert int(figure) < 100, said
+
+
+def test_one_paisa_is_singular_and_two_paise_is_plural() -> None:
+    """One paisa, two paise. It is on the screen of a reader who will notice,
+    and a product that gets the reader's own currency wrong is not trusted
+    about the amount either."""
+    one = debits_equal_credits(120_000, 119_999).said
+    two = debits_equal_credits(120_000, 119_998).said
+
+    assert "out by 1 paisa" in one
+    assert "out by 2 paise" in two
+
+
+def test_a_gap_of_a_rupee_or_more_is_shown_in_rupees() -> None:
+    """THE CONTROL on the singular above. A helper that always said "paisa"
+    would pass that test and print "out by 150 paisa" here."""
+    said = lines_sum_to_total((40_000,), 40_150).said
+
+    assert "out by ₹1.50" in said
+    assert "150" not in said
+
+
+def test_a_lakh_is_grouped_the_indian_way_and_not_the_western_kind() -> None:
+    """Ten lakh is `₹10,00,000.00`. `f"{whole:,}"` writes `1,000,000` - a
+    figure a person reconciling against a bank statement reads as ten times
+    itself, which is the whole reason `money.py` exists."""
+    said = debits_equal_credits(100_000_000, 99_999_999).said
+
+    assert "₹10,00,000.00" in said
+    assert "1,000,000" not in said
+
+
+def test_a_passing_law_records_its_figure_in_rupees_too() -> None:
+    """A PASS sentence reaches the audit log, and months later somebody asks
+    "passed on what numbers". They should not have to divide by a hundred."""
+    said = debits_equal_credits(120_000, 120_000).said
+
+    assert "₹1,200.00 on both sides" in said
+
+
+def test_a_balance_that_moved_the_wrong_way_reads_as_a_negative_amount() -> None:
+    """Money leaving is ordinary, so the sentence has to render a negative
+    delta rather than raise or print a bare `-100000`."""
+    said = balance_delta_equals_entry(600_000, 500_000, 100_000).said
+
+    assert "₹-1,000.00" in said
+
+
+# ---- the exception to "this module depends on nothing" ----------------------
+# `docs/interfaces/conservation.md` used to say the dependency list was empty.
+# It now says `money`, and nothing else, and these are what hold it there.
+
+
+def test_conservation_imports_nothing_that_could_reach_a_disk_or_a_socket() -> None:
+    """The rule's PURPOSE, which is what the exception may not damage: this
+    module stays evaluable with no fixtures, no network and no Tally, so its
+    verdict is the same on a machine that has never seen an invoice."""
+    assert not imported_roots(CONSERVATION_FILE) & IMPURE_MODULES
+
+
+def test_the_control_the_same_scan_finds_the_network_where_it_really_is() -> None:
+    """THE CONTROL. A scan that returned an empty set for every file would pass
+    the test above while `conservation.py` imported `socket` on line one. This
+    is the defect class `wall.py` already recorded once: an AST guard running
+    over an empty set asserts nothing and keeps passing forever."""
+    roots = imported_roots(Path(conservation.__file__).parent.parent / "web/app.py")
+
+    assert roots & IMPURE_MODULES
+
+
+def test_the_only_module_conservation_may_talk_to_is_money() -> None:
+    """The exception is one function, named. An allow-list rather than a
+    deny-list, because the failure to catch is the import nobody thought of."""
+    assert imported_roots(CONSERVATION_FILE) <= ALLOWED_IMPORTS
+    assert "accountant" in imported_roots(CONSERVATION_FILE)
+
+
+def test_the_control_money_itself_still_depends_on_nothing() -> None:
+    """WHAT WOULD MAKE THE EXCEPTION UNSAFE, asserted rather than trusted.
+
+    `money` is allowed in because it is a pure `int -> str` function importing
+    only `__future__`. The day it imports a config file, a locale or a store,
+    that purity moves into `conservation` behind an import nobody re-reads -
+    so the day it does, this fails.
+    """
+    assert imported_roots(MONEY_FILE) == {"__future__"}
 
 
 def test_a_result_cannot_be_mutated_after_it_is_made() -> None:

@@ -155,7 +155,7 @@ definition.**
 
 | File | Existence | Implementation |
 |---|---|---|
-| `conservation.py` | **present** | four laws that need no labels: debits=credits, lines=total, net+tax=gross, balance delta=entry. Three verdicts, and `INDETERMINATE` blocks |
+| `conservation.py` | **present** | four laws that need no labels: debits=credits, lines=total, net+tax=gross, balance delta=entry. Three verdicts, and `INDETERMINATE` blocks. **May talk to `money`, and nothing else** — see [`docs/interfaces/conservation.md`](./interfaces/conservation.md#dependencies) for why that one import does not cost the purity the rule protects, and what would make it unsafe |
 | `wall.py` | **present** | `Observation` (what we think) and `LedgerEntry` (what we write). `LedgerEntry` is constructible only by the decision layer, enforced at run time AND by an AST scan |
 | `confidence.py` | **present** | `min(word_conf)/100 × format_valid × consistency` — the proxy that turns per-word OCR scores into a per-field number |
 | `classify.py` | **present** | magic bytes over declared MIME, always. Never raises, never unzips, never executes |
