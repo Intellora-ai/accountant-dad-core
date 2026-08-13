@@ -152,10 +152,18 @@ from accountant.extract.service import MALFORMED, reason_for
 #: WHAT IT DOES NOT BUY
 #: --------------------
 #: Accuracy. `docs/EXTRACTION_MEASURED.md` and the Ground-Truth Pack carry the
-#: numbers and the picture rung's are poor: on the twenty corpus PNGs it reads
-#: the supplier exactly twice and refuses the rest. A refusal from a reader that
-#: looked is still a better answer than a regex that invented one, and it is the
-#: only claim this line makes.
+#: numbers and the picture rung's are poor. RE-MEASURED 2026-08-13, because
+#: this line said "exactly twice" and the recorded run does not: on the twenty
+#: corpus PNGs the supplier is read exactly THREE times, MISREAD FIVE times and
+#: refused twelve. No date, no total and no tax is read off any photograph in
+#: the corpus, ever. The five misreadings are the number that matters and the
+#: old sentence did not mention them at all - `AQUANCED PROPULSION CENTRE UK
+#: LTO` for `ADVANCED PROPULSION CENTRE UK LTD` is what one looks like.
+#:
+#: A refusal from a reader that looked is still a better answer than a regex
+#: that invented one, and it is the only claim this line makes. It is not a
+#: claim that a photograph reads. `H-02` stays open and no real photographed
+#: bill has been through this.
 #:
 #: A reader on the deployed machine. The container image installs no `tesseract`
 #: binary on purpose, so there a photograph meets `freeocr.ENGINE_MISSING` — a
@@ -276,11 +284,12 @@ _READY: Final[dict[str, Callable[[], Extractor]]] = {
 #: against those answers rather than asserted about, and a table entry that
 #: exists to say "nobody has decided this" stopped being true of it.
 #:
-#: What is measured, and it is not flattering: on the twenty corpus PNGs, 4 of
-#: 80 fields come back with a value, all four of them the supplier, and 2 of
-#: those 4 are exactly right. 76 are refused. That is a reading with a number on
-#: it, which is what this table was holding out for; it is not an accuracy claim
-#: about anybody's real bills, and `H-02` stays open for those.
+#: What is measured, and it is not flattering. RE-MEASURED 2026-08-13 - this
+#: said "4 of 80 ... 2 of those 4" and the run says otherwise. On the twenty
+#: corpus PNGs, 8 of 80 fields come back with a value, all eight of them the
+#: supplier: 3 exactly right, 5 WRONG, and 72 refused. That is a reading with a
+#: number on it, which is what this table was holding out for; it is not an
+#: accuracy claim about anybody's real bills, and `H-02` stays open for those.
 _NEEDS_WIRING: Final[dict[str, str]] = {
     "reader_service": (
         "it needs a transport; construct "

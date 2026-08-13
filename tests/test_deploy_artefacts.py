@@ -1323,19 +1323,33 @@ def test_the_lockfile_resolves_exactly_the_dependencies_pyproject_declares() -> 
 def test_the_image_installs_no_system_package_including_tesseract() -> None:
     """tesseract is a BINARY, not a wheel, and this image does not carry it.
 
-    Three measured reasons, all in the Dockerfile beside the decision. The
-    first one CHANGED on 2026-08-13 and did not go away: `registry.build
-    ("free_ocr")` now does construct `freeocr.FreeReader`, so the binary has a
-    caller — but `DEFAULT_BACKEND` is still `typed_text`, so nothing in the
-    running application reaches it, and a machine without the binary answers
-    `freeocr.ENGINE_MISSING` rather than failing. Apt would install whatever
-    version
-    Debian serves that morning, which is the one thing the lockfile install
-    exists to prevent; and a missing binary is already a clean refusal —
+    CORRECTED 2026-08-13. This docstring said "`DEFAULT_BACKEND` is still
+    `typed_text`, so nothing in the running application reaches it". Both
+    halves are false and the second is the dangerous one: `DEFAULT_BACKEND` is
+    `ladder`, and an uploaded photograph reaches `freeocr.FreeReader` on the
+    live path — `app.py` hands `sent.media_type` to the ladder, which routes
+    every image there. The binary has a caller in production.
+
+    SO THE COST IS NOT ZERO, and it is measured rather than reasoned about.
+    With `PATH=/usr/bin:/bin` (no tesseract), `registry.default_extractor()` on
+    a corpus PNG returns all four fields unread, each saying
+
+        not_found: the text reading program is not installed on this machine
+
+    On the artifact that actually ships, a photograph reads ZERO of four
+    fields, always. The PDF path is unaffected. Local image readings only work
+    because homebrew tesseract 5.5.3 is on this developer machine, and nothing
+    in this repository installs it.
+
+    The assertion is unchanged, because the decision is unchanged and it is not
+    a test's to reverse: apt would install whatever version Debian serves that
+    morning, which is the one thing the lockfile install exists to prevent, and
+    a missing binary is a clean refusal rather than a crash —
     `pytesseract.TesseractNotFoundError` maps to `freeocr.ENGINE_MISSING`.
 
     Wiring the picture rung means installing it AND pinning it AND saying so in
-    `docs/DEPLOY.md`. This fails until all three happen.
+    `docs/DEPLOY.md`. This fails until all three happen. Until they do, no
+    claim of the form "the shipped default reads a photograph" is true.
     """
     assert system_installs(dockerfile()) == [], (
         f"the image installs an unpinned system package: "
