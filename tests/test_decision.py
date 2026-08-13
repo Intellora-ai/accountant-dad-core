@@ -249,10 +249,16 @@ def test_the_ask_repeats_what_the_failing_law_actually_said() -> None:
     """ "The numbers do not add up" is not actionable. The law's own sentence
     names the figures and the difference, and that is what a person can check.
 
-    names the figures and the difference, and that is what a person can check."""
+    CORRECTED 2026-08-13. This asserted `"out by 1 paise" in said`, which was a
+    substring test that happened to start at the reason's first character - so
+    it broke when `_spoken` started capitalising each reason, and it was testing
+    the wrong thing anyway. What matters is that the FIGURES survive the join,
+    not the case of the first letter, so the assertion moved off the first word
+    and onto the numbers a person reconciles against the bill.
+    """
     broken = one_law(Verdict.FAIL, said="out by 1 paise on a 2,500 rupee bill.")
     decided = decide(a_situation(conservation=broken))
-    assert "out by 1 paise" in decided.said
+    assert "1 paise on a 2,500 rupee bill" in decided.said
 
 
 # ---- before the write, and after it -----------------------------------------
@@ -743,6 +749,37 @@ def test_a_block_with_two_separate_causes_says_both_of_them() -> None:
 def test_the_said_sentence_is_made_of_the_reasons_and_hides_none_of_them() -> None:
     decided = decide(a_situation(period_open=False, carries_gst=True))
     assert all(reason in decided.said for reason in decided.reasons)
+
+
+# ---- two reasons are two sentences ------------------------------------------
+
+
+def test_a_second_reason_starts_a_sentence_rather_than_continuing_the_last() -> None:
+    """Joining on a space alone produced "...checking with you first. the line
+    items on this bill...". A lower-case word after a full stop reads as a
+    sentence that broke, and a person reading a refusal is already looking for
+    a reason not to trust it."""
+    broken = named_law(
+        LAWS[1],
+        Verdict.FAIL,
+        said="the line items on this bill do not add up to its total.",
+    )
+    decided = decide(a_situation(conservation=broken))
+
+    assert len(decided.reasons) > 1
+    assert "The line items on this bill" in decided.said
+    assert ". the " not in decided.said
+
+
+def test_the_control_one_reason_is_not_mangled_on_its_way_to_the_sentence() -> None:
+    """THE CONTROL, and it is the one that matters: `str.capitalize()` passes
+    the test above and turns "GST" into "Gst" on the way past. One reason, with
+    capitals that are not its first letter, and the owner's wording intact."""
+    decided = decide(a_situation(carries_gst=True))
+
+    assert len(decided.reasons) == 1
+    assert decided.said == decided.reasons[0]
+    assert GST_IS_OFF in decided.said
 
 
 # ---- a refusal names the bill it is about, and says what to do next ---------

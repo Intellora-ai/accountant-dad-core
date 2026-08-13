@@ -464,8 +464,34 @@ def _spoken(
     there are two sends the person to fix one thing and walk straight back into
     the other - `conservation.run` returns all four verdicts for exactly this
     reason and stops at nothing.
+
+    Each reason is a sentence, so each reason STARTS a sentence. Joining on a
+    space alone produced "...checking with you first. the line items on this
+    bill do not add up..." - the conservation laws write their own sentences in
+    lower case, because they are also read as fragments in a log. A lower-case
+    word after a full stop reads as text that broke on the way to the screen,
+    and a person reading a refusal is already looking for a reason to distrust
+    it.
+
+    The capitalised form is what goes into `reasons` as well as into `said`, so
+    the two cannot disagree about what was said.
     """
-    return Decided(action=action, said=" ".join(reasons), reasons=reasons, entry=entry)
+    sentences = tuple(_starts_a_sentence(reason) for reason in reasons)
+    return Decided(
+        action=action, said=" ".join(sentences), reasons=sentences, entry=entry
+    )
+
+
+def _starts_a_sentence(reason: str) -> str:
+    """Upper-case the first character and touch NOTHING else.
+
+    `str.capitalize()` is the obvious call and it is wrong: it lower-cases
+    everything after the first character, so the owner's "GST posting is
+    switched off" arrives at a person as "Gst posting is switched off". Slicing
+    leaves every other character exactly as written, including a leading rupee
+    sign or digit, which `.upper()` passes through unchanged.
+    """
+    return reason[:1].upper() + reason[1:]
 
 
 def _observed(value: object) -> Observation | None:
