@@ -44,6 +44,15 @@ A default would be worse than a wrong answer, because it would be supplied
 silently at every call site that forgot. A caller who forgets gets a
 `TypeError` here instead of a post there.
 
+`pdf_repaired` is a fourth parameter with no default and it is NOT one of the
+three world facts, so it is worth saying which it is. The three above are facts
+about the customer's books that somebody has to look up. This one is a fact
+about our own processing - did `accountant/extract/textlayer.py` have to mend
+the bytes before anything could be read off them - and the caller always knows
+it. `None` means "not a PDF, nothing to repair" here rather than "nobody
+looked", which is the opposite of what `None` means for the three above, and it
+is written down in `decision.Situation` where the field lives.
+
 WHY THE MONEY FACTS DO HAVE A DEFAULT, AND WHY THAT IS SAFE
 -------------------------------------------------------------
 `net_paise` and the two balances default to `None`. A default is only safe when
@@ -236,6 +245,7 @@ def gate(
     party_known: bool | None,
     period_open: bool | None,
     carries_gst: bool | None,
+    pdf_repaired: bool | None,
     questions_asked: int,
     net_paise: int | None = None,
     balance_before_paise: int | None = None,
@@ -249,10 +259,17 @@ def gate(
     positional call site is one reordering away from telling the cage the
     period is open when it meant the party is known.
 
-    `moment`, `party_known`, `period_open` and `carries_gst` HAVE NO DEFAULTS. A
-    caller that has not looked passes `None` for the three facts, which blocks.
-    See the module docstring for why `None` is not the same as `False` and why
-    neither is computed here.
+    `moment`, `party_known`, `period_open`, `carries_gst` and `pdf_repaired`
+    HAVE NO DEFAULTS. A caller that has not looked passes `None` for the three
+    world facts, which blocks. See the module docstring for why `None` is not the
+    same as `False` and why neither is computed here.
+
+    `pdf_repaired` has no default for a different reason from the other four, and
+    it is the reason a default here would be worst of all: its `None` means
+    "not a PDF, nothing to repair" and grants the full post. A default would
+    hand every caller that forgot exactly the permission the field exists to
+    withhold, silently. `True` caps the outcome at ASK - owner decision,
+    2026-08-13 - and it is a ceiling, not a refusal.
 
     `moment` is not a fact about the bill - it is which side of the write the
     caller is standing on, and it decides whether `balance_delta_equals_entry`
@@ -307,6 +324,11 @@ def gate(
             party_known=party_known,
             period_open=period_open,
             carries_gst=carries_gst,
+            # Passed through and never worked out here. This module reads a
+            # `Draft`, and a `Draft` carries no record of what its bytes went
+            # through on the way to being text - `accountant/extract/textlayer.py`
+            # is where a repair happens and the caller is what connects the two.
+            pdf_repaired=pdf_repaired,
             questions_asked=questions_asked,
             moment=moment,
             # The legs come from the voucher because that is where a proposed

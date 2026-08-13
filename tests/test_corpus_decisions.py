@@ -339,6 +339,10 @@ def _situation(
     credit_account: object = "Cash",
     ambiguous_fields: object = (),
     moment: object = Moment.AFTER_THE_WRITE,
+    #: Nothing in this corpus is a PDF - every case is built out of arithmetic
+    #: and strings - so there was nothing to repair, which is what `None` means.
+    #: It is NOT "nobody looked": see `decision.Situation.pdf_repaired`.
+    pdf_repaired: object = None,
 ) -> Situation:
     """A clean, boring, fully readable purchase unless told otherwise.
 
@@ -372,6 +376,7 @@ def _situation(
         credit_account=cast(str, credit_account),
         ambiguous_fields=cast("tuple[str, ...]", ambiguous_fields),
         moment=cast(Moment, moment),
+        pdf_repaired=cast("bool | None", pdf_repaired),
     )
 
 

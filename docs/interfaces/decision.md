@@ -21,6 +21,7 @@ One `Situation`, frozen, **with no defaults on the facts that matter**:
 | `questions_asked` | `int` | yes |
 | `debit_account` / `credit_account` | `str` | yes |
 | `moment` | `Moment` | yes, **no default** |
+| `pdf_repaired` | `bool \| None` | yes, **no default** |
 | `ambiguous_fields` | `tuple[str, ...]` | defaults to `()` |
 
 The three `bool | None` fields are the design's load-bearing detail. *"The period
@@ -97,6 +98,37 @@ and each is why it is safe:**
 `Moment` has no default and is never inferred from whether a balance arrived: a
 balance absent because it cannot exist yet and one absent because the caller
 forgot are the same `None`.
+
+## A repaired file caps the outcome at ASK — a ceiling, not a rule
+
+Owner decision, 2026-08-13, verbatim: *"If the PDF had to be repaired: in the
+decision layer, if conservation checks and all other rules pass, allow confirm
+(ask), but do NOT auto-post. If anything else is uncertain or fails, block with
+a plain sentence."*
+
+`pdf_repaired=True` adds one more reason to ask. It is deliberately **not** an
+early return and **not** a seventh hard rule: a ceiling lowers the best
+available outcome from POST to ASK and changes nothing else, so a repaired file
+that is also wrong about something still blocks. Written as `return ASK` it
+would have *overturned* those blocks, which is the opposite of the second half
+of the same sentence.
+
+**`None` does not mean "nobody looked" here, and it is the only field in
+`Situation` where it does not.** The other three `bool | None` facts are things
+about the customer's books somebody has to go and look up. This one is a fact
+about our own processing, which the caller always knows:
+
+| Value | Means | Effect |
+|---|---|---|
+| `True` | the bytes had to be mended before anything could be read | ceiling: ASK at best |
+| `False` | it is a PDF and it did not need repairing | none |
+| `None` | not a PDF, or nothing to repair | none |
+| anything else | nobody can tell | **blocks** — a value nobody can read is not evidence that nothing was repaired |
+
+It still has **no default**, and here the reason is sharper than for the other
+fields: the safe-*looking* default is the dangerous one. `None` grants the full
+post, so a default would hand every caller that forgot exactly the permission
+the field exists to withhold.
 
 ## Six hard rules, each of which always blocks
 

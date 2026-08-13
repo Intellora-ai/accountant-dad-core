@@ -688,6 +688,12 @@ def judge(row: Input, client: FakeTally) -> Result:
             # Nothing has been written yet. Stated, never inferred - `decide`
             # has no default for this and refuses to guess.
             moment=Moment.BEFORE_THE_WRITE,
+            # Every input here is typed text or bytes we have no reader for, so
+            # nothing was ever repaired - which is what `None` means. Stated
+            # rather than defaulted, and a PDF repair path arriving in this demo
+            # would have to say `True` here and would then be confirmed rather
+            # than posted.
+            pdf_repaired=None,
         )
     )
     return settle(row, client, seen, scores, laws, watched, decided, before)

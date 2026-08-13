@@ -225,6 +225,13 @@ def most_permissive_gate(record: ExtractedRecord) -> Decided:
     INDETERMINATE and block every case on the harness rather than on the file.
     A number the harness supplies is not evidence about the document, which is
     exactly why it is supplied HERE and never inside `gate`.
+
+    `pdf_repaired=None` is the same posture, added 2026-08-13 when the field
+    arrived: `None` means "not a PDF, or nothing to repair", which grants the
+    full post and is therefore the permissive answer this harness wants. It is
+    also the TRUE answer for this corpus - the extraction path these cases run
+    through does not report a repair - and if it ever does, the honest value
+    lands here and those cases become questions rather than posts.
     """
     total, tax = record.total_paise, record.tax_paise
     net = total - tax if type(total) is int and type(tax) is int else None
@@ -234,6 +241,7 @@ def most_permissive_gate(record: ExtractedRecord) -> Decided:
         party_known=True,
         period_open=True,
         carries_gst=False,
+        pdf_repaired=None,
         questions_asked=0,
         net_paise=net,
     )

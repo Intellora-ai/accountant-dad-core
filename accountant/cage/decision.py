@@ -313,6 +313,21 @@ _PARTY_NOT_A_NAME: Final = (
     "What I read as the name on this bill is not a name, so nothing was posted."
 )
 
+_REPAIR_UNKNOWN: Final = (
+    "I could not tell whether this file had to be repaired before it could be "
+    "read, so nothing was posted."
+)
+
+#: An ASK sentence, not a refusal, and it has to say WHY it is asking. "I am not
+#: sure enough about what this bill says" is about the reading; this is about
+#: the file the reading came from, and a person told the wrong one of those
+#: checks the wrong thing.
+_WAS_REPAIRED: Final = (
+    "This file was damaged and had to be repaired before anything could be read "
+    "off it, so I will not post it on my own. Please check it against the "
+    "original before you say yes."
+)
+
 #: Owner's wording, kept verbatim, from the decision of 2026-08-13 that made a
 #: conservation FAIL a hard rule. It REPLACED "The numbers on this bill do not
 #: add up, so I will not post it without checking with you first", which
@@ -528,6 +543,30 @@ class Situation:
     #: never read, and it blocks: a caller that checked nothing has proved
     #: nothing.
     checked_paise: int | None
+    #: Did the bytes this reading came from have to be REPAIRED before anything
+    #: could be read off them? Owner decision, 2026-08-13: a repaired file caps
+    #: the best available outcome at ASK. It is a ceiling and not a hard rule -
+    #: see `_asking`.
+    #:
+    #: NO DEFAULT, like the three facts above, and here the reason is sharper:
+    #: the safe-looking default is the dangerous one. `None` grants the full
+    #: post, so a default would hand every caller that forgot exactly the
+    #: permission this field exists to withhold. Forgetting fails loudly here
+    #: instead of quietly there.
+    #:
+    #: `bool | None` AND WHAT THE `None` MEANS, because this is the one field in
+    #: this class where it does NOT mean "nobody looked". A JPEG, a photo and a
+    #: line of typed text have no repair to report - the question does not apply
+    #: to them, and forcing a `False` would say "this was checked and it was not
+    #: repaired" about a file nobody could have repaired. So:
+    #:
+    #:      True   it was repaired. Ceiling applies: ASK at best.
+    #:      False  it is a PDF and it did not need repairing.
+    #:      None   NOT A PDF, OR THERE WAS NOTHING TO REPAIR. No ceiling.
+    #:
+    #: Anything else blocks. A value nobody can read is not evidence that
+    #: nothing was repaired.
+    pdf_repaired: bool | None
     #: Fields the reader could read more than one way - a date that is either
     #: the 3rd of April or the 4th of March. The names are the caller's own
     #: vocabulary and are never shown to a person; only the count is.
@@ -836,6 +875,25 @@ def _world_blocks(situation: Situation, seen: Observation) -> list[str]:
     return reasons
 
 
+def _repair_blocks(repaired: object) -> list[str]:
+    """Only the value nobody can read. `True` is not refused here - it is a
+    CEILING, and the ceiling lives in `_asking`.
+
+    Three values are answers - `True`, `False`, `None` - and everything else is
+    nobody knowing, which the owner's own wording already covers: "If anything
+    else is uncertain or fails, block with a plain sentence." A string or a
+    number here is a caller whose plumbing is wrong, and reading it as "nothing
+    was repaired" would grant the auto-post this field exists to withhold.
+
+    `type(...) is not bool` refuses an `int`, and that is not pedantry: `1` and
+    `0` are the two values a caller most likely to be wrong would send, and
+    `bool(1)` is exactly the coercion that turns a broken flag into permission.
+    """
+    if repaired is None or type(repaired) is bool:
+        return []
+    return [_REPAIR_UNKNOWN]
+
+
 def _account_blocks(situation: Situation) -> list[str]:
     """Only what no answer could fix. A missing account is a question, not this.
 
@@ -883,6 +941,7 @@ def _blocking(situation: Situation) -> tuple[str, ...]:
     reasons.extend(_write_is_what_was_checked(situation, seen))
     reasons.extend(_budget_blocks(situation.questions_asked))
     reasons.extend(_world_blocks(situation, seen))
+    reasons.extend(_repair_blocks(situation.pdf_repaired))
     reasons.extend(_account_blocks(situation))
     if type(situation.ambiguous_fields) is not tuple:
         reasons.append(_UNCLEAR_LIST_UNREADABLE)
@@ -901,6 +960,22 @@ def _asking(situation: Situation, seen: Observation) -> tuple[str, ...]:
     `_failed_laws_block` and this function never sees one.
     """
     reasons: list[str] = []
+    if situation.pdf_repaired is True:
+        # OWNER DECISION, 2026-08-13: "If the PDF had to be repaired: in the
+        # decision layer, if conservation checks and all other rules pass, allow
+        # confirm (ask), but do NOT auto-post."
+        #
+        # A CEILING, NOT A HARD RULE, and the difference is that this is one
+        # more reason to ask rather than an early return. Written as
+        # `return _spoken(ASK, ...)` it would OVERTURN a block on a repaired
+        # file that was also wrong about something else, which is the exact
+        # opposite of what the owner asked for in the same sentence. Written
+        # here it can only ever lower the best outcome from post to ask.
+        #
+        # `is True` and not truthiness: `False` and `None` both mean there is
+        # nothing to confirm about, and anything else has already blocked in
+        # `_repair_blocks` and never reaches this function.
+        reasons.append(_WAS_REPAIRED)
     if situation.ambiguous_fields:
         count = len(situation.ambiguous_fields)
         thing = "thing" if count == 1 else "things"

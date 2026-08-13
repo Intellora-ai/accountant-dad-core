@@ -63,6 +63,14 @@ implements the numbers it was given, not that the numbers are good.
 It does not prove the decision layer is the only writer. That is
 `tests/test_the_wall.py`, both halves of it.
 
+A REPAIRED FILE CAPS THE OUTCOME AT ASK, AND THAT IS NOT A HARD RULE
+----------------------------------------------------------------------
+Owner decision, 2026-08-13: a PDF that had to be repaired before it could be
+read may be confirmed, and may never auto-post. It is a CEILING - it lowers the
+best available outcome and changes nothing else - and the section that tests it
+leads with the control, because a ceiling and a blanket refusal are
+indistinguishable from the refusing side.
+
 NO NETWORK, NO FIXTURES, NO IO. Every test here is arithmetic and strings.
 """
 
@@ -203,6 +211,10 @@ def a_situation(
     debit_account: object = "Purchases",
     credit_account: object = "Cash",
     moment: object = Moment.BEFORE_THE_WRITE,
+    #: `None`, because the clean bill these builders describe is typed text and
+    #: not a PDF - so there was nothing to repair, which is what `None` means
+    #: here. It is NOT "nobody looked": see `Situation.pdf_repaired`.
+    pdf_repaired: object = None,
     ambiguous_fields: object = (),
 ) -> Situation:
     seen = an_observation() if observation is UNSET else observation
@@ -219,6 +231,7 @@ def a_situation(
         debit_account=debit_account,  # type: ignore[arg-type]
         credit_account=credit_account,  # type: ignore[arg-type]
         moment=moment,  # type: ignore[arg-type]
+        pdf_repaired=pdf_repaired,  # type: ignore[arg-type]
         ambiguous_fields=ambiguous_fields,  # type: ignore[arg-type]
     )
 
@@ -614,6 +627,106 @@ def test_a_situation_that_does_not_say_which_amount_was_checked_cannot_be_built(
         Situation(  # type: ignore[call-arg]
             observation=an_observation(),
             conservation=all_laws_pass(),
+            party_known=True,
+            period_open=True,
+            carries_gst=False,
+            questions_asked=0,
+            debit_account="Purchases",
+            credit_account="Cash",
+            moment=Moment.BEFORE_THE_WRITE,
+        )
+
+
+# ---- a repaired file caps the outcome at ASK. It is a CEILING, not a rule. --
+#
+# Owner decision, 2026-08-13, verbatim: "If the PDF had to be repaired: in the
+# decision layer, if conservation checks and all other rules pass, allow confirm
+# (ask), but do NOT auto-post. If anything else is uncertain or fails, block
+# with a plain sentence."
+#
+# So this is not a seventh hard rule and the difference is the whole of what
+# these tests are for. A hard rule refuses; a ceiling lowers the BEST available
+# outcome from post to ask and leaves everything else exactly where it was. The
+# control below is what tells the two apart - a "ceiling" that refused every
+# bill would pass both of the tests above it.
+
+
+def test_a_repaired_file_that_is_otherwise_perfect_is_asked_about() -> None:
+    """The bill is clean by every other measure - confidence 1.0, four laws
+    passing, party known, books open, no tax. It still does not auto-post,
+    because the bytes it was read from had to be mended first and a mended file
+    is a second-hand account of what the paper said."""
+    decided = decide(a_situation(pdf_repaired=True))
+
+    assert decided.action is Action.ASK
+    assert decided.entry is None
+
+
+def test_the_control_a_file_that_needed_no_repair_still_posts() -> None:
+    """THE CONTROL, and it carries the whole weight of the pair above.
+
+    Without it, a "ceiling" implemented as a blanket refusal - or as a rule that
+    fires on every bill regardless of the flag - passes every assertion above
+    and looks like a correct implementation. This is the identical situation
+    with the one field moved, and it must still reach the books.
+    """
+    for nothing_to_repair in (False, None):
+        decided = decide(a_situation(pdf_repaired=nothing_to_repair))
+        assert decided.action is Action.POST, nothing_to_repair
+        assert decided.entry is not None, nothing_to_repair
+
+
+def test_a_repaired_file_with_anything_else_wrong_is_refused_not_asked_about() -> None:
+    """The ceiling lowers the best outcome. It never RAISES the worst one.
+
+    A blocking reason still blocks, and the failing-law case is the one worth
+    pinning: the two decisions of 2026-08-13 meet on this bill, and a ceiling
+    written as `return ASK` rather than as one more reason to ask would have
+    turned a refusal into a question.
+    """
+    for how in (
+        a_situation(pdf_repaired=True, conservation=one_law(Verdict.FAIL)),
+        a_situation(pdf_repaired=True, period_open=False),
+        a_situation(pdf_repaired=True, carries_gst=None),
+    ):
+        decided = decide(how)
+        assert decided.action is Action.BLOCK
+        assert decided.entry is None
+
+
+def test_the_repaired_sentence_says_what_happened_and_what_to_do_about_it() -> None:
+    """A person confirming an entry has to know WHY they are being asked. "I am
+    not sure enough" is about the reading; this is about the file the reading
+    came from, and the two send somebody to different places."""
+    said = decide(a_situation(pdf_repaired=True)).said
+
+    assert "repaired" in said
+    assert "original" in said
+    assert "pdf_repaired" not in said
+
+
+def test_a_repair_flag_that_is_none_of_the_three_blocks() -> None:
+    """Fail closed, like every other malformed field here. A value nobody can
+    read is not evidence that nothing was repaired - it is nobody knowing, and
+    the owner's own words cover it: "If anything else is uncertain or fails,
+    block with a plain sentence"."""
+    for value in ("yes", 1, 0, (), "false"):
+        decided = decide(a_situation(pdf_repaired=value))
+        assert decided.action is Action.BLOCK, value
+        assert decided.entry is None, value
+
+
+def test_a_situation_that_does_not_say_whether_it_was_repaired_cannot_build() -> None:
+    """No default, for the same reason `party_known` and `moment` have none - and
+    here the reason is sharper than usual, because the safe-looking default is
+    the dangerous one. `pdf_repaired=None` means "nothing to repair" and grants
+    the full post, so a default would hand every caller that forgot the exact
+    permission this field exists to withhold. Forgetting has to fail loudly."""
+    with pytest.raises(TypeError):
+        Situation(  # type: ignore[call-arg]
+            observation=an_observation(),
+            conservation=all_laws_pass(),
+            checked_paise=CLEAN_TOTAL,
             party_known=True,
             period_open=True,
             carries_gst=False,

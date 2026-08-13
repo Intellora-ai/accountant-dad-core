@@ -126,6 +126,7 @@ def asked(
     party_known: bool | None = True,
     period_open: bool | None = True,
     carries_gst: bool | None = False,
+    pdf_repaired: bool | None = None,
     questions_asked: int = 0,
     net_paise: int | None = NET,
     balance_before_paise: int | None = BEFORE,
@@ -150,6 +151,7 @@ def asked(
         party_known=party_known,
         period_open=period_open,
         carries_gst=carries_gst,
+        pdf_repaired=pdf_repaired,
         questions_asked=questions_asked,
         net_paise=net_paise,
         balance_before_paise=balance_before_paise,
@@ -306,6 +308,58 @@ def test_the_control_the_gst_fact_is_the_callers_and_never_the_records() -> None
     assert GST_IS_OFF in told_there_is_tax.said
     assert GST_IS_OFF not in told_there_is_none.said
     assert "do not agree" in told_there_is_none.said
+
+
+# ---- a repaired file is carried, never worked out here ----------------------
+
+
+def test_a_repaired_file_is_confirmed_rather_than_posted_on_its_own() -> None:
+    """Owner decision, 2026-08-13. Every fact supplied, every law holding, and
+    the one thing different is that the bytes had to be mended before anything
+    could be read off them. That caps the outcome at a question."""
+    decided = asked(a_draft(), pdf_repaired=True)
+
+    assert decided.action is Action.ASK
+    assert decided.entry is None
+    assert "repaired" in decided.said
+
+
+def test_the_control_the_identical_bill_that_needed_no_repair_posts() -> None:
+    """THE CONTROL. Without it the test above passes just as well against a gate
+    that refuses everything, or against one that caps every bill it is handed."""
+    assert asked(a_draft(), pdf_repaired=False).action is Action.POST
+    assert asked(a_draft(), pdf_repaired=None).action is Action.POST
+
+
+def test_the_gate_refuses_a_caller_that_does_not_say_whether_it_was_repaired() -> None:
+    """Its own test rather than a line in the world-facts one, because the
+    dangerous default is the opposite way round here: `None` means "nothing to
+    repair" and POSTS, so a default would silently grant the permission the
+    field exists to withhold. Only this argument is missing."""
+    with pytest.raises(TypeError):
+        gate(  # pyright: ignore[reportCallIssue]
+            a_draft(),
+            moment=Moment.BEFORE_THE_WRITE,
+            party_known=True,
+            period_open=True,
+            carries_gst=False,
+            questions_asked=0,
+        )
+
+
+def test_the_gate_never_reads_the_repair_off_the_draft() -> None:
+    """THE CONTROL on the rule that this module carries facts and derives none.
+
+    One draft, two callers, two different outcomes. A gate that worked the
+    repair out from the record - or from anything on the `Draft` - would answer
+    both of them the same way, and there is nothing on a `Draft` that could say:
+    the repair happens in `accountant/extract/textlayer.py`, and what connects
+    the two is the caller.
+    """
+    draft = a_draft()
+
+    assert asked(draft, pdf_repaired=True).action is Action.ASK
+    assert asked(draft, pdf_repaired=None).action is Action.POST
 
 
 # ---- the bands: post, ask, block --------------------------------------------
