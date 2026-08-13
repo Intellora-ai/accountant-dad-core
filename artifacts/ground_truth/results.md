@@ -14,7 +14,7 @@ quoted with the commit beside them.
 | cwd | `/Users/tanveersidhu/ACCOUNTANT` |
 | accountant__file__ | `/Users/tanveersidhu/ACCOUNTANT/accountant/__init__.py` |
 | python | `3.14.6` |
-| commit | `8a831ecaa76253f57a0ecd27bfc850dbff2b4f53` |
+| commit | `9ba86a91e894d5ae0f836bda746c2467850dce26` |
 | branch | `cage/safety-layer` |
 | worktree | `/Users/tanveersidhu/ACCOUNTANT` |
 | dirty | `yes` |
@@ -26,9 +26,9 @@ quoted with the commit beside them.
 | manifest | `ground_truth_manifest_validates` | **PASS** | — | every manifest entry checked out |
 | manifest | `ground_truth_hashes_verify` | **PASS** | — | hashes verified by scripts/validate_ground_truth.py |
 | manifest | `gst_rule_cases_readable` | **PASS** | 5b2e44fe065b6bb58f81dda423f671783215ad3cef0f6dbfae4628afe6fbdb2c | sha256 5b2e44fe065b6bb5… |
-| s2_extraction | `exit1_generated_truth_extraction` | **FAIL** | {"date": 14, "party": 22, "tax_paise": 20, "total_paise": 20} | ladder backend, 80 renderable cases, exact matches per field {'date': 14, 'party': 22, 'total_paise': 20, 'tax_paise': 20}, required 76; WRONG rather than unread, per field, over all 100 cases: {'date': 0, 'party': 2, 'total_paise': 0, 'tax_paise': 0}. Rung that answered: {'free_ocr': 40, 'ladder': 20, 'pdf_text_layer': 20, 'typed_text': 20}. The application default is 'typed_text', which is NOT the backend scored here. GENERATED_TRUTH from canonical JSON, SYNTHETIC_EVIDENCE, and never evidence about real-world reader accuracy. 20 of the 80 renderable cases reach no rung that can read them at all: the DOCX, which no reader here opens. The 20 PNG now reach the picture rung, which was wired on 2026-08-13, and it reads their supplier exactly on 2 of them - the corpus is rendered in a 5x7 bitmap font. docs/EXTRACTION_MEASURED.md carries the split per input type and the count of fields that came back WRONG rather than unread. |
+| s2_extraction | `exit1_generated_truth_extraction` | **FAIL** | {"date": 14, "party": 23, "tax_paise": 20, "total_paise": 20} | ladder backend, 80 renderable cases, exact matches per field {'date': 14, 'party': 23, 'total_paise': 20, 'tax_paise': 20}, required 76; WRONG rather than unread, per field, over all 100 cases: {'date': 0, 'party': 5, 'total_paise': 0, 'tax_paise': 0}. Rung that answered: {'free_ocr': 40, 'ladder': 20, 'pdf_text_layer': 20, 'typed_text': 20}. The application default is 'ladder', which is the backend scored here. GENERATED_TRUTH from canonical JSON, SYNTHETIC_EVIDENCE, and never evidence about real-world reader accuracy. 20 of the 80 renderable cases reach no rung that can read them at all: the DOCX, which no reader here opens. The 20 PNG now reach the picture rung, which was wired on 2026-08-13, and it reads their supplier exactly on 3 of them - the corpus is rendered in a 5x7 bitmap font. docs/EXTRACTION_MEASURED.md carries the split per input type and the count of fields that came back WRONG rather than unread. |
 | s2_extraction | `exit2_unrenderable_input_is_explicit` | **PASS** | 0 | 20 unrenderable cases; every named field explicit not_found with a reason. ADAPTER_CONTRACT, never reader accuracy. no silent blank, no fabricated value |
-| s2_extraction | `s2_extraction_scored` | **FAIL** | {"date": 14, "party": 24, "tax_paise": 20, "total_paise": 20} | ladder backend, 100 cases, per-field hits {'date': 14, 'party': 24, 'total_paise': 20, 'tax_paise': 20}. This asks whether every field was SPOKEN TO, which two of the five input types cannot be: a DOCX reaches no rung, and a pixel-free JPEG reaches the picture rung and is refused by it because there is no picture in the file. A refusal is the correct answer there rather than a hit. |
+| s2_extraction | `s2_extraction_scored` | **FAIL** | {"date": 14, "party": 28, "tax_paise": 20, "total_paise": 20} | ladder backend, 100 cases, per-field hits {'date': 14, 'party': 28, 'total_paise': 20, 'tax_paise': 20}. This asks whether every field was SPOKEN TO, which two of the five input types cannot be: a DOCX reaches no rung, and a pixel-free JPEG reaches the picture rung and is refused by it because there is no picture in the file. A refusal is the correct answer there rather than a hit. |
 | gst_rules | `uncited_production_rules_is_zero` | **PASS** | — | 0 |
 | gst_rules | `every_rule_has_a_notification_number` | **PASS** | — | 0 |
 | gst_rules | `every_rule_has_a_retrieval_date` | **PASS** | — | 0 |
@@ -66,27 +66,30 @@ quoted with the commit beside them.
   "corpus_label": "SYNTHETIC_EVIDENCE",
   "exit1_exact_per_field": {
     "date": 14,
-    "party": 22,
+    "party": 23,
     "tax_paise": 20,
     "total_paise": 20
   },
   "exit1_renderable_cases": 80,
   "exit1_required": 76,
   "exit1_wrong_examples": [
-    "GT-0056 PNG party: '\"NARHAGR PACKAGING CO' sourced 'free_ocr'",
-    "GT-0058 PNG party: 'IVER. ELECTRICALS' sourced 'free_ocr'"
+    "GT-0041 PNG party: 'AQUANCED PROPULSION CENTRE UK LTO' sourced 'free_ocr'",
+    "GT-0046 PNG party: '\u201cGUPTA HARONARE STORES' sourced 'free_ocr'",
+    "GT-0050 PNG party: 'GECCAN LOGISTICS PUT LTO' sourced 'free_ocr'",
+    "GT-0055 PNG party: 'UK HEALTH SECURITY AGENCY <UKHSAD' sourced 'free_ocr'",
+    "GT-0056 PNG party: '\"NARHAGR PACKAGING CO' sourced 'free_ocr'"
   ],
   "exit1_wrong_per_field": {
     "date": 0,
-    "party": 2,
+    "party": 5,
     "tax_paise": 0,
     "total_paise": 0
   },
   "exit2_unrenderable_cases": 20,
   "exit2_unsafe": [],
-  "s2_application_default": "typed_text",
+  "s2_application_default": "ladder",
   "s2_backend": "ladder",
-  "s2_backend_is_the_application_default": false,
+  "s2_backend_is_the_application_default": true,
   "s2_by_input_type": {
     "DOCX": {
       "date": {
@@ -161,9 +164,9 @@ quoted with the commit beside them.
         "wrong": 0
       },
       "party": {
-        "exact": 2,
-        "refused": 16,
-        "wrong": 2
+        "exact": 3,
+        "refused": 12,
+        "wrong": 5
       },
       "tax_paise": {
         "exact": 0,
@@ -202,7 +205,7 @@ quoted with the commit beside them.
   "s2_cases_scored": 100,
   "s2_per_field": {
     "date": 14,
-    "party": 24,
+    "party": 28,
     "tax_paise": 20,
     "total_paise": 20
   },

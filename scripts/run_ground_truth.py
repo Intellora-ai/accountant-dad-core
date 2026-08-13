@@ -544,7 +544,13 @@ def run_s2(section: Section) -> None:
             "evidence about real-world reader accuracy. 20 of the 80 renderable "
             "cases reach no rung that can read them at all: the DOCX, which no "
             "reader here opens. The 20 PNG now reach the picture rung, which was "
-            "wired on 2026-08-13, and it reads their supplier exactly on 2 of "
+            "wired on 2026-08-13, and it reads their supplier exactly on "
+            # DERIVED AND NOT TYPED. This read `on 2 of them` for as long as
+            # that was true and then for one commit longer, which is a run
+            # reporting a number the same run contradicts three lines above.
+            # The count is in `by_type` already; a sentence that quotes a fact
+            # it has to hand cannot go stale.
+            f"{by_type.get('PNG', {}).get('party', [0])[0]} of "
             "them - the corpus is rendered in a 5x7 bitmap font. "
             "docs/EXTRACTION_MEASURED.md carries the split per input type and "
             "the count of fields that came back WRONG rather than unread."

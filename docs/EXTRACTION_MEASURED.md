@@ -22,23 +22,45 @@ restates itself cannot be checked.
 
 ## The number that matters most, first
 
-**2 fields came back with a value and a source on them, and the value was not
-the truth.** It was **22** before the two changes above.
+**5 fields came back with a value and a source on them, and the value was not
+the truth.** It was **22** before the two changes above, **2** before the
+separator tolerance landed later the same day.
 
-Both survivors are `party`, both from `free_ocr`, and both are an engine
-misreading a letter:
+All five are `party`, all five are from `free_ocr`, and every one is an engine
+misreading letters off a 5x7 bitmap font:
 
 | field | wrong | was | where |
 |---|---|---|---|
-| `party` | **2** | 0 | `free_ocr`, GT-0056 and GT-0058 |
-| `total_paise` | **0** | 20 | — |
-| `tax_paise` | **0** | 2 | — |
+| `party` | **5** | 2 | `free_ocr`, GT-0041, GT-0046, GT-0050, GT-0055, GT-0056 |
+| `total_paise` | **0** | 0 | — |
+| `tax_paise` | **0** | 0 | — |
 | `date` | **0** | 0 | — |
 
 ```
-GT-0056  truth 'NARMADA PACKAGING CO'  ->  '"NARHAGR PACKAGING CO'   free_ocr
-GT-0058  truth 'IYER ELECTRICALS'      ->  'IVER. ELECTRICALS'       free_ocr
+GT-0041  truth 'ADVANCED PROPULSION CENTRE UK LTD'
+                 ->  'AQUANCED PROPULSION CENTRE UK LTO'    @0.30  free_ocr
+GT-0046  truth 'GUPTA HARDWARE STORES'
+                 ->  '“GUPTA HARONARE STORES'                @0.16  free_ocr
+GT-0050  truth 'DECCAN LOGISTICS PVT LTD'
+                 ->  'GECCAN LOGISTICS PUT LTO'             @0.10  free_ocr
+GT-0055  truth 'UK HEALTH SECURITY AGENCY (UKHSA)'
+                 ->  'UK HEALTH SECURITY AGENCY <UKHSAD'    @0.48  free_ocr
+GT-0056  truth 'NARMADA PACKAGING CO'
+                 ->  '"NARHAGR PACKAGING CO'                @0.08  free_ocr
 ```
+
+**The rise from 2 to 5 is the tolerance working, not a reader getting worse.**
+`labels.Printing` let the picture rung accept a mangled SEPARATOR - the engine
+returns `SUPPLIER:` as `SUPPLIER?`, `SUPPLIER!`, `SUPPLIER®` or `SUPPLIER'` on
+six of the twenty PNGs - so four more pages are now READ. One of the four is
+read exactly and three are misread. Nothing about the engine changed and no
+value is corrected anywhere.
+
+**GT-0058 LEFT this list**, which is the safe direction. It prints its supplier
+twice and the engine read the two printings as `IVER. ELECTRICALS` and `IVER
+ELECTRICALS`. Exact matching saw only the one with a surviving colon and
+answered it; both are visible now, they disagree, and `labels.the_one` refuses
+rather than picking. A wrong value at 0.37 became a question.
 
 **The 20 that went away, and why that is not a reader getting better.**
 `adapter._AMOUNT.findall(text)[0]` took **the first number in the document**. On
@@ -61,11 +83,12 @@ source   'not_found: This document looks like an invoice, but the amount could
 **Nothing reads better than it did. Twenty wrong totals stopped reaching the
 ledger.** The exact-match scores did not move at all — see the next table.
 
-**The 2 that remain are a different animal, and the difference decides how
+**The 5 that remain are a different animal, and the difference decides how
 worried to be.** The 20 were a backend stating a source for a number it had no
-business reading. These two are an engine reading a 5×7 bitmap font, getting a
-letter wrong, and **saying how unsure it is**: GT-0056 comes back at confidence
-**0.08** and GT-0058 at **0.37**, nowhere near the `0.95` that would auto-post.
+business reading. These five are an engine reading a 5×7 bitmap font, getting
+letters wrong, and **saying how unsure it is**: the worst of them is **0.48**
+and the rest are 0.30, 0.16, 0.10 and 0.08, nowhere near the `0.95` that would
+auto-post.
 A value that is wrong and scored is a value a threshold can argue with; a value
 that is wrong and unscored is outside the system built to catch it.
 
@@ -83,14 +106,20 @@ rise fails a test rather than waiting to be noticed.
 | field | exact of 80 renderable | required | wrong (all 100) |
 |---|---|---|---|
 | `date` | **14** | 76 | 0 |
-| `party` | **22** | 76 | 2 |
+| `party` | **23** | 76 | 5 |
 | `total_paise` | **20** | 76 | 0 |
 | `tax_paise` | **20** | 76 | 0 |
 
-`party` was 20 exact / 0 wrong before the picture rung was wired. **Both halves
-of that move are the same two documents**: two of the twenty corpus PNGs have
-their supplier read exactly, two more come back misread. A rung that answers
-gets both, and a rung that refuses gets neither.
+`party` was 20 exact / 0 wrong before the picture rung was wired and 22 / 2
+before the separator tolerance. **Both halves of that move are the same
+documents**: three of the twenty corpus PNGs have their supplier read exactly,
+five more come back misread. A rung that answers gets both, and a rung that
+refuses gets neither.
+
+**The PDF row of the table below did not move by one field across either
+change, and that is the control.** The tolerance is scoped by a `Printing` the
+caller states; the text-layer rung states `EXACT_CHARACTERS` and matches a
+colon and nothing else.
 
 `s2_extraction` **FAILS**. Four other sections pass. The harness exits 1, which
 is the benchmark working, not a broken run.
@@ -108,7 +137,7 @@ real engine and twenty JPEGs being refused before one is reached.
 |---|---|---|---|---|---|---|
 | text | `text/plain` | 0 / 20 / 0 | 0 / 20 / 0 | **0 / 20 / 0** | 0 / 20 / 0 | `typed_text` |
 | PDF | `application/pdf` | 14 / 6 / 0 | 20 / 0 / 0 | 20 / 0 / 0 | 20 / 0 / 0 | `pdf_text_layer` |
-| PNG | `image/png` | 0 / 20 / 0 | **2 / 16 / 2** | 0 / 20 / 0 | 0 / 20 / 0 | `free_ocr` |
+| PNG | `image/png` | 0 / 20 / 0 | **3 / 12 / 5** | 0 / 20 / 0 | 0 / 20 / 0 | `free_ocr` |
 | JPG | `image/jpeg` | 0 / 20 / 0 | 0 / 20 / 0 | 0 / 20 / 0 | 0 / 20 / 0 | `free_ocr` refused |
 | DOCX | `…wordprocessingml.document` | 0 / 20 / 0 | 0 / 20 / 0 | 0 / 20 / 0 | 0 / 20 / 0 | `ladder` refused |
 

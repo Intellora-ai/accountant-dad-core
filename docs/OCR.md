@@ -272,18 +272,31 @@ conservation law.
 
 | | |
 |---|---|
-| fields with a value, of 80 | 4, all of them the supplier |
-| exactly right | 2, at confidence 0.48 and 0.61 |
-| wrong | 2 — `IVER. ELECTRICALS` for `IYER ELECTRICALS` — at 0.37 and 0.08 |
-| refused | 76 |
+| fields with a value, of 80 | 8, all of them the supplier |
+| exactly right | 3, at confidence 0.48, 0.61 and 0.74 |
+| wrong | 5, at 0.48, 0.30, 0.16, 0.10 and 0.08 |
+| refused | 72 |
 
 Nothing comes back wrong at a confidence that would auto-post, and that is the
 number that matters: the band is 0.95. A reader that reads nothing is never
 wrong and is also never useful.
 
 The corpus PNGs are rendered in a **5x7 bitmap font** and the engine mostly
-cannot read it. `GT-0041.png` reads nothing at all, and the reason is one
-character: its `SUPPLIER:` comes back as `SUPPLIER?`, so no label matched.
+cannot read it. It was **4 with a value, 2 right, 2 wrong, 76 refused** until
+2026-08-13, when `labels.Printing` let this rung tolerate a mangled SEPARATOR.
+`GT-0041.png` read nothing at all before that, over one character: its
+`SUPPLIER:` comes back as `SUPPLIER?`. It now reads `AQUANCED PROPULSION CENTRE
+UK LTO` against a truth of `ADVANCED PROPULSION CENTRE UK LTD` — **read and
+wrong, at 0.30**, which is the intended outcome and not a regression. A
+misreading with a score on it is one the cage can block or ask about; the same
+misreading unread is invisible.
+
+Only the separator is tolerated, never the label word and never the value. The
+engine reads `SUPPLIER:` as `SUPPLIERS` on eight of the twenty PNGs and those
+eight stay **unread**: a plural and a mangled colon are the same character, and
+guessing between them would read `SUPPLIERS OF FINE GOODS` as a supplier. The
+amount and date labels are destroyed as WORDS on these pages — `TOTAL` comes
+back as `For.` and `DATE:` as `Dares` — so those fields did not move by one.
 
 **No image processing is done, and that is a decision with evidence behind it.**
 Scaling the pictures up was tried: at 2x the engine reads GT-0041's supplier
