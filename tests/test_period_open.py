@@ -469,8 +469,13 @@ def test_the_value_this_check_produces_is_the_type_the_cage_takes() -> None:
 # ---------------------------------------------------------------------------
 
 
+# THE IGNORE IS ABOUT THE CHECKER, NOT ABOUT THE CODE. An `autouse` fixture is
+# called by pytest for every test in this module and is never called by name, so
+# pyright reports it unused and CI fails on a function that runs constantly.
+# Deleting it would let each test inherit the previous one's call counts, which
+# is the one thing this fixture exists to prevent.
 @pytest.fixture(autouse=True)
-def _counters_start_at_zero() -> Iterator[None]:
+def _counters_start_at_zero() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
     """Every test counts only its own calls. A shared total is not a count."""
     reset_period_counters()
     yield
