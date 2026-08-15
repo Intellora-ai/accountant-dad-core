@@ -58,6 +58,7 @@ import datetime
 import io
 import json
 import re
+import zlib
 from collections.abc import Callable, Sequence
 from decimal import Decimal
 from pathlib import Path
@@ -72,10 +73,12 @@ from accountant.extract.adapter import NOT_FOUND, ExtractedRecord, Extractor
 from accountant.extract.textlayer import FIELDS as MODULE_FIELDS
 from accountant.extract.textlayer import (
     REPAIRED_WARNING,
+    UTF8_BOM,
     Outcome,
     TextLayerReader,
     TextLayerReading,
     paise_or_none,
+    picture_of,
     read,
     xref_was_rebuilt,
 )
@@ -1576,3 +1579,201 @@ def test_bytes_that_state_no_offset_are_called_repaired(data: bytes, why: str) -
     nothing about where its table lives has told us nothing to have followed,
     and the safe reading of nothing is "verify this carefully"."""
     assert xref_was_rebuilt(data) is True, why
+
+
+# =============================================================================
+# three bytes in front of the header, and a legible document nothing could open
+# =============================================================================
+#
+# MEASURED 2026-08-15 on `data/real_invoices_indian/gst-portal-and-govt-003.pdf`:
+# 5,580 characters of readable text, and ZERO read off it. Its first bytes are
+# `EF BB BF %PDF-1.5`. `read` refuses anything not beginning `%PDF-`, so it came
+# back UNREADABLE - and `ladder.looks_scanned` answers False on UNREADABLE by
+# design ("a document that did not parse is not a scan"), so it was not sent to
+# the picture rung either. Nothing in the system read it, because of a byte
+# order mark some Windows tool wrote.
+#
+# READ, IT TURNS OUT NOT TO BE A BILL - a Calcutta High Court order in a GST
+# matter - and zero fields is the right answer to it. That is the point rather
+# than a let-down: until the bytes are read, "we could not open this" and "this
+# is not a bill" are the same blank, and only one of them is somebody's problem.
+#
+# THE EASY HALF IS "IT NOW READS". The half that can go wrong is below it: a
+# PDF's cross-reference offsets are counted from its own `%PDF-`, so three bytes
+# in front of the header shift every offset in the file by three. A strip that
+# reached the magic check and not the repair guard would make an honest document
+# report itself REPAIRED - and a repaired document loses its right to auto-post.
+
+#: The mark itself, written out here rather than imported. Importing the
+#: module's constant and asserting against it would be the module agreeing with
+#: itself; these are the three bytes the specification names.
+BOM = b"\xef\xbb\xbf"
+
+
+def test_the_module_and_this_file_mean_the_same_three_bytes() -> None:
+    """Two independent spellings of the mark, agreeing. Nothing else here would
+    notice if the constant grew a fourth byte."""
+    assert UTF8_BOM == BOM
+    assert len(UTF8_BOM) == 3
+
+
+def test_a_leading_byte_order_mark_no_longer_hides_a_readable_bill() -> None:
+    assert read(BOM + pdf_bytes(BILL)).outcome is Outcome.READ
+
+
+def test_the_mark_changes_nothing_at_all_about_what_the_document_says() -> None:
+    """The whole reading, compared field for field against the identical file
+    without the mark. Asserting only `Outcome.READ` above would pass for a strip
+    that had quietly shifted the parse - and a reader that answers a different
+    total depending on three meaningless bytes is worse than one that refused."""
+    data = pdf_bytes(BILL)
+    assert read(BOM + data) == read(data)
+
+
+def test_the_fields_a_marked_bill_answers_are_the_ones_the_bill_prints() -> None:
+    """The same assertion made positively, so a future `read` that started
+    answering nothing for BOTH files could not satisfy the equality above."""
+    reading = read(BOM + pdf_bytes(BILL))
+    assert reading.fields["total_paise"].value == 123456
+    assert reading.fields["tax_paise"].value == 18832
+    assert reading.fields["party"].value == "SHARMA TRADERS"
+    assert reading.fields["date"].value == datetime.date(2026, 4, 1)
+    assert all(
+        reading.fields[name].confidence == EXACT
+        for name in ("date", "party", "total_paise", "tax_paise")
+    )
+
+
+def test_stripping_the_mark_does_not_make_the_document_report_itself_repaired() -> None:
+    """THE SINGLE MOST LIKELY WAY THIS CHANGE GOES WRONG, pinned.
+
+    `pdf_repaired` is what `cage/decision.py` reads to refuse auto-posting. A
+    document that started reporting itself repaired would lose a right it has;
+    one that stopped would gain one it should not."""
+    data = pdf_bytes(BILL)
+    assert read(BOM + data).pdf_repaired is read(data).pdf_repaired is False
+
+
+def test_the_control_the_repair_guard_would_have_lied_had_the_strip_missed_it() -> None:
+    """Proof that the test above is not measuring nothing.
+
+    These are the SAME bytes with the mark still on the front, handed straight
+    to the guard. It answers True - because every offset in the table is now
+    three bytes short of where it points - which is exactly what `read` would
+    have reported had the strip been applied only to the magic check. The strip
+    has to reach the whole module, and this is the measurement that says so."""
+    data = pdf_bytes(BILL)
+    assert xref_was_rebuilt(data) is False
+    assert xref_was_rebuilt(BOM + data) is True
+
+
+def test_a_marked_bill_carries_no_repair_warning_in_the_sentence_it_says() -> None:
+    """The machine-readable flag above and the sentence a person reads are two
+    different outputs, and `_reading` writes the warning into the fallback
+    reason on every unread field. Both are checked."""
+    assert REPAIRED_WARNING not in read(BOM + pdf_bytes(BILL)).said
+
+
+# ---- one mark, and one only --------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("data", "why"),
+    [
+        (BOM + BOM, "two marks and nothing else"),
+        (BOM + BOM + b"%PDF-1.4\n", "two marks in front of a header"),
+        (BOM + b"paid Sharma Traders 4200", "a mark in front of plain text"),
+        (BOM + b"\x89PNG\r\n\x1a\n", "a mark in front of a PNG"),
+        (b"\x00" + BOM + b"%PDF-1.4\n", "one byte of junk before the mark"),
+        (b"junk" + BOM + b"%PDF-1.4\n", "a word before the mark"),
+        (b"%PDF" + BOM + b"-1.4\n", "a mark inside the header"),
+    ],
+)
+def test_exactly_one_mark_at_position_zero_is_taken_off_and_no_more(
+    data: bytes, why: str
+) -> None:
+    """THE SAFETY ARGUMENT, and it is why this is not "find `%PDF-` in the first
+    N bytes". `pypdf` parses UNTRUSTED bytes in this process - somebody emails a
+    bill and it goes straight to a parser - so the magic check is a guard, and a
+    search would let arbitrary attacker-chosen bytes ride in front of the
+    header. One specific, well-known, meaningless prefix is the whole licence.
+
+    Strip one, check once. Everything above still fails the check afterwards."""
+    reading = read(data)
+    assert reading.outcome is Outcome.UNREADABLE, why
+    assert "%PDF-" in reading.said, why
+
+
+def test_a_file_that_is_only_the_mark_refuses_cleanly_rather_than_raising() -> None:
+    """Three bytes in, zero bytes left. `read` promises never to raise, and the
+    empty slice is the one input this change creates that never existed before."""
+    reading = read(BOM)
+    assert reading.outcome is Outcome.UNREADABLE
+    assert reading.said.strip()
+    assert all(field.value is None for field in reading.fields.values())
+    assert all(field.source.strip() for field in reading.fields.values())
+
+
+def test_the_marked_refusals_are_deterministic_like_every_other_reading() -> None:
+    for data in (BOM, BOM + BOM, BOM + b"not a pdf"):
+        assert read(data) == read(data), data
+
+
+# ---- the module's OTHER magic check ------------------------------------------
+
+
+def _one_picture_pdf(width: int, height: int) -> bytes:
+    """A one-page PDF carrying a single flat grey picture and no text.
+
+    Built here rather than imported from `test_scanned_pdf.py`: a test file that
+    imports another test file makes two suites into one, and the picture this
+    needs is a rectangle."""
+    body = zlib.compress(bytes([255]) * (width * height))
+    picture = (
+        (
+            f"<< /Type /XObject /Subtype /Image /Width {width} /Height {height} "
+            f"/ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode "
+            f"/Length {len(body)} >>\nstream\n"
+        ).encode("ascii")
+        + body
+        + b"\nendstream"
+    )
+    return _assemble(
+        [
+            b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources "
+            b"<< /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>",
+            b"<< /Length 0 >>\nstream\n\nendstream",
+            picture,
+        ]
+    )
+
+
+def test_a_scan_behind_a_mark_still_hands_its_picture_to_the_next_rung() -> None:
+    """`picture_of` owns the module's SECOND `%PDF-` check, and it needs the
+    same treatment or a marked scan whose text layer now reads would hand back
+    no picture at all - the same document answering two different questions
+    about whether it is a PDF."""
+    data = _one_picture_pdf(64, 48)
+    assert picture_of(data).data, "the fixture itself carries no picture"
+    assert picture_of(BOM + data) == picture_of(data)
+
+
+def test_the_picture_side_refuses_a_double_mark_the_same_way_the_reader_does() -> None:
+    data = _one_picture_pdf(64, 48)
+    refused = picture_of(BOM + BOM + data)
+    assert refused.data == b""
+    assert refused.said.strip()
+
+
+# ---- the seam ----------------------------------------------------------------
+
+
+def test_the_extractor_reads_a_marked_pdf_through_the_seam_the_pipeline_uses() -> None:
+    """`pipeline.build_draft` calls `extract`, not `read`. A strip that helped
+    only the direct caller would leave the shipped path exactly where it was."""
+    record = TextLayerReader().extract(BOM + pdf_bytes(BILL), "application/pdf")
+    assert record.total_paise == 123456
+    assert record.pdf_repaired is False
+    assert record.backend == "pdf_text_layer"

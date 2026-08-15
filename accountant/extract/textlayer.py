@@ -117,6 +117,12 @@ That it reads every PDF. It refuses anything not beginning `%PDF-`, which
 rejects the small number of real files carrying junk before the header. That is
 a refusal, and refusing is the safe direction.
 
+ONE prefix is taken off before that check and one only: a UTF-8 byte order
+mark, three bytes, at position zero. `without_bom` argues it. It is not a
+search for `%PDF-` in the first N bytes and must never become one - the check
+is a guard in front of a parser reading bytes somebody emailed us, and a search
+would let arbitrary chosen bytes ride in front of the header.
+
 That the label vocabulary below is complete. `TOTAL`, `GRAND TOTAL`, `AMOUNT
 PAYABLE` and the rest are the names suppliers in the corpus print. A bill using
 a name not on the list has its total UNREAD and the person is asked. Widening
@@ -194,6 +200,11 @@ PDF_MIME: Final = "application/pdf"
 #: naming the real problem instead of a parser's internal error.
 PDF_MAGIC: Final = b"%PDF-"
 
+#: The UTF-8 byte order mark. Three bytes some Windows tooling writes in front
+#: of a file it produced, and they mean nothing: UTF-8 has one byte order, so
+#: the mark states a fact that could not have been otherwise.
+UTF8_BOM: Final = b"\xef\xbb\xbf"
+
 #: The six fields this tier answers, in the order everything here reports them.
 #:
 #: `net_paise` JOINED ON 2026-08-15 and was the first change to this tuple. It
@@ -211,6 +222,48 @@ FIELDS: Final[tuple[str, ...]] = (
     "net_paise",
     "line_paise",
 )
+
+
+def without_bom(data: bytes) -> bytes:
+    """These bytes with ONE leading UTF-8 byte order mark taken off.
+
+    WHY THIS EXISTS, MEASURED. `gst-portal-and-govt-003.pdf` in
+    `data/real_invoices_indian/` holds 5,580 characters of perfectly readable
+    text and read NOTHING. Its first bytes are `EF BB BF %PDF-1.5`. The magic
+    check below refuses anything not beginning `%PDF-`, so it came back
+    `Outcome.UNREADABLE` - and `ladder.looks_scanned` answers False on
+    UNREADABLE by design, "a document that did not parse is not a scan", so it
+    was not sent to the picture rung either. Nothing in the system read it,
+    because of three bytes.
+
+    THAT PARTICULAR DOCUMENT TURNS OUT NOT TO BE A BILL - read, it is a
+    Calcutta High Court order in a GST matter, and zero fields is the correct
+    answer to it. That is the point rather than a disappointment. Until the
+    bytes are read, "a document we cannot open" and "a document that is not a
+    bill" are the same blank, and only one of them is somebody's problem.
+
+    EXACTLY THREE BYTES AT POSITION ZERO, AND EXACTLY ONE OF THEM. This is not
+    "find `%PDF-` somewhere near the start", and the difference is the whole
+    safety argument. `pypdf` parses UNTRUSTED bytes in this process - somebody
+    emails a bill and the bytes go straight to a parser - so the magic check is
+    a GUARD and not a convenience. A search would accept a file with arbitrary
+    attacker-chosen bytes in front of the header; this accepts one specific,
+    well-known, meaningless prefix that some Windows tooling writes, and
+    nothing else. Two marks, or a mark followed by junk, still fails the check
+    afterwards and is still refused.
+
+    THE STRIPPED BYTES ARE WHAT THE WHOLE MODULE THEN SEES, and that is
+    deliberate rather than tidy. A PDF's cross-reference offsets are counted
+    from its `%PDF-` header, so three bytes in front of it shift every offset
+    in the file by three - `xref_was_rebuilt` would call an honest document
+    repaired, and a document that reports itself repaired loses its right to
+    auto-post. Handing `pypdf` one buffer and the xref guard another is how the
+    two would disagree about the same file.
+
+    A mark and nothing else comes back empty, which fails the magic check and
+    is refused in words. It is not an error here.
+    """
+    return data[len(UTF8_BOM) :] if data.startswith(UTF8_BOM) else data
 
 
 class Outcome(StrEnum):
@@ -642,7 +695,7 @@ def _paise(found: tuple[Amount, ...]) -> tuple[int, ...]:
 
 def _read_date(lines: tuple[str, ...]) -> tuple[datetime.date | None, str]:
     printed, why = the_one(
-        _printed(values_for(lines, DATE_LABEL, printing=_PRINTING)), "its date"
+        _printed(values_for(lines, (DATE_LABEL,), printing=_PRINTING)), "its date"
     )
     return (None, why) if printed is None else _date_from(printed)
 
@@ -933,6 +986,11 @@ def read(data: bytes) -> TextLayerReading:
     with a sentence, because the alternative is an HTTP 503 telling a person
     the application is broken when their upload merely got cut off.
     """
+    # BEFORE THE MAGIC CHECK AND BEFORE ANYTHING ELSE READS `data`, so `pypdf`,
+    # `xref_was_rebuilt` and the check itself all see one buffer. See
+    # `without_bom` for why the offsets make that a correctness question and
+    # not a tidiness one.
+    data = without_bom(data)
     if not data.startswith(PDF_MAGIC):
         return _reading(
             Outcome.UNREADABLE,
@@ -1280,6 +1338,11 @@ def picture_of(data: bytes) -> PagePicture:
     "The first page that carries one" and not "page one", so a leading cover
     sheet drawn without any raster does not end the search before it starts.
     """
+    # THE SAME STRIP AS `read`, AND IT HAS TO BE HERE TOO. This function owns
+    # the module's second magic check, and a BOM-prefixed scan whose text layer
+    # now reads would otherwise hand back no picture at all - the same document
+    # answering two different questions about whether it is a PDF.
+    data = without_bom(data)
     if not data.startswith(PDF_MAGIC):
         return PagePicture(said="These bytes are not a PDF.")
     try:
