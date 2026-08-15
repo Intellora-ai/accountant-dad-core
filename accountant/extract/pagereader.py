@@ -502,10 +502,44 @@ def read_page(lines: tuple[tuple[Word, ...], ...]) -> Reading:
         date = _extract_date_by_position(page)
         if date:
             ceilings["date"] = BY_POSITION
-    if not labelled_party:
-        party = _extract_party_by_position(page)
-        if party:
-            ceilings["party"] = BY_POSITION
+    # THE POSITIONAL PARTY WENT THE SAME WAY AS THE POSITIONAL TOTAL, ON THE
+    # SAME EVIDENCE, ON 2026-08-15. It is left here disabled rather than deleted
+    # because the measurement is the valuable part and a deleted function takes
+    # its measurement with it.
+    #
+    # MEASURED through `scripts/run_ground_truth.py`, the same harness that
+    # killed the positional total:
+    #
+    #     party WRONG rather than unread     5  ->  8
+    #     party EXACT                        unchanged
+    #
+    # Three answers added, three of them wrong, and no correct read gained
+    # anywhere to set against them. The three, verbatim off the page:
+    #
+    #     'TNoIte Noe eTvan42'
+    #     'TNoIte Noe eTvonas'
+    #     'Nolte Noe eTan6o'
+    #
+    # That is the corpus 5x7 bitmap font coming apart, and the fallback took it
+    # for a supplier because of WHERE IT SAT. Over the wider 413-document run
+    # the same mechanism produced 20 guesses of which about 6 contained a real
+    # name - the rest were a street address, two headings, a line item, and
+    # seven pieces of engine noise.
+    #
+    # WHY THE CEILING WAS NOT ENOUGH, WHICH IS THE PART WORTH KEEPING. The guess
+    # is held at `BY_POSITION` = 0.5, below `ASK_FLOOR`, so none of it could ever
+    # post and the money was never at risk. The cost is different and it is real:
+    # a party is an IDENTITY, and 31 documents that used to say "I read nothing"
+    # now say "I think this is your supplier" while holding up OCR noise. A
+    # person answering five questions a day spends them on `Qnme` and `ag ans`.
+    # The owner's exchange rate is about SILENT WRONG POSTS, and this was never
+    # one - so the ceiling did its job and the feature still fails on its own
+    # terms.
+    #
+    # `_extract_party_by_position` and its tests stay. Re-enabling is this one
+    # line, and `tests/test_positional_party.py` is what says what comes back
+    # with it.
+    _ = _extract_party_by_position  # kept reachable for its tests; not consulted
 
     # THE POSITIONAL TOTAL WAS WRITTEN, MEASURED AND REVERTED THE SAME HOUR.
     #

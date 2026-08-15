@@ -21,11 +21,17 @@ THE FOUR THINGS THAT WOULD BE WORTH SHIPPING A BUG FOR
                             PNGs it produced 15 wrong totals and 0 right ones,
                             so it is gone and the guard is back.
 
-    an UNMARKED guess       what DID survive is the party, found by position
-                            when no label named one. A guess is allowed; a guess
-                            that reaches a person looking identical to a
-                            labelled read is not. The mark is `Reading.at_most`,
-                            it caps the score at 0.5, and it renames the source.
+    an UNMARKED guess       what survives is the DATE, found by position when no
+                            label named one. A guess is allowed; a guess that
+                            reaches a person looking identical to a labelled read
+                            is not. The mark is `Reading.at_most`, it caps the
+                            score at 0.5, and it renames the source.
+
+                            The PARTY had the same fallback and lost it on
+                            2026-08-15: measured, it added three answers to the
+                            ground truth and three of them were wrong. A party is
+                            an identity, and the ceiling that made it safe did
+                            not make it useful.
 
     an inherited 1.0        `confidence.EXACT` belongs to the text layer, where
                             there is nothing to be unsure about. `cage/decision`
@@ -60,6 +66,7 @@ skipped with a stated reason when it is not installed.
 
 from __future__ import annotations
 
+import datetime
 import json
 import pathlib
 import shutil
@@ -159,10 +166,11 @@ def test_a_number_with_no_label_on_it_is_never_answered_as_the_total() -> None:
     Fifteen wrong money answers and not one right one. `pagereader.read_page`
     carries the revert and the reasoning; this line is what it restores.
 
-    THE PARTY FALLBACK SURVIVED THAT MEASUREMENT and is proved below. The
-    difference is not that a name matters less - it is that a wrong name at
-    `BY_POSITION` is refused by the tier as well as by the band, and a wrong
-    NUMBER is the failure this whole cage was built around.
+    THE PARTY FALLBACK WENT THE SAME WAY, LATER THE SAME DAY. It survived the
+    total's measurement and then failed its own: party WRONG rather than unread
+    went 5 -> 8, three answers added and three of them wrong. The date is the
+    only positional read still consulted. See
+    `test_a_party_is_never_guessed_from_where_it_sits_on_the_page`.
     """
     reading = read_page(
         (said("INVOICE NO: GT/0041"), said("HSN/SAC: 998311"), said("865.00"))
@@ -421,8 +429,8 @@ def test_a_stated_ceiling_can_lower_a_score_and_can_never_raise_one() -> None:
     assert with_a_high_ceiling.confidences["total_paise"] == 0.4
 
 
-def test_a_positional_party_cannot_reach_the_auto_post_band() -> None:
-    """THE ONE THAT DECIDES WHETHER THIS CHANGE IS SAFE.
+def test_a_positional_find_cannot_reach_the_auto_post_band() -> None:
+    """THE ONE THAT DECIDES WHETHER THE POSITIONAL READ IS SAFE.
 
     THREE independent walls, and the test asserts all three rather than
     trusting any of them. `BY_POSITION` is below `AUTO_POST_FLOOR`, so the band
@@ -432,14 +440,20 @@ def test_a_positional_party_cannot_reach_the_auto_post_band() -> None:
 
     THE TIER WALLS ARE ASSERTED BECAUSE THE BAND IS A NUMBER SOMEBODY CAN MOVE.
     The day `free_ocr` is added to either allowlist - one line, one set - a
-    guessed supplier would become a vendor identity with nobody asked, which is
-    failure mode F-03 and costs one supplier's balance for ever. This is the
-    line that goes red on that day.
-    """
-    scored = _scored(read_page((said("SUNIL TRADING COMPANY"),)), "free_ocr")
+    guessed field would become evidence with nobody asked, which is failure mode
+    F-03 and costs one supplier's balance for ever. This is the line that goes
+    red on that day.
 
-    assert scored.party == "SUNIL TRADING COMPANY"
-    assert scored.confidences["party"] == BY_POSITION
+    IT ASKS THE DATE AND NOT THE PARTY, AS OF 2026-08-15. The positional PARTY
+    was measured and disabled the same day - see
+    `test_a_party_is_never_guessed_from_where_it_sits_on_the_page` below - and
+    the date is the one positional read still consulted. The ceiling mechanism
+    is what this test is about, and it is unchanged.
+    """
+    scored = _scored(read_page((said("2026-05-13"),)), "free_ocr")
+
+    assert scored.date == datetime.date(2026, 5, 13)
+    assert scored.confidences["date"] == BY_POSITION
     assert BY_POSITION < AUTO_POST_FLOOR
     assert BY_POSITION < ASK_FLOOR
     assert "free_ocr" not in ENTITLED_TO_EXACT
@@ -454,16 +468,65 @@ def test_a_positional_find_says_so_in_the_source_a_person_reads() -> None:
     NOT A REFUSAL AND MUST NOT READ AS ONE: `cage/gate._was_read` treats any
     source beginning `NOT_FOUND` as an absence, so the mark is a suffix.
     """
-    scored = _scored(read_page((said("SUNIL TRADING COMPANY"),)), "free_ocr")
+    scored = _scored(read_page((said("2026-05-13"),)), "free_ocr")
     guessed, labelled = (
-        scored.sources["party"],
-        _scored(read_page(a_bill()), "free_ocr").sources["party"],
+        scored.sources["date"],
+        _scored(read_page(a_bill()), "free_ocr").sources["date"],
     )
 
     assert guessed != labelled
     assert labelled == "free_ocr"
     assert guessed.startswith("free_ocr") and A_GUESS in guessed
     assert not guessed.startswith(NOT_FOUND)
+
+
+def test_a_party_is_never_guessed_from_where_it_sits_on_the_page() -> None:
+    """THE PARTY FALLBACK, MEASURED AND TURNED OFF. Owner instruction 2026-08-15.
+
+    A party is an IDENTITY, and it is the one field where being confidently
+    wrong costs a supplier's balance for ever rather than one bill. Measured
+    through `scripts/run_ground_truth.py` when the fallback was live:
+
+        party WRONG rather than unread    5  ->  8
+        party EXACT                       unchanged
+
+    Three answers added, three wrong, none right. The ceiling held - at 0.5
+    nothing it produced could post - so no money was ever at risk. The cost was
+    that 31 documents stopped saying "I read nothing" and started offering OCR
+    noise as a supplier, spending the owner's five daily questions on it.
+
+    THE THREE MEASURED STRINGS ARE THE FIXTURE. They are the actual output of
+    the corpus 5x7 bitmap font coming apart, and they are here so that
+    re-enabling the fallback fails on the exact evidence that closed it.
+    """
+    for garbage in ("TNoIte Noe eTvan42", "TNoIte Noe eTvonas", "Nolte Noe eTan6o"):
+        scored = _scored(read_page((said(garbage),)), "free_ocr")
+
+        assert scored.party is None, (
+            f"{garbage!r} came back as a supplier. The positional party fallback "
+            "is live again; it was measured at 3 wrong answers and 0 right ones."
+        )
+        assert scored.confidences["party"] == 0.0
+        assert scored.sources["party"].startswith(NOT_FOUND)
+
+
+def test_a_real_looking_name_is_refused_too_and_that_is_the_point() -> None:
+    """THE CONTROL ON THE TEST ABOVE, and it is not decoration.
+
+    Asserting only that garbage is refused would pass just as well if the
+    fallback still ran and happened to reject those three strings for some
+    unrelated reason - a length rule, a digit rule. `SUNIL TRADING COMPANY` is
+    the fixture the fallback was BUILT to accept and did accept. Refusing it
+    proves the mechanism is off rather than merely fussy.
+
+    It also states the cost honestly: this is a real supplier name on a page,
+    and the reader now says nothing about it. That is the trade the measurement
+    bought, not a free win.
+    """
+    scored = _scored(read_page((said("SUNIL TRADING COMPANY"),)), "free_ocr")
+
+    assert scored.party is None
+    assert scored.confidences["party"] == 0.0
 
 
 def test_a_ceiling_stated_for_a_field_that_does_not_exist_is_refused() -> None:
