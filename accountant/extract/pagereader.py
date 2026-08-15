@@ -203,6 +203,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Final
 
+from accountant.extract import artifacts
 from accountant.extract.freeocr import PageReader, Reading, Word, read_lines
 from accountant.extract.labels import (
     DATE_LABEL,
@@ -568,6 +569,32 @@ def read_page(lines: tuple[tuple[Word, ...], ...]) -> Reading:
     # than staying behind a dead `if`. A function nothing calls is a library,
     # and a library that invents totals is worse than one nobody uses.
 
+    # THE ENGINE IS SURE ABOUT CHARACTERS THAT ARE NOT A NAME. Added 2026-08-15.
+    #
+    # MEASURED on the real corpus, engine confidence beside the text: the party
+    # `|Certificati` came back at 88 - a table rule glued to a word. `format_valid`
+    # is True because ANY string is a syntactically valid party, and `consistent`
+    # is True because there is nothing to disagree with, so `field_confidence`
+    # returns about 0.88 and that clears `ASK_FLOOR` of 0.70. A person is then
+    # asked whether `|Certificati` is their supplier, and one of their five daily
+    # questions is gone.
+    #
+    # IT IS A CEILING, WHICH IS WHY IT IS SAFE TO ADD HERE. It goes through the
+    # same `at_most` channel as the positional guess and `_judge` applies it with
+    # `min`, so it can refuse a field and can never rescue one. Nothing about
+    # what may POST changes; what changes is what is worth asking about.
+    #
+    # PARTY ONLY. The amounts already have a stronger guard - `paise_or_none`
+    # refuses anything that is not a number - and a date has `looks_like_a_date`.
+    # A name is the one field where any characters at all are syntactically
+    # acceptable, so it is the one that needs this.
+    #
+    # MEASURED over the fixture sets in `tests/test_artifacts.py`: 8 of 12
+    # measured artifacts refused, 0 of 10 real supplier names lost. The four it
+    # cannot catch are listed there with reasons and asserted as misses.
+    if party and (ceiling := artifacts.ceiling_for(_text_of(party))) is not None:
+        ceilings["party"] = min(ceilings.get("party", 1.0), ceiling)
+
     return Reading(
         date=date,
         party=party,
@@ -576,6 +603,16 @@ def read_page(lines: tuple[tuple[Word, ...], ...]) -> Reading:
         net=_words_for_amount(page, amounts_for(page.lines, NET_LABELS)),
         at_most=MappingProxyType(ceilings),
     )
+
+
+def _text_of(words: tuple[Word, ...]) -> str:
+    """The words joined back into the line the page printed.
+
+    `artifacts` judges a VALUE, and a value is the words together: `|Certificati`
+    is one word, but `TNoIte Noe eTvan42` is three and the case flipping only
+    shows up across the whole of it.
+    """
+    return " ".join(word.text for word in words)
 
 
 def _extract_date_by_position(page: _Page) -> tuple[Word, ...]:
