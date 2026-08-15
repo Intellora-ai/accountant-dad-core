@@ -840,10 +840,15 @@ def test_the_control_the_refusal_map_is_not_answering_everything_the_same_way() 
 # =============================================================================
 
 
-#: Every token `ENGINE_ARGUMENTS` is allowed to contain. A LIST and not a
-#: pattern, because a pattern is how `--psm` becomes `--psm {mode}` becomes a
-#: caller's string. Adding a token here is a deliberate act with a diff on it.
-PERMITTED_ENGINE_TOKENS: Final[frozenset[str]] = frozenset({"--psm", "6"})
+#: Every token `ENGINE_ARGUMENTS` is allowed to contain. EMPTY today, and the
+#: set is kept rather than folded back into `== ""` on purpose: `--psm 6` was
+#: measured, adopted and reverted within a day, and the next person to adopt it
+#: should have to add the token here - one deliberate line with a diff on it -
+#: rather than loosen an equality check.
+#:
+#: A LIST and not a pattern, because a pattern is how `--psm` becomes
+#: `--psm {mode}` becomes a caller's string.
+PERMITTED_ENGINE_TOKENS: Final[frozenset[str]] = frozenset()
 
 
 def test_the_engine_is_handed_nothing_a_caller_can_reach() -> None:
@@ -878,7 +883,7 @@ def test_the_engine_arguments_are_a_constant_and_not_a_template() -> None:
         line for line in source.splitlines() if line.startswith("ENGINE_ARGUMENTS")
     )
 
-    assert declaration == 'ENGINE_ARGUMENTS: Final = "--psm 6"', declaration
+    assert declaration == 'ENGINE_ARGUMENTS: Final = ""', declaration
 
 
 @pytest.mark.parametrize("bad", [0, -1, -0.5, "8", None, True])

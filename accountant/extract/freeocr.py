@@ -390,12 +390,32 @@ WORD_ROW: Final = 5
 #: noise is illegible to the matcher as well as to a person, which is why it is
 #: safe to let through.
 #:
-#: The argument list is still built by `pytesseract.run_tesseract` as a python
-#: LIST handed to `subprocess.Popen` with no shell; a `config` string is
-#: `shlex.split` into further list elements. `--psm 6` is two fixed tokens with
-#: no caller input in them, so the "nothing can be interpolated" property the
-#: empty string gave for free still holds by inspection.
-ENGINE_ARGUMENTS: Final = "--psm 6"
+#: AND IT WAS REVERTED THE SAME DAY, BY A GUARD I HAD NOT RUN. The measurement
+#: above is real and still stands. What it did not cover is
+#: `tests/test_chaos_corpus.py`, whose
+#: `test_no_image_in_the_corpus_ever_produces_an_amount` is a SECOND WALL,
+#: deliberately independent of the cage: no picture may yield a figure, ever.
+#:
+#: Under `--psm 6`, `a_png_declaring_more_rows_than_it_carries` - a deliberately
+#: CORRUPT png - produced `total_paise = 420600`, ₹4,206.00, at confidence 0.64
+#: sourced `free_ocr`. The cage blocked it, being under `ASK_FLOOR`. The guard
+#: still went red, and it is right to: an invented rupee figure out of a broken
+#: file is the defect that guard was built for, and "the cage caught it" is
+#: exactly the reasoning a second wall exists to refuse.
+#:
+#: Keeping the flag would have meant editing that guard to make my own change
+#: pass. `ARCHITECTURE.md:671` forbids it and so does common sense. So the
+#: engine's default stands again, and the trade is written down instead of
+#: taken quietly:
+#:
+#:     with --psm 6      105/106 images readable, and one corrupt png invents
+#:                       ₹4,206.00 which the cage then blocks
+#:     with the default   82/106 images readable, and no picture in the chaos
+#:                       corpus produces a figure at all
+#:
+#: A missing amount is a question for a person. A wrong one is money. The owner
+#: can reverse this in one word; nobody else should.
+ENGINE_ARGUMENTS: Final = ""
 
 
 def _whatever_the_engine_returned(page: object, deadline_seconds: float) -> object:
