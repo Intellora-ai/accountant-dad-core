@@ -368,14 +368,19 @@ No force push. No branch protection bypassed. No admin merge.
 
 **Owner ruling, 2026-08-15. Closed. Do not reopen.**
 
-**Question.** The ground-truth corpus scores both REACH (did a value come back)
-and ACCURACY (was it right). Which one is Problem 1?
+**Question.** The ground-truth corpus scores both READING (did a value come
+back) and ACCURACY (was it right). Which one is Problem 1?
 
 **Decision.** **Problem 1 is READING. Accuracy is a separate problem.**
 
-**What that means for the bar.** Problem 1 asks: does the reader produce a value
+**What that means for the bar.** Problem 1 asks: does the reader READ a value
 for a field the document actually states. It does NOT ask whether that value is
-correct. Correctness is scored, recorded and reported - it is simply not what
+correct.
+
+THE WORD IS READING, NOT "REACH". Owner's correction, and it is not cosmetic.
+"Reach" describes a slot arriving somewhere in a pipeline - a plumbing fact.
+READING is what the product does for a person: it looks at a bill and comes back
+with what it read. The measurement counts documents read, not slots traversed. Correctness is scored, recorded and reported - it is simply not what
 this problem is judged on.
 
 **The measurement, restated under this ruling.** Of 310 slots, 276 carry a value
