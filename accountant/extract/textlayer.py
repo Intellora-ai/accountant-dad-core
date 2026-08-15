@@ -695,7 +695,7 @@ def _paise(found: tuple[Amount, ...]) -> tuple[int, ...]:
 
 def _read_date(lines: tuple[str, ...]) -> tuple[datetime.date | None, str]:
     printed, why = the_one(
-        _printed(values_for(lines, (DATE_LABEL,), printing=_PRINTING)), "its date"
+        _printed(values_for(lines, DATE_LABEL, printing=_PRINTING)), "its date"
     )
     return (None, why) if printed is None else _date_from(printed)
 
