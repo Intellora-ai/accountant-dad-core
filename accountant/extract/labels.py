@@ -430,14 +430,31 @@ def amount_on(line: str, label: str) -> tuple[int, int, int] | None:
     generator prints `TOTAL:` in capitals at column 0, so 20/20 on that corpus
     was measuring the generator.
 
-    `_LABEL_AT` is REUSED and not loosened. A single space before the label
-    still refuses - `Food Total : 525.00` does not match `TOTAL` - because the
-    column-gap rule is what stops the second field on a two-field line being
-    read into the first one's value. Widening the VOCABULARY is a separate,
-    evidence-led change; this one only stops the reader refusing text it can
-    already see.
+    ANCHORED AT THE LINE START, and the first version of this fix was NOT.
+    It used `re.search` with `_LABEL_AT`, which reads correctly and is wrong:
+    under `re.match` that prefix was a POSITIONAL ANCHOR, and under `re.search`
+    it degrades into a mere spacing requirement that one extra space buys past.
+    MEASURED, and this is money leaving the building:
+
+        'SUB  TOTAL: 100.00'    refused before, matched TOTAL after
+        'Sub  Total  278.61'    on a bill whose real total is 319.00
+
+    That posts ₹278.61 against a ₹319.00 bill - short by exactly the ₹40.39 of
+    tax, which is the input credit gone with a bill that still looks read. The
+    same slip read `(FEIN) 132932696          GST 895524239` as ₹8,95,52,439 of
+    tax: a registration number after a column gap is not an amount.
+
+    So the anchor is restored and only the INDENTATION is allowed. Checked
+    against the four real gains this change actually produced -
+    `Subtotal: 22,728`, `Total: 25,000`, `     Subtotal 573.00`,
+    `Total 101.80` - every one starts the line or follows whitespace alone.
+    Mid-line matching bought nothing and cost the guard.
+
+    `_LABEL_AT` still governs `_values_on` for party and date, where a
+    two-field line is real and the column gap is the evidence for it. The money
+    path does not get it, because a wrong amount is worse than a missing one.
     """
-    head = re.search(rf"{_LABEL_AT}{re.escape(label)}\b{_RATE}", line, re.IGNORECASE)
+    head = re.match(rf"\s*{re.escape(label)}\b{_RATE}", line, re.IGNORECASE)
     if head is None:
         return None
     tail = _ONLY_AMOUNT.match(line[head.end() :])

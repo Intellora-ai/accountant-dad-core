@@ -67,6 +67,7 @@ from accountant.extract.adapter import NOT_FOUND, ExtractedRecord
 from accountant.extract.freeocr import FreeReader
 from accountant.extract.labels import (
     PARTY_LABELS,
+    TAX_WHOLE,
     TOTAL_LABELS,
     Printing,
     amounts_for,
@@ -339,12 +340,42 @@ def test_the_column_gap_rule_is_reused_and_not_loosened() -> None:
 
 
 def test_subtotal_is_still_never_read_as_the_total() -> None:
-    """THE CONTROL THAT MATTERS MOST. Case-insensitive matching is one careless
-    step from `SUBTOTAL` matching `TOTAL`, which posts the bill short by the
-    whole of its tax - money lost, with a bill that still looks read."""
-    assert amounts_for(("SUBTOTAL: 100.00",), TOTAL_LABELS) == ()
-    assert amounts_for(("Subtotal: 100.00",), TOTAL_LABELS) == ()
-    assert amounts_for(("Sub Total: 100.00",), TOTAL_LABELS) == ()
+    """THE CONTROL THAT MATTERS MOST, and its first version was VACUOUS.
+
+    Every string it tried failed at the LABEL stage, so the amount rule it
+    claimed to guard was never reached, and it therefore did not notice that one
+    extra space defeated the whole thing. An adversarial sweep found it. The
+    double-spaced spellings below are the ones that actually exercise the rule -
+    they came back as TOTAL until `amount_on` was re-anchored:
+
+        'Sub  Total  278.61'   on a bill whose real total is 319.00
+
+    posts ₹278.61 and loses exactly the ₹40.39 of tax. A control that cannot
+    fail is not a control, and this one could not."""
+    single_spaced = ("SUBTOTAL: 100.00", "Subtotal: 100.00", "Sub Total: 100.00")
+    column_gapped = (
+        "SUB  TOTAL: 100.00",
+        "Sub  Total  100.00",
+        "SUB   TOTAL   1,000.00",
+        "sub  total 100.00",
+        "Item  Total: 100.00",
+        "Bill  Total 250.00",
+        "Food  Total : 525.00",
+    )
+
+    for line in single_spaced + column_gapped:
+        assert amounts_for((line,), TOTAL_LABELS) == (), line
+
+
+def test_a_registration_number_after_a_column_gap_is_not_tax() -> None:
+    """MEASURED on data/real_invoices/gov-and-open-data-092.pdf, which prints
+    `(FEIN) 132932696          GST 895524239`. Read as an amount that is
+    ₹8,95,52,439 of tax on a document that states no such figure. GSTIN, HSN and
+    FEIN codes are long bare integers and they sit after column gaps constantly,
+    so a label that may match mid-line turns every one of them into money."""
+    assert amounts_for(("(FEIN) 132932696          GST 895524239",), TAX_WHOLE) == ()
+    assert amounts_for(("Invoice 4417        TAX 998311",), TAX_WHOLE) == ()
+    assert amounts_for(("HSN 998311        GST 18",), TAX_WHOLE) == ()
 
 
 def test_a_number_that_is_not_an_amount_is_still_refused() -> None:
