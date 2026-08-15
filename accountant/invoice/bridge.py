@@ -254,7 +254,7 @@ def _party(
 # =============================================================================
 
 
-def _shaped(base: ReadField, reading: Reading, shape: re.Pattern[str]) -> ReadField:
+def shaped(base: ReadField, reading: Reading, shape: re.Pattern[str]) -> ReadField:
     """`base` if its characters match `shape`, unread if they do not.
 
     A HARD MULTIPLIER, like every other format check here: a sixty-three
@@ -283,7 +283,7 @@ def _identity(reading: Reading, *, printing: Printing) -> InvoiceIdentity:
         po_number=parse.value_under(
             reading, parse.PO_NUMBER_LABELS, "an order number", printing=printing
         ),
-        irn=_shaped(
+        irn=shaped(
             parse.value_under(
                 reading,
                 parse.IRN_LABELS,
@@ -293,7 +293,7 @@ def _identity(reading: Reading, *, printing: Printing) -> InvoiceIdentity:
             reading,
             parse.IRN_SHAPE,
         ),
-        eway_bill=_shaped(
+        eway_bill=shaped(
             parse.value_under(
                 reading,
                 parse.EWAY_BILL_LABELS,
@@ -427,7 +427,9 @@ def _line_taxable(item: Item) -> ReadField:
     return item.taxable if item.taxable.read else item.line_total
 
 
-def _mandatory_read(parts: _Parts) -> tuple[str, ...]:
+def mandatory_found(
+    *, supplier: Party, invoice: InvoiceIdentity, totals: Totals
+) -> tuple[str, ...]:
     """Which of `validate.MANDATORY` this document actually supplied.
 
     THE NAMES ARE THE ONES `validate.MANDATORY` USES, not the ones this record
@@ -435,15 +437,19 @@ def _mandatory_read(parts: _Parts) -> tuple[str, ...]:
     trusting it: a rename on one side would silently make a mandatory field
     permanently missing, and every bill would fail for a reason nobody could
     find.
+
+    TAKES THE THREE GROUPS AND NOT A WHOLE RECORD, so a test can hand it three
+    hand-built fields with no document in sight - and so that adding a field to
+    the record cannot silently change what is mandatory.
     """
     present: list[str] = []
-    if parts.supplier.name.read or parts.supplier.gstin.read:
+    if supplier.name.read or supplier.gstin.read:
         present.append("supplier")
-    if parts.invoice.number.read:
+    if invoice.number.read:
         present.append("invoice_number")
-    if parts.invoice.date.read:
+    if invoice.date.read:
         present.append("invoice_date")
-    if parts.totals.grand_total.read:
+    if totals.grand_total.read:
         present.append("grand_total")
     return tuple(present)
 
@@ -472,7 +478,9 @@ def _figures(parts: _Parts) -> Figures:
         total_tax_was_stated=parts.totals.total_tax_was_stated,
         round_off_paise=paise_of(parts.totals.round_off),
         grand_total_paise=paise_of(parts.totals.grand_total),
-        fields_read=_mandatory_read(parts),
+        fields_read=mandatory_found(
+            supplier=parts.supplier, invoice=parts.invoice, totals=parts.totals
+        ),
         supplier_key=gstin if gstin else _text_of(parts.supplier.name),
         invoice_number=_text_of(parts.invoice.number),
     )

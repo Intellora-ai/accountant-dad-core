@@ -118,7 +118,11 @@ def ask(bill: bytes, history: tuple[Voucher, ...] = MIXED) -> Q.Question | None:
     draft = pipeline.build_draft(
         COMPANY, bill, "text/plain", TypedTextExtractor(), memory, today=TODAY
     )
-    return pipeline.next_question(pipeline.evaluate(draft, ACCOUNTS, history, memory))
+    return pipeline.next_question(
+        pipeline.evaluate(
+            draft, ACCOUNTS, history, memory, period_open=None, pdf_repaired=None
+        )
+    )
 
 
 def a_tangle() -> pipeline.Draft:
@@ -148,7 +152,13 @@ def a_tangle() -> pipeline.Draft:
     # pulls no tax out of a line of prose and the tangle needs the tax problems.
     draft.voucher = replace(draft.voucher, debit_account="Purchases", gst_paise=36000)
     return pipeline.evaluate(
-        draft, ACCOUNTS, MIXED, memory, detector_set=detectors.ALL_DETECTORS
+        draft,
+        ACCOUNTS,
+        MIXED,
+        memory,
+        detector_set=detectors.ALL_DETECTORS,
+        period_open=None,
+        pdf_repaired=None,
     )
 
 
@@ -198,8 +208,16 @@ def test_re_evaluating_one_draft_does_not_change_what_it_asks() -> None:
         memory,
         today=TODAY,
     )
-    once = pipeline.next_question(pipeline.evaluate(draft, ACCOUNTS, MIXED, memory))
-    twice = pipeline.next_question(pipeline.evaluate(draft, ACCOUNTS, MIXED, memory))
+    once = pipeline.next_question(
+        pipeline.evaluate(
+            draft, ACCOUNTS, MIXED, memory, period_open=None, pdf_repaired=None
+        )
+    )
+    twice = pipeline.next_question(
+        pipeline.evaluate(
+            draft, ACCOUNTS, MIXED, memory, period_open=None, pdf_repaired=None
+        )
+    )
     assert once is not None
     assert canonical(once) == canonical(twice)
 

@@ -221,7 +221,14 @@ def _stubbed(
         memory,
         today=TODAY,
     )
-    return pipeline.evaluate(draft, accounts, client.read_vouchers(COMPANY), memory)
+    return pipeline.evaluate(
+        draft,
+        accounts,
+        client.read_vouchers(COMPANY),
+        memory,
+        period_open=None,
+        pdf_repaired=None,
+    )
 
 
 def _rows(store: MemoryStore, company: str = COMPANY) -> tuple[ActionLog, ...]:
@@ -878,17 +885,51 @@ def test_the_states_that_do_exist_are_exactly_these_two_enums() -> None:
     #              makes - a Runtime cannot exist half built - now covers one
     #              more thing than it did. A default here is exactly what would
     #              weaken it, and there is none.
+    # UPDATED 2026-08-15, same rule, and the second half is now scoped rather
+    # than weakened.
+    #
+    #   old        the five above
+    #   new        the same five, plus "period_reader"
+    #   why        the cage asks whether the books are open for the date on the
+    #              bill. `connect()` - the only path holding a `TallyConfig` -
+    #              builds a reader; `configure()` with a double cannot, because
+    #              there is no gateway behind a fake client and a probe would be
+    #              a socket call to whatever is on port 9000 of this machine.
+    #   default?   YES, and it is the ONLY field here that carries one, so the
+    #              blanket claim below could not survive unchanged. It is
+    #              SCOPED and not dropped: every other field must still have no
+    #              default, and this one's default must be exactly `None`.
+    #
+    #              The distinction is fail-open versus fail-closed and it is the
+    #              whole reason one default is allowed here. A missing
+    #              `extractor` would be a silent capability loss - the object
+    #              looks connected and reads nothing. A missing `period_reader`
+    #              is `None`, `Runtime.period_open` returns `None`, the cage
+    #              reads that as "nobody looked" and BLOCKS. The dangerous
+    #              default would be a reader that answered `True`, and pinning
+    #              the default to `None` is what makes that a test failure
+    #              rather than a code review somebody has to remember to do.
     assert [f.name for f in dataclasses.fields(app.Runtime)] == [
         "client",
         "identity",
         "memory",
         "store",
         "extractor",
+        "period_reader",
     ], "CONNECTED is this object existing, and it cannot exist half built"
     assert all(
         f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING
         for f in dataclasses.fields(app.Runtime)
+        if f.name != "period_reader"
     ), "a Runtime field with a default is a Runtime that can be built half empty"
+    period_reader = next(
+        f for f in dataclasses.fields(app.Runtime) if f.name == "period_reader"
+    )
+    assert period_reader.default is None, (
+        "the one field allowed a default must default to the value that BLOCKS. "
+        f"This one defaults to {period_reader.default!r}."
+    )
+    assert period_reader.default_factory is dataclasses.MISSING
 
 
 # ---- the six dangerous transitions ------------------------------------------
@@ -1160,14 +1201,28 @@ def test_an_empty_source_company_may_be_asked_but_proposes_and_writes_nothing() 
     accounts = client.read_accounts(COMPANY)
     draft = pipeline.answer(draft, "Purchases")
     memory.record_correction(draft.voucher.party, "Purchases")
-    draft = pipeline.evaluate(draft, accounts, client.read_vouchers(COMPANY), memory)
+    draft = pipeline.evaluate(
+        draft,
+        accounts,
+        client.read_vouchers(COMPANY),
+        memory,
+        period_open=None,
+        pdf_repaired=None,
+    )
 
     # An empty-source company has no history at all, so it cannot say how this
     # vendor was paid either. Both legs are asked about; neither is invented.
     assert draft.outcome is Outcome.UNCLEAR
     assert client.writes == [], "still nothing written while a question is open"
     draft = pipeline.answer(draft, "Cash", problem_id=pipeline.FUNDING_PROBLEM)
-    draft = pipeline.evaluate(draft, accounts, client.read_vouchers(COMPANY), memory)
+    draft = pipeline.evaluate(
+        draft,
+        accounts,
+        client.read_vouchers(COMPANY),
+        memory,
+        period_open=None,
+        pdf_repaired=None,
+    )
 
     assert draft.outcome is Outcome.VALID
     draft = pipeline.post(draft, client)
@@ -1209,7 +1264,14 @@ def test_a_not_valid_entry_is_refused_by_the_post_gate_and_moves_no_money() -> N
 
     draft = _stubbed(client, memory, total_paise=4200)
     draft.voucher = dataclasses.replace(draft.voucher, amount_paise=4200.5)  # type: ignore[arg-type]
-    draft = pipeline.evaluate(draft, accounts, client.read_vouchers(COMPANY), memory)
+    draft = pipeline.evaluate(
+        draft,
+        accounts,
+        client.read_vouchers(COMPANY),
+        memory,
+        period_open=None,
+        pdf_repaired=None,
+    )
 
     assert draft.outcome is Outcome.NOT_VALID
     assert draft.reason == "amount_is_integer_paise: amount is float"
@@ -1316,7 +1378,14 @@ def test_a_failed_read_back_is_never_recorded_as_a_posted_entry() -> None:
         memory,
         today=TODAY,
     )
-    draft = pipeline.evaluate(draft, accounts, client.read_vouchers(COMPANY), memory)
+    draft = pipeline.evaluate(
+        draft,
+        accounts,
+        client.read_vouchers(COMPANY),
+        memory,
+        period_open=None,
+        pdf_repaired=None,
+    )
     assert draft.outcome is Outcome.VALID, "the Valid gate is not what stops this"
 
     blind = _Blind(client)

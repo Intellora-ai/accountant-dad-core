@@ -207,7 +207,14 @@ def test_one_companys_memory_cannot_evaluate_another_companys_draft():
 
     d = draft_for(COMPANY_B, mem_b)
     with pytest.raises(ValueError, match=COMPANY_A):
-        pipeline.evaluate(d, ACCOUNTS, t.read_vouchers(COMPANY_B), mem_a)
+        pipeline.evaluate(
+            d,
+            ACCOUNTS,
+            t.read_vouchers(COMPANY_B),
+            mem_a,
+            period_open=None,
+            pdf_repaired=None,
+        )
 
     assert d.decision is None
     assert t.list_our_vouchers(COMPANY_B) == ()
@@ -264,7 +271,14 @@ def test_a_correction_recorded_on_one_company_leaves_the_other_unchanged():
     # A finishes and posts; B still cannot.
     accounts_a = t.read_accounts(COMPANY_A)
     a = pipeline.answer(a, "Cash", problem_id=q_a.problem_id)
-    a = pipeline.evaluate(a, accounts_a, t.read_vouchers(COMPANY_A), mem_a)
+    a = pipeline.evaluate(
+        a,
+        accounts_a,
+        t.read_vouchers(COMPANY_A),
+        mem_a,
+        period_open=None,
+        pdf_repaired=None,
+    )
     assert a.outcome is Outcome.VALID
     a = pipeline.post(a, t)
     assert a.posted_tally_id is not None
@@ -340,7 +354,9 @@ def test_memory_not_ready_never_reaches_the_decision_as_no_match():
     # READY, and this company genuinely never used this supplier
     # -> NO_MATCH -> one question, nothing posted.
     unseen = draft_for(COMPANY_A, memory, UNSEEN_ENTRY)
-    unseen = pipeline.evaluate(unseen, accounts, history, memory)
+    unseen = pipeline.evaluate(
+        unseen, accounts, history, memory, period_open=None, pdf_repaired=None
+    )
     assert memory.lookup("Gupta Hardware").status is CompanyMatchStatus.NO_MATCH
     assert unseen.outcome is Outcome.UNCLEAR
     assert "which_account" in [p.id for p in unseen.problems]
@@ -356,7 +372,9 @@ def test_memory_not_ready_never_reaches_the_decision_as_no_match():
     with pytest.raises(MemoryNotReady):
         memory.lookup("Gupta Hardware").as_match_result()
     with pytest.raises(MemoryNotReady):
-        pipeline.evaluate(pending, accounts, history, memory)
+        pipeline.evaluate(
+            pending, accounts, history, memory, period_open=None, pdf_repaired=None
+        )
 
     assert pending.decision is None
     assert pending.problems == []

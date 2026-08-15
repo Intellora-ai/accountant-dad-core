@@ -813,6 +813,15 @@ def test_two_backends_given_the_same_facts_produce_the_same_draft_but_the_identi
     pixels does not name a supplier. Every other figure still has to match, and
     the RECORD still has to carry the name - a reading that had lost it would be
     a different defect wearing this test's pass.
+
+    THE AMOUNT MOVED TO THE SAME SHAPE 2026-08-15, and until then this test was
+    half-updated: `party` was guarded by belief and `amount_paise` was still
+    asserted flat at `TOTAL`. `build_draft` now applies `read_exactly` to the
+    TOTAL as well as to the name, so an unbelieved tier's figure is not money
+    either and the voucher carries the unread amount, which is 0. The RECORD
+    still states 420000 with its own source, and the assertion below says so -
+    a reading that had lost the figure would be a different defect wearing this
+    test's pass, exactly as for the name.
     """
     t = tally(past(PARTY, "Purchases", n=40))
     draft = pipeline.build_draft(
@@ -821,7 +830,8 @@ def test_two_backends_given_the_same_facts_produce_the_same_draft_but_the_identi
     believed = BELIEVED[make.__name__]
 
     assert draft.record.party == PARTY
-    assert draft.voucher.amount_paise == TOTAL
+    assert draft.record.total_paise == TOTAL
+    assert draft.voucher.amount_paise == (TOTAL if believed else 0)
     assert draft.voucher.gst_paise is None
     assert draft.voucher.date == TODAY
     assert draft.voucher.party == (PARTY if believed else "")
@@ -839,12 +849,22 @@ def test_two_backends_given_the_same_facts_either_post_or_ask_who_it_was(
     The unbelieved one neither refuses nor guesses: it reaches the answer the
     product already had for "I do not know who this is" and ASKS. `unclear` with
     `no party name` is an existing path reached, not a new one invented.
+
+    THE REASON STRING IS NO LONGER PINNED, CHANGED 2026-08-15. The amount guard
+    landed that day, so an unbelieved tier now fails TWO checks rather than one
+    - its total is not money either - and `amount_is_positive` sits ahead of
+    `party_is_named` in `ALL_CHECKS`, so `reason` became "amount is 0 paise".
+    Both are the same event: a tier that guesses is asked about instead of
+    believed. What this test is for is the ASKING, so it pins the outcome and
+    the presence of the party question, and stops pinning which of several
+    correct refusals happens to sort first.
     """
     t = tally(past(PARTY, "Purchases", n=40))
     d = pipeline.run(COMPANY, BILL, "text/plain", make(), t, memory_for(t), today=TODAY)
 
     if not BELIEVED[make.__name__]:
-        assert (d.outcome, d.reason) == (Outcome.UNCLEAR, "no party name")
+        assert d.outcome is Outcome.UNCLEAR
+        assert "party_is_named" in [p.id for p in d.problems], d.reason
         return
     assert d.outcome is Outcome.VALID
     assert d.reason == "nothing unclear and nothing surprising"
@@ -1396,7 +1416,12 @@ def gst_draft(t: FakeTally) -> pipeline.Draft:
         COMPANY, GST_BILL, "text/plain", TypedTextExtractor(), memory, today=TODAY
     )
     return pipeline.evaluate(
-        draft, t.read_accounts(COMPANY), t.read_vouchers(COMPANY), memory
+        draft,
+        t.read_accounts(COMPANY),
+        t.read_vouchers(COMPANY),
+        memory,
+        period_open=None,
+        pdf_repaired=None,
     )
 
 

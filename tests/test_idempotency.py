@@ -1057,7 +1057,9 @@ def test_evaluating_a_draft_repeatedly_never_mints_a_second_identity() -> None:
     history = inner.read_vouchers(COMPANY)
 
     for _ in range(5):
-        draft = pipeline.evaluate(draft, accounts, history, memory)
+        draft = pipeline.evaluate(
+            draft, accounts, history, memory, period_open=None, pdf_repaired=None
+        )
         assert draft.operation_id == minted
         assert draft.decision is not None
         assert draft.decision.operation_id == minted

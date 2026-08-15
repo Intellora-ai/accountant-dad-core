@@ -173,7 +173,9 @@ def valid_draft(client: TallyClient, memory: CompanyMemory) -> pipeline.Draft:
         memory,
         today=TODAY,
     )
-    draft = pipeline.evaluate(draft, accounts, history, memory)
+    draft = pipeline.evaluate(
+        draft, accounts, history, memory, period_open=None, pdf_repaired=None
+    )
     assert draft.outcome is Outcome.VALID, "the fixture must reach the write path"
     return draft
 
@@ -190,7 +192,9 @@ def unclear_draft(client: TallyClient, memory: CompanyMemory) -> pipeline.Draft:
         memory,
         today=TODAY,
     )
-    draft = pipeline.evaluate(draft, accounts, history, memory)
+    draft = pipeline.evaluate(
+        draft, accounts, history, memory, period_open=None, pdf_repaired=None
+    )
     assert draft.outcome is Outcome.UNCLEAR, "the fixture must NOT be postable"
     return draft
 
@@ -1880,6 +1884,8 @@ def test_the_page_and_the_action_log_can_no_longer_disagree_about_the_backend(
         client.read_accounts(app.COMPANY),
         client.read_vouchers(app.COMPANY),
         app.runtime().memory,
+        period_open=None,
+        pdf_repaired=None,
     )
     assert draft.outcome is Outcome.VALID
     draft = pipeline.post(draft, client)

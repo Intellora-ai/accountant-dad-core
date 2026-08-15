@@ -410,13 +410,13 @@ def test_a_problem_already_answered_is_never_asked_again():
         memory,
         today=TODAY,
     )
-    d = pipeline.evaluate(d, ACCOUNTS, (), memory)
+    d = pipeline.evaluate(d, ACCOUNTS, (), memory, period_open=None, pdf_repaired=None)
     first = pipeline.next_question(d)
     assert first is not None
 
     d = pipeline.answer(d, "Purchases", problem_id=first.problem_id)
     memory.record_correction("Verma Cement", "Purchases")
-    d = pipeline.evaluate(d, ACCOUNTS, (), memory)
+    d = pipeline.evaluate(d, ACCOUNTS, (), memory, period_open=None, pdf_repaired=None)
 
     again = pipeline.next_question(d)
     assert again is None or again.problem_id != first.problem_id
@@ -456,7 +456,7 @@ def test_a_handed_over_entry_is_never_posted():
         today=TODAY,
     )
     d.answers = [(f"p{i}", "x") for i in range(5)]
-    d = pipeline.evaluate(d, ACCOUNTS, (), memory)
+    d = pipeline.evaluate(d, ACCOUNTS, (), memory, period_open=None, pdf_repaired=None)
     assert d.outcome is not Outcome.VALID
     with pytest.raises(ValueError):
         pipeline.post(d, t)

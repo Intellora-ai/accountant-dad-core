@@ -423,14 +423,18 @@ def test_the_person_s_answer_resolves_the_conflict_and_the_entry_is_decided_agai
         memory,
         today=TODAY,
     )
-    draft = pipeline.evaluate(draft, accounts, history, memory)
+    draft = pipeline.evaluate(
+        draft, accounts, history, memory, period_open=None, pdf_repaired=None
+    )
     assert draft.outcome is Outcome.UNCLEAR
 
     draft = pipeline.answer(draft, REMEMBERED, pipeline.LIVE_HISTORY_DISAGREES)
     # Cleared, so re-entering the decision order is mandatory rather than polite.
     assert draft.decision is None
 
-    draft = pipeline.evaluate(draft, accounts, history, memory)
+    draft = pipeline.evaluate(
+        draft, accounts, history, memory, period_open=None, pdf_repaired=None
+    )
     assert draft.outcome is Outcome.VALID
     assert pipeline.next_question(draft) is None
     assert (draft.voucher.provenance or {})["debit_account"] == "human_answer"
@@ -456,9 +460,13 @@ def test_an_answer_to_a_conflict_is_information_and_never_authorisation() -> Non
         memory,
         today=TODAY,
     )
-    draft = pipeline.evaluate(draft, accounts, history, memory)
+    draft = pipeline.evaluate(
+        draft, accounts, history, memory, period_open=None, pdf_repaired=None
+    )
     draft = pipeline.answer(draft, "Not A Real Ledger", pipeline.LIVE_HISTORY_DISAGREES)
-    draft = pipeline.evaluate(draft, accounts, history, memory)
+    draft = pipeline.evaluate(
+        draft, accounts, history, memory, period_open=None, pdf_repaired=None
+    )
 
     assert draft.outcome is not Outcome.VALID
     assert "Not A Real Ledger" in draft.reason

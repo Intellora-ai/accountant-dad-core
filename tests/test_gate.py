@@ -710,27 +710,34 @@ def _imported_modules(path: pathlib.Path) -> set[str]:
     return names
 
 
-def test_the_gate_is_not_yet_on_the_live_pipeline_path_and_this_records_why() -> None:
-    """THE SEQUENCING, asserted structurally so nobody has to find it in prose.
+def test_the_gate_is_on_the_live_pipeline_path() -> None:
+    """CORRECTED 2026-08-13, AND THE ASSERTION IS INVERTED.
 
-    The gate needs an `Observation` with a confidence per field. No reader
-    produces one: `textlayer.py` and `freeocr.py` are Steps 13 and 14, and the
-    typed-text path in `accountant/extract/adapter.py` reports a source per
-    field and no score at all.
+    This test used to assert the opposite - that `pipeline.py` does NOT import
+    the gate - and it recorded, in its own docstring, what had to land first:
+    a reader producing per-field confidence, a source for `period_open`, and
+    inputs for the conservation laws. It said "when it does, this test is what
+    fails, and whoever wires it reads this before production does." It did, and
+    this is that reading.
 
-    Wired to `pipeline.run` today the gate does not ADD a guard, it SUBTRACTS a
-    working path: measured on this branch, 50 passing tests go red, because
-    `period_open` has no source anywhere in this repository, three of the four
-    conservation laws have no inputs, and every one of those is a hard block.
-    The path it would replace is already guarded by the eight checks in
-    `checks.py`, the write-ahead row, and a write door that refuses an
-    out-of-financial-year date with a plain sentence
-    (`accountant/tallyio/errors.py`).
+    The first two arrived. `ExtractedRecord` now carries a score per field and
+    `accountant/period.py` reads the period off the company's own Tally. The
+    THIRD DID NOT, and the correction would be dishonest without saying so:
+    `net_paise` still has no source, so `net_plus_tax_equals_gross` comes back
+    INDETERMINATE on every bill and the cage blocks every one of them.
 
-    `docs/OWNER_WORK.md` records what has to exist first. When it does, this
-    test is what fails, and whoever wires it reads this before production does.
+    Measured across this repository's whole suite on 2026-08-13, after wiring:
+    960 drafts reach the cage, it BLOCKS all 960, and 243 of them change
+    outcome - every single one from VALID to NOT_VALID, none in the other
+    direction. The old docstring's warning was right about the direction and
+    low about the size. `docs/OWNER_WORK.md` carries what closes it.
+
+    The assertion is kept and inverted rather than deleted, because the fact it
+    pins is still load-bearing in both directions: a pipeline that stopped
+    importing the gate would be a pipeline that had quietly dropped the cage,
+    and nothing else in this file would notice.
     """
-    assert "accountant.cage.gate" not in _imported_modules(ACCOUNTANT / "pipeline.py")
+    assert "accountant.cage.gate" in _imported_modules(ACCOUNTANT / "pipeline.py")
 
 
 # =============================================================================

@@ -54,15 +54,19 @@ from collections.abc import Sequence
 
 import pytest
 
+from accountant.cage.confidence import EXACT
 from accountant.cage.decision import AUTO_POST_ALLOWED_TIERS
 from accountant.cage.gate import _tiers  # pyright: ignore[reportPrivateUsage]
-from accountant.extract.adapter import NOT_FOUND
+from accountant.extract.adapter import NOT_FOUND, ExtractedRecord
 from accountant.extract.freeocr import FreeReader
+from accountant.extract.labels import DATE_LABEL
 from accountant.extract.ladder import (
+    BILL_LABELS,
     FELL_THROUGH_EVENT,
     NOTHING_IN_IT,
     SHORTEST_REAL_TEXT_LAYER,
     Ladder,
+    _preferring_the_characters,  # pyright: ignore[reportPrivateUsage]
     looks_scanned,
 )
 from accountant.extract.textlayer import (
@@ -287,8 +291,9 @@ def test_the_control_the_router_answers_exactly_what_the_rung_alone_answers() ->
 # and they are written either side of it so that changing it fails loudly.
 
 
-def test_a_text_layer_one_character_short_of_the_owners_number_is_called_a_scan(
-) -> None:
+def test_a_text_layer_one_character_short_of_the_owners_number_is_called_a_scan() -> (
+    None
+):
     """The boundary, from below."""
     thin = pdf_bytes(("TOTAL 4.00",))
     reading = read(thin)
@@ -308,8 +313,7 @@ def test_a_text_layer_at_the_owners_number_is_not_called_a_scan() -> None:
     assert not looks_scanned(reading)
 
 
-def test_a_pdf_with_text_and_no_bill_label_is_read_by_both_and_loses_nothing(
-) -> None:
+def test_a_pdf_with_text_and_no_bill_label_is_read_by_both_and_loses_nothing() -> None:
     """THE OWNER'S THIRD CONDITION, and the case that pays for the merge.
 
     MEASURED on `data/real_invoices/`: 25 of the 77 PDFs carry a text layer and
@@ -508,3 +512,155 @@ def test_the_log_line_carries_no_document_bytes_and_no_read_text() -> None:
     assert "\x00" not in line
     assert "\xff" not in line
     assert line.endswith(tuple("0123456789"))
+
+
+# =============================================================================
+# THE MERGE ITSELF, 2026-08-15
+# =============================================================================
+#
+# `_preferring_the_characters` had NO TEST AT ALL. A read-only audit found two
+# defects in it on the same morning, and both had shipped: one of them undid a
+# fix landed four hours earlier in the same package. A function on the live path
+# that nothing tests is a function that is correct by luck.
+
+
+def _record(
+    *,
+    backend: str,
+    net_paise: int | None = None,
+    read: bool = True,
+    confidence: float | None = None,
+    **fields: object,
+) -> ExtractedRecord:
+    """A record shaped the way a rung really builds one.
+
+    Every name in `FIELDS` gets a source, because `__post_init__` raises
+    otherwise - which is exactly the invariant that makes the merge's
+    `.get(name, stated)` fallback unreachable.
+    """
+    said = backend if read else f"{NOT_FOUND}: nothing was read"
+    scored = EXACT if confidence is None else confidence
+    return ExtractedRecord(
+        date=fields.get("date"),  # pyright: ignore[reportArgumentType]
+        party=fields.get("party"),  # pyright: ignore[reportArgumentType]
+        total_paise=fields.get("total_paise"),  # pyright: ignore[reportArgumentType]
+        tax_paise=fields.get("tax_paise"),  # pyright: ignore[reportArgumentType]
+        net_paise=net_paise,
+        backend=backend,
+        per_field_source=dict.fromkeys(ExtractedRecord.FIELDS, said),
+        per_field_confidence=dict.fromkeys(ExtractedRecord.FIELDS, scored),
+    )
+
+
+def test_the_net_survives_the_merge() -> None:
+    """THE DEFECT. `net_paise` reached `ExtractedRecord`, `record_of` and
+    `FreeReader.extract` on 2026-08-15, and this function silently undid it the
+    same morning - the record it rebuilds simply did not name the field, so it
+    defaulted to None.
+
+    Every scanned PDF that fell through here therefore arrived at the cage with
+    no net, and `conservation.net_plus_tax_equals_gross` answered INDETERMINATE
+    on exactly the documents the fall-through exists to rescue."""
+    characters = _record(backend="pdf_text_layer", net_paise=48_000, party="SHARMA")
+    picture = _record(backend="free_ocr", read=False, confidence=0.0)
+
+    merged = _preferring_the_characters(characters, picture)
+
+    assert merged.net_paise == 48_000
+
+
+def test_the_net_falls_through_to_the_picture_when_the_characters_have_none() -> None:
+    """The same preference the four named fields get: characters first, picture
+    only where the characters read nothing."""
+    characters = _record(backend="pdf_text_layer", net_paise=None, read=False)
+    picture = _record(backend="free_ocr", net_paise=12_345, confidence=0.4)
+
+    assert _preferring_the_characters(characters, picture).net_paise == 12_345
+
+
+def test_a_stated_zero_confidence_is_never_promoted_to_exact() -> None:
+    """THE FAIL-OPEN DEFAULT, and it sat on the only tier allowed to auto-post.
+
+    The line read `characters.confidence_of(name) or EXACT`. `or` treats a
+    stated 0.0 as absent and hands back 1.0 - the score that clears
+    `AUTO_POST_FLOOR`. No reader produces a 0.0 on a read field today, so it was
+    unreachable; a default that is safe only because nothing exercises it is a
+    trap set for whoever writes the next reader."""
+    characters = _record(backend="pdf_text_layer", total_paise=100, confidence=0.0)
+    picture = _record(backend="free_ocr", read=False, confidence=0.0)
+
+    merged = _preferring_the_characters(characters, picture)
+
+    assert merged.per_field_confidence["total_paise"] == 0.0
+    assert merged.per_field_confidence["total_paise"] != EXACT
+
+
+def test_the_merge_never_claims_the_text_layer_for_a_field_the_picture_read() -> None:
+    """THE CONTROL THAT MATTERS MOST. `AUTO_POST_ALLOWED_TIERS` is
+    {pdf_text_layer, typed_text} and the cage reads `per_field_source`, so a
+    merged field wrongly stamped `pdf_text_layer` would be a photograph posting
+    itself without anybody looking."""
+    characters = _record(backend="pdf_text_layer", party="SHARMA")
+    picture = _record(backend="free_ocr", total_paise=56_640, confidence=0.4)
+
+    merged = _preferring_the_characters(characters, picture)
+
+    assert merged.per_field_source["party"] == "pdf_text_layer"
+    assert merged.per_field_source["total_paise"] == "free_ocr"
+
+
+# =============================================================================
+# THE LADDER RECEIVES LABELS, NOT LETTERS
+# =============================================================================
+#
+# `BILL_LABELS` is built by SPREADING `labels.DATE_LABEL` with `*`, and
+# `looks_scanned` uses it as a plain substring test:
+#
+#     return not any(label in printed for label in BILL_LABELS)
+#
+# That combination is why the shape of `DATE_LABEL` is a routing decision and
+# not a typing preference. It was a bare string until 2026-08-15; `*"DATE"`
+# spreads to `'D', 'A', 'T', 'E'`, raises nothing, and every one of those is a
+# substring of almost any English page. MEASURED on one line of ordinary prose:
+#
+#     'SHIPPING NOTE FOR RAO TRADERS, ELEVEN CARTONS DELIVERED'
+#         real BILL_LABELS      -> []            correctly: not a bill
+#         with the letters      -> ['D','A','T','E']
+#
+# So the regression does not fire a wrong label occasionally. It makes
+# `looks_scanned` answer False for EVERY PDF carrying twenty characters of any
+# text at all, the scanned rung stops being reached, and the whole
+# picture-of-a-bill path goes quiet without one test failing or one line logged.
+# A silent routing death is worse than a crash, which is why this is asserted
+# on the constant rather than left to the type checker.
+
+
+def test_bill_labels_is_built_from_whole_labels_and_never_single_characters() -> None:
+    """THE GUARD ON THE SPREAD. Every entry must be a word. A one-character
+    entry here means `DATE_LABEL` went back to being a string and `*` unpacked
+    it into letters."""
+    assert BILL_LABELS, "an empty vocabulary calls every PDF a scan"
+    for label in BILL_LABELS:
+        assert len(label) > 1, (
+            f"{label!r} is a single character. `BILL_LABELS` is used as a "
+            "substring test, so this entry matches nearly every page and stops "
+            "`looks_scanned` from ever routing to the picture rung."
+        )
+
+
+def test_the_whole_date_family_reached_the_ladder_and_not_its_letters() -> None:
+    """The spread carried the LABELS. `DATE` and its four longer spellings are
+    each present as words, and none of the letters of `DATE` is present as an
+    entry of its own."""
+    for label in DATE_LABEL:
+        assert label in BILL_LABELS, label
+    assert not set("DATE") & set(BILL_LABELS)
+
+
+def test_ordinary_prose_is_still_not_mistaken_for_a_bill() -> None:
+    """THE CONTROL, stated as behaviour rather than as a shape. A delivery note
+    prints none of this vocabulary, so nothing in `BILL_LABELS` may match it. If
+    the letters ever get in, this is the line that catches it."""
+    prose = "SHIPPING NOTE FOR RAO TRADERS, ELEVEN CARTONS DELIVERED"
+
+    assert [label for label in BILL_LABELS if label in prose] == []

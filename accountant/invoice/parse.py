@@ -151,6 +151,13 @@ class Reading:
     words: tuple[tuple[Word, ...], ...]
     source: str
     stated_confidence: float | None
+    #: The characters EXACTLY as the reader returned them, trailing newline and
+    #: all. A stored field and not a join of `lines`, because `splitlines`
+    #: followed by `"\n".join` silently drops a trailing newline - which is a
+    #: quiet edit to the one piece of evidence a dispute months from now would
+    #: rest on. A test caught it comparing a batch report against the reading it
+    #: was built from.
+    text: str = ""
 
     def __post_init__(self) -> None:
         if not self.source.strip():
@@ -186,23 +193,21 @@ class Reading:
             words=(),
             source=source,
             stated_confidence=confidence,
+            text=text,
         )
 
     @classmethod
     def from_words(cls, lines: Sequence[Sequence[Word]], *, source: str) -> Reading:
         """A reading rebuilt from a word list. One space between words."""
         rows = tuple(tuple(line) for line in lines)
+        rebuilt = tuple(BETWEEN_WORDS.join(w.text for w in row) for row in rows)
         return cls(
-            lines=tuple(BETWEEN_WORDS.join(w.text for w in row) for row in rows),
+            lines=rebuilt,
             words=rows,
             source=source,
             stated_confidence=None,
+            text="\n".join(rebuilt),
         )
-
-    @property
-    def text(self) -> str:
-        """The whole document as one string, for anything that wants it whole."""
-        return "\n".join(self.lines)
 
     def words_under(self, where: Where) -> tuple[Word, ...]:
         """The words whose characters overlap `[start, end)` on that line.
@@ -912,7 +917,7 @@ def _row_cells(line: str, index: int, header: Header) -> tuple[Cell, ...] | None
 _CONVERT: Final[dict[Column, object]] = {}
 
 
-def _cell_value(column: Column, printed: str) -> object:
+def cell_value(column: Column, printed: str) -> object:
     """One cell's characters as the value that column holds, or None.
 
     A plain `if` ladder and not a table of functions, because pyright can see
@@ -934,7 +939,7 @@ def _cell_value(column: Column, printed: str) -> object:
 
 
 def _cell_field(reading: Reading, cell: Cell) -> ReadField:
-    value = _cell_value(cell.column, cell.printed)
+    value = cell_value(cell.column, cell.printed)
     if value is None:
         return unread(reading.source)
     return read_as(

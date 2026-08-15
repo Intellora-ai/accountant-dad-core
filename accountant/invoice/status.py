@@ -164,9 +164,14 @@ SAID: Final[Mapping[DocumentStatus, str]] = {
         "something was read from this file but it is not words. It is most "
         "likely a photograph of something that is not a page."
     ),
+    #: "Nothing a bill prints" and not "None of the things a bill prints",
+    #: which is what this said first. Both read the same to a person; only one
+    #: of them passes a guard that refuses the code word `None` in a sentence a
+    #: person sees, and a guard that has to make an exception for a sentence is
+    #: a guard somebody will make the next exception to.
     DocumentStatus.NON_INVOICE: (
-        "this was read fine, and it is not a bill. None of the things a bill "
-        "prints is on it."
+        "this was read fine, and it is not a bill. Nothing a bill prints is "
+        "anywhere on it."
     ),
     DocumentStatus.UNKNOWN_DOCUMENT: (
         "this was read fine and we cannot tell what it is. Nothing on it looks "

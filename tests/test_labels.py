@@ -66,6 +66,7 @@ from accountant.cage.confidence import EXACT
 from accountant.extract.adapter import NOT_FOUND, ExtractedRecord
 from accountant.extract.freeocr import FreeReader
 from accountant.extract.labels import (
+    DATE_LABEL,
     PARTY_LABELS,
     TAX_WHOLE,
     TOTAL_LABELS,
@@ -420,3 +421,149 @@ def test_a_total_row_of_a_table_is_refused_rather_than_guessed() -> None:
     prevent. A refusal here is the correct answer and must stay one."""
     assert amounts_for(("Total 1 278.61 40.39 319.00",), TOTAL_LABELS) == ()
     assert amounts_for(("Grand Total",), TOTAL_LABELS) == ()
+
+
+# =============================================================================
+# DATE_LABEL IS A FAMILY NOW, AND A STRING IS ALSO A FAMILY OF ITS LETTERS
+# =============================================================================
+#
+# `DATE_LABEL` was a bare string until 2026-08-15 and is now a tuple, so a bill
+# printing `Invoice Date:` is read the same way as one printing `Date:`. Every
+# other label constant in this file was already a tuple; the date was the odd
+# one out.
+#
+# THE HAZARD IS NARROW AND IT IS MEASURED, NOT IMAGINED. Three call sites
+# (`ladder.BILL_LABELS`, `pagereader.read_page`, `textlayer._read_date`) hand
+# this constant to something that wants an ITERABLE OF LABELS. A string is one -
+# of characters - so a regression to `DATE_LABEL = "DATE"` raises nowhere. It
+# silently becomes the four labels `D`, `A`, `T`, `E`.
+#
+# What that actually costs, measured rather than assumed. The separator rule
+# already refuses a letter after a label, so `D` does NOT match every line:
+#
+#     values_for(('Delivered to Rao Traders',), ('D',))   -> ()      both tiers
+#     values_for(('D: 28/01/26',),              ('D',))   -> '28/01/26'
+#     values_for(('Rao D. Traders 500',),       ('D',))   -> 'Traders 500'
+#                                                            PHOTOGRAPH tier only
+#
+# The third line is the damage: a middle initial in a supplier's name reads a
+# company as a date. Narrower than "matches everything", and still a wrong read
+# produced from a page that said nothing of the kind.
+#
+# WHAT THE WIDENING BUYS TODAY: NOTHING, AND THAT IS NOT THE VOCABULARY'S FAULT.
+# All four new spellings find their value and then lose it one layer down -
+# `looks_like_a_date` is ISO-only, so every `01/04/2026` it is handed comes back
+# refused as ambiguous. Measured through `textlayer._read_date`, all four:
+#
+#     'Invoice Date: 01/04/2026' -> (None, "...is ambiguous (could be 1 April
+#                                    or 4 January)...")
+#
+# So these labels are correct and currently inert. That is worth writing down
+# rather than discovering later as a surprise: the date family is not what is
+# holding dates back, and widening it further will not move the number.
+
+
+def test_date_label_is_a_tuple_of_whole_labels_and_never_a_bare_string() -> None:
+    """THE GUARD. A string satisfies every `Iterable[str]` annotation in this
+    package and then behaves as its own characters, so the container is the
+    thing to assert - not just the contents."""
+    assert isinstance(DATE_LABEL, tuple)
+    assert not isinstance(DATE_LABEL, str)
+    assert DATE_LABEL, "an empty family matches nothing and reads no dates"
+    for label in DATE_LABEL:
+        assert isinstance(label, str)
+        assert len(label) > 1, (
+            f"{label!r} is one character. Either a real single-letter label was "
+            "added, or DATE_LABEL became a string again and this is one of its "
+            "letters."
+        )
+
+
+def test_the_date_label_that_shipped_before_the_family_still_reads() -> None:
+    """COMPATIBILITY, in the direction that matters. `DATE` is what the
+    text-layer tier has matched since the beginning and what its 14/20 on the
+    corpus PDFs is made of. Widening a vocabulary must never narrow it."""
+    assert "DATE" in DATE_LABEL
+    found = values_for(
+        ("Date : 28/01/26",), DATE_LABEL, printing=Printing.EXACT_CHARACTERS
+    )
+    assert [one.printed for one in found] == ["28/01/26"]
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        ("Invoice Date: 01/04/2026", "01/04/2026"),
+        ("Bill Date: 01/04/2026", "01/04/2026"),
+        ("Dated: 01/04/2026", "01/04/2026"),
+        ("Supply Date: 01/04/2026", "01/04/2026"),
+    ],
+)
+def test_each_spelling_the_family_was_widened_for_locates_its_value(
+    line: str, expected: str
+) -> None:
+    """Each of the four that joined `DATE` finds the figure. This is a
+    vocabulary test and NOT a claim that the date is then read - see the test
+    below, which is the one that says what this actually buys."""
+    found = values_for((line,), DATE_LABEL, printing=Printing.EXACT_CHARACTERS)
+    assert expected in [one.printed for one in found]
+
+
+def test_a_longer_spelling_matches_twice_and_the_reader_survives_it() -> None:
+    """`Invoice Date:` matches BOTH `DATE` and `INVOICE DATE`, so the same
+    figure is located twice. MEASURED, and worth pinning: `the_one` treats two
+    copies of one value as one answer rather than as a contradiction. If that
+    ever changes, every long date spelling starts refusing itself."""
+    found = values_for(
+        ("Invoice Date: 01/04/2026",), DATE_LABEL, printing=Printing.EXACT_CHARACTERS
+    )
+    assert [one.printed for one in found] == ["01/04/2026", "01/04/2026"]
+
+
+def test_the_widened_family_buys_no_extra_dates_until_the_parser_changes() -> None:
+    """WHAT IT IS WORTH TODAY, WRITTEN DOWN SO NOBODY CLAIMS OTHERWISE.
+
+    Every spelling above locates its value and then loses it: `looks_like_a_date`
+    reads ISO only, so `01/04/2026` - the form every Indian bill prints - comes
+    back refused as ambiguous. The labels are correct and currently inert.
+
+    This test asserts the CURRENT rule, not a desirable one. The day the owner
+    rules on DD/MM/YYYY it is expected to fail, and that failure is the reminder
+    to re-measure the date count rather than assume it moved.
+    """
+    from accountant.extract.textlayer import (
+        _read_date,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    for line in (
+        "Invoice Date: 01/04/2026",
+        "Bill Date: 01/04/2026",
+        "Dated: 01/04/2026",
+        "Supply Date: 01/04/2026",
+    ):
+        read, why = _read_date((line,))
+        assert read is None, line
+        assert "ambiguous" in why, why
+
+
+def test_the_control_a_single_letter_label_reads_a_name_as_a_value() -> None:
+    """THE CONTROL, and the reason the type test above is not ceremony.
+
+    If `DATE_LABEL` ever unpacks to characters, `D` becomes a label. MEASURED:
+    it does not match everything, because a letter may not be a separator - but
+    on the photograph tier a middle initial IS a separator, and a supplier
+    called `Rao D. Traders` reads as a date of `Traders 500`.
+
+    Both halves are asserted, so the control cannot go vacuous: the letters are
+    absent from the family AND a letter label demonstrably reads something.
+    """
+    for letter in ("D", "A", "T", "E"):
+        assert letter not in DATE_LABEL
+
+    damage = values_for(
+        ("Rao D. Traders 500",), ("D",), printing=Printing.READ_OFF_A_PHOTOGRAPH
+    )
+    assert [one.printed for one in damage] == ["Traders 500"], (
+        "the control is vacuous: a single-letter label now reads nothing, so "
+        "the assertions above no longer guard anything"
+    )

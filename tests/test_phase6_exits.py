@@ -1034,6 +1034,8 @@ def test_a_detector_this_package_does_not_know_becomes_a_refusal_not_a_question(
         tally.read_vouchers(app.COMPANY),
         memory,
         detector_set=(meteor_strike,),
+        period_open=None,
+        pdf_repaired=None,
     )
 
     assert draft.outcome is Outcome.NOT_VALID
@@ -1102,6 +1104,8 @@ def test_a_detector_that_returns_something_that_is_not_a_flag_fails_closed():
             tally.read_vouchers(app.COMPANY),
             memory,
             detector_set=(malformed,),
+            period_open=None,
+            pdf_repaired=None,
         )
 
     assert draft.decision is None
@@ -1191,7 +1195,12 @@ def test_the_detector_can_never_read_another_companys_history():
     )
     with pytest.raises(ValueError, match="company-scoped memory is never shared"):
         pipeline.evaluate(
-            draft, a.read_accounts(app.COMPANY), a.read_vouchers(app.COMPANY), memory_b
+            draft,
+            a.read_accounts(app.COMPANY),
+            a.read_vouchers(app.COMPANY),
+            memory_b,
+            period_open=None,
+            pdf_repaired=None,
         )
 
 
@@ -1218,7 +1227,9 @@ def test_an_entry_that_is_not_valid_still_shows_its_flag_and_still_posts_nothing
     )
     draft = pipeline.answer(draft, "Purchases", problem_id="accounts_differ")
     draft.voucher = replace(draft.voucher, amount_paise=4200.5)  # type: ignore[arg-type]
-    draft = pipeline.evaluate(draft, accounts, history, memory)
+    draft = pipeline.evaluate(
+        draft, accounts, history, memory, period_open=None, pdf_repaired=None
+    )
 
     assert [f.detector for f in draft.flags] == ["vendor_switch"]
     assert draft.outcome is Outcome.NOT_VALID

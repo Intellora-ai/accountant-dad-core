@@ -526,7 +526,14 @@ def test_an_accented_vendor_name_decides_one_way_in_nfc_and_nfd() -> None:
         # See the note at the end of this test.
         pipeline.answer(draft, "Purchases")
         pipeline.answer(draft, "Cash", problem_id=pipeline.FUNDING_PROBLEM)
-        pipeline.evaluate(draft, ACCOUNTS, t.read_vouchers(COMPANY), memory)
+        pipeline.evaluate(
+            draft,
+            ACCOUNTS,
+            t.read_vouchers(COMPANY),
+            memory,
+            period_open=None,
+            pdf_repaired=None,
+        )
 
         assert draft.voucher.debit_account == "Purchases", label
         assert draft.voucher.credit_account == "Cash", label
@@ -1104,7 +1111,14 @@ def test_memory_belonging_to_another_company_is_refused_and_writes_nothing() -> 
         today=TODAY,
     )
     with pytest.raises(ValueError, match=COMPANY) as eval_error:
-        pipeline.evaluate(good, ACCOUNTS, t.read_vouchers(OTHER_COMPANY), mem_ours)
+        pipeline.evaluate(
+            good,
+            ACCOUNTS,
+            t.read_vouchers(OTHER_COMPANY),
+            mem_ours,
+            period_open=None,
+            pdf_repaired=None,
+        )
     assert "company-scoped memory is never shared" in str(eval_error.value)
 
     # the draft never reached a decision, so no question and no post

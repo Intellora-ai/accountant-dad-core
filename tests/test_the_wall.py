@@ -518,27 +518,22 @@ def modules_importing(package: str) -> dict[str, list[str]]:
     return found
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "MEASURED 2026-08-15 at 5d76087: NOTHING outside accountant/cage/ "
-        "imports `decision` or `gate`. The cage is complete, has its own tests, "
-        "and is called by no shipping module - so 4546 passing tests prove it "
-        "WORKS and prove nothing about whether it RUNS. "
-        "STRICT ON PURPOSE: the day somebody wires the cage this test starts "
-        "passing, strict xfail turns that into a FAILURE, and removing this "
-        "marker is what forces the wiring to be noticed rather than assumed. "
-        "It is not wired today because doing so makes the live path post "
-        "NOTHING - 280 VALID drafts all become NOT_VALID on four independent "
-        "blocks - and that is an owner decision, not a bug."
-    ),
-)
 def test_something_on_the_shipping_path_actually_calls_the_cage() -> None:
     """THE THIRD INSTANCE OF J1, pinned so it cannot be forgotten again.
 
     A guard that nothing calls is not a guard, it is a library. This test is the
     difference between the two, and it is the check the approved plan asked for:
-    "every runtime guard gets a paired AST guard proving the call site exists"."""
+    "every runtime guard gets a paired AST guard proving the call site exists".
+
+    WIRED 2026-08-15, in the commit subject-lined "pipeline: the cage was
+    complete, tested, and called by nothing that ships". Until then this test
+    carried `@pytest.mark.xfail(strict=True)`, because nothing outside
+    `accountant/cage/` imported `decision` or `gate` and 4546 passing tests
+    proved the cage WORKS while proving nothing about whether it RUNS. Strict
+    was the point: wiring the cage turned the xfail into an unexpected pass,
+    which is a FAILURE, so the marker could not be left behind unnoticed.
+    `accountant/pipeline.py` now imports both and `evaluate` calls `gate` on
+    every draft, so the marker is gone and the assertion below is live."""
     importers = modules_importing("cage.decision") | modules_importing("cage.gate")
 
     assert importers, (

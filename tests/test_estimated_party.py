@@ -364,6 +364,19 @@ def test_the_person_is_asked_who_it_was_rather_than_told_a_guess() -> None:
     `checks.party_is_named` fails on the blank leg, `problems.QUESTION_FOR`
     already maps that check to `questions.who_was_it`, and the person reads the
     sentence that question has always carried.
+
+    ASSERTED OVER EVERY QUESTION AND NOT OVER THE FIRST ONE, CHANGED
+    2026-08-15. `_record` estimates the TOTAL as well as the party - both carry
+    `free_ocr` - and the amount guard landed the same day zeroes an estimated
+    total. So `checks.amount_is_positive` now fails too, it sits ahead of
+    `party_is_named` in `ALL_CHECKS`, and `next_question` - which returns the
+    FIRST answerable problem - returns "How much did you pay them?".
+
+    That is the amount guard working and it is not what this file is about. The
+    claim here is that an estimated NAME reaches the existing question instead
+    of becoming an identity, and that claim is about the MAPPING. Pinning it to
+    the first question made this test sensitive to every check that ever fails
+    earlier, which is a test that breaks on unrelated correct changes.
     """
     draft = _draft(_record(MISREAD, source="free_ocr", confidence=OCR_SCORE), _memory())
 
@@ -371,12 +384,15 @@ def test_the_person_is_asked_who_it_was_rather_than_told_a_guess() -> None:
 
     from accountant.pipeline import evaluate
 
-    evaluate(draft, ACCOUNTS, (), _memory())
-    asked = next_question(draft)
+    evaluate(draft, ACCOUNTS, (), _memory(), period_open=None, pdf_repaired=None)
 
-    assert asked is not None
-    assert asked.text == who_was_it().text
-    assert asked.problem_id == "party_is_named"
+    assert next_question(draft) is not None, "the person is asked something"
+
+    asked = [p.question for p in draft.problems if p.answerable and p.question]
+
+    party = [q for q in asked if q.problem_id == "party_is_named"]
+    assert party, [q.problem_id for q in asked]
+    assert party[0].text == who_was_it().text
 
 
 def test_the_sentence_on_the_leg_names_the_tier_that_guessed() -> None:

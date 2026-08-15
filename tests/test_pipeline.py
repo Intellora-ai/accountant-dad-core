@@ -240,12 +240,16 @@ def test_answering_then_re_evaluating_posts():
         memory,
         today=TODAY,
     )
-    d = pipeline.evaluate(d, accounts, history, memory)
+    d = pipeline.evaluate(
+        d, accounts, history, memory, period_open=None, pdf_repaired=None
+    )
     assert d.outcome is Outcome.UNCLEAR
 
     d = pipeline.answer(d, "Purchases")
     memory.record_correction("Verma Cement", "Purchases")
-    d = pipeline.evaluate(d, accounts, history, memory)
+    d = pipeline.evaluate(
+        d, accounts, history, memory, period_open=None, pdf_repaired=None
+    )
 
     # Verma Cement is new to this company, so its funding leg is unknown too.
     # Until 2026-08-09 it was filled in by `_default_credit` with the string
@@ -255,7 +259,9 @@ def test_answering_then_re_evaluating_posts():
     assert q is not None and q.problem_id == pipeline.FUNDING_PROBLEM
 
     d = pipeline.answer(d, "Cash", problem_id=q.problem_id)
-    d = pipeline.evaluate(d, accounts, history, memory)
+    d = pipeline.evaluate(
+        d, accounts, history, memory, period_open=None, pdf_repaired=None
+    )
 
     assert d.outcome is Outcome.VALID
     assert (d.voucher.debit_account, d.voucher.credit_account) == ("Purchases", "Cash")
@@ -281,7 +287,9 @@ def test_an_answer_is_not_permission_to_post():
     )
     d = pipeline.answer(d, "Not A Real Ledger")
     memory.record_correction("Verma Cement", "Not A Real Ledger")
-    d = pipeline.evaluate(d, accounts, history, memory)
+    d = pipeline.evaluate(
+        d, accounts, history, memory, period_open=None, pdf_repaired=None
+    )
 
     assert d.outcome is not Outcome.VALID
     assert "Not A Real Ledger" in d.reason
@@ -317,7 +325,7 @@ def test_posting_a_not_valid_draft_is_refused():
         memory,
         today=TODAY,
     )
-    d = pipeline.evaluate(d, accounts, (), memory)
+    d = pipeline.evaluate(d, accounts, (), memory, period_open=None, pdf_repaired=None)
     assert d.outcome is not Outcome.VALID
     with pytest.raises(ValueError):
         pipeline.post(d, t)
@@ -345,7 +353,9 @@ def test_an_unclear_draft_is_refused_and_leaves_the_books_byte_identical():
         memory,
         today=TODAY,
     )
-    d = pipeline.evaluate(d, accounts, history, memory)
+    d = pipeline.evaluate(
+        d, accounts, history, memory, period_open=None, pdf_repaired=None
+    )
     assert d.outcome is Outcome.UNCLEAR
 
     before_ours = t.list_our_vouchers(COMPANY)
@@ -455,7 +465,9 @@ def test_a_write_that_cannot_be_read_back_raises_and_never_records_a_tally_id():
         memory,
         today=TODAY,
     )
-    d = pipeline.evaluate(d, accounts, history, memory)
+    d = pipeline.evaluate(
+        d, accounts, history, memory, period_open=None, pdf_repaired=None
+    )
     assert d.outcome is Outcome.VALID  # the Valid gate is not what stops this one
 
     blind = LosesTheWriteTally(t)
@@ -486,7 +498,9 @@ def test_vendor_switch_asks_instead_of_posting_and_names_the_evidence():
         today=TODAY,
     )
     d = pipeline.answer(d, "Sundry Expenses")  # the accountant slipped
-    d = pipeline.evaluate(d, accounts, tuple(hist), memory)
+    d = pipeline.evaluate(
+        d, accounts, tuple(hist), memory, period_open=None, pdf_repaired=None
+    )
 
     assert d.outcome is Outcome.UNCLEAR  # asks, never refuses
     assert d.posted_tally_id is None
