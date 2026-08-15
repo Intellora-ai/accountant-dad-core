@@ -329,6 +329,54 @@ def _line_paise(record: ExtractedRecord) -> tuple[int, ...] | None:
     return tuple(amount for amount in amounts if amount is not None)
 
 
+def _lines_add_up_to(
+    *, net: int | None, tax: int | None, gross: int | None
+) -> int | None:
+    """The figure the line items are supposed to equal. `None` when nobody knows.
+
+    THE DEFECT THIS REPLACES, AND IT WAS ARITHMETIC RATHER THAN A THRESHOLD.
+    `conservation.run` was called with `total_paise=amount`, where `amount` is
+    the GROSS. Line items on a GST bill are PRE-TAX, so the law was comparing a
+    net sum against a gross total and calling the difference an error. On the
+    ordinary Indian bill that difference is exactly the tax.
+
+    MEASURED 2026-08-15 on `tests/test_textlayer.py::BILL`, read end to end
+    through `TextLayerReader.extract`, which is the tier allowed to auto-post:
+
+        item rows      1,000.00 + 46.24  =  1,046.24
+        SUBTOTAL                            1,046.24   <- what they must equal
+        GST                                   188.32
+        TOTAL                               1,234.56   <- what they were checked against
+
+    The rows summed to the net EXACTLY and the law reported them short by 18832
+    paise - the tax, to the paisa. A bill whose arithmetic was perfect failed,
+    and the sentence a person read named a discrepancy that was not on the paper.
+
+    THE THREE ANSWERS, AND THE THIRD IS THE ONE THAT MATTERS:
+
+        net was read        compare against the NET. This is the real law.
+        net unread, tax 0   net EQUALS gross when there is no tax, so the gross
+                            is the right comparand and nothing is assumed. This
+                            is a READ zero - `seen.tax_paise.value` is `None`
+                            when the field was never read, and this branch
+                            requires the integer 0.
+        anything else       `None`, which `lines_sum_to_total` turns into
+                            INDETERMINATE, which BLOCKS.
+
+    The third is deliberately not clever. A net could be inferred as gross minus
+    tax, and that inference is exactly what this module's own docstring forbids:
+    a number derived from the law's own inputs is checked against itself and
+    passes for ever. So an unread net on a taxed bill is refused and a person
+    opens it - the direction the owner's exchange rate points, 100 false blocks
+    against 1 silent wrong post.
+    """
+    if net is not None:
+        return net
+    if tax == 0:
+        return gross
+    return None
+
+
 def observed(draft: Draft) -> Observation:
     """What this draft's reader says the bill says. Inert, and postable by nobody.
 
@@ -403,6 +451,8 @@ def gate(
     """
     seen = observed(draft)
     amount = _paise(seen.total_paise.value)
+    tax = _paise(seen.tax_paise.value)
+    net = _paise(net_paise)
     laws = conservation.run(
         # One amount, both sides. See the module docstring: this law is
         # satisfied by construction for a one-amount voucher, and it is here so
@@ -410,11 +460,14 @@ def gate(
         debit_paise=amount,
         credit_paise=amount,
         line_paise=seen.line_paise,
-        total_paise=amount,
+        # THE NET, NOT THE GROSS. See `_lines_add_up_to`: the rows are pre-tax,
+        # so measuring them against `amount` reported every correct GST bill as
+        # short by exactly its tax.
+        total_paise=_lines_add_up_to(net=net, tax=tax, gross=amount),
         # Never `amount - tax`. A number derived from the law's own inputs
         # checks itself and passes for ever.
-        net_paise=_paise(net_paise),
-        tax_paise=_paise(seen.tax_paise.value),
+        net_paise=net,
+        tax_paise=tax,
         gross_paise=amount,
         balance_before_paise=_paise(balance_before_paise),
         balance_after_paise=_paise(balance_after_paise),

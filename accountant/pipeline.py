@@ -806,6 +806,27 @@ def evaluate(
             # the reader says it mended the bytes.
             period_open=period_open,
             pdf_repaired=pdf_repaired,
+            # THE NET, HANDED OVER. Added 2026-08-15, and its absence was not a
+            # missing feature - it was evidence that had been read, carried the
+            # whole way here, and then dropped one line short of the check that
+            # needed it.
+            #
+            # MEASURED before this line existed: of 956 blocks, 955 cited "there
+            # is something on this bill I could not check at all". That sentence
+            # is `net_plus_tax_equals_gross` returning INDETERMINATE, and it
+            # returned INDETERMINATE because `net_paise` took its default of
+            # `None` here while `draft.record.net_paise` held the figure the
+            # reader had already found. Measured on the text-layer bill in
+            # `tests/test_textlayer.py`: the record carried 104624 and the law
+            # said "the net amount was not read".
+            #
+            # `record` AND NOT A DERIVATION. `gate.gate`'s docstring is explicit
+            # that the net is a parameter and is never worked out as total minus
+            # tax: a number derived from the law's own inputs is checked against
+            # itself and passes for ever. So this is the READ figure or nothing,
+            # and nothing still blocks - the correct direction for a bill whose
+            # pre-tax figure genuinely was not printed on it.
+            net_paise=draft.record.net_paise,
         ),
     )
     return draft
