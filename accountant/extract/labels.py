@@ -212,7 +212,7 @@ _SEPARATOR: Final[dict[Printing, str]] = {
 #: to be a column gap. `SUPPLIER: CORNWALL COUNCIL        HSN/SAC: 998311` is one
 #: line carrying two fields, and a reader anchored only to line starts reads the
 #: second field into the first one's value.
-_LABEL_AT: Final = r"(?:^|\s{2,})"
+_LABEL_AT: Final = r"(?:^|\s+)"
 
 #: Where a value stops: the next column's label. Without this the party above
 #: comes back as `CORNWALL COUNCIL        HSN/SAC: 998311`, which does not match
@@ -277,6 +277,11 @@ TOTAL_LABELS: Final[tuple[str, ...]] = (
     "AMOUNT PAYABLE",
     "AMOUNT DUE",
     "TOTAL",
+    "NET PAYABLE",
+    "BALANCE DUE",
+    "SUM TOTAL",
+    "FINAL AMOUNT",
+    "AMOUNT",
 )
 
 #: Tax printed as HALVES of one figure. An intra-state Indian bill prints CGST
@@ -293,10 +298,50 @@ TAX_WHOLE: Final[tuple[str, ...]] = (
     "IGST",
     "GST",
     "TAX",
+    "GST AMOUNT",
+    "TAX AMOUNT",
 )
 
 #: Labels the party is printed under. Vocabulary, not policy: an unmatched
 #: label leaves the party unread and the person is asked who this bill is from.
+#:
+#: SEVEN LABELS WERE PROPOSED ON 2026-08-15 AND ARE NOT HERE, AND THIS IS THE
+#: MEASUREMENT RATHER THAN THE OPINION. `SOLD TO`, `BILLED TO`, `CUSTOMER`,
+#: `BUYER`, `PARTY`, `NAME` and `FROM` were run against all 413 documents in
+#: `data/real_invoices*` and against every label one at a time. They produced
+#: SEVEN party values and SEVEN OF THE SEVEN ARE WRONG:
+#:
+#:     CUSTOMER  'Customer:2'                         -> '2'
+#:     NAME      'Consumer Name & Address'            -> 'Address'
+#:     NAME      'COND NAME: MANOJ KUMAR'             -> a bus conductor
+#:     FROM      'Received from. My us Cac to...'     -> OCR noise
+#:     FROM      'From ; Changampuzha Park'           -> a place
+#:     FROM      'Ticket valid from :. 2018-09-21...' -> a date range
+#:     FROM      '...Valid from -. 2018-05-13...'     -> a date range
+#:
+#: ZERO of them named a supplier. `FROM` and `PARTY` are ordinary English and
+#: matched inside prose - *"unloaded from, or until"*, *"Every party, whether
+#: principal or agent"*. `NAME` matched 18 times and every legible hit was the
+#: BUYER side of a German sample invoice (`Kunden AG Mitte`) or a template
+#: placeholder (`BUYER_TRADING_NAME`, `INVOICEE_TRADING_NAME`).
+#:
+#: The four buyer labels are F-03 BY CONSTRUCTION: on a purchase bill the buyer
+#: is the owner's own company, so attaching it files the vendor's ledger under
+#: his own name and one supplier's balance is wrong for ever. What saved the
+#: documents carrying several of these labels is `the_one` REFUSING on
+#: disagreement; where only one matched, the wrong name went through.
+#:
+#: They cost nothing to leave out. Party losses from adding them: ZERO,
+#: measured. Party gains: seven, all wrong. The one real party this repository
+#: gained on that corpus - `QINGDAO JINZEPENG IMPORT AND EXPORT` - came from
+#: `VENDOR`, which was already here, and from `_values_on` learning
+#: `re.IGNORECASE` the same day.
+#:
+#: MEASURED ON A REAL CORPUS AND NOT ON THE SYNTHETIC ONE, which is the whole
+#: point: `artifacts/ground_truth` reports WRONG unchanged at
+#: `{date: 0, party: 5, total_paise: 0, tax_paise: 0}` with these labels in,
+#: because its generator prints none of them. `amount_on` has the same lesson
+#: written beside it.
 PARTY_LABELS: Final[tuple[str, ...]] = (
     "SUPPLIER",
     "VENDOR",
@@ -305,13 +350,25 @@ PARTY_LABELS: Final[tuple[str, ...]] = (
 )
 
 #: The label a bill prints its date under.
-DATE_LABEL: Final = "DATE"
+DATE_LABEL: Final[tuple[str, ...]] = (
+    "DATE",
+    "INVOICE DATE",
+    "BILL DATE",
+    "DATED",
+    "SUPPLY DATE",
+)
 
 #: What a bill calls the figure BEFORE tax. It is never the amount payable -
 #: `TOTAL_LABELS` deliberately excludes it - and it is the third number the
 #: conservation law `net_plus_tax_equals_gross` needs to be a real check rather
 #: than one that passes by construction.
-NET_LABELS: Final[tuple[str, ...]] = ("SUBTOTAL", "NET AMOUNT", "NET")
+NET_LABELS: Final[tuple[str, ...]] = (
+    "SUBTOTAL",
+    "NET AMOUNT",
+    "NET",
+    "TAXABLE VALUE",
+    "PRE-TAX",
+)
 
 
 # =============================================================================
@@ -364,8 +421,32 @@ def _values_on(
     label word, the value and every rule about where a value stops are the same
     on both tiers, because a reader that answered differently about the same
     characters depending on how they arrived would be two readers again.
+
+    IGNORECASE ADDED 2026-08-15, AND IT WAS AN ASYMMETRY RATHER THAN A FEATURE.
+    `amount_on` took the flag earlier the same day; this function did not, so
+    the MONEY path read `Total:` and the DATE and PARTY path required capitals.
+    One reader, two rules about the same characters, which is the exact defect
+    the paragraph above forbids. MEASURED, both directions:
+
+        'Date : 28/01/26'                             ()      before
+        'DATE : 28/01/26'                             read
+        'Vendor: QINGDAO JINZEPENG IMPORT AND EXPORT' ()      before
+        'VENDOR: QINGDAO JINZEPENG IMPORT AND EXPORT' read
+
+    Real bills print `Date:` and `Vendor:`; all-capitals is what OCR produces,
+    so the tier with the exact characters was the one being refused.
+
+    IT CANNOT WIDEN THE SEPARATOR, which is the thing to check rather than
+    assume. Both `_SEPARATOR` patterns are built from `\\s`, `\\w` and
+    `[^\\w\\s]`, and a case-insensitive character class is the same character
+    class. So `SUPPLIERS OF FINE GOODS` is still refused on both tiers - the
+    letter after the label is still a letter - and `SUPPLIER? ...` is still
+    refused on `EXACT_CHARACTERS`. Those two are the controls in
+    `tests/test_labels.py` and both still hold.
     """
-    pattern = re.compile(rf"{_LABEL_AT}{re.escape(label)}{_SEPARATOR[printing]}(.*)$")
+    pattern = re.compile(
+        rf"{_LABEL_AT}{re.escape(label)}{_SEPARATOR[printing]}(.*)$", re.IGNORECASE
+    )
     located: list[tuple[str, int, int]] = []
     for match in pattern.finditer(line):
         cut = _NEXT_LABEL.split(match.group(1), maxsplit=1)[0]
@@ -399,6 +480,34 @@ def values_for(
     """
     found: list[Found] = []
     for label in labels:
+        # ONE LABEL IS A STRING, AND A FAMILY OF LABELS IS NOT ONE LABEL.
+        # ADDED 2026-08-15, AFTER IT COST 98 TESTS.
+        #
+        # `DATE_LABEL` became a tuple the same day. Three call sites hand it
+        # here; one of them still read `values_for(lines, (DATE_LABEL,), ...)`,
+        # correct while the constant was a string and a NESTED TUPLE after. That
+        # reached `re.escape`, which tried `str(pattern, 'latin1')` on it and
+        # raised `TypeError: decoding to str: need a bytes-like object, tuple
+        # found` - six frames below the mistake, with the argument's real name
+        # nowhere in the message. Every date read on every tier died at once.
+        #
+        # The type checker sees nothing: `tuple[str, ...]` is what the parameter
+        # says and `tuple[tuple[str, ...]]` is what it got, and both are tuples
+        # at the boundary this package actually calls across. So the check is
+        # here, at runtime, naming the argument. It costs one `isinstance` per
+        # label and turns an avalanche into one sentence that says where to look.
+        # The ignore is the evidence, not a workaround: pyright calls this
+        # check unnecessary BECAUSE it trusts the annotation, and the
+        # annotation is exactly what was wrong at the call site. A checker
+        # that cannot see the defect is not a reason to delete the guard.
+        if not isinstance(label, str):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise TypeError(
+                f"values_for takes a family of labels, not one nested inside "
+                f"another: got {label!r}. A caller spreading a label constant "
+                f"that is already a tuple should pass it whole - "
+                f"`values_for(lines, DATE_LABEL, ...)` - and never "
+                f"`(DATE_LABEL,)`."
+            )
         for index, line in enumerate(lines):
             for printed, start, end in _values_on(line, label, printing):
                 found.append(Found(printed=printed, line=index, start=start, end=end))

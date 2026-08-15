@@ -170,6 +170,53 @@ them.
 
 ---
 
+## 6a. Three things running it found, before any real document arrived
+
+Not predictions. Each was caught by a test on the day the code was written.
+
+### 1. `BILL NO` cannot be an invoice-number label — FIXED
+
+`labels.values_for` anchors a label to the start of a line **or to a run of
+spaces**. On the line
+
+```
+E-Way Bill No: 481920375566
+```
+
+the characters `Bill No` follow a space and match. With `BILL NO` in the
+invoice-number vocabulary, `labels.the_one` then saw two different invoice
+numbers, refused the disagreement, and **the bill's number read as nothing — on
+every e-invoice**, which is every invoice above the e-invoicing turnover
+threshold.
+
+The matcher was right and the vocabulary was wrong, so the vocabulary changed.
+`BILL NO` and `BILL NUMBER` are out. Cost: a bill printing only `Bill No:` has
+its number unread and a person is asked. That is the cheaper mistake.
+
+### 2. `invoicelike.py` reports a currency inside the word "hours" — NOT FIXED
+
+The currency signal's pattern is `₹|Rs\.?|INR` with **no word boundary**, so the
+`rs` inside `hours`, `boards`, `collectors` and every other such word matches.
+A museum catalogue page was reported as *printing a currency*.
+
+It did not change the verdict — one signal is not two — but the **signal list a
+person is shown named a currency that is not on the page**, and the signal list
+is the evidence behind a refusal.
+
+`accountant/extract/invoicelike.py` is not this package's file to edit. The fix
+is a word boundary on that one alternative. Recorded here and in
+`tests/invoice_documents.py`, where the fixture is worded around it.
+
+### 3. `splitlines()` then `"\n".join()` silently dropped a trailing newline
+
+`Reading.text` was reconstructed from the split lines, which loses a trailing
+newline. That newline is part of what the reader returned, and the raw text is
+the **only** useful evidence when somebody disputes a figure months later. A
+batch test comparing a report against the reading it was built from caught it.
+`Reading.text` is now a stored field carrying the characters verbatim.
+
+---
+
 ## 7. What is NOT built, and why
 
 - **No GSTIN checksum.** The shape is checked - 15 characters, 2 digits of
@@ -187,3 +234,26 @@ them.
 - **No value is ever silently repaired.** A validation failure is *recorded*.
   A parser that mends a figure to make a law hold is a parser that hides the
   one thing the law was for.
+- **No memory between runs.** The batch runner is idempotent **within one
+  run**, by file hash and by supplier-plus-invoice-number. Across runs it
+  remembers nothing, because nothing in this repository stores either.
+  `accountant/memory/` indexes vendors and narration phrases and claims
+  *operation ids* at the write boundary; there is no table keyed by supplier and
+  invoice number, and this package did not invent one. Running the same folder
+  twice produces two identical reports and neither knows about the other.
+
+---
+
+## 8. Known limitations, listed so nobody has to find them
+
+| Limitation | Why it is there | What it costs |
+| --- | --- | --- |
+| A single GSTIN with no `Supplier:`/`Bill To:` heading is left **unassigned** | Almost always the supplier's is not a fact about *this* bill, and the wrong answer puts somebody else's input credit on a supplier ledger | one question on a screen |
+| A day/month-ambiguous date (`09/08/2026`) is **refused** | Two readings, nothing on the page chooses, and choosing files a return in the wrong month | the person is asked for `YYYY-MM-DD` |
+| Line items need a **table header** | Without one, the only way to know the third number is the rate is to assume a column order | a bill with no header yields no line items |
+| A table row with a **blank column** is refused, not shifted | A shifted row still multiplies out — a wrong answer that passes its own arithmetic | that row is not read |
+| A reading rebuilt from a word list has **no column gaps** | Any single-spaced line does; the real `extract/pagereader.py` has the same property | two fields on one line may merge |
+| A party name printed under a bare heading is read **positionally** | `Bill To:` then the name is how most bills print it | a bill printing its address first reads an address as a name; the field says `BELOW_A_HEADING` so the record carries the warning |
+| Amount in words is **recorded, never converted** | A words-to-number table is a second money parser nobody has verified | no cross-check against the figure |
+| Only the **first** table on a page is read | Reading the last would make the answer depend on where somebody scrolled | a second table is read as rows of the first |
+| `enough_characters=200` and `legible_share=0.5` are **unmeasured** | Shape arguments, gathered on `Thresholds` so a caller can replace them | see section 3 |

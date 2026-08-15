@@ -210,7 +210,7 @@ SHORTEST_REAL_TEXT_LAYER: Final = 20
 #: The PARTY labels are deliberately absent, because the owner did not name
 #: them and adding a family changes which documents are called scans.
 BILL_LABELS: Final[tuple[str, ...]] = (
-    DATE_LABEL,
+    *DATE_LABEL,
     *TOTAL_LABELS,
     *TAX_WHOLE,
     *TAX_PARTS,
