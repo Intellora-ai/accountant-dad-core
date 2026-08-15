@@ -852,3 +852,346 @@ def test_non_empty_text_reaches_field_detection() -> None:
     assert result.read_fields != ()
     assert "supplier_gstin" in result.read_fields
     assert "grand_total" in result.read_fields
+
+
+# =============================================================================
+# the weaker read: a name under a bare heading, and everything it costs
+# =============================================================================
+
+
+def test_a_name_under_a_bare_heading_is_read_and_labelled_as_positional() -> None:
+    """`Bill To:` on one line and the customer on the next is how most real
+    invoices print a party, so this path exists - and it is POSITIONAL, which is
+    why the field says `BELOW_A_HEADING` rather than pretending a label named
+    the value."""
+    reading = one_line(
+        "TAX INVOICE\n"
+        "Supplier:\n"
+        "NORTHFIELD STATIONERY PRIVATE LIMITED\n"
+        "GSTIN: 27AAQCS9214X1ZK\n"
+        "Invoice No: A-1\nInvoice Date: 2026-01-02\nTotal: 100.00\n"
+    )
+    from accountant.invoice.bridge import party_name
+
+    name = party_name(reading, parse.SUPPLIER_SECTION, "its supplier", printing=EXACT)
+    assert name.value == "NORTHFIELD STATIONERY PRIVATE LIMITED"
+    assert name.method is Method.BELOW_A_HEADING
+
+
+def test_a_registration_number_is_skipped_when_looking_for_a_name() -> None:
+    """A GSTIN is not a party name, so the positional read steps over it."""
+    from accountant.invoice.bridge import party_name
+
+    reading = one_line("Bill To:\n27AACFK7391M1Z9\nKHANNA ADVISORY SERVICES LLP\n")
+    name = party_name(reading, parse.BUYER_SECTION, "its buyer", printing=EXACT)
+    assert name.value == "KHANNA ADVISORY SERVICES LLP"
+
+
+def test_a_blank_line_under_the_heading_is_stepped_over_and_a_heading_stops_it() -> (
+    None
+):
+    """Two behaviours in one document: the blank is skipped, and the next
+    heading ends the block rather than lending it its own first line."""
+    from accountant.invoice.bridge import party_name
+
+    skipped = one_line("Supplier:\n\n\nACME PARTS LTD\n")
+    assert (
+        party_name(skipped, parse.SUPPLIER_SECTION, "x", printing=EXACT).value
+        == "ACME PARTS LTD"
+    )
+    stopped = one_line("Supplier:\nBill To:\nKHANNA ADVISORY SERVICES LLP\n")
+    assert (
+        party_name(stopped, parse.SUPPLIER_SECTION, "x", printing=EXACT).read is False
+    )
+
+
+def test_a_heading_that_is_never_printed_leaves_the_name_unread() -> None:
+    from accountant.invoice.bridge import party_name
+
+    reading = one_line("TAX INVOICE\nTotal: 100.00\n")
+    assert (
+        party_name(reading, parse.SUPPLIER_SECTION, "x", printing=EXACT).read is False
+    )
+
+
+def test_a_state_code_cannot_be_worked_out_from_a_number_nobody_read() -> None:
+    from accountant.invoice.bridge import state_code
+
+    reading = one_line("x\n")
+    assert state_code(reading, unread("a test")).read is False
+
+
+def test_a_bill_with_no_tax_line_at_all_works_out_no_total_tax() -> None:
+    """Nothing to add up is not a total of zero."""
+    from accountant.invoice.bridge import worked_out_tax
+
+    reading = one_line("x\n")
+    assert worked_out_tax(reading, (unread("a test"), unread("a test"))).read is False
+
+
+def test_an_address_is_read_only_when_a_label_names_it() -> None:
+    """A line found by POSITION under a party name is the address on most bills
+    and the second half of the name on the rest, so it is not claimed."""
+    assert read(INTRA_STATE).supplier.address.value == (
+        "14 Turner Road, Bandra West, Mumbai 400050"
+    )
+    reading = one_line("TAX INVOICE\nSupplier: ACME\n14 Turner Road\nTotal: 1.00\n")
+    from accountant.invoice.bridge import party
+
+    found = party(
+        reading,
+        parse.gstins_on(reading),
+        side=parse.Side.SUPPLIER,
+        headings=parse.SUPPLIER_SECTION,
+        what="its supplier",
+        printing=EXACT,
+    )
+    assert found.address.read is False
+
+
+# =============================================================================
+# the record's own invariants
+# =============================================================================
+
+
+def test_a_document_must_be_identified_by_its_bytes() -> None:
+    from accountant.invoice.result import DocumentMeta
+
+    with pytest.raises(ValueError, match="identified by its bytes"):
+        DocumentMeta(
+            file_hash="  ",
+            page_count=1,
+            engine="e",
+            status=DocumentStatus.OCR_FAILED,
+        )
+
+
+def test_a_document_cannot_have_a_negative_page_count() -> None:
+    from accountant.invoice.result import DocumentMeta
+
+    with pytest.raises(ValueError, match="cannot have -1 pages"):
+        DocumentMeta(
+            file_hash="a", page_count=-1, engine="e", status=DocumentStatus.OCR_FAILED
+        )
+
+
+def test_a_document_must_say_which_reader_produced_it() -> None:
+    from accountant.invoice.result import ENGINE_NOT_STATED, DocumentMeta
+
+    with pytest.raises(ValueError, match="which reader produced it"):
+        DocumentMeta(
+            file_hash="a", page_count=1, engine=" ", status=DocumentStatus.OCR_FAILED
+        )
+    stated = DocumentMeta(
+        file_hash="a",
+        page_count=1,
+        engine=ENGINE_NOT_STATED,
+        status=DocumentStatus.OCR_FAILED,
+    )
+    assert stated.engine == "engine_not_stated"
+
+
+def test_the_date_property_returns_none_for_anything_that_is_not_a_date() -> None:
+    """`ReadField.value` is `object`, so a caller that assumed `datetime.date`
+    would fail at whatever line finally did arithmetic on it."""
+    from accountant.invoice.bridge import invoice_date_of
+    from accountant.invoice.result import InvoiceIdentity
+
+    identity = InvoiceIdentity.nothing("a test")
+    assert identity.invoice_date is None
+    assert invoice_date_of(read(INTRA_STATE)) == datetime.date(2026, 7, 14)
+
+
+def test_the_failed_and_unchecked_laws_are_reported_separately() -> None:
+    """'This is wrong' and 'I could not check' lead to different statuses."""
+    result = read(MISSING_FIELDS)
+    assert [one.law for one in result.failed_laws] == [Law.MANDATORY_FIELDS]
+    assert Law.NOT_A_REPEAT in [one.law for one in result.unchecked_laws]
+
+
+def test_the_two_law_filters_agree_with_the_record() -> None:
+    from accountant.invoice.validate import failed, unchecked
+
+    result = read(MISSING_FIELDS)
+    assert failed(result.findings) == result.failed_laws
+    assert unchecked(result.findings) == result.unchecked_laws
+
+
+def test_a_field_provenance_and_source_travel_with_the_value() -> None:
+    found = parse.amount_under(one_line("Total: 1.00"), ("TOTAL",), "its total")
+    assert found.source == "a test"
+    assert found.method is Method.UNDER_A_LABEL
+
+
+def test_a_field_with_no_value_cannot_carry_a_verdict() -> None:
+    from accountant.cage.wall import Field
+
+    with pytest.raises(ValueError, match="cannot have been found"):
+        ReadField(
+            field=Field(value=None, confidence=0.0, source="a test"),
+            method=Method.UNDER_A_LABEL,
+        )
+    with pytest.raises(ValueError, match="cannot be valid"):
+        ReadField(
+            field=Field(value=None, confidence=0.0, source="a test"),
+            method=Method.NOT_READ,
+            checked=Checked.VALID,
+        )
+
+
+# =============================================================================
+# the reading's own invariants
+# =============================================================================
+
+
+def test_a_reading_must_say_which_reader_produced_it() -> None:
+    with pytest.raises(ValueError, match="which reader produced it"):
+        Reading.from_text("x", source="  ", confidence=1.0)
+
+
+def test_a_reading_carries_word_scores_or_one_stated_confidence_never_both() -> None:
+    """Both is two answers to how sure we are; neither is no answer at all."""
+    with pytest.raises(ValueError, match="exactly one of the two"):
+        Reading(
+            lines=("x",),
+            words=((Word("x", 90),),),
+            source="a test",
+            stated_confidence=0.9,
+        )
+    with pytest.raises(ValueError, match="exactly one of the two"):
+        Reading(lines=("x",), words=(), source="a test", stated_confidence=None)
+
+
+def test_a_reading_whose_words_do_not_index_its_lines_is_refused() -> None:
+    with pytest.raises(ValueError, match="index each other"):
+        Reading(
+            lines=("a", "b"),
+            words=((Word("a", 90),),),
+            source="a test",
+            stated_confidence=None,
+        )
+
+
+def test_a_stated_confidence_above_one_is_refused() -> None:
+    with pytest.raises(ValueError, match="outside"):
+        Reading.from_text("x", source="a test", confidence=1.5)
+
+
+def test_a_word_confidence_must_be_a_whole_number() -> None:
+    with pytest.raises(TypeError, match="whole number"):
+        Word(text="x", confidence=90.0)  # pyright: ignore[reportArgumentType]
+
+
+def test_the_characters_are_kept_exactly_as_the_reader_returned_them() -> None:
+    """Including the trailing newline. `splitlines` then `join` drops it, which
+    is a quiet edit to the evidence a dispute months from now rests on."""
+    reading = Reading.from_text("a\nb\n", source="a test", confidence=1.0)
+    assert reading.text == "a\nb\n"
+    assert reading.lines == ("a", "b")
+
+
+def test_a_word_ending_where_a_range_starts_is_not_under_it() -> None:
+    """Without the half-open overlap, `TOTAL 500.00` scores the total using the
+    confidence of the word `TOTAL`, which is not what was read."""
+    reading = Reading.from_words(
+        [[Word("TOTAL", 99), Word("500.00", 30)]], source="a test"
+    )
+    assert reading.words_under(Where(line=0, start=6, end=12)) == (Word("500.00", 30),)
+
+
+def test_a_reading_with_no_word_scores_reports_no_words() -> None:
+    reading = one_line("TOTAL 500.00")
+    assert reading.words_under(Where(line=0, start=6, end=12)) == ()
+
+
+# =============================================================================
+# the remaining corners of the parsers
+# =============================================================================
+
+
+def test_a_rate_that_is_not_a_plain_number_is_not_a_rate() -> None:
+    assert parse.gst_rate_basis_points("NaN") is None
+    assert parse.gst_rate_basis_points("eighteen") is None
+
+
+def test_a_quantity_that_is_not_a_plain_number_is_not_a_quantity() -> None:
+    assert parse.quantity_milli("two") is None
+
+
+def test_a_date_whose_second_number_is_the_month_is_read_that_way_round() -> None:
+    """`2026-13-01` style: the first number is at or below twelve and the second
+    is above it, so the month is FIRST and arithmetic said so."""
+    assert parse.date_from("05/25/2026") == datetime.date(2026, 5, 25)
+
+
+def test_a_column_the_header_did_not_name_is_unread_on_every_row() -> None:
+    result = read(INTRA_STATE)
+    assert all(one.cgst.read is False for one in result.items)
+    assert all(one.unit.read is False for one in result.items)
+
+
+def test_a_cell_whose_characters_will_not_convert_is_unread() -> None:
+    reading = one_line("Description   HSN   Qty   Rate\nBox   48A2   two   9.005\n")
+    rows = parse.read_rows(reading)
+    assert len(rows) == 1
+    assert rows[0][Column.HSN_SAC].read is False
+    assert rows[0][Column.QUANTITY].read is False
+    assert rows[0][Column.RATE].read is False
+    assert rows[0][Column.DESCRIPTION].value == "Box"
+
+
+def test_a_table_whose_header_names_no_description_reads_no_rows() -> None:
+    """Every other column is short and numeric, so the right-anchored split has
+    nothing to anchor against."""
+    reading = one_line("HSN   Qty   Rate\n4802   2   1500.00\n")
+    assert parse.read_rows(reading) == ()
+
+
+def test_the_tax_parts_law_is_indeterminate_when_a_stated_total_did_not_read() -> None:
+    finding = tax_parts_sum_to_total_tax(
+        cgst_paise=1,
+        sgst_paise=1,
+        igst_paise=None,
+        cess_paise=None,
+        total_tax_paise=None,
+        total_tax_was_stated=True,
+    )
+    assert finding.verdict is Verdict.INDETERMINATE
+
+
+def test_per_line_figures_of_different_lengths_are_refused() -> None:
+    """They index each other, so a mismatch checks one line's rate against
+    another's quantity."""
+    with pytest.raises(ValueError, match="index each other"):
+        Figures(line_quantity_milli=(1, 2), line_rate_paise=(1,))
+
+
+def test_a_tolerance_that_was_allowed_is_named_in_the_sentence() -> None:
+    finding = line_arithmetic(
+        quantity_milli=1000,
+        rate_paise=10000,
+        discount_paise=None,
+        taxable_paise=20000,
+        tolerance=Tolerance(paise=500),
+    )
+    assert finding.verdict is Verdict.FAIL
+    assert "Nothing above ₹5.00 was allowed here." in finding.said
+
+
+def test_every_law_runs_even_when_the_first_one_failed() -> None:
+    """A run that stopped at the first failure would report one problem when
+    there are three, so the person fixes one and walks into the second."""
+    findings = run_laws(
+        Figures(
+            line_quantity_milli=(2000,),
+            line_rate_paise=(150000,),
+            line_discount_paise=(None,),
+            line_taxable_paise=(300001,),
+            taxable_paise=999999,
+            cgst_paise=1,
+            sgst_paise=None,
+            grand_total_paise=1,
+        )
+    )
+    assert {one.law for one in findings} == set(Law)
+    assert len(findings) == len(Law)

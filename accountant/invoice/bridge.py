@@ -192,7 +192,7 @@ def _below_a_heading(
     return unread(reading.source)
 
 
-def _party_name(
+def party_name(
     reading: Reading, headings: tuple[str, ...], what: str, *, printing: Printing
 ) -> ReadField:
     """The party's name, from a label if there is one and a line if there is not.
@@ -208,7 +208,7 @@ def _party_name(
     return _below_a_heading(reading, headings, printing=printing)
 
 
-def _state_code(reading: Reading, gstin: ReadField) -> ReadField:
+def state_code(reading: Reading, gstin: ReadField) -> ReadField:
     """The state a registration number belongs to, from its first two digits.
 
     WORKED OUT and labelled as such. `place_of_supply.gstin_state_code` is the
@@ -229,7 +229,7 @@ def _state_code(reading: Reading, gstin: ReadField) -> ReadField:
     )
 
 
-def _party(
+def party(
     reading: Reading,
     found: tuple[parse.FoundGstin, ...],
     *,
@@ -240,9 +240,9 @@ def _party(
 ) -> Party:
     gstin = parse.gstin_for(reading, found, side)
     return Party(
-        name=_party_name(reading, headings, what, printing=printing),
+        name=party_name(reading, headings, what, printing=printing),
         gstin=gstin,
-        state_code=_state_code(reading, gstin),
+        state_code=state_code(reading, gstin),
         address=parse.value_under(
             reading, ADDRESS_LABELS, "an address", printing=printing
         ),
@@ -317,7 +317,7 @@ def _identity(reading: Reading, *, printing: Printing) -> InvoiceIdentity:
 # =============================================================================
 
 
-def _worked_out_tax(reading: Reading, parts: Sequence[ReadField]) -> ReadField:
+def worked_out_tax(reading: Reading, parts: Sequence[ReadField]) -> ReadField:
     """The tax lines added up, when the bill states no total of its own.
 
     THE SCORE IS THE WEAKEST PART AND NOT THEIR MEAN. A total worked out from a
@@ -355,9 +355,7 @@ def _totals(reading: Reading, *, printing: Printing) -> Totals:
         igst=igst,
         cess=cess,
         total_tax=(
-            stated
-            if stated.read
-            else _worked_out_tax(reading, (cgst, sgst, igst, cess))
+            stated if stated.read else worked_out_tax(reading, (cgst, sgst, igst, cess))
         ),
         round_off=parse.amount_under(reading, parse.ROUND_OFF_LABELS, "its round-off"),
         grand_total=parse.amount_under(reading, TOTAL_LABELS, "its total"),
@@ -607,7 +605,7 @@ def describe(
 
     found = parse.gstins_on(reading)
     parts = _Parts(
-        supplier=_party(
+        supplier=party(
             reading,
             found,
             side=Side.SUPPLIER,
@@ -615,7 +613,7 @@ def describe(
             what="its supplier",
             printing=printing,
         ),
-        buyer=_party(
+        buyer=party(
             reading,
             found,
             side=Side.BUYER,
