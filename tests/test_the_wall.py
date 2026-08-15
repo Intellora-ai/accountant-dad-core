@@ -472,3 +472,88 @@ def test_the_control_a_refusal_that_names_no_amount_is_left_alone() -> None:
         )
 
     assert str(refused.value) == "an entry must name a party."
+
+
+# =============================================================================
+# THE GUARD THAT IS BUILT AND NOT INSTALLED, 2026-08-15
+# =============================================================================
+#
+# Defect J1, stated once in `docs/BUG_LOG.md` and now seen for the THIRD time:
+# a unit test of a guard proves the guard WORKS, not that anything CALLS it.
+#
+#   1  the write door        a guard nothing on the posting path reached
+#   2  `cage.classify`       magic-byte sniffing that no source module imports;
+#                            the shipped path routes on the browser's DECLARED
+#                            media type and never sniffs
+#   3  the cage itself       measured below
+#
+# Three is a pattern, not three coincidences. What they share is that every one
+# was proved correct in isolation by a test suite that could not see whether it
+# was plugged in - which is the exact shape of assurance this repository is
+# supposed to refuse.
+
+
+def modules_importing(package: str) -> dict[str, list[str]]:
+    """Every module OUTSIDE `accountant/cage/` that imports from `package`.
+
+    By AST and not by text. `grep cage accountant/web/app.py` answers 4, and all
+    four are prose in docstrings - which is how the cage came to look wired to
+    somebody reading a grep.
+    """
+    found: dict[str, list[str]] = {}
+    for path in sorted(CAGE.rglob("*.py")):
+        if "cage" in path.parts or "__pycache__" in path.parts:
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            # IMPORT NODES ONLY, and the `isinstance` is load-bearing:
+            # `ast.Global` also carries a `names` attribute and it is a list of
+            # plain strings, so a `getattr(node, "names", [])` written to cover
+            # both crashes on the first `global` statement it meets.
+            if not isinstance(node, (ast.Import, ast.ImportFrom)):
+                continue
+            module = node.module or "" if isinstance(node, ast.ImportFrom) else ""
+            names = [alias.name for alias in node.names]
+            if package in f"{module} {' '.join(names)}":
+                found.setdefault(str(path), []).append(f"{module}:{node.lineno}")
+    return found
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "MEASURED 2026-08-15 at 5d76087: NOTHING outside accountant/cage/ "
+        "imports `decision` or `gate`. The cage is complete, has its own tests, "
+        "and is called by no shipping module - so 4546 passing tests prove it "
+        "WORKS and prove nothing about whether it RUNS. "
+        "STRICT ON PURPOSE: the day somebody wires the cage this test starts "
+        "passing, strict xfail turns that into a FAILURE, and removing this "
+        "marker is what forces the wiring to be noticed rather than assumed. "
+        "It is not wired today because doing so makes the live path post "
+        "NOTHING - 280 VALID drafts all become NOT_VALID on four independent "
+        "blocks - and that is an owner decision, not a bug."
+    ),
+)
+def test_something_on_the_shipping_path_actually_calls_the_cage() -> None:
+    """THE THIRD INSTANCE OF J1, pinned so it cannot be forgotten again.
+
+    A guard that nothing calls is not a guard, it is a library. This test is the
+    difference between the two, and it is the check the approved plan asked for:
+    "every runtime guard gets a paired AST guard proving the call site exists"."""
+    importers = modules_importing("cage.decision") | modules_importing("cage.gate")
+
+    assert importers, (
+        "no module outside accountant/cage/ imports decision or gate - "
+        "the cage is built and not installed"
+    )
+
+
+def test_the_control_the_import_scanner_can_actually_find_an_import() -> None:
+    """THE CONTROL, and without it the test above passes on a broken scanner.
+
+    `cage.confidence` and `cage.wall` ARE imported by the readers, so a scanner
+    that found nothing anywhere would fail here rather than quietly agreeing
+    that the cage is uninstalled."""
+    wired = modules_importing("cage.confidence") | modules_importing("cage.wall")
+
+    assert wired, "the scanner finds no cage import at all, so it is broken"
+    assert any("extract" in path for path in wired), sorted(wired)
