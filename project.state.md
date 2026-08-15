@@ -324,3 +324,40 @@ a value *from*. The next honest step is to find out WHY those labels do not
 match on these documents — whether the pages carry no label, or carry one the
 vocabulary does not know, or carry one the engine mangled past recognition. That
 is a measurement, not a build, and it has not been done.
+
+---
+
+## Delivery record — 2026-08-15
+
+    branch          cage/safety-layer
+    target          main  (default branch, protected)
+    local HEAD      0b2d229
+    remote HEAD     0b2d229   verified with `git ls-remote origin`
+    pull request    #63, OPEN, mergeable, base main, head 0b2d229
+    main on GitHub  2e86a7e   UNCHANGED - nothing merged
+    commits ahead   135 not on main
+
+**32 commits existed only on this laptop before this push.** They are now on the
+remote. That was the largest unmanaged risk in the project and it is closed.
+
+### CI on the pushed commit
+
+    pr-fast / lint          pass
+    pr-fast / format        pass
+    pr-fast / typecheck     PASS - 0 errors (was 1, fixed in 0b2d229)
+    pr-fast / changed-tests FAIL
+    ci-gate                 FAIL - because pr-fast failed
+
+`changed-tests` fails on the SAME 173 failures as locally, and on the same one
+cause: the cage narrows outcomes that pre-cage tests assert as VALID
+(`assert <Outcome.NOT_VALID> is <Outcome.VALID>`, "nothing posted, so nothing to
+undo"). No new failure and no failure in any file this work touched.
+
+### NOT MERGED, and deliberately
+
+This is REVIEW_REQUIRED, not NOT_GREEN-by-accident. Accounting behaviour changed:
+954 drafts reach the gate and 954 block. Whether the 173 tests are stale or the
+cage is too strict for a one-sentence typed entry is an owner decision that has
+not been made, and editing 173 tests until they pass would bury it.
+
+No force push. No branch protection bypassed. No admin merge.
