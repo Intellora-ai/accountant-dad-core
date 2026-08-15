@@ -362,6 +362,52 @@ IGST_LABELS: Final[tuple[str, ...]] = ("IGST",)
 CESS_LABELS: Final[tuple[str, ...]] = ("COMPENSATION CESS", "CESS")
 TOTAL_TAX_LABELS: Final[tuple[str, ...]] = ("TOTAL TAX", "TAX AMOUNT", "TOTAL GST")
 
+# -----------------------------------------------------------------------------
+# THE PARTY HEADINGS, AND THE MEASUREMENT THAT KEEPS THEM OUT OF `labels.py`
+# -----------------------------------------------------------------------------
+#
+# READ THIS BEFORE MOVING ANY SPELLING BELOW INTO `accountant/extract/labels.py`.
+# `labels.py` is the ONE vocabulary the shipping reader consults, and its own
+# docstring says why there must only be one. These two tuples are the second
+# vocabulary. They are allowed to exist for a reason that is about REACH and not
+# about correctness, and the reason is written out here so that nobody moves
+# them believing they were merely never tested.
+#
+# MEASURED 2026-08-15 over 413 real documents, using these spellings to read a
+# party NAME: seven values came back, and 7 of 7 were WRONG - `2` (a customer
+# number), `Address`, a bus conductor's name, two ticket date ranges, a place
+# name, and OCR noise. Per spelling:
+#
+#     FROM         8 matches, never a supplier. Every hit sat inside running
+#                  prose - "unloaded from", "or until".
+#     NAME        18 matches. Every legible hit was the BUYER side of a German
+#                 sample invoice, or the template placeholder
+#                 `BUYER_TRADING_NAME`.
+#     CUSTOMER     1 match     BUYER      1 match     PARTY  1 match (prose)
+#     SOLD TO      0 matches   BILLED TO  0 matches
+#
+# FIVE of those seven are on the tuples below: FROM, BILLED TO, CUSTOMER,
+# SOLD TO and BUYER. NAME and PARTY are absent from both and must stay absent.
+#
+# WHY THEY MISFIRE IS MECHANICAL, NOT BAD LUCK. `_section_of` below and
+# `bridge._below_a_heading` both ask `name in upper`, a substring test with no
+# word boundary and no anchor to the start of a line. `FROM` therefore matches
+# the middle of a sentence, and `bridge.party_name` then reads whatever line
+# follows as a party name. `labels.values_for` anchors its labels; this does not.
+#
+# WHAT MAKES THE COPY SURVIVABLE IS THAT NOTHING SHIPPING CAN REACH IT.
+# MEASURED 2026-08-15: importing all 100 modules under `accountant/` that are
+# NOT under `accountant/invoice/` loads ZERO `accountant.invoice` modules. This
+# package is an island - only its own modules and `tests/` import it - so the
+# five bad spellings cost nothing today. The risk is future drift, not a live
+# wrong post.
+#
+# `tests/test_party_vocabulary_reach.py` is the guard on both halves of that
+# sentence. It fails the day a shipping module imports this package, and it
+# fails the day one of the five turns up in `labels.py`. Wiring this package
+# into the pipeline is therefore not a wiring job: these two tuples have to be
+# re-measured against real documents first, and the ones that lose have to go.
+
 #: Headings that say the lines under them are about the person SELLING.
 SUPPLIER_SECTION: Final[tuple[str, ...]] = (
     "SUPPLIER",

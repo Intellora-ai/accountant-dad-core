@@ -18,7 +18,7 @@ import datetime
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from accountant import checks, problems
 from accountant import questions as Q
@@ -54,6 +54,17 @@ from accountant.tallyio.client import (
     new_operation_id,
 )
 from accountant.tax.decision import TaxDecision, decide_tax
+
+if TYPE_CHECKING:  # pragma: no cover - a type, never a runtime dependency
+    # THIS IMPORT CANNOT BE MADE AT MODULE SCOPE, and the reason is measured
+    # rather than stylistic. `accountant.period` imports
+    # `accountant.observability`, which imports THIS module by name at its line
+    # 54. So a top-level `from accountant.tallyio.period import PeriodReader`
+    # here is fine, but `from accountant.period import check_period` is a
+    # genuine cycle that raises at import time, not a lint. The type is taken
+    # here under `from __future__ import annotations`, where only the checker
+    # reads it, and the function is imported inside `_period_open` below.
+    from accountant.tallyio.period import PeriodReader
 
 #: What `provenance` says about a leg that came out of this company's own books.
 #: A literal in three places until 2026-08-10, and one of them is now read as a
@@ -672,11 +683,18 @@ def evaluate(
     derives it from the record, which is where the reading tier is stamped.
 
     `period_open=None` blocks, and blocking is the correct answer to "nobody
-    looked". Nothing in this repository reads whether a company's books are open
-    for a date; TallyPrime answers it at the write door and only afterwards.
-    `docs/OWNER_WORK.md` records the gap. A default of `True` is the one value
-    that would be silently supplied at every call site that forgot, and would
-    grant exactly the permission the field exists to withhold.
+    looked". It is NOT the only value this parameter can carry, and the comment
+    that used to stand here saying so - "nothing in this repository reads
+    whether a company's books are open for a date" - was false when it was
+    written. `accountant/period.py::check_period` reads it, over
+    `accountant/tallyio/period.py`, and hands back three states rather than two:
+    `True` open, `False` closed, `None` we could not check. All three arrive
+    here, from `web/app.py::Runtime.period_open` on the shipped path and from
+    `pipeline._period_open` on this module's own `run`.
+
+    A default of `True` is the one value that would be silently supplied at
+    every call site that forgot, and would grant exactly the permission the
+    field exists to withhold. So there is no default at all.
 
     MEASURED CONSEQUENCE, 2026-08-13, AND IT IS NOT SMALL. Across this
     repository's whole suite, 993 drafts reach this function and the cage
@@ -797,7 +815,24 @@ def evaluate(
             moment=Moment.BEFORE_THE_WRITE,
             # Derived here, not asked for. Both are already on the draft, and a
             # caller asked for them could answer differently from the evidence.
-            party_known=draft.voucher.party in accounts,
+            # THE PARTY WAS BEING LOOKED UP IN THE WRONG PLACE. `accounts` is
+            # the CHART OF ACCOUNTS - Purchases, Cash, Rent. A supplier is not
+            # one of those, so this asked "is Sharma Traders a ledger head" and
+            # answered no.
+            #
+            # MEASURED over the 173 failing tests: `party_known` was False on
+            # 299 of 299 gate calls, while 288 of those records carried a party
+            # and the fixtures give that party FORTY past vouchers. The cage
+            # said "I have never seen Sharma Traders in your books" about a
+            # vendor with forty entries in the books. After this: 169 of 299.
+            #
+            # `history` IS THE BOOKS. The owner's hard rule 7 is untouched and
+            # is why the `or` is this way round: a party in NEITHER the chart
+            # nor the history is still unknown, and still blocks.
+            party_known=(
+                draft.voucher.party in accounts
+                or any(one.party == draft.voucher.party for one in history)
+            ),
             carries_gst=draft.voucher.needs_tax_lines,
             questions_asked=len(draft.answers),
             # The caller's, because neither is on the draft. `period_open` has
@@ -1239,6 +1274,49 @@ def reverse(draft: Draft, client: TallyClient) -> bool:
     return reverse_operation(client, draft.company, draft.operation_id).reversed_
 
 
+def _period_open(
+    company: str,
+    on: datetime.date,
+    reader: PeriodReader | None,
+) -> bool | None:
+    """Are this company's books open on `on`? Three answers, two of which block.
+
+    THE THIRD STATE IS THE WHOLE POINT, and collapsing it was a measured defect
+    rather than a hypothetical one. `PeriodCheck.open_for_posting` is a bare
+    `bool`, so an unreachable Tally comes back `False`; handed to the cage,
+    `False` is read by `decision._period_closed` as *"The books for 12 March
+    2026 are closed, so nothing can be added to them"* - a confident, specific
+    statement about the customer's Tally that OUR dropped connection invented.
+    It sends somebody into their accounting software to fix a setting that was
+    never wrong. So this returns `PeriodCheck.for_cage`, which keeps them apart:
+
+        OPEN        -> True    may post
+        CLOSED      -> False   blocks, and says the books are closed
+        UNVERIFIED  -> None    blocks, and says WE could not check
+
+    NO READER IS `None`, AND THAT IS NOT A FALLBACK. `TallyClient` has no period
+    method of any kind - `accountant/tallyio/client.py` defines none - so a
+    caller holding only a client genuinely has not looked, and "nobody looked"
+    must never be reportable as "the books are open". `None` blocks, which is
+    the correct answer to a question nobody asked.
+
+    NEVER RAISES. `check_period` turns an unreachable gateway, a timeout, an
+    unparseable body and a company that is not open into UNVERIFIED, and logs
+    one `event=period_check` line whichever way it went. A traceback in front of
+    somebody's bill is the failure this whole layer is written against.
+
+    THE IMPORT IS LAZY AND HAS TO BE. `accountant.period` imports
+    `accountant.observability`, which imports `accountant.pipeline` - so the
+    obvious module-scope import raises `ImportError` before a single test runs.
+    The TYPE_CHECKING block at the top of this file carries the type.
+    """
+    if reader is None:
+        return None
+    from accountant.period import check_period
+
+    return check_period(company=company, on=on, reader=reader).for_cage
+
+
 def run(
     company: str,
     data: bytes,
@@ -1252,6 +1330,7 @@ def run(
     today: datetime.date | None = None,
     log: ActionLogSink | None = None,
     run_id: str = "",
+    period_reader: PeriodReader | None = None,
 ) -> Draft:
     """One entry, all the way through. Posts if Valid, stops otherwise.
 
@@ -1268,6 +1347,18 @@ def run(
     store)` - or `resume(store, company)` when it was done earlier - and pass
     the result in. A caller that cannot produce one has not read the person's
     books, and must not be proposing accounts.
+
+    `period_reader` IS OPTIONAL AND DEFAULTS TO NOBODY LOOKING. Supplied, it is
+    one bounded probe of the company's own Tally - five second timeout, one
+    attempt - and its three-way answer reaches `cage.gate` as `True`, `False` or
+    `None`. Omitted, `period_open` is `None`, which blocks, and is the same
+    value this call site passed unconditionally until 2026-08-15. The default is
+    NOT `PeriodReader()`: that would build an `HttpTransport` aimed at port 9000
+    of whatever machine is running, so a suite would go green on one laptop and
+    red on another, and a doubled client would be answered by a real socket.
+
+    `accountant/web/app.py` is the shipped caller and does not come through
+    here - it calls `evaluate` directly, with `Runtime.period_open(on=...)`.
     """
     # A5. BEFORE the two reads, not after them. Both of these can fail on a
     # flaky connector, and when they do on a company we have never successfully
@@ -1287,12 +1378,30 @@ def run(
         memory,
         detector_set=detector_set,
         flag_cap=flag_cap,
-        # NEITHER IS INVENTED HERE. Nothing in this repository reads whether a
-        # company's books are open for a date, so `None` is the true answer and
-        # it blocks - see `evaluate`. `pdf_repaired=None` says this caller
-        # repaired nothing, which is true: the reader is what mends bytes, and
-        # `cage/gate._repaired` reads that off the record and overrules this.
-        period_open=None,
+        # THE PERIOD IS READ, NOT INVENTED, AND NOT ASSUMED EITHER.
+        #
+        # This was `period_open=None` unconditionally, under a comment saying
+        # "nothing in this repository reads whether a company's books are open
+        # for a date". That comment was FALSE when it was written:
+        # `accountant/period.py::check_period` reads exactly that, over
+        # `accountant/tallyio/period.py::PeriodReader`, and both shipped web
+        # call sites already passed a real value through
+        # `web/app.py::Runtime.period_open`. Only this call site declined to
+        # fetch a fact the codebase could read.
+        #
+        # `draft.voucher.date` AND NEVER TODAY. Whether books are open is a
+        # question about a date, and a bill entered today for a purchase made in
+        # March is the exact case this check exists for. `build_draft` has
+        # already run, so the bill's own date is in hand.
+        #
+        # With no reader this is still `None` and still blocks - unchanged
+        # behaviour for every caller that has not looked. See `_period_open` for
+        # why "nobody looked" is `None` and not `False`.
+        #
+        # `pdf_repaired=None` says this caller repaired nothing, which is true:
+        # the reader is what mends bytes, and `cage/gate._repaired` reads that
+        # off the record and overrules this.
+        period_open=_period_open(company, draft.voucher.date, period_reader),
         pdf_repaired=None,
     )
 

@@ -54,6 +54,14 @@ THE THREE THINGS IT WOULD BE WORTH SHIPPING A BUG TO KEEP
     an invented month       A day that does not exist must be named as not
                             existing, never rounded to one that does. `31/02`
                             is a misprint, and `2026-03-03` is not what it says.
+                            PINNED ON ALL THREE SHAPES SINCE 2026-08-15. Until
+                            that date it was pinned on the numeric path and on
+                            the ISO path and on NEITHER of the two month-word
+                            forms, and a mutation that rounded
+                            `31 February 2026` down to the 1st left the whole
+                            file green. See
+                            `test_an_impossible_date_written_with_a_month_word
+                            _names_its_impossibility`.
 """
 
 from __future__ import annotations
@@ -396,6 +404,103 @@ def test_an_impossible_iso_date_names_the_month_that_does_not_exist() -> None:
     )
 
 
+def test_an_impossible_date_written_with_a_month_word_names_its_impossibility() -> None:
+    """The month-word twin of `test_an_impossible_date_names_its_own_impossibility`.
+
+    THE HOLE THIS CLOSES, MEASURED 2026-08-15 on branch `cage/safety-layer`.
+    Running this file alone under `--cov=accountant.extract.dates --cov-branch`
+    put `dates.py` at 98% with exactly two lines never executed, and one of
+    them was the `value is None` return inside `_named_reading` - the refusal
+    branch for a month word carrying a day that does not exist. 58 test cases
+    ran and not one of them handed a month word an impossible day.
+
+    THE MUTATION THAT PROVED IT, applied to `_named_reading` and reverted:
+
+        value = _real(year, month, day) or _real(year, month, 1)
+
+    `31 February 2026` then came back as 2026-02-01 with `why` EMPTY, one
+    candidate and `ambiguous=False` - an invented day wearing full confidence,
+    with nothing anywhere for a person to notice - and all 58 cases still
+    passed. That is the rule this file's own docstring calls worth shipping a
+    bug to keep, and it was pinned on the numeric path (`31/02/2026`), pinned
+    on the ISO path (`2026-13-01`), and pinned on NEITHER of the two month-word
+    forms the module was required to accept.
+
+    THE SENTENCES ARE ASSERTED WHOLE, for the reason the numeric twin gives:
+    on a bill that cannot be read automatically the sentence IS the product,
+    and a test that only checked `value is None` would let it decay to `''`.
+
+    ALL THREE LOCALES, because the month names the order itself and no locale
+    may change what it says - measured identical across the three.
+    """
+    expected = {
+        "31 February 2026": (
+            "DD Month YYYY",
+            "The date '31 February 2026' states no day that exists: "
+            "February 2026 has no day 31. It was misread or misprinted.",
+        ),
+        "30 Feb 2026": (
+            "DD Mon YYYY",
+            "The date '30 Feb 2026' states no day that exists: "
+            "February 2026 has no day 30. It was misread or misprinted.",
+        ),
+        "00 Apr 2026": (
+            "DD Mon YYYY",
+            "The date '00 Apr 2026' states no day that exists: "
+            "there is no day 0. It was misread or misprinted.",
+        ),
+    }
+    for printed, (shape, sentence) in expected.items():
+        for locale in DateLocale:
+            reading = read_date(printed, locale=locale)
+            assert reading.value is None, (printed, locale)
+            assert reading.ambiguous is False, (printed, locale)
+            assert reading.candidates == (), (printed, locale)
+            assert reading.raw == printed, (printed, locale)
+            assert reading.input_format == shape, (printed, locale)
+            assert reading.why == sentence, (printed, locale)
+
+
+def test_a_three_digit_day_beside_a_month_word_is_no_date_at_all() -> None:
+    """`250 Apr 2026` is a quantity next to a period column, not the 250th.
+
+    SAME ROOT CAUSE AS THE TEST ABOVE and found in the same mutation run on
+    2026-08-15: widening `_NAMED`'s day group from `(?P<day>\\d{1,2})` to
+    `(?P<day>\\d{1,3})` also left all 58 cases green.
+
+    WHAT THAT MUTATION COSTS IS NOT A WRONG DAY - `_real` still refuses day 250
+    - IT IS A WRONG SENTENCE. The reader would tell a person "The date
+    '250 Apr 2026' states no day that exists ... It was misread or misprinted",
+    which asserts that a date was printed there and mangled, and sends somebody
+    back to the paper to find a misprint that is not on it. Nothing on that
+    line is a date. The shipped answer is the honest one: these characters
+    state no date this reader recognises, followed by the shapes it does read.
+    `input_format` is what separates the two, so it is asserted rather than
+    `value`, which is None either way.
+
+    THE CONTROL IS IN THE SAME TEST. `1 Apr 2026` - a single-digit day, which
+    real suppliers print - must still read, or the guard was paid for by
+    refusing something the module promised to accept.
+    """
+    for printed in ("250 Apr 2026", "100 Apr 2026", "031 Apr 2026"):
+        reading = read_date(printed, locale=DateLocale.INDIAN)
+        assert reading.value is None, printed
+        assert reading.input_format == FORMAT_UNREADABLE, printed
+        assert reading.candidates == (), printed
+        assert "misprinted" not in reading.why, printed
+        assert reading.why == (
+            f"'{printed}' contains no date this reader recognises. "
+            "It reads YYYY-MM-DD, YYYY/MM/DD, DD/MM/YYYY, DD-MM-YYYY, "
+            "DD.MM.YYYY, DD/MM/YY, DD-MM-YY, DD.MM.YY, DD Mon YYYY and "
+            "DD Month YYYY."
+        ), printed
+
+    control = read_date("1 Apr 2026", locale=DateLocale.INDIAN)
+    assert control.value == datetime.date(2026, 4, 1)
+    assert control.input_format == "DD Mon YYYY"
+    assert control.why == ""
+
+
 def test_an_impossible_indian_date_reports_one_reading_only() -> None:
     """Under a stated locale there is one reading, so there is one reason."""
     reading = read_date("31/02/2026", locale=DateLocale.INDIAN)
@@ -552,6 +657,79 @@ def test_text_with_no_date_says_so_and_lists_what_it_reads() -> None:
         "DD.MM.YYYY, DD/MM/YY, DD-MM-YY, DD.MM.YY, DD Mon YYYY and "
         "DD Month YYYY."
     )
+
+
+def test_a_refusal_collapses_the_whitespace_it_quotes_back() -> None:
+    """A PDF text layer rebuilds a column gap as a run of spaces and a newline.
+
+    THE HOLE THIS CLOSES, MEASURED 2026-08-15. `_quoted` states two jobs -
+    "whitespace is collapsed and a long string is cut" - and this whole file
+    routed exactly two strings through it: `'Thank you for your business'`,
+    which is 27 characters with single spaces, and `''`. Replacing the entire
+    body of `_quoted` with `return text` left all 58 cases green. NEITHER
+    documented job was ever executed by a test, which is the anti-pattern this
+    repository has shipped before: a control tried only on inputs that never
+    reach the stage it claims to guard.
+
+    WHY IT IS NOT MERELY TIDY: the sentence is the whole product on a bill that
+    cannot be read automatically. A refusal that quotes a raw text-layer dump
+    turns one entry in a person's question queue into three lines of column
+    whitespace, and the string they are asked about is not one they can search
+    their document for.
+
+    `raw` IS THE CONTROL BESIDE IT. Tidying is for the sentence and never for
+    the reading, so the argument still comes back byte for byte - the same
+    invariant `test_a_refused_date_still_carries_its_own_characters` holds on
+    the ambiguous path.
+    """
+    given = "Thank   you\tfor\nyour     business"
+    reading = read_date(given, locale=DateLocale.INDIAN)
+    assert reading.value is None
+    assert reading.raw == given
+    assert reading.raw != " ".join(given.split())
+    assert reading.input_format == FORMAT_UNREADABLE
+    assert reading.why == (
+        "'Thank you for your business' contains no date this reader "
+        "recognises. It reads YYYY-MM-DD, YYYY/MM/DD, DD/MM/YYYY, DD-MM-YYYY, "
+        "DD.MM.YYYY, DD/MM/YY, DD-MM-YY, DD.MM.YY, DD Mon YYYY and "
+        "DD Month YYYY."
+    )
+
+
+def test_a_refusal_cuts_a_long_quotation_instead_of_reprinting_the_page() -> None:
+    """A whole page handed to `read_date` must not become a whole page of refusal.
+
+    THE SECOND OF `_quoted`'s two documented jobs, and the one that line
+    coverage named outright: running this file alone on 2026-08-15 under
+    `--cov=accountant.extract.dates --cov-branch` reported `dates.py` line 468
+    - `return trimmed[:_QUOTE_LIMIT] + "..."` - as never executed. The longest
+    string the file had ever quoted back was 27 characters against a limit of
+    60, so the cut could not fire.
+
+    THE NUMBERS ARE MEASURED, NOT DESCRIBED. The string below is 69 characters
+    and states no date. `_QUOTE_LIMIT` is 60, so 60 characters survive and
+    three dots follow, and the quotation inside the sentence is 63 characters
+    long. That length is asserted separately from the sentence because it is
+    the number that moves if somebody moves the limit.
+
+    THE CONSTANT IS NOT IMPORTED, DELIBERATELY. `_QUOTE_LIMIT` is private and
+    importing it would assert that a number equals itself. What is pinned here
+    is the sentence a person would actually have been shown at that limit.
+    """
+    given = "Thank you for your business and for your continued custom this season"
+    assert len(given) == 69
+    reading = read_date(given, locale=DateLocale.INDIAN)
+    assert reading.value is None
+    assert reading.raw == given
+    assert reading.input_format == FORMAT_UNREADABLE
+    assert reading.why == (
+        "'Thank you for your business and for your continued custom th...' "
+        "contains no date this reader recognises. It reads YYYY-MM-DD, "
+        "YYYY/MM/DD, DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY, DD/MM/YY, DD-MM-YY, "
+        "DD.MM.YY, DD Mon YYYY and DD Month YYYY."
+    )
+    # The characters between the outer single quotes: 60 kept plus three dots.
+    assert len(reading.why.split("'")[1]) == 63
 
 
 def test_a_word_that_is_not_a_month_is_not_a_month() -> None:

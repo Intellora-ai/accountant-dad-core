@@ -278,6 +278,24 @@ TOTAL_LABELS: Final[tuple[str, ...]] = (
     "AMOUNT DUE",
     "TOTAL",
     "NET PAYABLE",
+    # `TOTAL PAYABLE`, added 2026-08-15, AND IT MAKES THE READER REFUSE MORE
+    # RATHER THAN ANSWER MORE - which is why it is safe.
+    #
+    # MEASURED on the ground-truth corpus, three documents printing TWO
+    # different totals:
+    #
+    #     'GRAND TOTAL   1,35,938.36'
+    #     'TOTAL PAYABLE 1,35,993.92'
+    #
+    # `TOTAL PAYABLE` was in no family, so `amounts_for` returned exactly ONE
+    # candidate and the reader answered 1,35,938.36 with confidence on a bill
+    # that states two different totals 55.56 apart. Ground truth calls those
+    # documents AMBIGUOUS and the reader called them settled - three FALSE
+    # POSITIVES, the one failure class that can put a wrong number in the books.
+    #
+    # With the alias present `the_one` sees two disagreeing figures and refuses,
+    # which is the correct answer to a bill that cannot make up its mind.
+    "TOTAL PAYABLE",
     "BALANCE DUE",
     "SUM TOTAL",
     "FINAL AMOUNT",
@@ -408,6 +426,39 @@ class Amount:
     end: int
 
 
+def _spaced(label: str) -> str:
+    """A label's characters, with whitespace allowed anywhere between them.
+
+    THE MEASURED DEFECT, 2026-08-15. `scripts/classify_unmatched_slots.py` over
+    the 60 real image documents: 17 of the 287 unmatched field slots are
+    LABEL_NORMALIZATION_FAILURE - the label's own characters are ON the page and
+    this matcher refused them. The evidence, verbatim:
+
+        gst-portal-and-govt-004.jpg   net   page says 'SUB TOTAL',
+                                            and NET_LABELS holds 'SUBTOTAL'
+
+    One space. The page and the vocabulary say the same word and the reader
+    called it nothing. An engine reading pixels decides where a gap is; where it
+    puts one is not a fact about the document.
+
+    THIS IS NOT FUZZY MATCHING, AND THE DIFFERENCE IS THE WHOLE OF WHY IT IS
+    SAFE. Every character of the label must still be present, in order, with
+    NOTHING between them but whitespace. So:
+
+        SUBTOTAL  SUB TOTAL  SUB  TOTAL  S U B T O T A L   all match
+        SUBTOT    SUBXTOTAL  SUB-TOTAL-ISH                 all still refused
+
+    No character is added, dropped, substituted or corrected. No label is
+    invented. `tests/test_labels.py` holds both halves.
+
+    IT CANNOT MERGE TWO FAMILIES. `SUB TOTAL` reaches `NET_LABELS` and never
+    `TOTAL_LABELS`, because `TOTAL` is a different string and this only changes
+    what may sit BETWEEN a label's own characters. A subtotal read as a total
+    posts a bill short by exactly its tax, and that control is asserted.
+    """
+    return r"\s*".join(re.escape(character) for character in label)
+
+
 def _values_on(
     line: str, label: str, printing: Printing
 ) -> tuple[tuple[str, int, int], ...]:
@@ -445,7 +496,7 @@ def _values_on(
     `tests/test_labels.py` and both still hold.
     """
     pattern = re.compile(
-        rf"{_LABEL_AT}{re.escape(label)}{_SEPARATOR[printing]}(.*)$", re.IGNORECASE
+        rf"{_LABEL_AT}{_spaced(label)}{_SEPARATOR[printing]}(.*)$", re.IGNORECASE
     )
     located: list[tuple[str, int, int]] = []
     for match in pattern.finditer(line):
@@ -563,7 +614,7 @@ def amount_on(line: str, label: str) -> tuple[int, int, int] | None:
     two-field line is real and the column gap is the evidence for it. The money
     path does not get it, because a wrong amount is worse than a missing one.
     """
-    head = re.match(rf"\s*{re.escape(label)}\b{_RATE}", line, re.IGNORECASE)
+    head = re.match(rf"\s*{_spaced(label)}\b{_RATE}", line, re.IGNORECASE)
     if head is None:
         return None
     tail = _ONLY_AMOUNT.match(line[head.end() :])

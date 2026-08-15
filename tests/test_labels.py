@@ -67,6 +67,7 @@ from accountant.extract.adapter import NOT_FOUND, ExtractedRecord
 from accountant.extract.freeocr import FreeReader
 from accountant.extract.labels import (
     DATE_LABEL,
+    NET_LABELS,
     PARTY_LABELS,
     TAX_WHOLE,
     TOTAL_LABELS,
@@ -626,3 +627,89 @@ def test_the_three_call_sites_pass_the_family_whole() -> None:
         f"the control is vacuous: only {reading} read DATE_LABEL, so this test "
         "is scanning a package that no longer has the call sites it guards"
     )
+
+
+# =============================================================================
+# ONE SPACE WAS HIDING A LABEL THE PAGE PRINTED
+# =============================================================================
+#
+# MEASURED 2026-08-15 by `scripts/classify_unmatched_slots.py` over the 60 real
+# image documents: of 287 field slots that matched no label,
+# LABEL_NORMALIZATION_FAILURE accounts for 17 - the label's own characters ARE
+# on the page and the matcher refused them. The evidence, verbatim:
+#
+#     gst-portal-and-govt-004.jpg   net   page says 'SUB TOTAL',
+#                                         and NET_LABELS holds 'SUBTOTAL'
+#
+# One space. The page and the vocabulary say the same word and the reader called
+# it nothing.
+#
+# WHAT THIS IS NOT. It is not fuzzy matching. Every character of the label must
+# still be present, in order, with nothing between them but whitespace. `SUBTOT`
+# does not match `SUBTOTAL`, `SUBXTOTAL` does not, and no new label is invented.
+
+
+def test_a_label_split_by_a_space_still_matches() -> None:
+    """THE MEASURED DEFECT. `SUB TOTAL` on the page, `SUBTOTAL` in the
+    vocabulary."""
+    found = amounts_for(("SUB TOTAL: 1,046.24",), NET_LABELS)
+
+    assert [one.paise for one in found] == [104624]
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "SUBTOTAL: 1,046.24",
+        "SUB TOTAL: 1,046.24",
+        "SUB  TOTAL: 1,046.24",
+        "SUB\tTOTAL: 1,046.24",
+        "S U B T O T A L: 1,046.24",
+    ],
+)
+def test_every_spacing_of_one_label_reads_the_same_figure(printed: str) -> None:
+    """Repeated spaces, a tab, and a fully spaced-out heading. All of them are
+    the same word printed by an engine that guessed differently about gaps."""
+    found = amounts_for((printed,), NET_LABELS)
+
+    assert [one.paise for one in found] == [104624], printed
+
+
+def test_the_labels_that_already_matched_still_match() -> None:
+    """THE CONTROL ON THE FIX. Widening how a label may be spaced must not
+    change what any existing label reads."""
+    assert amounts_for(("TOTAL 1,020.70",), TOTAL_LABELS)[0].paise == 102070
+    assert amounts_for(("GRAND TOTAL: 1,234.56",), TOTAL_LABELS)[0].paise == 123456
+    assert amounts_for(("GST 188.32",), TAX_WHOLE)[0].paise == 18832
+    found = values_for(
+        ("SUPPLIER: SHARMA TRADERS",), PARTY_LABELS, printing=Printing.EXACT_CHARACTERS
+    )
+    assert [one.printed for one in found] == ["SHARMA TRADERS"]
+
+
+def test_a_subtotal_is_still_never_the_total() -> None:
+    """THE ONE THAT MATTERS MOST, and the reason this fix is scoped to spacing.
+
+    `SUB TOTAL` must reach the NET family and never the TOTAL family. A bill
+    whose subtotal was read as its total posts short by exactly its tax - the
+    defect `cage/gate._lines_add_up_to` was written against, and the thing a
+    looser matcher would reintroduce here.
+    """
+    net = amounts_for(("SUB TOTAL: 1,046.24",), NET_LABELS)
+    assert [one.paise for one in net] == [104624]
+
+    both = ("SUB TOTAL: 1,046.24", "GRAND TOTAL: 1,234.56")
+    assert amounts_for(both, NET_LABELS)[0].paise == 104624
+    assert 104624 not in [one.paise for one in amounts_for(both, TOTAL_LABELS)]
+
+
+def test_the_spacing_rule_does_not_match_a_word_that_is_not_the_label() -> None:
+    """THE CONTROL THAT KEEPS THIS FROM BEING FUZZY MATCHING.
+
+    Every character of the label must be present, in order, separated by nothing
+    but whitespace. A missing character, an extra character, or a different
+    character is a different word and must stay unmatched.
+    """
+    assert amounts_for(("SUBTOT: 1,046.24",), NET_LABELS) == ()
+    assert amounts_for(("SUBXTOTAL: 1,046.24",), NET_LABELS) == ()
+    assert amounts_for(("SUB-TOTAL-ISH: 1,046.24",), NET_LABELS) == ()
