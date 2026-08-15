@@ -18,6 +18,11 @@ of being refused by the router. Every figure below is from the later run. Where
 a number moved, the old one is stated beside it, because a page that quietly
 restates itself cannot be checked.
 
+> **The rest of this page is about the SYNTHETIC corpus.** For the **real**
+> corpus — actual photographs and scans in `data/real_invoices_indian` — see
+> *Where every field slot dies, on real documents* at the bottom of this page,
+> added 2026-08-15.
+
 ---
 
 ## The number that matters most, first
@@ -404,3 +409,128 @@ So the `FAIL` above is the design, not a defect to be chased. **No threshold
 moves and the gate is not split.** Full note:
 [`OCR_CORPUS_FINDING.md`](./OCR_CORPUS_FINDING.md); index entry:
 [`PROJECT_STATE.md`](./PROJECT_STATE.md) §51.1.
+
+---
+
+# Where every field slot dies, on REAL documents — 2026-08-15
+
+Everything above this line is the **synthetic** corpus — documents this project
+generated itself. This section is the **real** one: actual photographs and scans
+sitting in `data/real_invoices_indian`.
+
+## What a "field slot" is
+
+One **slot** is one field on one document. The owner named five fields for the
+fast pass:
+
+```
+party    invoice date    total    tax    invoice number
+```
+
+Five fields over 60 documents is **300 slots**. Every slot lands in exactly one
+bucket, so the buckets add up to 300 and nothing goes missing between them.
+
+## Reproduce it
+
+```
+.venv/bin/python scripts/measure_field_slots.py
+```
+
+`scripts/measure_field_slots.py` is **untracked** in the working tree as of
+2026-08-15. It reads the first 60 pictures in sorted order from
+`data/real_invoices_indian`, then `data/real_invoices`. **`data/` is gitignored**,
+so the corpus is not pinned by any commit and this number can move under you
+without a diff to point at.
+
+## Before and after, both on 2026-08-15
+
+**BEFORE** is the number written into the script's own docstring by its author.
+**AFTER** is a reproduction run twice by a second party on the tree that became
+commit `64b6bce` — that is `e783074` plus the `pagereader.py` change that
+switches the positional party guess off. The two AFTER runs were byte-identical
+to each other, so the AFTER column is deterministic on this machine.
+
+That positional-party change is why `party` reaches **0** candidates in the
+AFTER column and is expected to. It was switched off on measured evidence: it
+turned 5 wrong party reads into 8, gained no correct read anywhere, and its
+three new answers were `'TNoIte Noe eTvan42'`, `'TNoIte Noe eTvonas'` and
+`'Nolte Noe eTan6o'` — OCR noise mistaken for a supplier because of where it sat
+on the page.
+
+| | before (author) | after (reproduced twice) |
+|---|---|---|
+| documents | 60 | 60 |
+| field slots | 300 | 300 |
+| OCR word rows received | 6210 | **2596** |
+| rows carrying characters | 4962 | **2367** |
+| the engine refused the file | 0 | 0 |
+| slots dying at **no OCR words at all** | 0 | **10** |
+| slots dying at **words present, NO LABEL MATCHED** | 296 | **287** |
+| slots dying at **label matched, printings disagreed** | 1 | **0** |
+| slots **reaching a candidate** | 3 | 3 |
+
+## The five fast-pass fields, each with its result and its reason
+
+Out of 60 documents. AFTER column, reproduced twice on 2026-08-15.
+
+| field | reached a candidate | did not | **the reason it did not** |
+|---|---|---|---|
+| **party** | **0 of 60** | 60 | 58 — the words were on the page and **no label matched**. 2 — the engine returned **no words at all** for that document. The positional fallback that used to guess a party from where it sat was switched off in `64b6bce` because 3 of its 3 new answers were OCR noise. |
+| **invoice date** | **2 of 60** | 58 | 56 — words present, **no label matched**. 2 — **no words at all**. |
+| **total** | **0 of 60** | 60 | 58 — words present, **no label matched**. 2 — **no words at all**. A label like `SUB TOTAL` or `GRAND TOTAL` is found on the page, but the number is printed on a different line and this reader only looks on the same line. |
+| **tax** | **0 of 60** | 60 | 58 — words present, **no label matched**. 2 — **no words at all**. |
+| **invoice number** | **1 of 60** | 59 | 57 — words present, **no label matched**. 2 — **no words at all**. |
+
+Not one of the five failed because the OCR engine could not read the picture.
+Every single failure is either "the engine gave us words and we could not find a
+label in them" or "the engine gave us nothing for this whole document".
+
+## The two columns disagree, and that is recorded rather than smoothed over
+
+The headline survives both runs and is the same either way:
+
+- **The OCR engine is not the bottleneck.** It refused **0** files in both
+  columns, and it returned thousands of word rows.
+- **The join between the words it returns and the labels this reader knows is
+  the bottleneck.** 287 of 300 slots die there.
+
+But the supporting counts do **not** match. Word rows differ by 2.4x, and 10
+slots (2 documents) that the author's run says produced words produced none in
+the reproduction. **Nobody has explained this yet.** Checked and ruled out:
+
+- the corpus did not change — no file in either folder has a modification time
+  later than 2026-08-15 00:00;
+- the document set is deterministic — `sorted(iterdir())`, first 60;
+- the in-flight `pagereader.py` edit cannot be the cause — the script imports
+  `read_lines`, and that edit is inside `read_page`;
+- it is not a timeout — a timeout raises, and `engine_refused_documents` is 0.
+
+**Do not quote the BEFORE column as settled.** Until someone reproduces 6210,
+the reproducible number is 2596.
+
+## The finding that redirected the work, and it is the author's
+
+Of 18 lines that mention a total-ish word at all, **only 4 carried a number on
+that same line — and all 4 already matched.** The list of "has a number and is
+unmatched" came back **empty**. The other 14 print the label with its value
+somewhere else on the page:
+
+```
+'SUB TOTAL'   'GRAND TOTAL'   'Total Cost'   'Total des'
+'TOTAL QUANTITY:'   'AMOUNT IN WORDS: TWO THOUSAND NINE'
+```
+
+So **adding more label spellings buys about zero.** Finding the value on a
+neighbouring line is where the remaining documents are. This has not been
+independently reproduced here.
+
+Confirming it from the other end: seven new party spellings produced 7 values
+across 413 documents, and **7 of 7 were wrong**.
+
+## What this does NOT measure
+
+Whether a value that WAS read is **correct**. This counts *reach*, not
+*accuracy*. A document that confidently reads the wrong total lands in
+"reached a candidate" and looks like a success. Accuracy needs labelled truth,
+and there is none for these documents. **Nothing here is evidence about
+real-world accuracy and it must never be quoted as if it were.**

@@ -427,6 +427,22 @@ The bytes are drained off the socket and thrown away.
 1 failed, 4546 passed, 6 skipped, 4 xfailed, 2 warnings in 462.87s
 ```
 
+> **THE SUITE IS NO LONGER GREEN. Re-measured 2026-08-15 at commit `64b6bce`,
+> whole suite, no `-x`:**
+>
+> ```
+> 174 failed, 4665 passed, 10 skipped, 4 xfailed, 2 warnings in 476.77s
+> ```
+>
+> **173 of the 174 have one cause: the cage was wired onto the live path** and
+> now narrows outcomes these tests were written before it existed. They assert
+> `VALID`; the answer is `NOT_VALID` with the four hard blocks named in plain
+> sentences. The 174th is a stray `.DS_Store` file in `accountant/extract/`.
+> Whether the tests are wrong or the cage is too strict for a typed sentence is
+> **an open owner decision** — see [`PROJECT_STATE.md`](./PROJECT_STATE.md)
+> §52.4b. The number below is kept because it is the pre-cage baseline the
+> comparison needs.
+
 The 6 skips and 4 xfails, with their own stated reasons:
 
 ```
@@ -480,10 +496,20 @@ So those 4546 passing tests prove the cage **works**. They do not prove it is
 **installed**, because at that commit it is not. That is defect J1 again, at
 the level of the whole subsystem rather than one function.
 
-The wiring exists only as uncommitted work in the current working tree
-(`accountant/pipeline.py` grows from 1193 to 1397 lines, `narrowed_by_the_cage`
-at `pipeline.py:156`, the gate call at `pipeline.py:793`), plus a new untracked
-test file `tests/test_cage_on_the_live_path.py`.
+**FIXED 2026-08-15, commit `6629b51` — this paragraph used to say the wiring
+existed "only as uncommitted work in the current working tree". It is committed.**
+Verified by reading the file at `8050dcd`: `accountant/pipeline.py:25` imports
+the gate, `pipeline.py:156` is `narrowed_by_the_cage`, and `pipeline.py:795` is
+the gate call inside `evaluate`. `tests/test_cage_on_the_live_path.py` is still
+untracked in the working tree.
+
+**One thing named in this document as "unit-tested and not installed" is still
+not installed:** `accountant/cage/classify.py` (§1). `git grep -l "cage.classify"`
+returns test files, `demo_safety_cage.py` and documentation, and nothing else.
+
+`cage.state` has exactly one non-test importer, `accountant/invoice/status.py` —
+and the whole `accountant/invoice/` package is imported by nothing outside
+itself, so that is one unreached module importing another.
 
 ### Built and tested
 
@@ -517,13 +543,24 @@ test file `tests/test_cage_on_the_live_path.py`.
   otherwise.
 - **Whether 0.95 and 0.70 are the right thresholds: not measured.** Same reason.
 - **Whether F-02 (consistent misread) ever happens in practice: not measured.**
-- **`period_open` has no source anywhere in this repository.** Nothing reads
-  whether a company's books are open for a date. TallyPrime answers it at the
-  write door and only afterwards.
-- **Line items are never read.** `ExtractedRecord.line_items` defaults to `()`
-  and nothing fills it, so `lines_sum_to_total` is INDETERMINATE on every bill
-  as well. `gate.py:314` passes `None` rather than `()` deliberately, because
-  reading it the other way would turn every un-itemised bill into a passing one.
+- ~~**`period_open` has no source anywhere in this repository.**~~ **FALSE as of
+  2026-08-13, corrected here 2026-08-15.** `accountant/tallyio/period.py` reads
+  `BOOKSFROM` and `STARTINGFROM` off the company over the gateway, and
+  `accountant/period.py:336::is_period_open` turns them into the boolean the gate
+  takes. Both `pipeline.evaluate` call sites in `accountant/web/app.py` pass it.
+  It fails closed: a timeout, an unreachable Tally or a missing field all return
+  `False`, which blocks. The upper bound is **derived** and the log says so on
+  every line. See [`PROJECT_STATE.md`](./PROJECT_STATE.md) §51.2.
+- ~~**Line items are never read.**~~ **FALSE as of 2026-08-15, corrected here.**
+  `textlayer.py:1427-1430` fills `ExtractedRecord.line_items` from `_read_lines`
+  (`textlayer.py:808`), and `ladder.py:355` merges them. `lines_sum_to_total` is
+  therefore no longer INDETERMINATE by construction on a born-digital PDF whose
+  rows were found. **Two docstrings inside `gate.py` still say the old thing** —
+  `gate.py:113` and `gate.py:319` both claim nothing ever fills the field. They
+  are stale source comments and are recorded as a known defect, not fixed here.
+  `gate.py:322` still passes `None` rather than `()` when the tuple is empty,
+  deliberately, because reading it the other way would turn every un-itemised
+  bill into a passing one.
 - The `s2_extraction` gate is **red by design** for this MVP — closed by the
   owner on 2026-08-13 (`docs/OCR_CORPUS_FINDING.md`).
 
@@ -760,31 +797,37 @@ because both are already inputs to the same law, so a derived net would be "a
 number checked against itself" and the law would pass on every bill for ever
 while reporting that it had checked something.
 
-**Where it stands.** The owner fixed part of this while this page was being
-written — commit `b354750`. Checked against `84ea572`:
+**Where it stands — CLOSED 2026-08-15.** The table below was rewritten on
+2026-08-15 after re-reading every file in it. **The three rows that said "no"
+had all become false.**
 
-| piece | state |
+| piece | state, re-verified 2026-08-15 |
 |---|---|
 | `ExtractedRecord.net_paise` | **added** — `accountant/extract/adapter.py:159`, defaults to `None`, deliberately not in `FIELDS` |
-| `freeocr` carries it | **yes** — `freeocr.py:956`, `net_paise=answer.net_paise` |
-| `textlayer` carries it | **no** — `textlayer.py:1270` builds `ExtractedRecord` with no `net_paise`; the string does not appear in that file at all |
-| `gate.observed()` reads it off the record | **no** — `gate.py:341-346` reads only date, party, total, tax |
-| `gate.gate()` gets it | only as a caller keyword argument, defaulting to `None` (`gate.py:358`) |
-| `pipeline.evaluate` passes it | **no** — the call at `pipeline.py:793` does not mention `net_paise` |
+| `freeocr` carries it | **yes** — `freeocr.py:1065`, `net_paise=answer.net_paise` |
+| `textlayer` carries it | **YES, as of 2026-08-15** — `textlayer.py:1426`, read by `_read_net` at `textlayer.py:713`. *This row said "no ... the string does not appear in that file at all". That is now wrong: it appears at lines 210, 222, 935, 1055 and 1426.* |
+| `ladder` carries it through a merge | **yes** — `ladder.py:345-347,354`, added in `8050dcd` after the morning's fix was undone by a rebuild that did not name the field |
+| `gate.observed()` reads it off the record | **still no** — `gate.py:380-394` builds the `Observation` from date, party, total, tax and line items only |
+| `gate.gate()` gets it | as a caller keyword argument, defaulting to `None` (`gate.py:406`) |
+| `pipeline.evaluate` passes it | **YES, as of 2026-08-15** — `pipeline.py:829`, `net_paise=draft.record.net_paise`. *This row said "no". It is now wrong.* |
 
-So the fix is **half-landed**, and the half that landed is the half that cannot
-use it. `free_ocr` now carries a net — but `free_ocr` is not on
-`AUTO_POST_ALLOWED_TIERS`, so it can never post whatever it reads.
-`pdf_text_layer`, the tier that *can* post, still drops it. And even if it did
-not, nothing reads it back: `gate.observed()` builds the `Observation` from four
-fields and `net_paise` is not one of them, so the value would sit on the record
-unused.
+So the fix is **landed end to end for the tier that matters**. `pdf_text_layer`
+is one of the two tiers on `AUTO_POST_ALLOWED_TIERS` (`decision.py:279-281`; the
+other is `typed_text`, where a person typed it themselves), and it is the only
+*reader* on that list — the only one whose reading of a file may be posted
+without asking a person. It now reads the net and hands it over.
 
-**Until `textlayer` fills it AND `gate.observed()` reads it,
-`net_plus_tax_equals_gross` stays INDETERMINATE on every bill that could
-actually be posted** — which means hard rule 5 still blocks every one of them.
-Two more edits are needed, in two files that are not `adapter.py` or
-`freeocr.py`.
+**One thing here is still true and is worth keeping in view.** `gate.observed()`
+does not pull the net off the record. The net reaches the law only because
+`pipeline.evaluate` remembers to pass it. Exactly one caller does. A second
+caller that forgets gets INDETERMINATE, which blocks — so it fails safe, but it
+fails **silently**, and nothing shouts.
+
+**And a second defect from the same family, fixed the same day.** The law
+`lines_sum_to_total` was comparing the **pre-tax** item rows against the
+**gross** total, so a correct bill failed by exactly its own tax. The comparand
+is now chosen by `_lines_add_up_to` at `gate.py:332-377`. See
+[`PROJECT_STATE.md`](./PROJECT_STATE.md) §52.
 
 ### (b) The cage blocks every draft
 

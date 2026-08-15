@@ -11,6 +11,31 @@ nobody is looking at.
 
 ---
 
+> ## Status, added 2026-08-15 — three of these five have moved
+>
+> This page is left as it was written, because it is the record of what was
+> found. What has happened since:
+>
+> - **Point 3 is FIXED.** The one line pairing two numbers that do not go
+>   together was `conservation.run(total_paise=amount)` comparing pre-tax line
+>   items against the gross total. It was found, owned and fixed in commit
+>   `e783074` by `_lines_add_up_to` (`accountant/cage/gate.py:332-377`).
+>   Mutation-tested: restoring the gross pairing kills 2 of 19 mutants.
+> - **Point 4 did NOT happen, and the reason matters.** `net_paise` never joined
+>   `ExtractedRecord.FIELDS`. `adapter.py:211` still reads
+>   `FIELDS = ("date", "party", "total_paise", "tax_paise")`, and `adapter.py:153`
+>   now says out loud that the net is deliberately kept out. So sections 1.2 and
+>   1.3 below describe a change that was **considered and not taken** — the
+>   breakage they measure never reached the tree. `net_paise` is carried as an
+>   ordinary field instead (`adapter.py:159`), which is why no reader raises.
+> - **Point 1's mechanism changed.** The cage is now on the live path
+>   (`6629b51`) and the whole test suite feels it: 174 failed, 4,665 passed at
+>   `64b6bce`. See [`PROJECT_STATE.md`](./PROJECT_STATE.md) §52 and §52.4b.
+> - **Agent C's positional guess (row C of the table below) was switched off**
+>   in commit `64b6bce`, on measured evidence: 3 of its 3 new party answers were
+>   OCR noise. Section 1.4's warning was correct and the feature is gone.
+> - **Points 2 and 5 have not been re-measured** since this page was written.
+
 ## The short version
 
 1. The cage refuses **100 out of 100** real PDFs, under the kindest world facts
@@ -138,8 +163,8 @@ $ pytest tests/test_gate.py tests/test_questions.py tests/test_the_wall.py \
 `accountant/cage/gate.py:412-413`:
 
 ```python
-line_paise=seen.line_paise,
-total_paise=amount,          # amount is the GROSS total
+line_paise = (seen.line_paise,)
+total_paise = (amount,)  # amount is the GROSS total
 ```
 
 `conservation.lines_sum_to_total` (`accountant/cage/conservation.py:209`) then

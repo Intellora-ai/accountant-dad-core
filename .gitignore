@@ -90,3 +90,24 @@ scripts/migrate_gov_sidecars_to_shared_schema.py
 scripts/rebuild_real_invoices_manifest.py
 scripts/repair_real_invoices.py
 scripts/verify_real_invoices.py
+
+# Local disposable measurement scripts, ignored 2026-08-15 for the same reason
+# as the six above: they are one-off probes, they are not product source, and
+# left untracked-but-unignored the next `git add -A` sweeps them into a commit.
+# MEASURED before ignoring: they contribute ~150 ruff errors and ~10 format
+# failures, and both gates are `threshold = 0, required = true` in
+# `ci/gates.toml` - so a fresh clone that included them would fail CI on work
+# that has nothing to do with them.
+#
+# Their measurements are NOT lost. Every number they produced is recorded in
+# `project.state.md` and in committed regression tests. Reproducible behaviour
+# belongs in a test; a script that has to be re-run by hand is evidence that
+# expires. `scripts/measure_field_slots.py` is deliberately NOT here - it is the
+# approved measurement command and it is tracked.
+scripts/find_indian_documents.py
+scripts/measure_corpus.py
+scripts/measure_indian_accuracy.py
+scripts/measure_ocr_scanned.py
+scripts/corpus/
+--01.png
+--1.png

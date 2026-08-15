@@ -6,9 +6,9 @@
 |---|---|
 | **Purpose** | The project's operational memory. What was decided, what is built, what is verified, what remains, why. One file. No other progress document exists. |
 | **Repository** | `Intellora-ai/accountant-dad-core` — public — owner type **User** — created `2026-08-07T11:38:55Z` — VERIFIED (GitHub API) |
-| **Branch / commit** | `closure/flag-cap-and-truth` @ `3445992` — "the first detector (#17)" — measured 2026-08-10 with `git rev-parse HEAD`. **The working tree is NOT clean**: the `flag_cap = 3` change is in flight in `accountant/detect/detectors.py`, `accountant/pipeline.py` and `accountant/web/app.py`, and several documents and test files are untracked. Several agents are working in this tree at once. <br><br>*Audit note, 2026-08-10: this row said `main @ f7bf5d9`, 16 commits, with `accountant/ingest/` and `accountant/taxonomy/` untracked. Both were committed in `6867ca9`. The row was two days stale.* |
-| **Updated** | 2026-08-08 |
-| **Last verified state** | 2026-08-08. CI evidence is from nightly runs `31237228028` and `31238866032`. **The newest evidence is §21 (first real Tally), §22 (first product-quality measurements) and §23 (documentation drift corrected)** — those three sections supersede any older statement in this file that contradicts them. |
+| **Branch / commit** | `cage/safety-layer` @ `8050dcd` — "ladder: the merge dropped the net and read a stated 0.0 as certainty" — measured 2026-08-15 with `git rev-parse HEAD`. **The working tree is NOT clean**: `accountant/cage/gate.py` and `accountant/pipeline.py` carry uncommitted changes, and `scripts/measure_*.py`, `scripts/corpus/` and `tests/test_cage_on_the_live_path.py` are untracked. Several agents are working in this tree at once. <br><br>*Audit note, 2026-08-15: this row said `closure/flag-cap-and-truth` @ `3445992`, measured 2026-08-10. It was five days and one branch stale.* <br>*Audit note, 2026-08-10: this row said `main @ f7bf5d9`, 16 commits, with `accountant/ingest/` and `accountant/taxonomy/` untracked. Both were committed in `6867ca9`. The row was two days stale.* |
+| **Updated** | 2026-08-15 |
+| **Last verified state** | 2026-08-15. **The newest evidence is §52 (the cage on the live path, and the two defects found there)**, and before it §49–§51. Those supersede any older statement in this file that contradicts them. CI evidence in §10 is still from nightly runs `31237228028` and `31238866032` and has not been re-run since 2026-08-08. |
 | **Companion documents** | [`ARCHITECTURE.md`](./ARCHITECTURE.md) — the design. [`BOTTLENECKS.md`](./BOTTLENECKS.md) — what currently costs more than it should, with the smallest guard per class of defect. |
 | **Who may update** | The owner, or Claude on the owner's instruction. |
 
@@ -4739,3 +4739,243 @@ flight at once. Streaming on its own lowers the cost of one request without
 bounding the total. **No code change now.**
 
 Full note: [`ARCHITECTURE.md`](./ARCHITECTURE.md) §4.8.
+
+---
+
+## §52 The cage went on the live path — 2026-08-15
+
+Plain words first. **The cage** is the folder `accountant/cage/`. Its job is to
+say one of three things about a bill: **post it**, **ask the owner a question**,
+or **block it**. Until 2026-08-15 that folder was finished, tested, and *called
+by nothing that ships*. Now it is called.
+
+Everything below was checked by reading the files, not by trusting a commit
+message.
+
+### §52.1 It is wired in — verified by reading `pipeline.py`
+
+| what | where | verified |
+|---|---|---|
+| the pipeline imports the cage | `accountant/pipeline.py:25` — `from accountant.cage import gate as cage_gate` | yes |
+| the cage's answer is applied | `accountant/pipeline.py:156` — `narrowed_by_the_cage` | yes |
+| the gate is actually called | `accountant/pipeline.py:795` inside `evaluate` | yes |
+
+Landed in commit `6629b51`.
+
+**The cage may only NARROW.** Narrow means: it can make an answer stricter, never
+looser. A draft the older logic called VALID can be pushed down to UNCLEAR or
+NOT_VALID. A draft the older logic already refused cannot be lifted back up, no
+matter what the cage says. The one-way rule is held by an early return in
+`narrowed_by_the_cage`, not by the contents of a lookup table — so deleting a
+row of that table cannot turn a refusal into a post.
+
+### §52.2 Two defects were found there and fixed the same day
+
+Both landed in commit **`e783074`**, 2026-08-15. Both produced a **refusal**
+rather than a wrong number — which is why no existing test caught either. A
+system whose failure mode is "blocks too much" does not announce itself: every
+test asserting a block keeps passing, and the only symptom is a person opening
+bills the machine could have cleared.
+
+**Defect 1 — the pre-tax figure was read and then not handed over.**
+`pipeline.evaluate` called `gate.gate(...)` without passing `net_paise`, while
+`draft.record.net_paise` already held the number the reader had found. So the
+law `net_plus_tax_equals_gross` could never be evaluated. Fixed at
+`accountant/pipeline.py:829` — `net_paise=draft.record.net_paise`.
+
+Measured by the commit's author, recorded with its source so it can be re-run:
+before the fix, of 956 blocks, **955** cited "there is something on this bill I
+could not check at all". End to end on `tests/test_textlayer.py::BILL`:
+
+```
+record.net_paise                   104624          the reader had it
+net_plus_tax_equals_gross before   INDETERMINATE   "the net amount was not read"
+net_plus_tax_equals_gross after    PASS            1,046.24 + 188.32 = 1,234.56
+```
+
+**Defect 2 — the arithmetic compared two different things.**
+On an Indian GST bill the item rows are **pre-tax** (the net). The bill's big
+number at the bottom is the **gross** (net + tax). The law `lines_sum_to_total`
+was adding up the pre-tax rows and comparing them against the gross. A bill
+whose arithmetic was perfect therefore failed by exactly its own tax:
+
+```
+lines   278.61        the item rows, pre-tax
+tax      40.39
+gross   319.00        what the rows were being compared against
+```
+
+Fixed by a new helper, `_lines_add_up_to` at `accountant/cage/gate.py:332-377`.
+It answers with three rules:
+
+- net was read → compare the rows against the **net**. This is the real law.
+- net unread but tax is a **read** zero → compare against the gross, because with
+  no tax the net and the gross are the same number. A never-read tax is `None`,
+  not `0`, so this branch cannot fire by accident.
+- anything else → `None`, which becomes INDETERMINATE, which **blocks**.
+
+The third rule is deliberate. The net could be guessed as gross minus tax, and
+`gate.py`'s own docstring forbids that: a number worked out from the law's own
+inputs is checked against itself and passes for ever.
+
+**Both fixes were mutation-tested.** A *mutant* is a deliberate small break put
+into the code to see whether any test notices. Reverting the handoff kills 1 of
+19 mutants; restoring the gross pairing kills 2 of 19.
+
+**Neither fix makes more bills post, and the commit says so.** That is not a
+disappointment, it is the honest reading: `lines_sum_to_total` is still
+INDETERMINATE whenever the rows were not read, and INDETERMINATE blocks. The
+ordinary document still blocks — on a different and now truthful sentence.
+
+### §52.3 The reader now carries two things it used to drop
+
+`accountant/extract/textlayer.py` is the **text-layer tier** — the reader that
+pulls characters straight out of a born-digital PDF. It is one of the two tiers
+on `AUTO_POST_ALLOWED_TIERS` (`accountant/cage/decision.py:279-281`), which means
+its reads may be posted without asking a person. The other is `typed_text`, where
+a person typed the sentence themselves. Anything read from pixels is capped at
+ASK.
+
+**Several source comments say "the only one on `AUTO_POST_ALLOWED_TIERS`"** —
+`textlayer.py:215`, `textlayer.py:724`, `textlayer.py:1423`. The set has two
+members. Recorded as a documentation defect in source, not fixed here.
+
+| field | where it is now filled | what changed |
+|---|---|---|
+| `net_paise` | `textlayer.py:1426` | was never filled; `net_plus_tax_equals_gross` was INDETERMINATE on exactly the tier allowed to auto-post |
+| `line_items` | `textlayer.py:1427-1430`, from `_read_lines` at `textlayer.py:808` | was never filled; `lines_sum_to_total` was INDETERMINATE on every bill |
+
+`accountant/extract/ladder.py:347,355` merges both when a scanned PDF falls
+through both rungs. `accountant/extract/freeocr.py:1065` carries the net too.
+
+### §52.4 What is still NOT true, said plainly
+
+- **`gate.observed()` does not read the net off the record.**
+  `accountant/cage/gate.py:380-394` builds the `Observation` from date, party,
+  total and tax only. The net reaches the law as a keyword argument that the
+  caller must remember to pass. Today exactly one caller passes it. A second
+  caller that forgets will silently get INDETERMINATE — which blocks, so it fails
+  safe, but it fails silently.
+- **Two docstrings in `gate.py` are now stale and say the opposite of the code.**
+  `accountant/cage/gate.py:113` and `accountant/cage/gate.py:319` both state that
+  `line_items` "defaults to `()` and nothing ever fills it". `textlayer.py:1427`
+  fills it. Recorded as a documentation defect in source, not fixed here.
+- **`accountant/cage/classify.py` is still called by nothing that ships.**
+  `git grep -l "cage.classify"` returns test files, `demo_safety_cage.py`, and
+  documentation. The shipped upload path still routes on the media type the
+  browser declared, never on the bytes.
+- **No number in this section is an accuracy claim.** Whether the cage now posts
+  anything, and how often it is right when it does, is **not measured** as of
+  2026-08-15.
+
+### §52.4b The test suite is 174 RED, and it is one cause
+
+**Measured 2026-08-15 at commit `64b6bce`**, whole suite, no `-x`:
+
+```
+.venv/bin/python -m pytest -q --no-header -p no:randomly
+
+174 failed, 4665 passed, 10 skipped, 4 xfailed, 2 warnings in 476.77s
+```
+
+Before the cage was wired in, the same suite was **1 failed, 4546 passed** at
+commit `f7dda81`. So wiring the cage turned **173 green tests red**.
+
+**173 of the 174 have the same cause, and it is not a bug.** The cage narrows
+the outcome, and the tests were written for a world without a cage. They set up
+a bill, call the pipeline, and assert the outcome is `VALID`. It is now
+`NOT_VALID`, and the refusal names its own reasons in the owner's own sentences:
+
+```
+"There is something on this bill I could not check at all."
+"I could not tell whether the books for this date are still open."
+"I have never seen Sharma Traders in your books."
+"I am less than 70 out of 100 sure about what this bill says."
+```
+
+Those are the four hard blocks the `pipeline.evaluate` docstring already
+predicted. A test fixture is a typed sentence with no line items, no net, no
+Tally to ask about open books, and a supplier that is not in the chart of
+accounts. Every one of the four fires.
+
+**The 1 remaining failure is unrelated and trivial:**
+`tests/test_no_reader.py::test_the_extraction_package_ships_source_and_nothing_else`
+fails because a macOS `.DS_Store` file sits in `accountant/extract/`. The test is
+correct; the file should not be there.
+
+**THIS IS A DECISION, NOT A BUG REPORT, AND IT IS NOT MADE HERE.** There are only
+two honest readings and they lead to different work:
+
+1. **The tests encode the pre-cage world and must be updated.** Each one has to
+   supply the world facts the cage asks for — `period_open=True`, a known party,
+   a reader that fills the fields — or assert the new outcome. That is ~173 test
+   edits and it is the reading the commit messages assume.
+2. **The cage is too strict for a typed sentence.** A person who types "paid
+   Sharma Traders 4200 for cement" has supplied no line items and no pre-tax
+   figure because **there are none**, not because they went unread. That is the
+   "not applicable is not the same as could not check" distinction
+   [`CAGE_FINDINGS.md`](./CAGE_FINDINGS.md) Finding 3 already raised and
+   deliberately left open for the owner.
+
+**Nobody should quietly pick one by editing tests until they pass.** Reading 2
+being right and reading 1 being taken would mean 173 tests were rewritten to
+match a refusal that should not have happened.
+
+### §52.5 Where the reader actually fails on real documents — measured 2026-08-15
+
+Measured on **60 real photographs and scans** from `data/real_invoices_indian`,
+five fields each, **300 field slots**. Reproduced twice, byte-identical both
+times, on the tree that became commit `64b6bce`.
+
+```
+the OCR engine refused the file            0 slots
+no OCR words at all                       10 slots
+words present, NO LABEL MATCHED          287 slots
+reached a candidate                        3 slots
+```
+
+**Tesseract is not the bottleneck and never was.** It refused nothing and
+returned 2,596 word rows. The bottleneck is the join between the words it
+returns and the labels this reader knows.
+
+Per field: party **0 of 60**, invoice date **2 of 60**, total **0 of 60**, tax
+**0 of 60**, invoice number **1 of 60**. Full table with the reason for every
+miss: [`EXTRACTION_MEASURED.md`](./EXTRACTION_MEASURED.md), section *Where every
+field slot dies, on REAL documents*.
+
+**Two warnings that belong with the number, not below it.**
+
+1. This counts **reach**, not **accuracy**. A document that confidently reads
+   the wrong total is counted here as a success. There is no labelled truth for
+   these documents.
+2. **The script's own docstring records a different set of counts** (6,210 word
+   rows, 0 slots with no words, 296 with no label) and that set does **not
+   reproduce**. Both runs agree on the conclusion and on `3 of 300`; they
+   disagree by 2.4x on word rows. Nobody has explained it. Four causes have been
+   checked and ruled out; they are listed in `EXTRACTION_MEASURED.md`.
+
+### §52.6 The three constants and the dependency set have not moved
+
+Read 2026-08-15 at commit `e163e5b`:
+
+```
+AUTO_POST_FLOOR  0.95   accountant/cage/decision.py:206
+ASK_FLOOR        0.70   accountant/cage/decision.py:211
+QUESTION_CAP     5      accountant/questions.py:24   owner-set 2026-08-07
+```
+
+Commit `e163e5b` added a plausibility **ceiling** on the party field — a cap that
+can refuse a reading and can never rescue one. No band moved.
+
+
+`pyproject.toml:13-17`, read 2026-08-15. The runtime dependencies are exactly
+three and no more:
+
+```
+pypdf>=5.0        reads a born-digital PDF's text layer
+pytesseract>=0.3  a thin wrapper over the tesseract binary, for scans
+Pillow>=11.0      decodes the image pytesseract hands to tesseract
+```
+
+A fourth fails
+`test_the_project_declares_exactly_the_dependencies_the_owner_approved`.

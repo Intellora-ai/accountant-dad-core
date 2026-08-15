@@ -1,16 +1,16 @@
 {
   "verdict": "FAIL",
   "exit_code": 1,
-  "generated_at": "2026-08-13T05:06:59.137361+00:00",
+  "generated_at": "2026-08-15T06:56:00.687952+00:00",
   "harness_error": "",
   "provenance": {
     "cwd": "/Users/tanveersidhu/ACCOUNTANT",
     "accountant__file__": "/Users/tanveersidhu/ACCOUNTANT/accountant/__init__.py",
     "python": "3.14.6",
-    "commit": "36a83b92541e61cbd8c38796f2726302b29770d0",
+    "commit": "64b6bce3e5e9dd119a24905aa961636a154bbf34",
     "branch": "cage/safety-layer",
     "worktree": "/Users/tanveersidhu/ACCOUNTANT",
-    "dirty": "no"
+    "dirty": "yes"
   },
   "sections": [
     {
@@ -48,7 +48,7 @@
           "name": "exit1_generated_truth_extraction",
           "status": "FAIL",
           "measured": "{\"date\": 14, \"party\": 23, \"tax_paise\": 20, \"total_paise\": 20}",
-          "detail": "ladder backend, 80 renderable cases, exact matches per field {'date': 14, 'party': 23, 'total_paise': 20, 'tax_paise': 20}, required 76; WRONG rather than unread, per field, over all 100 cases: {'date': 0, 'party': 5, 'total_paise': 0, 'tax_paise': 0}. Rung that answered: {'free_ocr': 40, 'ladder': 20, 'pdf_text_layer': 20, 'typed_text': 20}. The application default is 'ladder', which is the backend scored here. GENERATED_TRUTH from canonical JSON, SYNTHETIC_EVIDENCE, and never evidence about real-world reader accuracy. 20 of the 80 renderable cases reach no rung that can read them at all: the DOCX, which no reader here opens. The 20 PNG now reach the picture rung, which was wired on 2026-08-13, and it reads their supplier exactly on 3 of them - the corpus is rendered in a 5x7 bitmap font. docs/EXTRACTION_MEASURED.md carries the split per input type and the count of fields that came back WRONG rather than unread."
+          "detail": "ladder backend, 80 renderable cases, exact matches per field {'date': 14, 'party': 23, 'total_paise': 20, 'tax_paise': 20}, required 76; WRONG rather than unread, per field, over all 100 cases: {'date': 0, 'party': 4, 'total_paise': 0, 'tax_paise': 0}. Rung that answered: {'free_ocr': 40, 'ladder': 20, 'pdf_text_layer': 20, 'typed_text': 20}. The application default is 'ladder', which is the backend scored here. GENERATED_TRUTH from canonical JSON, SYNTHETIC_EVIDENCE, and never evidence about real-world reader accuracy. 20 of the 80 renderable cases reach no rung that can read them at all: the DOCX, which no reader here opens. The 20 PNG now reach the picture rung, which was wired on 2026-08-13, and it reads their supplier exactly on 3 of them - the corpus is rendered in a 5x7 bitmap font. docs/EXTRACTION_MEASURED.md carries the split per input type and the count of fields that came back WRONG rather than unread."
         },
         {
           "name": "exit2_unrenderable_input_is_explicit",
@@ -59,15 +59,15 @@
         {
           "name": "s2_extraction_scored",
           "status": "FAIL",
-          "measured": "{\"date\": 14, \"party\": 28, \"tax_paise\": 20, \"total_paise\": 20}",
-          "detail": "ladder backend, 100 cases, per-field hits {'date': 14, 'party': 28, 'total_paise': 20, 'tax_paise': 20}. This asks whether every field was SPOKEN TO, which two of the five input types cannot be: a DOCX reaches no rung, and a pixel-free JPEG reaches the picture rung and is refused by it because there is no picture in the file. A refusal is the correct answer there rather than a hit."
+          "measured": "{\"date\": 14, \"party\": 27, \"tax_paise\": 20, \"total_paise\": 20}",
+          "detail": "ladder backend, 100 cases, per-field hits {'date': 14, 'party': 27, 'total_paise': 20, 'tax_paise': 20}. This asks whether every field was SPOKEN TO, which two of the five input types cannot be: a DOCX reaches no rung, and a pixel-free JPEG reaches the picture rung and is refused by it because there is no picture in the file. A refusal is the correct answer there rather than a hit."
         }
       ],
       "facts": {
         "s2_cases_scored": 100,
         "s2_per_field": {
           "date": 14,
-          "party": 28,
+          "party": 27,
           "total_paise": 20,
           "tax_paise": 20
         },
@@ -155,8 +155,8 @@
             },
             "party": {
               "exact": 3,
-              "refused": 12,
-              "wrong": 5
+              "refused": 13,
+              "wrong": 4
             },
             "total_paise": {
               "exact": 0,
@@ -201,7 +201,7 @@
         },
         "exit1_wrong_per_field": {
           "date": 0,
-          "party": 5,
+          "party": 4,
           "total_paise": 0,
           "tax_paise": 0
         },
@@ -209,7 +209,6 @@
           "GT-0041 PNG party: 'AQUANCED PROPULSION CENTRE UK LTO' sourced 'free_ocr'",
           "GT-0046 PNG party: '\u201cGUPTA HARONARE STORES' sourced 'free_ocr'",
           "GT-0050 PNG party: 'GECCAN LOGISTICS PUT LTO' sourced 'free_ocr'",
-          "GT-0055 PNG party: 'UK HEALTH SECURITY AGENCY <UKHSAD' sourced 'free_ocr'",
           "GT-0056 PNG party: '\"NARHAGR PACKAGING CO' sourced 'free_ocr'"
         ],
         "exit1_required": 76,

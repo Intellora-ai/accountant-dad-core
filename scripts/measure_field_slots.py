@@ -79,16 +79,16 @@ if str(REPO) not in sys.path:
     # change. Pin it, and print the path that was used.
     sys.path.insert(0, str(REPO))
 
+from accountant.extract.freeocr import _scored  # noqa: E402
 from accountant.extract.labels import (  # noqa: E402
     DATE_LABEL,
     PARTY_LABELS,
     TAX_WHOLE,
     TOTAL_LABELS,
     Printing,
-    amounts_for,
     values_for,
 )
-from accountant.extract.pagereader import read_lines  # noqa: E402
+from accountant.extract.pagereader import read_lines, read_page  # noqa: E402
 
 #: The five the owner named for the fast pass. `net` is deliberately absent: it
 #: is not one of the five and counting it would change the denominator.
@@ -152,23 +152,42 @@ def measure(limit: int) -> dict[str, object]:
         rows_with_characters += sum(1 for word in words if word.text.strip())
         page = tuple(" ".join(word.text for word in line) for line in lines)
 
-        for name, family, kind in FIELDS:
-            found = (
-                values_for(page, family, printing=PRINTING)
-                if kind == "text"
-                else amounts_for(page, family)
-            )
-            per_field[f"{name}: candidates"] += len(found)
+        # THE REAL READING PATH, and not a second copy of it. `read_page` is what
+        # `page_reader` calls on an upload, so this measures what a person would
+        # actually get - including the next-line search, the family separation
+        # and every ceiling. An earlier version of this script called
+        # `values_for` directly and could not see any of that: it would have
+        # reported no change from work that had changed the product.
+        scored = _scored(read_page(lines), "free_ocr")
+        read_now = {
+            "party": scored.party,
+            "date": scored.date,
+            "total": scored.total_paise,
+            "tax": scored.tax_paise,
+        }
+
+        for name, family, _kind in FIELDS:
+            if name == "invoice_number":
+                # No reader produces one yet - `INVOICE_NUMBER_LABELS` lives in
+                # `accountant/invoice/parse.py`, a second vocabulary that has not
+                # been reconciled with `labels.py`. Counted by label match only,
+                # and said so rather than dropped from the denominator.
+                found = values_for(page, family, printing=PRINTING)
+                per_field[f"{name}: candidates"] += len(found)
+                where[
+                    f"{name}: "
+                    + (NO_WORDS if not words else (NO_LABEL if not found else AGREED))
+                ] += 1
+                continue
+
+            value = read_now[name]
+            per_field[f"{name}: candidates"] += 1 if value is not None else 0
             if not words:
                 where[f"{name}: {NO_WORDS}"] += 1
-            elif not found:
+            elif value is None:
                 where[f"{name}: {NO_LABEL}"] += 1
             else:
-                seen = {
-                    one.printed if kind == "text" else one.paise  # pyright: ignore[reportAttributeAccessIssue]
-                    for one in found
-                }
-                where[f"{name}: {DISAGREED if len(seen) > 1 else AGREED}"] += 1
+                where[f"{name}: {AGREED}"] += 1
 
     slots = len(paths) * len(FIELDS)
     counted = sum(where.values())

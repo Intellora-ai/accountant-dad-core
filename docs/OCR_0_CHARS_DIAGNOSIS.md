@@ -39,7 +39,7 @@ explain the PDF failures as well.**
 ### Boundary 7 — PSM recorded before anything was changed
 
 ```python
-ENGINE_ARGUMENTS: Final = ""        # freeocr.py:368
+ENGINE_ARGUMENTS: Final = ""  # freeocr.py:368
 ```
 
 No page segmentation mode is forced; the engine's own default (`--psm 3`) stands.
@@ -77,7 +77,7 @@ reporting words. It is not failing quietly; it is succeeding.
 ### Boundary 10 — `raw_text=""` is a privacy guard, not a bug
 
 ```python
-raw_text="",        # freeocr.py:874
+raw_text = ("",)  # freeocr.py:874
 ```
 
 Its own comment gives the reason: `pipeline.build_draft` copies `raw_text` into
@@ -149,7 +149,7 @@ one scores 0.
 ### The party field cannot match a real invoice at all
 
 ```python
-PARTY_LABELS = ('SUPPLIER', 'VENDOR', 'BILLED BY', 'SOLD BY')
+PARTY_LABELS = ("SUPPLIER", "VENDOR", "BILLED BY", "SOLD BY")
 ```
 
 The bill's vendor is `HOTEL ¥VISHWANAND` on line 3 — the top of the page, with

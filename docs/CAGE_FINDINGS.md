@@ -95,6 +95,16 @@ exactly. **Three of the four conservation laws have no inputs on that path:**
 | `net_plus_tax_equals_gross` | INDETERMINATE | no reader produces a net amount |
 | `balance_delta_equals_entry` | INDETERMINATE | there is no after-balance before a write |
 
+> **Two rows of that table stopped being true on 2026-08-15, and the table is
+> left as written because it is the record of what was found.** On the
+> **text-layer** path — not the typed-text path this table is about —
+> `textlayer.py` now fills `line_items` (`textlayer.py:1427-1430`) and reads a
+> net (`textlayer.py:1426`), and `pipeline.evaluate` hands the net to the gate
+> (`pipeline.py:829`). So both laws are answerable there. On the **typed-text**
+> path a person types one sentence, there is still no table and still no net,
+> and both rows remain exactly as written. See
+> [`PROJECT_STATE.md`](./PROJECT_STATE.md) §52.
+
 Every INDETERMINATE is a hard block. And on the typed-text path `date` is always
 `not_found`, so `lowest_confidence` is 0.0 **before conservation even runs**.
 
@@ -142,7 +152,14 @@ did not give.
 
 ## What is true regardless of all three
 
-- The suite is green: **3,874 passed, 0 failed** at last clean measurement.
+- ~~The suite is green: **3,874 passed, 0 failed** at last clean measurement.~~
+  **NO LONGER TRUE. Re-measured 2026-08-15 at commit `64b6bce`: 174 failed,
+  4,665 passed.** 173 of the 174 are the cage narrowing outcomes that these
+  tests, written before the cage existed, assert as `VALID`. Finding 3 below
+  predicted exactly this and it has now happened on the live path. See
+  [`PROJECT_STATE.md`](./PROJECT_STATE.md) §52.4b — **the choice between "the
+  tests are stale" and "the cage is too strict for a typed sentence" is still
+  the owner's and has not been made.**
 - Coverage measured fresh: **93% whole repo** against a gate of 90;
   **97% across `accountant/cage/`**; `state.py`, `conservation.py` and
   `confidence.py` at 100%.

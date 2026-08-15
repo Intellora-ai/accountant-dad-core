@@ -203,12 +203,13 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Final
 
-from accountant.extract import artifacts
+from accountant.extract import artifacts, nearby
 from accountant.extract.freeocr import PageReader, Reading, Word, read_lines
 from accountant.extract.labels import (
     DATE_LABEL,
     NET_LABELS,
     PARTY_LABELS,
+    TAX_PARTS,
     TAX_WHOLE,
     TOTAL_LABELS,
     Amount,
@@ -595,13 +596,242 @@ def read_page(lines: tuple[tuple[Word, ...], ...]) -> Reading:
     if party and (ceiling := artifacts.ceiling_for(_text_of(party))) is not None:
         ceilings["party"] = min(ceilings.get("party", 1.0), ceiling)
 
+    total = _words_for_amount(page, amounts_for(page.lines, TOTAL_LABELS))
+    tax = _words_for_amount(page, amounts_for(page.lines, TAX_WHOLE))
+    net = _words_for_amount(page, amounts_for(page.lines, NET_LABELS))
+
+    # THE LABEL AND ITS FIGURE ARE OFTEN ON DIFFERENT LINES. Owner decision
+    # 2026-08-15, recorded in `project.state.md`.
+    #
+    # MEASURED over 60 real documents: 287 of 300 field slots died at "words
+    # present, no label matched", and of the 18 lines that mention a total-ish
+    # word at ALL, only 4 carried a figure on that same line - and all 4 already
+    # matched. The list of "has a figure and is unmatched" came back EMPTY. So
+    # more label spellings buy nothing; the other 14 print the label with the
+    # figure somewhere else:
+    #
+    #     'SUB TOTAL'   'GRAND TOTAL'   'Total Cost'   'Total des'
+    #
+    # THE FAMILIES STAY APART. `TOTAL_LABELS` and `NET_LABELS` are searched
+    # separately and their answers never merge - `SUB TOTAL` feeds the NET.
+    # Merging them reports a correct GST bill short by exactly its tax, which is
+    # the defect `cage/gate._lines_add_up_to` was written against.
+    #
+    # NEXT LINE ONLY, AND NO GEOMETRY. `Limits.max_line_distance` is 1 and no
+    # `Box` is ever built, because `freeocr.Word` carries no position and the
+    # owner ruled it stays that way. `nearby`'s `RIGHT_OF` and `BELOW` methods
+    # need boxes, so they are unreachable from here by construction rather than
+    # by a flag somebody can flip.
+    for name, found, family in (
+        ("total", total, TOTAL_LABELS),
+        ("tax", tax, TAX_WHOLE),
+        ("net", net, NET_LABELS),
+    ):
+        if found:
+            continue
+        taken, ceiling = _from_a_neighbouring_line(page, name, family)
+        if taken:
+            if name == "total":
+                total = taken
+            elif name == "tax":
+                tax = taken
+            else:
+                net = taken
+            ceilings[name] = min(ceilings.get(name, 1.0), ceiling)
+
     return Reading(
         date=date,
         party=party,
-        total=_words_for_amount(page, amounts_for(page.lines, TOTAL_LABELS)),
-        tax=_words_for_amount(page, amounts_for(page.lines, TAX_WHOLE)),
-        net=_words_for_amount(page, amounts_for(page.lines, NET_LABELS)),
+        total=total,
+        tax=tax,
+        net=net,
         at_most=MappingProxyType(ceilings),
+    )
+
+
+def _page_words(page: _Page) -> tuple[nearby.PageWord, ...]:
+    """The page as `nearby` wants it: words, line numbers, and NO geometry.
+
+    `box=None` on every word, and that is the owner's ruling rather than an
+    oversight. `freeocr.Word` is text and confidence; the position Tesseract
+    reported is discarded one layer out and stays discarded. `nearby` already
+    degrades correctly - its pixel limits apply only where both boxes are known -
+    so this hands it the weaker evidence and lets it say so.
+    """
+    return tuple(
+        nearby.PageWord(
+            text=word.text, line=number, box=None, confidence=word.confidence
+        )
+        for number, words in enumerate(page.words)
+        for word in words
+    )
+
+
+def _from_a_neighbouring_line(
+    page: _Page, field: str, family: tuple[str, ...]
+) -> tuple[tuple[Word, ...], float]:
+    """The figure printed under a label rather than beside it, or nothing.
+
+    RETURNS NOTHING RATHER THAN GUESSING, in three separate situations, and the
+    third is the one that matters:
+
+        no candidate survived        the label is not on this page, or every
+                                     figure near it was refused as a date, a
+                                     quantity, an HSN code or a phone number
+        the next line is a LABEL     a line that is itself a label is not a
+                                     value. Without this, `SUB TOTAL` followed
+                                     by `GRAND TOTAL` reads the words of the
+                                     second label as the first one's figure
+        two or more survived         owner decision: preserve the ambiguity, do
+                                     not pick. Not the first, not the largest,
+                                     not the closest
+
+    THE CEILING IS `BY_POSITION`, 0.5, the same one every other find that leaned
+    on position carries. A next-line figure rests on a LINE RELATIONSHIP rather
+    than on a label and a figure printed together, and 0.5 is below `ASK_FLOOR`
+    (0.70) and far below `AUTO_POST_FLOOR` (0.95). So nothing found here can
+    post, and nothing found here can even spend one of the five daily questions.
+    It becomes visible for review without the reader claiming certainty it has
+    not got.
+    """
+    candidates = nearby.candidates_for(
+        _page_words(page),
+        field=field,
+        labels=family,
+        limits=nearby.Limits(max_line_distance=1),
+    )
+    # EVERY FILTER RUNS BEFORE THE COUNT, and the order is the whole of the bug
+    # this shape fixes. Counting first and filtering after made a candidate this
+    # pass does not even allow - a `previous_line` figure - inflate the survivor
+    # count to two, and two survivors is an ambiguity. So a bill printing
+    # `GRAND TOTAL` on its own line came back with NO total, refused for
+    # disagreeing with a reading that was never eligible.
+    standing = tuple(
+        one
+        for one in candidates
+        if not one.rejected
+        and one.method in _NEIGHBOURING
+        and not _belongs_to_another_family(field, one.label_text)
+        # A line that is itself a label is not a value: `SUB TOTAL` followed by
+        # `GRAND TOTAL` must not read the second label's words as the first
+        # one's figure.
+        and not _is_a_label(one.value_text)
+    )
+    # OWNER DECISION: two survivors is an ambiguity to preserve, not a tie to
+    # break. Not the first, not the largest, not the closest.
+    if len(standing) != 1:
+        return (), BY_POSITION
+    only = standing[0]
+    line = _line_printing(page, only.value_text)
+    if line is None:
+        return (), BY_POSITION
+    return _words_at(page, line, 0, len(page.lines[line])), BY_POSITION
+
+
+def _belongs_to_another_family(field: str, label_text: str) -> bool:
+    """Is this label really a DIFFERENT field's label?
+
+    THE COLLISION IS REAL AND IT IS EXACTLY THE SUBTOTAL DEFECT. `labels._LABEL_AT`
+    anchors a label at the start of a line OR after whitespace, so the entry
+    `TOTAL` matches inside `SUB TOTAL`. Searching the TOTAL family on a bill that
+    prints both therefore finds TWO labels - the real `GRAND TOTAL` and the
+    `TOTAL` buried in `SUB TOTAL` - and two candidates is an ambiguity, so the
+    total came back UNREAD on exactly the bills that state it most clearly.
+
+    MEASURED before this guard, on a four-line page printing both:
+
+        SUB TOTAL / 1,046.24 / GRAND TOTAL / 1,234.56
+            net    104624     correct
+            total  None       WRONG - the bill says 1,234.56 on its own line
+
+    The fix is to ask which family the label PRINTED ON THE PAGE belongs to,
+    rather than which family we happened to be searching. `SUB TOTAL` is a net
+    label, so it is not a total no matter which search found it.
+
+    ONE DIRECTION ONLY, deliberately. A net search is not filtered against the
+    total family, because `TOTAL` is a substring of `SUB TOTAL` and not the other
+    way round - `GRAND TOTAL` contains no net label. Filtering both ways would be
+    symmetry for its own sake and would refuse a real net.
+    """
+    if field != "total":
+        return False
+    printed = label_text.strip().upper()
+    return any(printed.startswith(label) for label in NET_LABELS)
+
+
+def _line_printing(page: _Page, printed: str) -> int | None:
+    """Which line carries exactly this text, when exactly one does.
+
+    `nearby.Candidate` reports the characters it took and the METHOD it took
+    them by, and deliberately not a line number - it works on an abstract
+    geometry so it can be tested without an engine. So the line is found here,
+    by looking for it.
+
+    `None` WHEN TWO LINES MATCH, which is the case worth naming: a bill that
+    prints the same figure twice gives no way to say which printing this
+    candidate came from, and picking one would be a guess wearing a line number.
+    """
+    matches = [
+        number
+        for number, line in enumerate(page.lines)
+        if line.strip() == printed.strip()
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+#: THE ONE METHOD THIS PASS ALLOWS, and `nearby.PREVIOUS_LINE` is deliberately
+#: not in it.
+#:
+#: A VALUE IS PRINTED AFTER ITS LABEL, NOT BEFORE IT. MEASURED on a four-line
+#: page printing both families:
+#:
+#:     SUB TOTAL          <- line 0
+#:     1,046.24           <- line 1
+#:     GRAND TOTAL        <- line 2
+#:     1,234.56           <- line 3
+#:
+#: searching the TOTAL family found `GRAND TOTAL` and then TWO survivors -
+#: `1,234.56` by next_line and `1,046.24` by previous_line. Two survivors is an
+#: ambiguity, so the total came back UNREAD on a bill that states it on its own
+#: line. The figure above a label is the PREVIOUS field's value, and reading it
+#: as this one's is how a subtotal becomes a total.
+#:
+#: `nearby.RIGHT_OF` and `nearby.BELOW` are absent for a different reason: they
+#: need bounding boxes, which `freeocr.Word` does not carry and which the owner
+#: ruled it will not. They are unreachable as well as unlisted, so a future
+#: geometry change has to switch them on deliberately rather than find them
+#: already on.
+_NEIGHBOURING: Final = (nearby.NEXT_LINE,)
+
+
+#: Every label family this reader knows, for the next-line guard below.
+_EVERY_FAMILY: Final[tuple[tuple[str, ...], ...]] = (
+    TOTAL_LABELS,
+    NET_LABELS,
+    TAX_WHOLE,
+    TAX_PARTS,
+    PARTY_LABELS,
+    DATE_LABEL,
+)
+
+
+def _is_a_label(line: str) -> bool:
+    """Is this whole line one of the labels this reader knows?
+
+    THE GUARD THAT STOPS A LABEL BEING READ AS A VALUE. A bill printing
+
+        SUB TOTAL
+        GRAND TOTAL
+        1,234.56
+
+    has a next line under `SUB TOTAL` that is not a figure at all. Without this,
+    the words `GRAND TOTAL` come back as the subtotal's value.
+    """
+    printed = line.strip().upper()
+    if not printed:
+        return False
+    return any(
+        printed.startswith(label) for family in _EVERY_FAMILY for label in family
     )
 
 

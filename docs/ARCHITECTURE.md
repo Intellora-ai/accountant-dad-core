@@ -159,8 +159,32 @@ definition.**
 | `wall.py` | **present** | `Observation` (what we think) and `LedgerEntry` (what we write). `LedgerEntry` is constructible only by the decision layer, enforced at run time AND by an AST scan |
 | `confidence.py` | **present** | `min(word_conf)/100 × format_valid × consistency` — the proxy that turns per-word OCR scores into a per-field number |
 | `classify.py` | **present** | magic bytes over declared MIME, always. Never raises, never unzips, never executes |
+| `decision.py` | **present** | the only module allowed to build a `LedgerEntry`. Weighs bands and hard rules into POST / ASK / BLOCK |
+| `gate.py` | **present** | the one door from a `Draft` into the cage. Carries facts across, decides nothing itself |
+| `state.py` | **present** | seven states and thirteen events, so a proposal can be asked where it is and proved not to have skipped a stage |
+| `lying.py` | **present** | a model that lies on command, so a guard can be tested against a known lie instead of whatever a real model happened to do that day |
 
-Landed 2026-08-12/13. One page per module in [`docs/interfaces/`](./interfaces/).
+Landed 2026-08-12/13. Six of the nine files have a page in
+[`docs/interfaces/`](./interfaces/): `classify`, `confidence`, `conservation`,
+`decision`, `gate`, `wall`. `state.py`, `lying.py` and `__init__.py` do not.
+
+**ON THE LIVE PATH SINCE 2026-08-15, commit `6629b51`.** Until that commit the
+whole folder was finished, tested, and imported by nothing that ships — the same
+shape as defect J1, one level up. Verified by reading the file:
+`accountant/pipeline.py:25` imports the gate, `pipeline.py:156` is
+`narrowed_by_the_cage`, and `pipeline.py:795` is the call inside `evaluate`.
+The cage may only **narrow** an outcome and never widen one; see
+[`PROJECT_STATE.md`](./PROJECT_STATE.md) §52 for what wiring it found.
+
+**The conservation rung was comparing the wrong two numbers, corrected
+2026-08-15.** Line items on an Indian GST bill are **pre-tax**. `lines_sum_to_
+total` was adding them up and comparing the sum against the **gross**, so a bill
+whose arithmetic was perfect failed by exactly its own tax. The comparand is now
+chosen by `_lines_add_up_to` at `accountant/cage/gate.py:332-377`: the net when a
+net was read, the gross only when the tax was read as a literal zero, and
+otherwise `None` — which is INDETERMINATE, which blocks. The net is never
+computed as gross minus tax; that number would be checked against its own inputs
+and would pass for ever.
 
 **Why the cage exists.** Before it, one type carried a field from the moment it
 was guessed to the moment it was written into a customer's books. That single
