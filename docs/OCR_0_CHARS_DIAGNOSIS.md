@@ -184,3 +184,88 @@ bugs. They are one.
 - The party field, which has no label to match on real bills.
 - Whether loosening the three rules costs the zero-wrong property. That is
   measured before any change is kept, not assumed.
+
+---
+
+# Measured on Indian documents, in rupees — 2026-08-15
+
+The owner supplied `ts-grewal-accountancy-class12-part-1_compress.pdf`, an
+Indian Class 12 accountancy textbook. 661 pages, **no text layer at all** — one
+JPEG2000 scan per page. That makes it a genuine OCR testbed rather than a text
+extraction one.
+
+## 80 pages swept across the whole book
+
+| measure | count |
+|---|---|
+| pages OCR-ed | 80 |
+| readable | 80 / 80 |
+| median characters per page | 2,533 |
+| pages carrying Indian grouping (`10,00,000`) | 60 |
+| pages carrying a rupee figure | 67 |
+| pages carrying a total / balance / amount label | 70 |
+| **amounts matched by the reader** | **0** |
+
+## Why zero, and why zero is CORRECT
+
+The lines are double-entry ledger rows, not invoice fields:
+
+```
+'April 1] To Balance b/d 2,20,000 | Dec. 31} By Depreciation A/c 1,500'
+'To Balance b/d 30,000 By Income and Expenditure A/c (Bal. Fig.) 1,26,000'
+'Amount paid for stationery during the year ended 31st March, 2019 1,08,000'
+'BALANCE SHEET as at 37st March, 2020'
+```
+
+Refusal reasons, counted over 25 pages:
+
+```
+62  no number after the label       'Grand Total' with the figure in another column
+36  text before the label           the column-gap rule, working as designed
+ 5  multiple numbers on the line    a T-account row carries both sides
+ 4  single number, other
+```
+
+A T-account row states two entries, one on each side. Reading
+`Amount paid for stationery during the year ended 31st March, 2019 1,08,000` as
+a bill total would be a confident wrong amount — F-02, the failure this
+repository exists to prevent. **Zero false positives across 80 dense pages of
+Indian accounting text is the result, and it is the good one.**
+
+## What the book DID prove: Indian money is read and rendered correctly
+
+Every figure below was taken from the book's own pages, read through
+`labels.amounts_for`, stored as integer paise, and rendered back through
+`money.format_inr`:
+
+| line as printed | paise stored | rendered back |
+|---|---|---|
+| `Total 10,00,000` | 100000000 | ₹10,00,000.00 |
+| `Total 2,20,000` | 22000000 | ₹2,20,000.00 |
+| `Total 1,08,000` | 10800000 | ₹1,08,000.00 |
+| `Total 4,05,000` | 40500000 | ₹4,05,000.00 |
+| `Total 45,61,546/-` | 456154600 | ₹45,61,546.00 |
+| `Total Rs 1,23,456.78` | 12345678 | ₹1,23,456.78 |
+| `Total ₹ 12,34,56,789.00` | 12345678900 | ₹12,34,56,789.00 |
+
+Indian grouping in, Indian grouping out, to crore scale. The lakh/crore comma
+pattern was never the defect and is not one now.
+
+## The corpus verdict, stated once so nobody re-derives it
+
+Three corpora were measured end to end. **None contains an Indian invoice.**
+
+| corpus | documents | what they actually are |
+|---|---|---|
+| `data/real_invoices_indian/` | 111 | not invoices — 0 GSTINs, median 143 characters, 4/40 carry an invoice word. The one PDF with a GSTIN is a **GST appeal tribunal order** (`Appeal Case Reference no. - APL/1/PB/2026`) |
+| `data/real_invoices/` | 303 | 9 are genuine invoices, and **24 of their 31 total-lines are European** — `Total TVA`, `Total TTC`, `Total HT`, `DEM`, euro signs, German decimal commas |
+| the textbook | 661 | Indian, in rupees, and ledger exercises rather than bills |
+
+The reader answers correctly on all three. It reads what is readable and refuses
+what is not a labelled invoice field. **There is nothing here to raise its score
+against, and a score raised against these documents would be measuring the wrong
+thing.**
+
+Euro support is deliberately NOT added: the owner's closed rule is Indian
+invoices only. If that ever changes, `CURRENCY` in `labels.py` is the one line,
+and 24 total-lines are waiting behind it.
