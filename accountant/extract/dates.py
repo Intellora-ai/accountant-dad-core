@@ -299,6 +299,45 @@ _KIND_NUMERIC: Final = "numeric"
 _KIND_NAMED: Final = "named"
 
 
+def _a_version_number(match: re.Match[str]) -> bool:
+    """`1.2.34` is a clause, a version or a cheque reference. It is not a date.
+
+    THE DEFECT THIS CLOSES, MEASURED 2026-08-15 ON SHIPPED CODE. Every one of
+    these came back as a CONFIDENT date - `ambiguous=False`, `why=''`, one
+    candidate, nothing for a person to notice:
+
+        'Version 1.2.34'            -> 2034-02-01
+        'Clause 1.2.34'             -> 2034-02-01
+        'Cheque 000123 dt 1.2.34'   -> 2034-02-01
+        'Ref 5.10.15'               -> 2015-10-05
+
+    A bill that prints a clause number would have had its DATE read off the
+    terms and conditions, and nothing in the record would say so.
+
+    THE MODULE'S OWN DOCSTRING ARGUED THIS COULD NOT BE FIXED CHEAPLY, and that
+    argument was wrong. It said "the only tightening that removes it - demanding
+    two digits for the day and the month - would refuse `1/4/2026`, which is a
+    printing real suppliers use". True of that tightening, and there is another
+    one: require a FOUR-DIGIT YEAR when, and only when, the separator is a DOT.
+
+    MEASURED, both directions:
+
+        killed    all of the above, and 'Challan 3.4.56', 'E-way 1.23.45.678'
+        kept      01/04/2026  01-04-2026  01.04.2026  01/04/26  01-04-26
+                  1/4/2026  09/07/2014  06/10/2026  04/04/2019  28/01/26
+
+    THE ENTIRE COST IS `DD.MM.YY` - `01.04.26`. That format is not on the list
+    this module was asked to accept, and dots are how version and clause numbers
+    are written while slashes and dashes are how dates are. A two-digit year
+    after dots is the one combination that is far more often not a date.
+
+    A caller handing over a value it already found under `labels.DATE_LABEL` was
+    never exposed to this, which is why it survived. `read_date` is also called
+    on free text, and there it was live.
+    """
+    return match["sep"] == "." and len(match["year"]) == 2
+
+
 # =============================================================================
 # what was read, and under which rule
 # =============================================================================
@@ -711,6 +750,8 @@ def _tokens(text: str) -> tuple[tuple[str, re.Match[str]], ...]:
     ):
         for match in pattern.finditer(text):
             if kind == _KIND_NAMED and match["word"].upper() not in _MONTH_BY_WORD:
+                continue
+            if kind == _KIND_NUMERIC and _a_version_number(match):
                 continue
             found.append((match.start(), kind, match))
     found.sort(key=lambda one: one[0])

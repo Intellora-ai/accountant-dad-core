@@ -83,10 +83,22 @@ EVERY_ACCEPTED_FORM: tuple[tuple[str, datetime.date, str], ...] = (
     ("01.04.2026", datetime.date(2026, 4, 1), "DD.MM.YYYY"),
     ("01/04/26", datetime.date(2026, 4, 1), "DD/MM/YY"),
     ("01-04-26", datetime.date(2026, 4, 1), "DD-MM-YY"),
-    ("01.04.26", datetime.date(2026, 4, 1), "DD.MM.YY"),
     ("01 Apr 2026", datetime.date(2026, 4, 1), "DD Mon YYYY"),
     ("01 April 2026", datetime.date(2026, 4, 1), "DD Month YYYY"),
 )
+
+
+#: DOTS WITH A TWO-DIGIT YEAR ARE REFUSED, AND THAT IS THE PRICE OF A FIX.
+#: `01.04.26` used to be on the list above. It came off on 2026-08-15 because
+#: the pattern that accepted it also accepted `Version 1.2.34` as a CONFIDENT
+#: 1 February 2034 - `ambiguous=False`, `why=''`, nothing for anyone to notice.
+#: See `test_a_version_or_clause_number_is_not_a_date`.
+#:
+#: Dots with a two-digit year are how version, clause and cheque references are
+#: written. Dots with a FOUR-digit year (`01.04.2026`) stay accepted, and so do
+#: slashes and dashes with a two-digit year (`01/04/26`, `01-04-26`). This
+#: format was never on the list the module was asked to accept.
+REFUSED_BECAUSE_IT_IS_USUALLY_NOT_A_DATE: tuple[str, ...] = ("01.04.26", "1.4.26")
 
 
 # =============================================================================
@@ -669,3 +681,66 @@ def test_the_twelve_month_names_are_twelve_and_are_in_order() -> None:
     assert MONTH_NAMES[0] == "January"
     assert MONTH_NAMES[11] == "December"
     assert MONTH_NAMES[9] == "October"
+
+
+# =============================================================================
+# A VERSION NUMBER IS NOT A DATE
+# =============================================================================
+#
+# Found by adversarial review of this module AFTER it shipped, on 2026-08-15.
+# Every string below came back as a CONFIDENT date - one candidate,
+# `ambiguous=False`, `why=''` - so a bill printing a clause number in its terms
+# would have had its DATE read off the small print with nothing recording it.
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "Version 1.2.34",
+        "Clause 1.2.34",
+        "Cheque 000123 dt 1.2.34",
+        "Ref 5.10.15",
+        "Challan 3.4.56",
+        "E-way 1.23.45.678",
+    ],
+)
+def test_a_version_or_clause_number_is_not_a_date(printed: str) -> None:
+    """MEASURED before the fix: `Version 1.2.34` -> 2034-02-01, confidently.
+
+    The module's own docstring argued this could not be fixed cheaply - that the
+    only tightening available "would refuse `1/4/2026`, which is a printing real
+    suppliers use". That was wrong, and the test below is the proof: requiring a
+    four-digit year ONLY when the separator is a dot kills all six of these and
+    costs nothing on the accepted list.
+    """
+    assert read_date(printed, locale=DateLocale.INDIAN).value is None, printed
+    assert read_date(printed, locale=DateLocale.UNKNOWN).value is None, printed
+
+
+@pytest.mark.parametrize("printed", REFUSED_BECAUSE_IT_IS_USUALLY_NOT_A_DATE)
+def test_dots_with_a_two_digit_year_are_the_price_of_that_fix(printed: str) -> None:
+    """THE COST, STATED RATHER THAN HIDDEN. `01.04.26` is a real way to write a
+    date and this module no longer reads it. It is not on the list of formats
+    the module was asked to accept, and the same shape is how version and clause
+    numbers are written - so this is a trade, and this test is the receipt."""
+    assert read_date(printed, locale=DateLocale.INDIAN).value is None
+
+
+@pytest.mark.parametrize(
+    ("printed", "day"),
+    [
+        ("01.04.2026", datetime.date(2026, 4, 1)),
+        ("01/04/26", datetime.date(2026, 4, 1)),
+        ("01-04-26", datetime.date(2026, 4, 1)),
+        ("1/4/2026", datetime.date(2026, 4, 1)),
+        ("28/01/26", datetime.date(2026, 1, 28)),
+    ],
+)
+def test_the_fix_costs_nothing_a_real_bill_prints(
+    printed: str, day: datetime.date
+) -> None:
+    """THE CONTROL, and the one that decides whether the trade above was worth
+    it. Dots with a FOUR-digit year still read. Slashes and dashes with a
+    two-digit year still read. A single-digit day still reads. If any of these
+    goes red the fix took more than it was supposed to."""
+    assert read_date(printed, locale=DateLocale.INDIAN).value == day, printed
