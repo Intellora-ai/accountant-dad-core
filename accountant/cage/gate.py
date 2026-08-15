@@ -109,10 +109,28 @@ NONE AND () ARE DIFFERENT, AND THE DIFFERENCE IS LOAD-BEARING
 ---------------------------------------------------------------
 `conservation.lines_sum_to_total` reads an empty tuple as "the lines were read
 and there were none", which is consistent with a zero total and contradictory
-with any other. No reader in this repository can report line items at all -
-`ExtractedRecord.line_items` defaults to `()` and nothing ever fills it - so an
-empty tuple here means nobody looked, and this module passes `None`. Reading it
-the other way would turn every un-itemised bill into a passing one.
+with any other. An empty tuple here means nobody looked, and this module passes
+`None`. Reading it the other way would turn every un-itemised bill into a
+passing one.
+
+THIS PARAGRAPH SAID "NO READER IN THIS REPOSITORY CAN REPORT LINE ITEMS AT ALL"
+AND THAT STOPPED BEING TRUE. `textlayer.py:1427` fills `line_items`, and the
+claim was repeated out of this docstring for long enough to be used as the
+reason a whole class of bills could never pass. MEASURED 2026-08-15 on
+`tests/test_textlayer.py::BILL` through `TextLayerReader.extract`:
+
+    line_items   ('PORTLAND CEMENT 53 GRADE', 100000)
+                 ('PACKAGING MATERIAL',         4624)
+                 sum                          104624   = the net, exactly
+
+So the law is answerable on the text-layer tier and it PASSES there. It is
+still `None` on the picture tier, which reports words rather than rows, and on
+a typed sentence, which has no rows to report - and on both of those it is
+INDETERMINATE and blocks, correctly.
+
+The lesson is the one this file keeps having to relearn: a docstring stating
+what some OTHER module cannot do goes stale silently, because nothing fails when
+the other module gains the ability. Where it matters, assert it.
 
 WHAT IT DELIBERATELY DOES NOT COMPUTE
 --------------------------------------
