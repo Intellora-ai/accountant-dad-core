@@ -85,7 +85,17 @@ DOCUMENTS = REPO / "artifacts" / "ground_truth" / "documents"
 CASES = REPO / "artifacts" / "ground_truth" / "cases"
 
 #: The five fields this tier answers, in the order the report below prints.
-FIELDS: tuple[str, ...] = ("date", "party", "total_paise", "tax_paise", "line_paise")
+FIELDS: tuple[str, ...] = (
+    "date",
+    "party",
+    "total_paise",
+    "tax_paise",
+    #: Joined 2026-08-15. Written out here rather than imported, so the
+    #: assertion below is two INDEPENDENT lists agreeing - importing the
+    #: module's tuple and comparing it with itself would prove nothing.
+    "net_paise",
+    "line_paise",
+)
 
 
 # ---- a PDF, built here, so the bytes under test are real ---------------------
@@ -1101,19 +1111,33 @@ def read_answer(observation: Observation) -> dict[str, object]:
     }
 
 
+#: The fields the CORPUS can score, which is not the same as the fields the tier
+#: ANSWERS. `net_paise` joined `FIELDS` on 2026-08-15 and the twenty truth files
+#: state no net, so there is nothing to compare a reading against.
+#:
+#: Scoring it anyway would mean choosing what "right" means for a field nobody
+#: labelled - and the only available choice, "right when both are None", scores
+#: 20/20 for a reader that never looks. That is a metric that measures the
+#: absence of a measurement, which is worse than no number at all.
+#:
+#: SO THE NET IS NOT CLAIMED. When somebody labels the corpus with a pre-tax
+#: figure, this tuple grows and the numbers below change honestly.
+SCORED_FIELDS: tuple[str, ...] = tuple(f for f in FIELDS if f != "net_paise")
+
+
 def score_corpus() -> tuple[dict[str, int], dict[str, int]]:
     """Per field: how many were EXACTLY right, and how many were WRONG.
 
     Wrong is the number that matters. A field left unread costs a question; a
     field read wrongly at confidence 1.0 posts a number nobody checked.
     """
-    right: dict[str, int] = dict.fromkeys(FIELDS, 0)
-    wrong: dict[str, int] = dict.fromkeys(FIELDS, 0)
+    right: dict[str, int] = dict.fromkeys(SCORED_FIELDS, 0)
+    wrong: dict[str, int] = dict.fromkeys(SCORED_FIELDS, 0)
     for case in corpus_cases():
         data = (DOCUMENTS / str(case["document"])).read_bytes()
         got = read_answer(read(data).observation)
         want = expected_answer(case)
-        for name in FIELDS:
+        for name in SCORED_FIELDS:
             if got[name] == want[name]:
                 right[name] += 1
             elif got[name] is not None:

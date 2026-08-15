@@ -158,6 +158,7 @@ from accountant.extract.adapter import (
 from accountant.extract.labels import (
     CURRENCY,
     DATE_LABEL,
+    NET_LABELS,
     PARTY_LABELS,
     TAX_PARTS,
     TAX_WHOLE,
@@ -192,12 +193,21 @@ PDF_MIME: Final = "application/pdf"
 #: naming the real problem instead of a parser's internal error.
 PDF_MAGIC: Final = b"%PDF-"
 
-#: The five fields this tier answers, in the order everything here reports them.
+#: The six fields this tier answers, in the order everything here reports them.
+#:
+#: `net_paise` JOINED ON 2026-08-15 and was the first change to this tuple. It
+#: had been read by nobody: `conservation.net_plus_tax_equals_gross` needs a net
+#: that was READ and cannot derive one - `gate.py:119` refuses `total - tax`
+#: because both are already inputs to that same law - so the law answered
+#: INDETERMINATE on every bill, and INDETERMINATE blocks. This is the only tier
+#: on `AUTO_POST_ALLOWED_TIERS`, so it was blind on exactly the documents
+#: allowed to post without asking anybody.
 FIELDS: Final[tuple[str, ...]] = (
     "date",
     "party",
     "total_paise",
     "tax_paise",
+    "net_paise",
     "line_paise",
 )
 
@@ -646,6 +656,27 @@ def _read_total(lines: tuple[str, ...]) -> tuple[int | None, str]:
     return the_one(_paise(amounts_for(lines, TOTAL_LABELS)), "its total")
 
 
+def _read_net(lines: tuple[str, ...]) -> tuple[int | None, str]:
+    """The pre-tax figure, ADDED 2026-08-15, and this tier had never read one.
+
+    `conservation.net_plus_tax_equals_gross` needs a net that was READ. It
+    cannot be derived - `gate.py:119` refuses `total - tax` because both are
+    already inputs to that law, so a derived net would be a number checked
+    against itself and the law would pass on every bill for ever while
+    reporting that it had checked something.
+
+    So with no net arriving, that law answered INDETERMINATE on every bill, and
+    INDETERMINATE blocks. `freeocr.py` was fixed first; this is the tier that
+    matters more, because it is the only one on `AUTO_POST_ALLOWED_TIERS`.
+
+    `NET_LABELS` carries `SUBTOTAL`, which is what a bill calls its pre-tax
+    figure - and `_FOOTER_LABELS` already treats `SUBTOTAL` as the line that
+    closes the itemised block. Same word, same meaning, read here for the first
+    time rather than only skipped over.
+    """
+    return the_one(_paise(amounts_for(lines, NET_LABELS)), "its pre-tax amount")
+
+
 def _split_tax(lines: tuple[str, ...]) -> tuple[int | None, str, bool]:
     """CGST + SGST + UTGST, each agreed with its OWN repeats before adding.
 
@@ -821,6 +852,7 @@ def _reading(
     party: Answered[str] = _NOTHING,
     total: Answered[int] = _NOTHING,
     tax: Answered[int] = _NOTHING,
+    net: Answered[int] = _NOTHING,
     items: Answered[tuple[LineRead, ...]] = _NOTHING,
     text: str = "",
     pages: int = 0,
@@ -846,6 +878,7 @@ def _reading(
         "party": _field(party[0], party[1], said),
         "total_paise": _field(total[0], total[1], said),
         "tax_paise": _field(tax[0], tax[1], said),
+        "net_paise": _field(net[0], net[1], said),
         "line_paise": _field(line_paise, items[1], said),
     }
     return TextLayerReading(
@@ -960,6 +993,7 @@ def _parse(text: str, pages: int, repaired: bool) -> TextLayerReading:
     party = answers["party"] = _read_party(lines)
     total = answers["total_paise"] = _read_total(lines)
     tax = answers["tax_paise"] = _read_tax(lines)
+    net = answers["net_paise"] = _read_net(lines)
     items = answers["line_paise"] = _read_lines(lines)
     return _reading(
         Outcome.READ,
@@ -968,6 +1002,7 @@ def _parse(text: str, pages: int, repaired: bool) -> TextLayerReading:
         party=party,
         total=total,
         tax=tax,
+        net=net,
         items=items,
         text=text,
         pages=pages,
@@ -1272,6 +1307,11 @@ def record_of(reading: TextLayerReading) -> ExtractedRecord:
         party=_as_str(reading.fields["party"].value),
         total_paise=_as_int(reading.fields["total_paise"].value),
         tax_paise=_as_int(reading.fields["tax_paise"].value),
+        # CARRIED, 2026-08-15. This tier never read a net until today, and it
+        # is the only one on `AUTO_POST_ALLOWED_TIERS` - so
+        # `net_plus_tax_equals_gross` was INDETERMINATE on exactly the
+        # documents allowed to post without asking anybody.
+        net_paise=_as_int(reading.fields["net_paise"].value),
         line_items=tuple(
             LineItem(description=item.description, amount_paise=item.amount_paise)
             for item in reading.lines
