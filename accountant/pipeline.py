@@ -22,6 +22,8 @@ from typing import Protocol, runtime_checkable
 
 from accountant import checks, problems
 from accountant import questions as Q
+from accountant.cage import gate as cage_gate
+from accountant.cage.decision import Action, Decided, Moment
 from accountant.decide import decide_problems
 from accountant.detect import detectors
 from accountant.extract.adapter import NOT_FOUND, ExtractedRecord, Extractor
@@ -76,6 +78,25 @@ ESTIMATED_NOT_AN_IDENTITY = (
     "being asked about instead"
 )
 
+#: What the voucher's provenance says about a total that was ESTIMATED.
+#:
+#: `NOT_FOUND`-prefixed for exactly the reason the entry above is: that prefix is
+#: the one rule `cage/gate.py::_was_read` and `web/app.py` already share, so a
+#: reader of this voucher sees an ABSENCE rather than a bill for ₹0.00. The
+#: amount IS absent - it is the zero `build_draft` writes when nothing was read -
+#: and a source line still naming the tier that guessed would leave the evidence
+#: record contradicting the voucher it is evidence about.
+#:
+#: A SECOND SENTENCE RATHER THAN ONE WITH A FIELD PLACEHOLDER IN IT, because the
+#: two refusals are not the same refusal. A name is refused for being an
+#: IDENTITY; a total is refused for being MONEY, and the person is then asked how
+#: much rather than who. One sentence covering both would name neither.
+ESTIMATED_NOT_AN_AMOUNT = (
+    f"{NOT_FOUND}: {{backend}} estimated this amount rather than reading it, and "
+    "an estimated amount is never posted as money - so this one is being asked "
+    "about instead"
+)
+
 #: D-06. The vendor whose remembered account the CURRENT ledger contradicts.
 #:
 #: A distinct problem id, not `which_account`. The two are asked in opposite
@@ -116,6 +137,70 @@ class OperationRegister(Protocol):
     def mark_operation_reversed(
         self, company_key: str, operation_id: str, at: str
     ) -> bool: ...
+
+
+#: What the cage's answer does to an outcome that survived the decision order.
+#:
+#: A TABLE BECAUSE IT IS ONE, and because the safety property is then readable
+#: in the data rather than spread over three branches: no value here is wider
+#: than the VALID it is allowed to replace. `tests/test_cage_on_the_live_path.py`
+#: asserts it is total over `Action`, so a fourth action fails at build time
+#: instead of raising `KeyError` in front of somebody's bill.
+CAGE_NARROWS: dict[Action, Outcome] = {
+    Action.POST: Outcome.VALID,
+    Action.ASK: Outcome.UNCLEAR,
+    Action.BLOCK: Outcome.NOT_VALID,
+}
+
+
+def narrowed_by_the_cage(decision: Decision, said: Decided) -> Decision:
+    """Apply the cage's answer to a decision. It may NARROW and never WIDEN.
+
+        existing VALID + cage POST   -> VALID
+        existing VALID + cage ASK    -> UNCLEAR
+        existing VALID + cage BLOCK  -> NOT_VALID
+        existing UNCLEAR             -> UNCHANGED, whatever the cage says
+        existing NOT_VALID           -> UNCHANGED, whatever the cage says
+
+    `docs/ARCHITECTURE.md` 19.4: an advisory layer is ADDED to a deterministic
+    one and never SUBTRACTS from it. The cage weighs confidence, conservation
+    and four world facts; `decide_problems` weighs checks, memory and
+    detectors. Neither can see what the other sees, so agreement is not
+    required - but a cage that could overrule a refusal would be a second,
+    weaker decision order with the last word, and the failure it produces is a
+    bill somebody already refused arriving in their books.
+
+    THE PROPERTY IS STRUCTURAL AND NOT A CONSEQUENCE OF THE TABLE. The early
+    return is what holds it: the only decision this function can replace is one
+    that was VALID, so no cage answer of any kind can reach an UNCLEAR or a
+    NOT_VALID. Deleting the table's `POST -> VALID` row, or adding a row that
+    widened, would still not let a refusal become a post. That is deliberate -
+    a safety property that depends on the contents of a dict is one dict edit
+    away from being gone, and the edit looks like a configuration change.
+
+    THE SENTENCE COMES FROM THE CAGE WHEN THE CAGE IS WHAT REFUSED. A decision
+    that survived the deterministic order carries "nothing unclear and nothing
+    surprising", and leaving that on a screen which now says "needs an answer"
+    tells the person we do not know why we stopped. `said.said` is every reason
+    the cage had, already joined into whole sentences that name no ledger
+    account.
+
+    WHAT IT DOES NOT CARRY OVER, SAID SO NOBODY RELIES ON IT: a cage ASK
+    produces an UNCLEAR with NO `question_options` and NO `question_problem_id`,
+    because the cage has no `Problem` to attach and no reader in this repository
+    can yet offer the answers. So `next_question` returns `None`, the review
+    page renders the cage's sentence with no buttons, and
+    `Decision.refuse_answer` correctly says there is nothing to answer. That is
+    a hand-over wearing an UNCLEAR badge, and it is the honest state until a
+    reader can ask - not a defect to be papered over by inventing a question
+    nobody can answer.
+    """
+    if decision.outcome is not Outcome.VALID:
+        return decision
+    narrowed = CAGE_NARROWS[said.action]
+    if narrowed is Outcome.VALID:
+        return decision
+    return replace(decision, outcome=narrowed, reason=said.said)
 
 
 @dataclass
@@ -254,6 +339,22 @@ def _party_not_taken(record: ExtractedRecord, party: str | None) -> dict[str, st
     return {"party": ESTIMATED_NOT_AN_IDENTITY.format(backend=record.backend)}
 
 
+def _amount_not_taken(
+    record: ExtractedRecord, total_paise: int | None
+) -> dict[str, str]:
+    """The same line, one field over, when a read total was not taken.
+
+    Empty in every other case, for the reason `_party_not_taken` gives above:
+    the record's own source line is the truth about what the reader did, and the
+    only situation it stops describing the VOUCHER is this one - the reader
+    stated a figure with a real backend beside it, and the voucher's amount is
+    zero anyway.
+    """
+    if total_paise is not None or record.total_paise is None:
+        return {}
+    return {"total_paise": ESTIMATED_NOT_AN_AMOUNT.format(backend=record.backend)}
+
+
 def build_draft(
     company: str,
     data: bytes,
@@ -319,6 +420,20 @@ def build_draft(
     # in all five without five separate guards to keep in step.
     party = record.party if record.read_exactly("party") else None
 
+    # AND AN ESTIMATED AMOUNT IS NOT MONEY, 2026-08-13, owner-ordered. The line
+    # above guarded IDENTITY and the line at `amount_paise=` below did not guard
+    # MONEY: an estimated name was refused and asked about, and an estimated
+    # TOTAL was taken at face value. `Voucher.amount_paise` is what `checks`
+    # runs on, what the magnitude and duplicate detectors compare against
+    # history, and what `pipeline.post` writes to Tally - so a guessed figure
+    # reaching it is a wrong number in somebody's books, not a wrong screen.
+    #
+    # `read_exactly`, NOT A THRESHOLD, and the SAME `ENTITLED_TO_EXACT` list the
+    # party guard uses. The owner's words were "a tier entitled to be believed",
+    # that list already is one, no number is chosen here, and `ASK_FLOOR` and
+    # `AUTO_POST_FLOOR` stay the only two bands in the product.
+    total_paise = record.total_paise if record.read_exactly("total_paise") else None
+
     proposed_debit = propose_account(memory, party) if party else None
     proposed_debit = proposed_debit or ""
 
@@ -333,10 +448,26 @@ def build_draft(
         # only way a draft can ever acquire a decision. Proposing it here as
         # well would give a second, unguarded route to a ledger leg.
         credit_account="",
-        amount_paise=record.total_paise or 0,
+        # ZERO IS THE UNREAD AMOUNT, and it is a decision rather than a fallback.
+        # `Voucher.amount_paise` is `int` and cannot hold `None`, so the choice
+        # was zero here or `int | None` through `schema`, `tallyio` and every
+        # reader of a posting. Zero is safe because it does not sit still: it is
+        # the exact value `checks.amount_is_positive` exists to catch, that check
+        # runs first in `ALL_CHECKS`, `problems.QUESTION_FOR` already maps it to
+        # `questions.how_much`, and the person reads "How much did you pay X? I
+        # couldn't work it out." No new rule, no new sentence, and the outcome is
+        # UNCLEAR - so nothing auto-posts and nothing is refused outright either.
+        #
+        # A ZERO CANNOT REACH THE CAGE'S ARITHMETIC AND PASS IT, which is the
+        # first thing to check about a number like this. `cage/gate.py::observed`
+        # builds the observation from `draft.record`, never from this voucher, so
+        # `conservation` runs on the figure the reader actually stated and no
+        # 0-against-0 comparison exists to be satisfied.
+        amount_paise=total_paise or 0,
         gst_paise=record.tax_paise,
         provenance=dict(record.per_field_source)
         | _party_not_taken(record, party)
+        | _amount_not_taken(record, total_paise)
         | {
             "credit_account": NOT_FOUND,
             "debit_account": _leg_source(proposed_debit),
@@ -488,8 +619,10 @@ def evaluate(
     *,
     detector_set: Sequence[detectors.Detector] = detectors.SLICE_4_DETECTORS,
     flag_cap: int | None = None,
+    period_open: bool | None,
+    pdf_repaired: bool | None,
 ) -> Draft:
-    """Run checks, memory and detectors, then apply the decision order.
+    """Run checks, memory and detectors, apply the decision order, then the cage.
 
     The detectors read history through THIS COMPANY'S index and no other.
     `memory.index()` is derived from the scoped store, so a detector cannot
@@ -522,6 +655,40 @@ def evaluate(
     fixed. A disagreement is UNCLEAR and not NOT_VALID, because an answer fixes
     it — and the answer is new information, not authorisation: `answer` clears
     the decision and the entry re-enters this function at step 1.
+
+    THE CAGE IS ASKED LAST, 2026-08-13, AND IT MAY ONLY NARROW.
+
+    This is the seam rather than `run` because `run` is not where the decision
+    is made. `web/app.py` calls THIS function twice and `run` never — so a gate
+    sited in `run` would guard the demo path and leave the shipped one open,
+    which is the same defect as a guard that is unit-tested and not installed.
+
+    `period_open` and `pdf_repaired` HAVE NO DEFAULTS. The other two facts the
+    cage needs are derived here, from the draft, because they are already in
+    hand and asking the caller would invite an answer that disagrees with the
+    evidence: `party_known` is whether this company's chart of accounts names
+    the party, and `carries_gst` is the same question `Voucher.needs_tax_lines`
+    already answers on the write side. `reading_tiers` is NOT passed - `gate`
+    derives it from the record, which is where the reading tier is stamped.
+
+    `period_open=None` blocks, and blocking is the correct answer to "nobody
+    looked". Nothing in this repository reads whether a company's books are open
+    for a date; TallyPrime answers it at the write door and only afterwards.
+    `docs/OWNER_WORK.md` records the gap. A default of `True` is the one value
+    that would be silently supplied at every call site that forgot, and would
+    grant exactly the permission the field exists to withhold.
+
+    MEASURED CONSEQUENCE, 2026-08-13, AND IT IS NOT SMALL. Across this
+    repository's whole suite, 993 drafts reach this function and the cage
+    BLOCKS every one of them - 280 that the decision order called VALID, 624
+    UNCLEAR and 89 NOT_VALID. Only the 280 change outcome, all of them from
+    VALID to NOT_VALID, because the cage may not widen the other two. So the
+    live path posts NOTHING. Four independent hard blocks are responsible and
+    supplying `period_open=True` clears only one of them: `net_paise` has no
+    source, so `net_plus_tax_equals_gross` is INDETERMINATE on every bill;
+    `party_known` is False for every supplier that is not itself a ledger; and
+    270 of the 280 read below `ASK_FLOOR`. That is a real measurement of how
+    much this product actually knows, not a tuning problem.
     """
     if memory.identity.key != normalise_company(draft.company):
         raise ValueError(
@@ -615,6 +782,31 @@ def evaluate(
         # decides. `answer` clears the decision and this rebuilds it, so the
         # id survives every question without ever being minted again.
         operation_id=draft.operation_id,
+    )
+
+    # The cage, immediately after the decision order and before the draft is
+    # handed back. Asked on EVERY draft and not only on the VALID ones: the
+    # property that it cannot widen belongs in `narrowed_by_the_cage`, in one
+    # place, and short-circuiting here would put a second copy of it at the
+    # call site where the two could drift. `decide` is pure and does no IO, and
+    # it was run over all 993 drafts in this suite without raising.
+    draft.decision = narrowed_by_the_cage(
+        draft.decision,
+        cage_gate.gate(
+            draft,
+            moment=Moment.BEFORE_THE_WRITE,
+            # Derived here, not asked for. Both are already on the draft, and a
+            # caller asked for them could answer differently from the evidence.
+            party_known=draft.voucher.party in accounts,
+            carries_gst=draft.voucher.needs_tax_lines,
+            questions_asked=len(draft.answers),
+            # The caller's, because neither is on the draft. `period_open` has
+            # no source anywhere; `pdf_repaired=None` means "not a PDF, nothing
+            # repaired", and `gate._repaired` lets the RECORD overrule it when
+            # the reader says it mended the bytes.
+            period_open=period_open,
+            pdf_repaired=pdf_repaired,
+        ),
     )
     return draft
 
@@ -1068,7 +1260,19 @@ def run(
 
     draft = build_draft(company, data, mime, extractor, memory, today=today)
     draft = evaluate(
-        draft, accounts, history, memory, detector_set=detector_set, flag_cap=flag_cap
+        draft,
+        accounts,
+        history,
+        memory,
+        detector_set=detector_set,
+        flag_cap=flag_cap,
+        # NEITHER IS INVENTED HERE. Nothing in this repository reads whether a
+        # company's books are open for a date, so `None` is the true answer and
+        # it blocks - see `evaluate`. `pdf_repaired=None` says this caller
+        # repaired nothing, which is true: the reader is what mends bytes, and
+        # `cage/gate._repaired` reads that off the record and overrules this.
+        period_open=None,
+        pdf_repaired=None,
     )
 
     if draft.decision and draft.decision.outcome is Outcome.VALID:

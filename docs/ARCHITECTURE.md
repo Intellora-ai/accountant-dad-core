@@ -200,11 +200,24 @@ words:**
 > are not read. This is a known limitation for this MVP. A future task will read
 > SVFROMDATE/SVTODATE from Tally and enable this gate on the live pipeline."
 
-The diagram shows the design. `period_open` has no source today: Tally holds the
-financial-year bounds and refuses an out-of-range date at the write door, but
-nothing reads those bounds beforehand, so the gate is passed `None`. **No
-further action, and it is deliberately not being built** — the background sits
-in [`OWNER_WORK.md`](./OWNER_WORK.md) under *`period_open` has no source*.
+The diagram shows the design. **`period_open` HAS a source as of 2026-08-13**:
+`accountant/tallyio/period.py` reads the company's `BOOKSFROM` and
+`STARTINGFROM` over the gateway, and `accountant/period.py::is_period_open`
+turns them into the boolean the gate takes, logged on every call. Both
+`pipeline.evaluate` call sites in `accountant/web/app.py` pass it, asked about
+the date on the BILL rather than about today.
+
+It fails closed in one direction only: a timeout, an unreachable Tally, a
+company that is not open or a field this build did not answer all return
+`False`, which blocks. `False` here means *we could not verify it is open*, not
+*it is closed* — the same action, different facts, and the direction that must
+never be reached by accident is `True`.
+
+The upper bound is DERIVED, and the log says so on every line: no member on the
+measured build states the financial year end, and `ENDINGAT` tracks the last
+voucher date rather than the period. The measurement and the disconfirming
+evidence sit in [`OWNER_WORK.md`](./OWNER_WORK.md) under *`period_open` has no
+source*.
 
 **Two guards, not one, and the reason is defect J1.** *A unit test of a guard
 proves the guard works and says nothing about whether the guard is installed.*

@@ -4701,15 +4701,27 @@ Full note: [`OCR_CORPUS_FINDING.md`](./OCR_CORPUS_FINDING.md). Related: §50,
 where the measured score is recorded, and
 [`CAGE_FINDINGS.md`](./CAGE_FINDINGS.md) Finding 1.
 
-### §51.2 `period_open` is off the live path — Tally's open/closed bounds are not read
+### §51.2 `period_open` is ON the live path — CLOSED 2026-08-13, measured
+
+The ruling below was made in the morning of 2026-08-13 and its "future task" was
+commissioned and delivered the same day:
 
 > "Period check is currently off the live path because Tally open/closed bounds
 > are not read. This is a known limitation for this MVP. A future task will read
 > SVFROMDATE/SVTODATE from Tally and enable this gate on the live pipeline."
 
-**No further action. It is deliberately not being built.** Tally holds the
-financial-year bounds and refuses an out-of-range date at its own write door;
-nothing reads them beforehand, so the check is passed `None`.
+**Built.** `accountant/tallyio/period.py` reads `BOOKSFROM` and `STARTINGFROM`
+from an `Export`/`Collection` of `TYPE Company`; `accountant/period.py::
+is_period_open` returns the boolean and logs the timestamp, Tally's answer, the
+result and the elapsed ms on every call; both `pipeline.evaluate` call sites in
+`accountant/web/app.py` pass it, for the date on the BILL.
+
+**Two measurements worth carrying forward.** `SVFROMDATE`/`SVTODATE` are static
+variables you SEND to scope a request, not a place bounds are stored, so the
+mechanism named in the ruling could not have worked. And `ENDINGAT` is not the
+year end — it tracks the last voucher date, so bounding on it would have refused
+every bill dated after the last one entered. The upper bound is therefore
+derived from `STARTINGFROM` and is labelled derived in the log.
 
 Full note: [`OWNER_WORK.md`](./OWNER_WORK.md) under *`period_open` has no
 source*. Design: [`ARCHITECTURE.md`](./ARCHITECTURE.md) §4.1b.

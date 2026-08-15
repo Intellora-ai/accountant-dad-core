@@ -624,34 +624,47 @@ outcome turns into a real verdict on its own, and the strict-xfail pair around
 it fails loudly until somebody removes the now-passing half. Nothing else needs
 changing.
 
-### `period_open` has no source — RULED 2026-08-13, CLOSED, and deferred
+### `period_open` has no source — RULED 2026-08-13, and BUILT 2026-08-13
 
-**This is no longer an open question. Nothing is asked of you here.** It is a
-known limitation of this MVP, recorded so nobody re-opens it, and the ruling is
-in your own words:
+**Nothing is asked of you here.** The ruling below was made in the morning and
+the "future task" it names was commissioned and delivered the same day, so this
+entry now records a limitation that has been CLOSED rather than one that stands.
+
+The original ruling, in your own words, kept so the sequence is readable:
 
 > "Period check is currently off the live path because Tally open/closed bounds
 > are not read. This is a known limitation for this MVP. A future task will read
 > SVFROMDATE/SVTODATE from Tally and enable this gate on the live pipeline."
 
-**No further action, and nothing is being built.** The future task is named
-above and is not started. Do not wire the period check onto the live pipeline as
-part of some other change.
+**What was built:** `accountant/tallyio/period.py` reads the bounds and
+`accountant/period.py::is_period_open` turns them into the boolean, logged on
+every call. `accountant/web/app.py` passes it at both `pipeline.evaluate` call
+sites, as the date on the BILL rather than today's date.
 
-The background, unchanged, so the limitation is understandable rather than just
-asserted:
+**THE MECHANISM IN THE RULING WAS THE WRONG ONE, and measuring it is what found
+that.** `SVFROMDATE`/`SVTODATE` are static variables that SCOPE a request to a
+period; they are something you SEND, not a place the company's bounds are
+stored, so they could never have answered "what are this company's bounds". The
+answer is an `Export`/`Collection` of `TYPE Company` fetching `BOOKSFROM` and
+`STARTINGFROM` — the same request family as the startup company list, so no new
+request shape was introduced and the shape that hung Tally on 2026-08-09 (A11)
+was never built.
 
-`period_open` has no source. Tally knows the financial-year bounds and refuses
-an out-of-range date at the write door; nothing reads them beforehand. Until
-something does, the gate is passed `None` and those entries block. Closing it
-means a Tally read (`SVFROMDATE`/`SVTODATE`, noted at `tallyio/reports.py:45`)
-that needs a live Tally to verify.
+**One thing Tally would not give us, measured rather than assumed.** No member
+on this build states the financial year END. `ENDINGAT` looks like it does and
+does not: it came back as the LAST VOUCHER DATE (proved by `LASTVOUCHERDATE`
+holding the identical value, and by every voucher in the company carrying that
+date). Bounding on it would have refused every bill dated after the last one
+entered — an outage wearing the costume of a safety check. So the lower bound is
+Tally's own `BOOKSFROM` and the upper bound is DERIVED as `STARTINGFROM` plus
+twelve months minus one day, labelled as derived everywhere it appears,
+including in the log line. A company whose FIRST year is short or long is the
+known way for that derivation to be wrong, and it was not exercised.
 
-Closing it is also what lets `accountant/cage/gate.py` move from the reader path
-onto the pipeline path. It is not the only thing that has to land first — no
-reader produces per-field confidence yet, and three of the four conservation
-laws have no inputs on that path — but it is the one that needs a live Tally
-rather than more code.
+Wiring this is also what let `accountant/cage/gate.py` move toward the pipeline
+path. It was never the only thing needed — per-field reader confidence and the
+conservation-law inputs are separate — but it was the one that needed a live
+Tally rather than more code, and it now has one.
 
 ### A bill whose own numbers contradict each other — CLOSED 2026-08-13, BLOCK
 
