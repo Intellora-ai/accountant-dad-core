@@ -15,6 +15,18 @@ THE FOUR THINGS THAT WOULD BE WORTH SHIPPING A BUG FOR
                             amount payable. It invented twenty totals. A reader
                             that answers an unlabelled number is that bug again.
 
+                            TRIED AND REVERTED 2026-08-15. The owner asked for
+                            exactly that guess, capped at `BY_POSITION` so the
+                            cage would block it. Measured over the twenty corpus
+                            PNGs it produced 15 wrong totals and 0 right ones,
+                            so it is gone and the guard is back.
+
+    an UNMARKED guess       what DID survive is the party, found by position
+                            when no label named one. A guess is allowed; a guess
+                            that reaches a person looking identical to a
+                            labelled read is not. The mark is `Reading.at_most`,
+                            it caps the score at 0.5, and it renames the source.
+
     an inherited 1.0        `confidence.EXACT` belongs to the text layer, where
                             there is nothing to be unsure about. `cage/decision`
                             auto-posts at 0.95, so a pixel reading wearing 1.0
@@ -55,9 +67,16 @@ import shutil
 import pytest
 
 from accountant.cage.confidence import EXACT
-from accountant.extract.adapter import NOT_FOUND
-from accountant.extract.freeocr import FreeReader, Reading, Word
-from accountant.extract.pagereader import page_reader, read_page
+from accountant.cage.decision import ASK_FLOOR, AUTO_POST_ALLOWED_TIERS, AUTO_POST_FLOOR
+from accountant.extract.adapter import ENTITLED_TO_EXACT, NOT_FOUND
+from accountant.extract.freeocr import (
+    A_GUESS,
+    FreeReader,
+    Reading,
+    Word,
+    _scored,  # pyright: ignore[reportPrivateUsage]
+)
+from accountant.extract.pagereader import BY_POSITION, page_reader, read_page
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 DOCUMENTS = REPO / "artifacts" / "ground_truth" / "documents"
@@ -127,7 +146,24 @@ def test_a_number_with_no_label_on_it_is_never_answered_as_the_total() -> None:
     """THE DEFECT THIS EXISTS TO NOT REPEAT. `adapter.TYPED_TEXT_MIME` records
     twenty invented totals from a reader that ran a money regex over whatever
     it was handed and answered with the first number it found. `GT/0041` and
-    `998311` are an invoice number and an HSN code; neither is money."""
+    `998311` are an invoice number and an HSN code; neither is money.
+
+    THIS GUARD WENT RED FOR ABOUT AN HOUR ON 2026-08-15 AND WAS PUT BACK BY
+    MEASUREMENT, NOT BY OPINION. The owner asked for a positional total: the
+    largest amount in the last ten lines, when no label matched. It was built,
+    and `scripts/run_ground_truth.py` scored it over the twenty corpus PNGs:
+
+        before   total_paise   0 exact,  0 WRONG, 20 refused
+        after    total_paise   0 exact, 15 WRONG,  5 refused
+
+    Fifteen wrong money answers and not one right one. `pagereader.read_page`
+    carries the revert and the reasoning; this line is what it restores.
+
+    THE PARTY FALLBACK SURVIVED THAT MEASUREMENT and is proved below. The
+    difference is not that a name matters less - it is that a wrong name at
+    `BY_POSITION` is refused by the tier as well as by the band, and a wrong
+    NUMBER is the failure this whole cage was built around.
+    """
     reading = read_page(
         (said("INVOICE NO: GT/0041"), said("HSN/SAC: 998311"), said("865.00"))
     )
@@ -135,6 +171,7 @@ def test_a_number_with_no_label_on_it_is_never_answered_as_the_total() -> None:
     assert reading.total == ()
     assert reading.tax == ()
     assert reading.net == ()
+    assert "total" not in reading.at_most
 
 
 def test_two_totals_that_disagree_are_refused_rather_than_picked_between() -> None:
@@ -312,3 +349,141 @@ def test_no_corpus_png_produces_a_wrong_field_at_a_confidence_that_auto_posts() 
             )
 
     assert [entry for entry in dangerous if "@0.9" in entry or "@1.0" in entry] == []
+
+
+# =============================================================================
+# THE POSITIONAL FALLBACK - owner decision 2026-08-15
+# =============================================================================
+# A field found by POSITION is a guess. These prove the four things that have to
+# be true for a guess to be allowed anywhere near somebody's books: it is only
+# ever a fallback, it is marked, the mark cannot be turned into a better score
+# than the engine gave, and no tier that can auto-post can produce one.
+
+
+def test_a_positional_find_never_replaces_a_labelled_one() -> None:
+    """FALLBACK, NOT OVERRIDE. If a guess could beat a label, this change would
+    make a bill that reads correctly today read worse tomorrow - which is the
+    only way it could cost anything on a document that already works."""
+    reading = read_page(a_bill())
+
+    assert texts(reading.total) == ["1,020.70"]
+    assert texts(reading.party) == ["SHARMA", "TRADERS"]
+    assert texts(reading.date) == ["2026-05-13"]
+    assert reading.at_most == {}
+
+
+def test_a_labelled_total_that_disagrees_with_itself_is_not_then_guessed_at() -> None:
+    """THE MEASURED DEFECT IN THE FIRST DRAFT OF THIS FALLBACK.
+
+    `the_one` refuses two disagreeing printings of a labelled total on purpose.
+    Written as `if not total`, the fallback read that refusal as an absence and
+    filled it with the LARGER of the two - the coin toss that
+    `test_two_totals_that_disagree_are_refused_rather_than_picked_between`
+    exists to forbid, arriving through a new door. The condition is "no label
+    matched", and a label that matched and contradicted itself is not that.
+    """
+    reading = read_page((said("TOTAL 1,020.70"), said("TOTAL 1,626.70")))
+
+    assert reading.total == ()
+    assert "total" not in reading.at_most
+
+
+def test_a_date_split_across_words_comes_back_whole() -> None:
+    """`15 Aug 2026` is THREE words to the engine. Answering with the word the
+    match starts in hands `freeocr._joined` the single word `15`, and the field
+    becomes a fragment wearing the confidence of one legible character."""
+    reading = read_page((said("SUNIL TRADING COMPANY"), said("15 Aug 2026")))
+
+    assert texts(reading.date) == ["15", "Aug", "2026"]
+
+
+def test_a_date_that_is_not_iso_is_found_and_then_refused_as_a_value() -> None:
+    """The two non-ISO shapes can be FOUND and can never become a value:
+    `freeocr._read_date` is `date.fromisoformat` and nothing else. Normalising
+    them here would be this file writing characters into evidence that the page
+    does not carry, which is the rule its own docstring sets."""
+    scored = _scored(read_page((said("SUNIL TRADING"), said("13/05/2026"))), "free_ocr")
+
+    assert scored.date is None
+    assert scored.confidences["date"] == 0.0
+    assert "13/05/2026" in scored.sources["date"]
+
+
+def test_a_stated_ceiling_can_lower_a_score_and_can_never_raise_one() -> None:
+    """DOWNWARD ONLY. A ceiling that could also raise would be a way for a
+    reader to launder a bad read into a good score, which is the one thing
+    `field_confidence` already refuses when it takes `min(word_confidences)`."""
+    words = (Word("865.00", 40),)
+    engine_alone = _scored(Reading(total=words), "free_ocr")
+    with_a_high_ceiling = _scored(Reading(total=words, at_most={"total": 0.99}), "x")
+
+    assert engine_alone.confidences["total_paise"] == 0.4
+    assert with_a_high_ceiling.confidences["total_paise"] == 0.4
+
+
+def test_a_positional_party_cannot_reach_the_auto_post_band() -> None:
+    """THE ONE THAT DECIDES WHETHER THIS CHANGE IS SAFE.
+
+    THREE independent walls, and the test asserts all three rather than
+    trusting any of them. `BY_POSITION` is below `AUTO_POST_FLOOR`, so the band
+    refuses it; it is below `ASK_FLOOR` too, so the product does not even spend
+    a question on it; and `free_ocr` is in neither `ENTITLED_TO_EXACT` nor
+    `AUTO_POST_ALLOWED_TIERS`, so the TIER refuses it whatever the number says.
+
+    THE TIER WALLS ARE ASSERTED BECAUSE THE BAND IS A NUMBER SOMEBODY CAN MOVE.
+    The day `free_ocr` is added to either allowlist - one line, one set - a
+    guessed supplier would become a vendor identity with nobody asked, which is
+    failure mode F-03 and costs one supplier's balance for ever. This is the
+    line that goes red on that day.
+    """
+    scored = _scored(read_page((said("SUNIL TRADING COMPANY"),)), "free_ocr")
+
+    assert scored.party == "SUNIL TRADING COMPANY"
+    assert scored.confidences["party"] == BY_POSITION
+    assert BY_POSITION < AUTO_POST_FLOOR
+    assert BY_POSITION < ASK_FLOOR
+    assert "free_ocr" not in ENTITLED_TO_EXACT
+    assert "free_ocr" not in AUTO_POST_ALLOWED_TIERS
+
+
+def test_a_positional_find_says_so_in_the_source_a_person_reads() -> None:
+    """The score is what the cage reads; the source is what a PERSON reads, on
+    the page and in the durable action log. A guess that looked identical to a
+    labelled read in the audit line would be a guess nobody could audit.
+
+    NOT A REFUSAL AND MUST NOT READ AS ONE: `cage/gate._was_read` treats any
+    source beginning `NOT_FOUND` as an absence, so the mark is a suffix.
+    """
+    scored = _scored(read_page((said("SUNIL TRADING COMPANY"),)), "free_ocr")
+    guessed, labelled = (
+        scored.sources["party"],
+        _scored(read_page(a_bill()), "free_ocr").sources["party"],
+    )
+
+    assert guessed != labelled
+    assert labelled == "free_ocr"
+    assert guessed.startswith("free_ocr") and A_GUESS in guessed
+    assert not guessed.startswith(NOT_FOUND)
+
+
+def test_a_ceiling_stated_for_a_field_that_does_not_exist_is_refused() -> None:
+    """A ceiling keyed by a typo would be silently ignored, and a silently
+    ignored ceiling is a guess whose marking was lost on the way in."""
+    refused = FreeReader(lambda _d, _m: Reading(at_most={"totl": 0.5})).extract(
+        b"", PNG
+    )
+
+    assert refused.total_paise is None
+    assert "totl" in refused.per_field_source["total_paise"]
+
+
+def test_a_ceiling_that_is_not_a_confidence_is_refused_rather_than_used() -> None:
+    """`isinstance(True, int)` is True and `True` is 1.0 in arithmetic, so a
+    flag passed where a ceiling belonged would read as `confidence.EXACT` - the
+    one score a photograph may never claim."""
+    refused = FreeReader(lambda _d, _m: Reading(at_most={"total": True})).extract(  # type: ignore[dict-item]
+        b"", PNG
+    )
+
+    assert refused.total_paise is None
+    assert refused.per_field_source["total_paise"].startswith(NOT_FOUND)

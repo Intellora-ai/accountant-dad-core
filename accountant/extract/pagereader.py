@@ -127,12 +127,80 @@ subtotal of 865.08 and a tax of 155.76, and `net_plus_tax_equals_gross` refused
 both amounts outright. A misread digit that breaks arithmetic is caught by
 arithmetic, not by confidence.
 
+THE POSITIONAL FALLBACK, MEASURED THE DAY IT LANDED
+----------------------------------------------------
+OWNER DECISION 2026-08-15: where no label matched, guess from WHERE A THING SITS
+ON THE PAGE. Three fallbacks were asked for. ONE SHIPPED.
+
+MEASURED over 422 real documents in `data/real_invoices` and
+`data/real_invoices_indian`, through `registry.default_extractor()` - the call
+`accountant/web/app.py` makes - with `invoicelike.looks_like_a_bill` deciding
+which of them is a bill:
+
+    blank and looks like a bill    74      the documents this change is for
+    read at least one field, of                 those 74     0  ->  31
+
+31 of 74, against an expectation of 50 to 60. Every one of the 31 is the PARTY.
+Exactly one document also gained a date, and no document gained an amount.
+
+THE POSITIONAL TOTAL WAS BUILT, MEASURED AND REVERTED. `run_ground_truth.py`,
+twenty corpus PNGs: `total_paise` went from 0 wrong to 15 WRONG, with 0 right.
+GT-0046 answered ₹19,15,081 on a three-figure bill. The rule - largest amount in
+the last ten lines - finds the running balance, the account number or a misread
+column, because those are what sit at the foot of a real page. `read_page`
+carries the numbers at the line where it used to be called.
+
+THE DATE FALLBACK SHIPPED AND IS VERY NEARLY INERT, and that is honest rather
+than disappointing. `freeocr._read_date` accepts ISO and nothing else, so of the
+three shapes only the first can become a value; the other two are found, refused,
+and produce a sentence naming the characters instead of a silence. One document
+of 74 gained a date.
+
+WHAT THE PARTY GUESS ACTUALLY PICKS, AND IT IS MOSTLY NOT THE SUPPLIER. Twenty
+of the 31, verbatim, with the confidence each reached end to end:
+
+    plausibly the supplier - 6 of 20
+        0.50 'JNO. M. GRAHAM.'          0.21 'HOTEL ¥VISHWANAND'
+        0.50 'Gobierno Auténomo'        0.03 '"NORTH BENGAL STATE TRANSPORT
+        0.01 'PAR*GsiEMINS DE FRR.'          CORPORATION -'
+        0.50 'af Alliance frangaise de Pondichéry INVOICE'
+
+    a heading the length rule missed - 2
+        0.50 'PERFORMA INVOICE'         0.50 'PASSENGER TICKET'
+
+    a street address - 2
+        0.50 '1935 E Katella Ave'       0.11 'i294 University', led by a stray
+                                             quote mark the engine invented
+
+    a line item or a label - 3
+        0.50 'Additional usage charges' 0.16 'Total: Rs'
+        0.50 'Arem Arem'
+
+    engine noise - 7
+        0.50 'Qnme'   0.39 'x.'   0.50 'Ny.'   0.11 'a ne'
+        0.20 'ag ans' 0.50 'ad'
+
+SO THE HONEST SUMMARY IS: this turns 31 silences into 31 questions, and about
+six of those questions have the right name in them. It is reported and not
+argued up. What makes it safe to ship anyway is that not one of the 31 can reach
+anybody's books: 0.5 is below `ASK_FLOOR`, and `free_ocr` is in neither
+`adapter.ENTITLED_TO_EXACT` nor `decision.AUTO_POST_ALLOWED_TIERS`, so the owner
+rule "party unknown -> ALWAYS ASK, never auto-create a ledger" holds by two
+independent walls rather than by this file guessing well.
+
+THE CEILING IS A CEILING AND THE MEASUREMENT PROVES IT. Only 15 of the 31 land
+at 0.5. The other 16 land LOWER - down to 0.01 - because `freeocr._judge` takes
+the minimum of this file's ceiling and the engine's own worst word, and on a
+smudged letterhead the engine is the more pessimistic of the two.
+
 NO NETWORK, NO CLOCK, NO FILESYSTEM. Bytes in, words grouped by field out.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Final
 
 from accountant.extract.freeocr import PageReader, Reading, Word, read_lines
@@ -183,6 +251,113 @@ READING_DEADLINE_SECONDS: Final = 30.0
 #: ONE space, because the engine reports no gap widths - see the module
 #: docstring for what that costs and why the alternative is geometry.
 BETWEEN_WORDS: Final = " "
+
+# =============================================================================
+# THE POSITIONAL FALLBACK, AND WHY IT IS THE MOST DANGEROUS CODE IN THIS FILE
+# =============================================================================
+# Everything above this line finds a field because a LABEL pointed at it.
+# `labels.py`'s own docstring draws the line these four functions cross:
+# "widening the list is safe; guessing at an unlabelled number is not, and that
+# guess is exactly what `adapter.TYPED_TEXT_MIME` records as having invented
+# twenty totals."
+#
+# OWNER DECISION 2026-08-15. 74 of 422 real documents look like bills by
+# `invoicelike.looks_like_a_bill` and read no field at all, because they print
+# their values with no label in front of them. The owner's instruction is to
+# guess from POSITION when and only when no label matched.
+#
+# THE GUESS IS MARKED, AND THAT IS THE WHOLE OF WHAT MAKES IT SAFE. A field
+# found here comes back with a ceiling of `BY_POSITION` on `Reading.at_most`,
+# and `freeocr._judge` takes the minimum of that and the engine's own score.
+# Without the ceiling a guessed total would arrive carrying 0.80 to 0.96 - the
+# engine's confidence that those digits are those digits, which is a statement
+# about the CHARACTERS and says nothing whatever about whether that number is
+# the total. That is failure mode F-02 wearing a high score.
+
+
+#: THE CEILING ON ANY FIELD FOUND BY POSITION. The owner's number, 2026-08-15.
+#:
+#: Read against the two bands in `cage/decision.py` rather than chosen to look
+#: cautious: `AUTO_POST_FLOOR` is 0.95 and `ASK_FLOOR` is 0.70, so 0.5 is below
+#: BOTH. A positional find therefore cannot post, and cannot even spend one of
+#: the five questions - it BLOCKS, and a person is told the reader had nothing
+#: it was willing to stand behind. That is the correct direction for a guess:
+#: the failure it prevents is F-03, one vendor's balance wrong for ever, and the
+#: failure it causes is a document a person has to open.
+#:
+#: NOT MEASURED AND NOT PRESENTED AS IF IT WERE. Nothing here has measured how
+#: often a positional find is right, because that needs labels this corpus does
+#: not have. What IS measured is the direction: at 0.5 nothing it produces can
+#: reach anybody's books unattended, whatever it picked.
+BY_POSITION: Final = 0.5
+
+#: How far into the page a date may be guessed at. The owner's number.
+#: A bill prints its date in the head matter; the tenth line is already well
+#: into the item table on the corpus documents, where a number in a date-shaped
+#: column is a delivery date or a due date and not the bill's date.
+FIRST_LINES_FOR_A_DATE: Final = 10
+
+#: How far into the page a supplier name may be guessed at. The owner's number,
+#: and TIGHTER than the date's for a reason: the letterhead is the first thing
+#: printed, and every line past it is more likely to be the CUSTOMER's name and
+#: address than the supplier's. On a purchase bill that mistake posts a vendor
+#: ledger under somebody else.
+FIRST_LINES_FOR_A_PARTY: Final = 5
+
+#: THREE SHAPES A DATE IS PRINTED IN, and no fourth. Each is anchored on word
+#: boundaries so a run of digits inside an invoice number is not a date.
+#:
+#: ONLY THE FIRST OF THESE CAN EVER PRODUCE A VALUE, and saying so here is
+#: cheaper than letting somebody discover it. `freeocr._read_date` requires
+#: `confidence.looks_like_a_date`, which is `date.fromisoformat` - ISO and
+#: nothing else. So `13/05/2026` and `15 Aug 2026` are FOUND by this file,
+#: judged by that one, refused, and the field comes back unread with a sentence
+#: naming what it saw. They are kept because a refusal that names the characters
+#: it refused is worth more than a silence, and because normalising them here
+#: would be this file writing characters into evidence that the page does not
+#: carry - which its own docstring forbids.
+DATE_SHAPES: Final = (
+    re.compile(r"\b\d{4}-\d{2}-\d{2}\b"),
+    re.compile(r"\b\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}\b"),
+    re.compile(
+        r"\b\d{1,2}[\s.-]*"
+        r"(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*"
+        r"[\s.,-]*\d{2,4}\b",
+        re.IGNORECASE,
+    ),
+)
+
+#: A line more than this much digits, by character, is not a supplier's name.
+#: Half, because a name with a house number in it - `12 NEHRU ROAD` - is still a
+#: name, and a line that is mostly figures is a table row, a phone number or a
+#: GSTIN.
+MOSTLY_DIGITS: Final = 0.5
+
+#: A line no longer than this, printed with no lower-case letter in it, is read
+#: as a HEADING and skipped.
+#:
+#: THE NUMBER IS THE WEAKEST THING ON THIS PAGE AND NO NUMBER WOULD BE STRONG.
+#: Indian suppliers print their own names in capitals too, so length is the only
+#: thing separating a heading from a name and the two overlap. 12 is chosen
+#: against both lists written out, not picked round:
+#:
+#:     skipped at 12      INVOICE 7, RECEIPT 7, ORIGINAL 8, CASH MEMO 9,
+#:                        DEBIT NOTE 10, TAX INVOICE 11, CREDIT NOTE 11,
+#:                        GST INVOICE 11
+#:     NOT skipped at 12  BILL OF SUPPLY 14, ORIGINAL FOR RECIPIENT 22
+#:     kept at 12         SUNIL AGENCIES 14, and every supplier name longer
+#:                        than it. AB TRADERS is 10 and IS LOST, and a
+#:                        two-word name that short is a real thing.
+#:
+#: MEASURED at 15 first, which was the obvious guess and was worse in the way
+#: that matters: `SUNIL AGENCIES` was skipped as a heading and the item line
+#: `Cement bags 1,200.00` was answered as the supplier instead. Skipping a real
+#: name to answer with an item description is the wrong direction, so the number
+#: came down until the name survived.
+#:
+#: Both mistakes are held at `BY_POSITION` either way, which is the only reason
+#: a number this soft is allowed to decide anything at all.
+A_SHORT_HEADING: Final = 12
 
 
 @dataclass(frozen=True)
@@ -294,17 +469,143 @@ def read_page(lines: tuple[tuple[Word, ...], ...]) -> Reading:
     passes by construction - and on a misread page it is the check that fires.
     """
     page = _page_of(lines)
+    labelled_date = values_for(page.lines, DATE_LABEL, printing=_PRINTING)
+    labelled_party = values_for(page.lines, PARTY_LABELS, printing=_PRINTING)
+    date = _words_for(page, labelled_date)
+    party = _words_for(page, labelled_party)
+
+    # FALLBACK, NEVER AN OVERRIDE. Each of the three runs only where the label
+    # search came back with nothing, so no labelled read can be replaced by a
+    # guess - which is the one way this change could make a document read WORSE
+    # than it did before it landed.
+    #
+    # THE CONDITION IS "NO LABEL MATCHED", NOT "NO WORDS CAME BACK", AND THE
+    # DIFFERENCE IS A MEASURED DEFECT. Written the obvious way - `if not total`
+    # - this fired on a page printing `TOTAL 1,020.70` and `TOTAL 1,626.70`,
+    # where `the_one` had REFUSED on purpose because the two printings of the
+    # labelled total disagree. The fallback then picked the larger of them, which
+    # is exactly the coin toss that
+    # `test_two_totals_that_disagree_are_refused_rather_than_picked_between`
+    # exists to forbid, and it posts money. An empty answer from `_words_for`
+    # covers two different facts - the page said nothing, and the page said two
+    # things - and only the first of them is an absence a guess may fill.
+    #
+    # THE TAX AND THE NET HAVE NO FALLBACK, deliberately. A bill states its tax
+    # as CGST plus SGST in two places, so there is no single unlabelled figure
+    # that IS the tax, and picking one would put half the tax in the record as
+    # though it were all of it. The net has the same shape of problem and, worse,
+    # feeds `conservation.net_plus_tax_equals_gross` - a guessed net would turn
+    # the arithmetic check into a comparison between a read number and an
+    # invented one, which is how a law starts passing by construction.
+    ceilings: dict[str, float] = {}
+    if not labelled_date:
+        date = _extract_date_by_position(page)
+        if date:
+            ceilings["date"] = BY_POSITION
+    if not labelled_party:
+        party = _extract_party_by_position(page)
+        if party:
+            ceilings["party"] = BY_POSITION
+
+    # THE POSITIONAL TOTAL WAS WRITTEN, MEASURED AND REVERTED THE SAME HOUR.
+    #
+    # MEASURED through `scripts/run_ground_truth.py`, twenty corpus PNGs,
+    # `_extract_total_by_position` picking the largest amount in the last ten
+    # lines with `adapter._not_an_amount` filtering it:
+    #
+    #     before   total_paise   0 exact, 0 WRONG, 20 refused
+    #     after    total_paise   0 exact, 15 WRONG, 5 refused
+    #
+    # Not one of the fifteen was right. GT-0046 answered 191508100 paise -
+    # ₹19,15,081 on a bill whose total is three figures. The rule finds the
+    # largest number near the foot of the page and on a real bill that is a
+    # running balance, an account number or a misread column, which is what the
+    # brief for this change predicted and what the corpus then proved.
+    #
+    # THE ZERO-WRONG INVARIANT IS WHY IT IS GONE AND NOT TUNED. A money field
+    # went from 0 wrong to 15 wrong. `ARCHITECTURE.md:671` forbids moving a
+    # threshold to make a measurement pass, and there is no threshold here to
+    # move anyway: the answers were not marginal, they were unrelated to the
+    # totals. The ceiling of 0.5 would have blocked all fifteen, and "the cage
+    # caught it" is exactly the reasoning that is not allowed to justify
+    # producing them.
+    #
+    # `_extract_total_by_position` and `_spans_of_numbers` went with it, rather
+    # than staying behind a dead `if`. A function nothing calls is a library,
+    # and a library that invents totals is worse than one nobody uses.
+
     return Reading(
-        date=_words_for(
-            page, values_for(page.lines, (DATE_LABEL,), printing=_PRINTING)
-        ),
-        party=_words_for(
-            page, values_for(page.lines, PARTY_LABELS, printing=_PRINTING)
-        ),
+        date=date,
+        party=party,
         total=_words_for_amount(page, amounts_for(page.lines, TOTAL_LABELS)),
         tax=_words_for_amount(page, amounts_for(page.lines, TAX_WHOLE)),
         net=_words_for_amount(page, amounts_for(page.lines, NET_LABELS)),
+        at_most=MappingProxyType(ceilings),
     )
+
+
+def _extract_date_by_position(page: _Page) -> tuple[Word, ...]:
+    """The first date-shaped run of characters in the head of the page.
+
+    EVERY WORD THE MATCH TOUCHES, through `_words_at`, and that is a fix to the
+    obvious version rather than a flourish. `15 Aug 2026` is THREE words to the
+    engine, so returning only the word that contains the match start hands
+    `freeocr._joined` the single word `15` and the field becomes a fragment
+    wearing the confidence of one legible character. `_words_at` already answers
+    "which words do these character positions belong to" by OVERLAP, which is
+    exactly the question, and it is the same call the labelled path makes.
+
+    FIRST MATCH AND NOT BEST MATCH. There is no way to rank two dates on a page
+    without knowing which is the bill's, and inventing a preference would be a
+    second opinion nothing has measured. The shapes are tried in order per line,
+    so the ISO form - the only one that can survive `freeocr._read_date` - wins
+    a line it shares with another shape.
+    """
+    for index, line in enumerate(page.lines[:FIRST_LINES_FOR_A_DATE]):
+        for shape in DATE_SHAPES:
+            found = shape.search(line)
+            if found:
+                return _words_at(page, index, found.start(), found.end())
+    return ()
+
+
+def _mostly_digits(line: str) -> bool:
+    """Is this line more figures than letters? Then it is not somebody's name."""
+    solid = [character for character in line if not character.isspace()]
+    if not solid:
+        return True
+    return sum(c.isdigit() for c in solid) / len(solid) > MOSTLY_DIGITS
+
+
+def _a_short_heading(line: str) -> bool:
+    """Is this a printed heading - `TAX INVOICE` - rather than a name?
+
+    Two conditions and both are required. No lower-case letter, because a
+    heading is set in capitals; and short, because a supplier's name in capitals
+    is usually longer than the words a bill uses to announce itself.
+    """
+    return not any(c.islower() for c in line) and len(line.strip()) <= A_SHORT_HEADING
+
+
+def _extract_party_by_position(page: _Page) -> tuple[Word, ...]:
+    """The first line of the letterhead that could be somebody's name.
+
+    THE MOST DANGEROUS OF THE THREE, and the report on this change says so with
+    the strings it actually picked. The rule the owner set - the first line that
+    is not mostly digits and is not a short all-caps heading - cannot tell a
+    supplier from a customer, from a street, or from `Original for Recipient`,
+    because none of those is mostly digits and none is short. What it CAN do is
+    skip the two commonest wrong answers, `TAX INVOICE` and a row of figures.
+    The rest is carried by the ceiling: at `BY_POSITION` the closed owner rule
+    "party unknown -> ALWAYS ASK, never auto-create a ledger" is kept by
+    arithmetic, because 0.5 is below `ASK_FLOOR` and nothing at 0.5 becomes a
+    vendor identity.
+    """
+    for index, line in enumerate(page.lines[:FIRST_LINES_FOR_A_PARTY]):
+        if not line.strip() or _mostly_digits(line) or _a_short_heading(line):
+            continue
+        return page.words[index]
+    return ()
 
 
 def page_reader(*, deadline_seconds: float) -> PageReader:

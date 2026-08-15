@@ -378,6 +378,29 @@ def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
     guessing at ink and says how unsure it is - the worst of the five is 0.48
     and the rest are 0.30, 0.16, 0.10 and 0.08.
 
+    CORRECTED A FIFTH TIME 2026-08-15, for the POSITIONAL PARTY FALLBACK, and
+    this correction is the ugly one. `party` wrong went 5 -> 8. `party` exact did
+    NOT move. Every previous correction on this list could point at a real
+    reading gained beside the wrong ones; THIS ONE CANNOT. Three answers were
+    added and all three are wrong: `TNoIte Noe eTvan42`, `TNoIte Noe eTvonas` and
+    `Nolte Noe eTan6o` are the 5x7 bitmap font coming apart, answered as a
+    supplier because they are the first line on the page that is neither mostly
+    digits nor a short heading.
+
+    IT IS RECORDED RATHER THAN TUNED AWAY, and the owner can reverse it in one
+    word. Two things argue for keeping it. The three arrive marked - their source
+    string says `guessed from where it sits on the page`, so they are the only
+    entries in the wrong list a person can identify as guesses without reading
+    the code. And on the corpus this fallback was actually built for - 422 real
+    documents, not twenty synthetic renders - it takes the documents that look
+    like bills and read NOTHING from 0 to 31 of 74.
+
+    THE MONEY FIELDS DID NOT MOVE AND THAT IS THE LINE THAT MATTERS. A positional
+    TOTAL was written the same hour and measured at 15 wrong out of 20 with 0
+    right, so it was reverted before it left the worktree. `total_paise` and
+    `tax_paise` are still ZERO wrong, from every rung, as they have been since
+    Phase 8 Decision 1.
+
     **The PDF numbers did not move, and that is the control.** `date` 14,
     `party` 20, `total_paise` 20, `tax_paise` 20, ZERO wrong, pinned per input
     type below. The tolerance is scoped by a `Printing` the caller states and
@@ -433,7 +456,7 @@ def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
     # source is what the cage is for, and this is the line that would go red.
     assert section.facts["exit1_wrong_per_field"] == {
         "date": 0,
-        "party": 5,
+        "party": 8,
         "total_paise": 0,
         "tax_paise": 0,
     }
@@ -443,12 +466,22 @@ def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
     # Every one is the engine misreading a letter and stating that it did, and
     # every one is `party` on a PNG - no amount and no date has ever come back
     # wrong from any rung, which is the line that would go red.
+    # THE THREE ADDED 2026-08-15 ARE THE POSITIONAL ONES AND THEY SAY SO IN
+    # THEIR OWN SOURCE STRING. That is the marking working exactly as designed:
+    # a person reading this list can tell which answers came off a LABEL and
+    # which came off a POSITION without knowing anything about the change.
     assert section.facts["exit1_wrong_examples"] == [
         "GT-0041 PNG party: 'AQUANCED PROPULSION CENTRE UK LTO' sourced 'free_ocr'",
+        "GT-0042 PNG party: 'TNoIte Noe eTvan42' sourced 'free_ocr (guessed from "
+        "where it sits on the page, not from a label)'",
+        "GT-0043 PNG party: 'TNoIte Noe eTvonas' sourced 'free_ocr (guessed from "
+        "where it sits on the page, not from a label)'",
         "GT-0046 PNG party: '“GUPTA HARONARE STORES' sourced 'free_ocr'",
         "GT-0050 PNG party: 'GECCAN LOGISTICS PUT LTO' sourced 'free_ocr'",
         "GT-0055 PNG party: 'UK HEALTH SECURITY AGENCY <UKHSAD' sourced 'free_ocr'",
         "GT-0056 PNG party: '\"NARHAGR PACKAGING CO' sourced 'free_ocr'",
+        "GT-0060 PNG party: 'Nolte Noe eTan6o' sourced 'free_ocr (guessed from "
+        "where it sits on the page, not from a label)'",
     ]
 
     # The tier split, so one number cannot hide four different stories.
@@ -463,8 +496,8 @@ def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
     # under `ladder` are the DOCX and the empty media type, which reach no rung.
     assert section.facts["s2_by_input_type"]["PNG"]["party"] == {
         "exact": 3,
-        "refused": 12,
-        "wrong": 5,
+        "refused": 9,
+        "wrong": 8,
     }
     assert section.facts["s2_by_input_type"]["JPG"]["party"] == {
         "exact": 0,
@@ -565,11 +598,12 @@ def test_a_refusal_that_states_a_reason_is_still_a_refusal():
     the `s2_extraction` benchmark, so a `skipif` guard would silently remove the
     benchmark from CI rather than report that the engine is absent.
 
-    `party` 28 is therefore a claim about this machine as well as this backend.
+    `party` 31 is therefore a claim about this machine as well as this backend.
     With no engine on PATH it collapses to 20 — measured 2026-08-13,
     `PATH=/usr/bin:/bin`, `{'party': 20} != {'party': 28}` — and 20 is the
     measured signature of a missing binary, not of a backend that stopped
-    answering. The three other fields are unchanged by the engine's absence,
+    answering. It was 28 until 2026-08-15; the positional party fallback added
+    the other three. The three other fields are unchanged by the engine's absence,
     which is how the two causes are told apart. Installing it in CI is
     `docs/CI_OCR_INSTALL.md`.
     """
@@ -578,7 +612,7 @@ def test_a_refusal_that_states_a_reason_is_still_a_refusal():
 
     assert section.facts["s2_per_field"] == {
         "date": 14,
-        "party": 28,
+        "party": 31,
         "total_paise": 20,
         "tax_paise": 20,
     }

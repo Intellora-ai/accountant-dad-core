@@ -134,8 +134,9 @@ from __future__ import annotations
 
 import datetime
 import io
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Final, cast
 
 # `D-30`, owner decision 2026-08-13, names this module and these two libraries.
@@ -204,6 +205,18 @@ UNREADABLE_MEDIA: Final = "this file is not a kind of picture we can read"
 MALFORMED_READING: Final = (
     "the text reading program answered with something we cannot use"
 )
+
+#: What is appended to a field's SOURCE when the reader stated a ceiling on it -
+#: see `Reading.at_most`. Plain words, because this string is not a code: it is
+#: printed on the page a person reads and written into the durable action log,
+#: beside a labelled read that says only `free_ocr`. Somebody scanning an audit
+#: line has to be able to tell the two apart without knowing what a ceiling is.
+#:
+#: NOT A REFUSAL AND MUST NEVER READ LIKE ONE. `cage/gate._was_read` treats any
+#: source beginning `NOT_FOUND` as an absence, so this is a SUFFIX on the
+#: backend's own name and never a prefix. The value really was read; what is
+#: uncertain is whether it is this field.
+A_GUESS: Final = "(guessed from where it sits on the page, not from a label)"
 
 #: What a person is told about a file that SAYS it is a picture and holds no
 #: picture. MEASURED 2026-08-13 on the twenty corpus JPEGs: every one of them is
@@ -338,6 +351,42 @@ class Reading:
     total: tuple[Word, ...] = ()
     tax: tuple[Word, ...] = ()
     net: tuple[Word, ...] = ()
+
+    #: A CEILING on a field's score. Never a floor, and the name says so.
+    #:
+    #: ADDED 2026-08-15 for `pagereader`'s positional fallback, which points at
+    #: a number or a name because of WHERE IT SITS ON THE PAGE and not because
+    #: anything labelled it. That is a guess, and until this field existed there
+    #: was nowhere for the reader to say so: `_judge` computes every score from
+    #: the ENGINE'S OWN per-word confidence, which is 80 to 96 on a legible page
+    #: and is a statement about the CHARACTERS. A guessed total would have
+    #: arrived carrying the engine's certainty that those digits are those
+    #: digits, which says nothing whatever about whether that number is the
+    #: total.
+    #:
+    #: DOWNWARD ONLY, and that is the whole of the rule. `_judge` takes the
+    #: MINIMUM of the engine's score and whatever is stated here, so this can
+    #: refuse a field and can never rescue one. A ceiling that could also raise
+    #: would be a way for a reader to launder a bad read into a good score,
+    #: which is the one thing `field_confidence` already refuses by taking
+    #: `min(word_confidences)`.
+    #:
+    #: EMPTY BY DEFAULT, so every reader written before this line still says
+    #: exactly what it said: no ceiling, the engine's number stands. The keys
+    #: are the five group names above; anything else is a malformed reading and
+    #: `_complaint` says so rather than ignoring it.
+    #:
+    #: `MappingProxyType` and not a `dict`, for the reason every verdict in this
+    #: package is frozen: a claim about a document that can be edited after the
+    #: fact is not evidence about the document.
+    at_most: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({}))
+
+
+#: The names `Reading.at_most` may be keyed by - the five word groups and
+#: nothing else. A ceiling on a field that does not exist is a typo that would
+#: otherwise be silently ignored, and a silently ignored ceiling is a guess with
+#: its marking lost.
+CEILING_NAMES: Final = frozenset({"date", "party", "total", "tax", "net"})
 
 
 #: `(bytes, media type) -> Reading`. The media type is always one of
@@ -661,6 +710,46 @@ def _complaint(reading: Reading) -> str:
                     f"carries a confidence of {word.confidence}. A confident "
                     "blank is a contradiction, not a reading"
                 )
+    return _complaint_about_ceilings(reading)
+
+
+def _complaint_about_ceilings(reading: Reading) -> str:
+    """Why `at_most` cannot be used, or "" when it can.
+
+    CHECKED FOR THE SAME REASON THE WORDS ARE, and the reason is stronger here.
+    A malformed word makes a field unreadable; a malformed ceiling goes straight
+    into `min(...)` and comes out the other side as a CONFIDENCE. A stated
+    `-5.0` would become a negative score, a stated `True` would become 1.0 - the
+    text layer's own number - and neither is a shape any check downstream is
+    looking for, because nothing downstream knows a ceiling exists.
+    """
+    stated = cast("object", reading.at_most)
+    if not isinstance(stated, Mapping):
+        return (
+            f"{MALFORMED_READING}: the ceilings arrived as "
+            f"{type(stated).__name__} instead of a mapping"
+        )
+    for name, ceiling in cast("Mapping[object, object]", stated).items():
+        if name not in CEILING_NAMES:
+            return (
+                f"{MALFORMED_READING}: a ceiling was stated for {name!r}, which "
+                f"is not one of {', '.join(sorted(CEILING_NAMES))}"
+            )
+        # `type(...) is not float` and not `isinstance`, the reason this file
+        # already gives about `word.confidence`: `isinstance(True, int)` is
+        # True, and a flag passed where a ceiling belonged would read as 1.0 -
+        # `confidence.EXACT`, the one score a photograph may never claim.
+        if type(ceiling) is not float:
+            return (
+                f"{MALFORMED_READING}: the ceiling on {name} is a "
+                f"{type(ceiling).__name__}, and a confidence is a number "
+                "between 0.0 and 1.0"
+            )
+        if not 0.0 <= ceiling <= 1.0:
+            return (
+                f"{MALFORMED_READING}: the ceiling on {name} is {ceiling}, "
+                "which is on no confidence scale we know"
+            )
     return ""
 
 
@@ -752,6 +841,7 @@ def _judge(
     agrees: bool,
     disagreement: str,
     backend: str,
+    at_most: float | None = None,
 ) -> tuple[float, str]:
     """One field's confidence, and the sentence saying where it came from.
 
@@ -759,6 +849,14 @@ def _judge(
     Passing `format_valid=True` because we already checked the format would
     make the multiplier decorative, and the next person to change the check
     would not find out that the score stopped depending on it.
+
+    `at_most` IS A CEILING AND IS APPLIED WITH `min`. It is how a reader says
+    "these are the right characters and I am guessing that they are this field"
+    - see `Reading.at_most`. Two things come out of it and both are deliberate:
+    the SCORE drops to the ceiling, which is what `cage/decision.py` reads; and
+    the SOURCE stops being the bare backend name, which is what a person reads
+    on the page and in the durable log. One guard would have been the score
+    alone, and a threshold is a number somebody can move in one line.
     """
     scores = _scores(words)
     if scores is None:
@@ -768,8 +866,10 @@ def _judge(
             "score, and a marker is not a low score"
         )
     confidence = field_confidence(scores, format_valid=read, consistent=agrees)
+    if at_most is not None:
+        confidence = min(confidence, at_most)
     if confidence > 0.0:
-        return confidence, backend
+        return confidence, (backend if at_most is None else f"{backend} {A_GUESS}")
     if not read:
         return 0.0, f"{NOT_FOUND}: {problem}"
     if not agrees:
@@ -832,6 +932,10 @@ class _Answer:
 
 def _scored(reading: Reading, backend: str) -> _Answer:
     """Every field judged, with the amounts checked against one another first."""
+    # The reader's ceilings, read once. `.get` returns None for a field nothing
+    # was stated about, and None is exactly what `_judge` treats as "no ceiling"
+    # - so a reader that states nothing is judged the way it always was.
+    ceiling = reading.at_most
     total, total_problem = _money(reading.total)
     tax, tax_problem = _money(reading.tax)
     net, net_problem = _money(reading.net)
@@ -858,6 +962,7 @@ def _scored(reading: Reading, backend: str) -> _Answer:
         agrees=True,
         disagreement="",
         backend=backend,
+        at_most=ceiling.get("date"),
     )
     party_score, party_source = _judge(
         reading.party,
@@ -866,6 +971,7 @@ def _scored(reading: Reading, backend: str) -> _Answer:
         agrees=True,
         disagreement="",
         backend=backend,
+        at_most=ceiling.get("party"),
     )
     total_score, total_source = _judge(
         reading.total,
@@ -874,6 +980,7 @@ def _scored(reading: Reading, backend: str) -> _Answer:
         agrees=agrees,
         disagreement=law.said,
         backend=backend,
+        at_most=ceiling.get("total"),
     )
     tax_score, tax_source = _judge(
         reading.tax,
@@ -882,6 +989,7 @@ def _scored(reading: Reading, backend: str) -> _Answer:
         agrees=agrees,
         disagreement=law.said,
         backend=backend,
+        at_most=ceiling.get("tax"),
     )
     # THE NET IS JUDGED LIKE THE OTHER TWO AMOUNTS, and by the same law. It
     # shares `agrees`, so if the three figures contradict each other the net is
@@ -895,6 +1003,7 @@ def _scored(reading: Reading, backend: str) -> _Answer:
         agrees=agrees,
         disagreement=law.said,
         backend=backend,
+        at_most=ceiling.get("net"),
     )
 
     # ONE rule, applied here and nowhere else: a value survives only where a
