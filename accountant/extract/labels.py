@@ -251,8 +251,19 @@ _RATE: Final = r"(?:\s*@?\s*\d{1,2}(?:\.\d+)?\s*%)?"
 #: The flag reaches only the currency token and the optional trailing pipe. The
 #: digits, the comma grouping and the decimal point have no case to ignore, so
 #: nothing about which strings parse as money changes.
+#: `/-` IS INDIAN AND IT IS TERMINAL, ADDED 2026-08-15. `₹45,61,546/-` is how an
+#: Indian document writes a whole-rupee sum, and it was refused outright: the
+#: trailing two characters failed `$`, so the line reported NO amount rather
+#: than an unparseable one, and nothing downstream could tell those apart.
+#: MEASURED in this repository's own corpus - `data/real_invoices_indian/
+#: gst-portal-and-govt-002.pdf` prints `total liability of ₹45,61,546/-`.
+#:
+#: It consumes nothing and means nothing: `/-` says only "and no paise", which
+#: the digits already said. So it is accepted and discarded, never read as part
+#: of the figure. `Total 2,076.76/-` and `Total 2,076.76` must give the same
+#: paise, and a test asserts exactly that.
 _ONLY_AMOUNT: Final = re.compile(
-    rf"^[\s:|]*{CURRENCY}?\s*(-?[\d,]+(?:\.\d+)?)\s*{CURRENCY}?\s*\|?\s*$",
+    rf"^[\s:|]*{CURRENCY}?\s*(-?[\d,]+(?:\.\d+)?)\s*{CURRENCY}?\s*(?:/-)?\s*\|?\s*$",
     re.IGNORECASE,
 )
 

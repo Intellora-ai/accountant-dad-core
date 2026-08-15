@@ -352,3 +352,40 @@ def test_a_number_that_is_not_an_amount_is_still_refused() -> None:
     tax. Relaxing the label rules must not relax what counts as an amount."""
     assert amounts_for(("TAX INVOICE 2026",), TOTAL_LABELS) == ()
     assert amounts_for(("TOTAL PAGES 3 OF 4",), TOTAL_LABELS) == ()
+
+
+def test_the_indian_whole_rupee_suffix_is_read() -> None:
+    """`₹45,61,546/-` is how an Indian document writes a whole-rupee sum, and it
+    was refused outright - the trailing two characters failed `$`, so the line
+    reported NO amount rather than an unparseable one. MEASURED in this
+    repository's own corpus: data/real_invoices_indian/gst-portal-and-govt-002.pdf
+    prints `total liability of ₹45,61,546/-`."""
+    assert amounts_for(("Total Rs 2,076.76 /-",), TOTAL_LABELS)[0].paise == 207676
+    assert amounts_for(("Total ₹45,61,546/-",), TOTAL_LABELS)[0].paise == 456154600
+
+
+def test_the_suffix_is_discarded_and_never_read_into_the_figure() -> None:
+    """`/-` says only "and no paise", which the digits already said. The same
+    figure written both ways must give the same paise, or the suffix has become
+    part of the number."""
+    bare = amounts_for(("Total 2,076.76",), TOTAL_LABELS)[0].paise
+    suffixed = amounts_for(("Total 2,076.76/-",), TOTAL_LABELS)[0].paise
+    assert bare == suffixed == 207676
+
+
+def test_a_lone_slash_is_not_the_rupee_suffix() -> None:
+    """THE CONTROL. `/-` is one token; a bare `/` between two numbers is a range
+    or a ratio and states no single amount. Accepting it would read `500 / 600`
+    as five hundred rupees."""
+    assert amounts_for(("Total 500 / 600",), TOTAL_LABELS) == ()
+
+
+def test_a_total_row_of_a_table_is_refused_rather_than_guessed() -> None:
+    """MEASURED on data/real_invoices/vendor-samples-050.pdf, a real Indian
+    retail invoice, whose total row reads `Total 1 278.61 40.39 319.00` -
+    quantity, net, tax, gross. Four numbers and no way to tell which is the
+    total without reading the column headings. Picking one would be F-02, a
+    confident wrong amount, which is the failure this repository exists to
+    prevent. A refusal here is the correct answer and must stay one."""
+    assert amounts_for(("Total 1 278.61 40.39 319.00",), TOTAL_LABELS) == ()
+    assert amounts_for(("Grand Total",), TOTAL_LABELS) == ()
