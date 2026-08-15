@@ -7,9 +7,9 @@ sentence for two unrelated situations - see that module's docstring for the
 measurement. These tests hold the line on the distinction:
 
     a page that returned NO rows at all
-        -> Where.NO_OCR_WORDS
+        -> Where.NO_WORDS_AT_ALL
     a page that returned rows, and matched no label this reader knows
-        -> Where.OCR_PRESENT_FIELD_CANDIDATES_MISSING
+        -> Where.WORDS_PRESENT_NO_CANDIDATES
 
 and, harder, that the SENTENCE for the second one cannot be read as the first.
 `test_a_read_page_is_never_reported_as_a_reading_failure` is the regression that
@@ -64,9 +64,9 @@ def test_the_enum_has_exactly_the_five_rungs_and_exactly_these_wire_values() -> 
     diagnostic from every new one.
     """
     assert [(member.name, member.value) for member in Where] == [
-        ("NO_OCR_WORDS", "no_ocr_words"),
+        ("NO_WORDS_AT_ALL", "no_ocr_words"),
         (
-            "OCR_PRESENT_FIELD_CANDIDATES_MISSING",
+            "WORDS_PRESENT_NO_CANDIDATES",
             "ocr_present_field_candidates_missing",
         ),
         ("LABEL_MATCHED_NO_VALUE", "label_matched_no_value"),
@@ -82,8 +82,8 @@ def test_a_rung_is_never_equal_to_its_own_wire_string() -> None:
     against a string - including a MISSPELLED string - fails loudly instead of
     quietly answering about nothing.
     """
-    assert Where.NO_OCR_WORDS != "no_ocr_words"
-    assert Where.NO_OCR_WORDS.value == "no_ocr_words"
+    assert Where.NO_WORDS_AT_ALL != "no_ocr_words"
+    assert Where.NO_WORDS_AT_ALL.value == "no_ocr_words"
 
 
 def test_the_field_trace_carries_exactly_these_fields_in_this_order() -> None:
@@ -138,7 +138,7 @@ RUNGS: tuple[tuple[str, dict[str, object], Where, str], ...] = (
             "labels_considered": 10,
             "labels_matched": 0,
         },
-        Where.NO_OCR_WORDS,
+        Where.NO_WORDS_AT_ALL,
         "Nothing at all was read off this page - the reader was handed 0 word "
         "rows - so total_paise was never looked for.",
     ),
@@ -151,7 +151,7 @@ RUNGS: tuple[tuple[str, dict[str, object], Where, str], ...] = (
             "labels_considered": 10,
             "labels_matched": 0,
         },
-        Where.OCR_PRESENT_FIELD_CANDIDATES_MISSING,
+        Where.WORDS_PRESENT_NO_CANDIDATES,
         "This page was read - 612 of 699 word rows carry characters - and "
         "total_paise is missing only because not one of the 10 labels this "
         "reader knows for it appears anywhere on the page.",
@@ -283,7 +283,7 @@ def test_a_read_page_with_no_candidates_is_never_called_a_reading_failure(
     )
     assert built.rows_received > 0
     assert built.candidates_generated == 0
-    assert built.where is Where.OCR_PRESENT_FIELD_CANDIDATES_MISSING
+    assert built.where is Where.WORDS_PRESENT_NO_CANDIDATES
     spoken = built.said.lower()
     for phrase in NEVER_ON_A_READ_PAGE:
         assert phrase.lower() not in spoken, (phrase, built.said)
@@ -301,7 +301,7 @@ def test_the_control_refuses_such_a_sentence_at_construction() -> None:
         with pytest.raises(ValueError, match="defect this module was built to end"):
             FieldTrace(
                 field="total_paise",
-                where=Where.OCR_PRESENT_FIELD_CANDIDATES_MISSING,
+                where=Where.WORDS_PRESENT_NO_CANDIDATES,
                 rows_received=699,
                 rows_with_characters=612,
                 labels_considered=10,
@@ -339,8 +339,8 @@ def test_the_two_situations_freeocr_conflates_now_say_different_things() -> None
         labels_considered=len(TOTAL_LABELS),
         labels_matched=0,
     )
-    assert blank.where is Where.NO_OCR_WORDS
-    assert busy.where is Where.OCR_PRESENT_FIELD_CANDIDATES_MISSING
+    assert blank.where is Where.NO_WORDS_AT_ALL
+    assert busy.where is Where.WORDS_PRESENT_NO_CANDIDATES
     assert blank.said != busy.said
     assert "never looked for" in blank.said
     assert "This page was read" in busy.said
@@ -370,7 +370,7 @@ def test_the_label_rung_is_what_the_real_vocabulary_actually_does() -> None:
         labels_matched=len(located),
         candidates_generated=len(located),
     )
-    assert built.where is Where.OCR_PRESENT_FIELD_CANDIDATES_MISSING
+    assert built.where is Where.WORDS_PRESENT_NO_CANDIDATES
     assert f"{len(TOTAL_LABELS)} labels" in built.said
     assert "3 word rows" in built.said
 
@@ -504,9 +504,9 @@ def test_the_page_paragraph_says_the_counts_and_names_the_fields() -> None:
     )
     assert page.counted(Where.CANDIDATE_SCORED) == 2
     assert page.counted(Where.CANDIDATE_REJECTED_BY_VALIDATION) == 2
-    assert page.counted(Where.OCR_PRESENT_FIELD_CANDIDATES_MISSING) == 1
+    assert page.counted(Where.WORDS_PRESENT_NO_CANDIDATES) == 1
     assert page.counted(Where.LABEL_MATCHED_NO_VALUE) == 0
-    assert page.counted(Where.NO_OCR_WORDS) == 0
+    assert page.counted(Where.NO_WORDS_AT_ALL) == 0
     assert len(page.said().splitlines()) == 6
     for field in page.fields:
         assert field.field in page.said(), field.field
@@ -659,7 +659,7 @@ def test_a_hand_written_rung_that_disagrees_with_the_counts_is_refused() -> None
     with pytest.raises(ValueError, match="derived from the numbers"):
         FieldTrace(
             field="total_paise",
-            where=Where.NO_OCR_WORDS,
+            where=Where.NO_WORDS_AT_ALL,
             rows_received=699,
             rows_with_characters=612,
             labels_considered=10,
@@ -678,7 +678,7 @@ def test_a_blank_sentence_is_refused() -> None:
     with pytest.raises(ValueError, match="may not explain nothing"):
         FieldTrace(
             field="total_paise",
-            where=Where.NO_OCR_WORDS,
+            where=Where.NO_WORDS_AT_ALL,
             rows_received=0,
             rows_with_characters=0,
             labels_considered=10,
@@ -779,9 +779,9 @@ def test_where_from_answers_for_every_combination_it_can_be_handed() -> None:
                     assert isinstance(answer, Where)
                     seen.add(answer)
                     if rows > 0 and generated == 0:
-                        assert answer is Where.OCR_PRESENT_FIELD_CANDIDATES_MISSING
+                        assert answer is Where.WORDS_PRESENT_NO_CANDIDATES
                     if rows == 0:
-                        assert answer is Where.NO_OCR_WORDS
+                        assert answer is Where.NO_WORDS_AT_ALL
     assert seen == set(Where)
 
 
@@ -957,3 +957,110 @@ def test_the_guard_would_catch_a_clock_if_one_appeared() -> None:
             names.add(node.attr)
     assert names & NON_DETERMINISTIC_NAMES == {"now"}
     assert names & IMPURE_NAMES == {"Path", "read_text"}
+
+
+# =============================================================================
+# A ZERO SCORE, AND THE ONE FIELD THAT WAS NEVER RANGE-CHECKED
+# =============================================================================
+#
+# Both of these came out of an adversarial review on 2026-08-15 and neither was
+# covered before it. The scores this file tested were 0.87, 0.91, 0.44, 0.5, 0.9
+# and None - every one of them comfortably inside the range, and none of them
+# the value that means "nothing was read".
+
+
+def test_a_judged_candidate_scoring_zero_was_not_read() -> None:
+    """0.0 IS NOT A LOW CONFIDENCE HERE, IT IS THE ABSENCE OF A VALUE.
+
+    `freeocr.py:108-111` states the rule: "confidence 0.0 means no value ... a
+    field is carried only when a confidence above zero can be stated for it",
+    and `_judge` returns 0.0 with a NOT_FOUND sentence on all four of its
+    failure branches. So the obvious wiring - pass `_judge`'s score straight in -
+    used to produce "total_paise was read and scored 0.00" for a slot `freeocr`
+    had already set to None.
+
+    A trace that reports a success the reader did not report is worse than no
+    trace, because it is the log somebody opens to find out why a bill did not
+    post.
+    """
+    scored_zero = FieldTrace.at(
+        field="total_paise",
+        rows_received=699,
+        rows_with_characters=699,
+        labels_considered=4,
+        labels_matched=1,
+        candidates_generated=1,
+        candidates_judged=1,
+        score=0.0,
+        value=None,
+    )
+
+    assert scored_zero.where is not Where.CANDIDATE_SCORED
+    assert scored_zero.where is Where.CANDIDATE_REJECTED_BY_VALIDATION
+    assert "was read and scored" not in scored_zero.said
+
+
+def test_a_real_score_is_still_a_reading() -> None:
+    """THE CONTROL. If the rule above were "a judged candidate is never scored",
+    every genuine read would vanish into the refused rung and the test above
+    would still pass."""
+    scored = FieldTrace.at(
+        field="total_paise",
+        rows_received=699,
+        rows_with_characters=699,
+        labels_considered=4,
+        labels_matched=1,
+        candidates_generated=1,
+        candidates_judged=1,
+        score=0.87,
+        value="1234",
+    )
+
+    assert scored.where is Where.CANDIDATE_SCORED
+
+
+@pytest.mark.parametrize(
+    "score",
+    [
+        # -1 is freeocr.NO_SCORE_MARKER and means "no text here"
+        -1.0,
+        # a 0-100 word confidence is a different scale entirely
+        87.0,
+        float("inf"),
+    ],
+)
+def test_a_score_outside_the_range_is_refused(score: float) -> None:
+    """The seven counts here were all range-checked and this one float was not -
+    and it is the quantity `cage/decision.py` gates auto-posting on at 0.95.
+    Measured before the check existed: every one of these constructed cleanly
+    and printed as a confidence."""
+    with pytest.raises(ValueError, match=r"0\.0-1\.0"):
+        FieldTrace.at(
+            field="total_paise",
+            rows_received=9,
+            rows_with_characters=9,
+            labels_considered=4,
+            labels_matched=1,
+            candidates_generated=1,
+            candidates_judged=1,
+            score=score,
+            value="1",
+        )
+
+
+def test_a_score_of_nan_is_refused_by_name() -> None:
+    """NaN needs its own branch and its own test. It fails EVERY comparison, so
+    it is neither below 0.0 nor above 1.0 and a range check alone lets it
+    straight through to the auto-post band."""
+    with pytest.raises(ValueError, match="NaN"):
+        FieldTrace.at(
+            field="total_paise",
+            rows_received=9,
+            rows_with_characters=9,
+            labels_considered=4,
+            labels_matched=1,
+            candidates_generated=1,
+            candidates_judged=1,
+            score=float("nan"),
+            value="1",
+        )

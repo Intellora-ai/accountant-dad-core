@@ -64,7 +64,7 @@ that drifts from its evidence, which is the defect this file exists to end.
 THE RULE THAT IS NOT NEGOTIABLE
 --------------------------------
 `rows_received > 0` and `candidates_generated == 0` is
-`OCR_PRESENT_FIELD_CANDIDATES_MISSING`, and its sentence may not contain
+`WORDS_PRESENT_NO_CANDIDATES`, and its sentence may not contain
 `OCR failed` or `could not read`. This is not a style preference: those 595
 slots are pages the engine read correctly, and a log that calls them a reading
 failure sends the owner to buy hardware for a problem that is four strings in
@@ -142,13 +142,13 @@ class Where(enum.Enum):
     #: of 675 dead slots across both tiers, and every one of them came from a
     #: document with no text layer and no legible ink - never from a page that
     #: was read.
-    NO_OCR_WORDS = "no_ocr_words"
+    NO_WORDS_AT_ALL = "no_ocr_words"
 
     #: The page was read and the vocabulary missed. Rows came back carrying
     #: characters, and not one label this reader knows for this field appeared
     #: among them. MEASURED: 595 of 675 dead slots, 88.1%. This is the common
     #: case by a wide margin and the one today's single sentence hides.
-    OCR_PRESENT_FIELD_CANDIDATES_MISSING = "ocr_present_field_candidates_missing"
+    WORDS_PRESENT_NO_CANDIDATES = "ocr_present_field_candidates_missing"
 
     #: The label was there and nothing followed it. A candidate site was
     #: located under a label this reader knows, and the characters at that site
@@ -176,7 +176,7 @@ class Where(enum.Enum):
 #: guard holds against a sentence that says `OCR Failed`, and it is a
 #: `ValueError` at construction rather than a warning nobody reads.
 #:
-#: `NO_OCR_WORDS` is exempt because there the phrases are simply accurate. It
+#: `NO_WORDS_AT_ALL` is exempt because there the phrases are simply accurate. It
 #: does not use them - the sentence below says what happened in plainer words -
 #: but a future wording that did would not be lying.
 _MISREADS_A_READ_PAGE: Final[tuple[str, ...]] = ("ocr failed", "could not read")
@@ -187,12 +187,58 @@ _MISREADS_A_READ_PAGE: Final[tuple[str, ...]] = ("ocr failed", "could not read")
 # =============================================================================
 
 
+def _refuse_a_score_that_is_not_a_confidence(field: str, score: float | None) -> None:
+    """A score is `None` or a confidence between 0.0 and 1.0. Nothing else.
+
+    THE ASYMMETRY THIS CLOSES. `__post_init__` range-checks all seven integer
+    counts and applied ZERO checks to the one float - and the float is the
+    quantity `cage/decision.py` gates auto-posting on at 0.95. Measured before
+    this existed: -1.0, 87.0, NaN and inf all constructed cleanly and printed as
+    "scored -1.00", "scored 87.00", "scored nan", "scored inf".
+
+    -1 IS THE ONE TO NAME. `freeocr.NO_SCORE_MARKER` is -1 and it means "no text
+    here"; `cage/confidence.field_confidence` already raises on it with the
+    reason that guessing which scale a number outside the range is on would be
+    inventing data. A diagnostic that printed it as a confidence would be the
+    same invention with a friendlier font.
+
+    NaN is refused separately because it fails every comparison silently - it is
+    neither below 0.0 nor above 1.0, so a range check alone lets it through.
+    """
+    if score is None:
+        return
+    # The ignore is the evidence, not a workaround: pyright calls this check
+    # unnecessary BECAUSE it trusts the annotation, and a caller handing this a
+    # string or a bool is exactly the case the annotation cannot prevent. A
+    # checker that cannot see the defect is not a reason to delete the guard.
+    if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
+        score, float | int
+    ) or isinstance(score, bool):
+        raise TypeError(
+            f"{field}: a score is a confidence or None, not {type(score).__name__}."
+        )
+    if score != score:  # NaN, which fails every comparison including this one
+        raise ValueError(
+            f"{field}: a score of NaN is not a confidence. It is neither below "
+            "0.0 nor above 1.0, so a range check alone would let it reach the "
+            "auto-post band unnoticed."
+        )
+    if not 0.0 <= score <= 1.0:
+        raise ValueError(
+            f"{field}: a score of {score} is outside 0.0-1.0. Tesseract reports "
+            "-1 for 'no text here', which is a marker and not a score, and a "
+            "0-100 word confidence is a different scale entirely; guessing "
+            "which one a number outside the range is on would be inventing data."
+        )
+
+
 def where_from(
     *,
     rows_received: int,
     candidates_generated: int,
     candidates_rejected: int,
     candidates_judged: int,
+    score: float | None = None,
 ) -> Where:
     """The one rung these counts describe.
 
@@ -221,12 +267,29 @@ def where_from(
     is stated once, in `__post_init__`, where it can be read as one line.
     """
     if rows_received == 0:
-        return Where.NO_OCR_WORDS
+        return Where.NO_WORDS_AT_ALL
     if candidates_generated == 0:
-        return Where.OCR_PRESENT_FIELD_CANDIDATES_MISSING
-    if candidates_judged > 0:
+        return Where.WORDS_PRESENT_NO_CANDIDATES
+    if candidates_judged > 0 and score != 0.0:
         return Where.CANDIDATE_SCORED
-    if candidates_rejected > 0:
+    # A JUDGED CANDIDATE SCORING EXACTLY 0.0 WAS NOT READ, AND THIS FILE HAD IT
+    # THE OTHER WAY ROUND. Corrected 2026-08-15 after an adversarial review.
+    #
+    # This module's own field docstring used to say "a zero score is a real
+    # reading the engine had no confidence in". In THIS repository that is
+    # false, and `freeocr.py:108-111` states the rule it contradicts:
+    # "confidence 0.0 means no value - ONE rule, so the record and the
+    # observation cannot disagree about what was read. A field is carried only
+    # when a confidence above zero can be stated for it."
+    #
+    # `freeocr._judge` returns 0.0 together with a NOT_FOUND sentence on all
+    # four of its failure branches, and `freeocr` then writes
+    # `total_paise=total if total_score > 0.0 else None`. So the natural wiring
+    # - hand this the score `_judge` returned - produced a trace saying
+    # "total_paise was read and scored 0.00" for a slot the reader had set to
+    # None. A fabricated success, and the exact conflation this file exists to
+    # end, reintroduced one layer up.
+    if candidates_rejected > 0 or candidates_judged > 0:
         return Where.CANDIDATE_REJECTED_BY_VALIDATION
     return Where.LABEL_MATCHED_NO_VALUE
 
@@ -291,13 +354,13 @@ def sentence_for(
     confidence is the figure `cage/decision.py` reads to decide whether a
     voucher posts by itself.
     """
-    if where is Where.NO_OCR_WORDS:
+    if where is Where.NO_WORDS_AT_ALL:
         return (
             f"Nothing at all was read off this page - the reader was handed "
             f"{_count_of(rows_received, 'word row')} - so {field} was never "
             f"looked for."
         )
-    if where is Where.OCR_PRESENT_FIELD_CANDIDATES_MISSING:
+    if where is Where.WORDS_PRESENT_NO_CANDIDATES:
         return (
             f"This page was read - {rows_with_characters} of "
             f"{_count_of(rows_received, 'word row')} carry characters - and "
@@ -399,11 +462,26 @@ class FieldTrace:
     #: refused by a rule nor judged, and that gap is `LABEL_MATCHED_NO_VALUE`.
     candidates_judged: int
 
-    #: The confidence, when something was judged. None otherwise, and NEVER 0.0
-    #: as a stand-in - a zero score is a real reading the engine had no
-    #: confidence in, and a slot that was never judged has no score at all.
-    #: Conflating those two is the same class of defect as the sentence at the
-    #: top of this file.
+    #: The confidence, when something was judged. `None` when nothing was.
+    #:
+    #: 0.0 IS NOT A LOW CONFIDENCE IN THIS REPOSITORY, IT IS THE ABSENCE OF A
+    #: VALUE. This comment used to say the opposite - "a zero score is a real
+    #: reading the engine had no confidence in" - and that was contradicted one
+    #: module away. `freeocr.py:108-111`: "confidence 0.0 means no value - ONE
+    #: rule, so the record and the observation cannot disagree about what was
+    #: read." `freeocr._judge` returns 0.0 alongside a NOT_FOUND sentence on all
+    #: four of its failure branches, and `freeocr` then writes
+    #: `total_paise=total if total_score > 0.0 else None`.
+    #:
+    #: So `where_from` treats a judged candidate scoring exactly 0.0 as refused
+    #: rather than scored. Without that, the obvious wiring - hand this the
+    #: score `_judge` returned - produced "total_paise was read and scored 0.00"
+    #: for a slot the reader had set to `None`: a fabricated success, and the
+    #: very conflation this file exists to end, reintroduced one layer up.
+    #:
+    #: RANGE-CHECKED AT CONSTRUCTION, like the seven counts beside it. It was
+    #: the only unvalidated field here, and it is the one `cage/decision.py`
+    #: reads at `AUTO_POST_FLOOR`.
     score: float | None
 
     #: The characters that were taken, when a slot was scored. None otherwise.
@@ -422,11 +500,13 @@ class FieldTrace:
     said: str
 
     def __post_init__(self) -> None:
+        _refuse_a_score_that_is_not_a_confidence(self.field, self.score)
         where = where_from(
             rows_received=self.rows_received,
             candidates_generated=self.candidates_generated,
             candidates_rejected=self.candidates_rejected,
             candidates_judged=self.candidates_judged,
+            score=self.score,
         )
         counts = {
             "rows_received": self.rows_received,
@@ -465,7 +545,7 @@ class FieldTrace:
         # A candidate is a located label hit, so the two are zero together or
         # neither is. Without this, a slot could report `labels_matched=3,
         # candidates_generated=0` and `where_from` would call it
-        # OCR_PRESENT_FIELD_CANDIDATES_MISSING - whose sentence says no label
+        # WORDS_PRESENT_NO_CANDIDATES - whose sentence says no label
         # appeared, which would be false on that page. The critical rule at the
         # top of this file is unconditional ONLY because this invariant holds.
         if (self.labels_matched == 0) != (self.candidates_generated == 0):
@@ -529,7 +609,7 @@ class FieldTrace:
                 f"is to explain where a field died may not explain nothing"
             )
         # THE CONTROL. See `_MISREADS_A_READ_PAGE` and the module docstring.
-        if where is not Where.NO_OCR_WORDS:
+        if where is not Where.NO_WORDS_AT_ALL:
             spoken = self.said.lower()
             for phrase in _MISREADS_A_READ_PAGE:
                 if phrase in spoken:
@@ -577,6 +657,7 @@ class FieldTrace:
             candidates_generated=candidates_generated,
             candidates_rejected=candidates_rejected,
             candidates_judged=candidates_judged,
+            score=score,
         )
         return cls(
             field=field,
@@ -688,10 +769,10 @@ class PageTrace:
         read at the moment a bill did not post.
         """
         scored = self.counted(Where.CANDIDATE_SCORED)
-        no_label = self.counted(Where.OCR_PRESENT_FIELD_CANDIDATES_MISSING)
+        no_label = self.counted(Where.WORDS_PRESENT_NO_CANDIDATES)
         no_value = self.counted(Where.LABEL_MATCHED_NO_VALUE)
         refused = self.counted(Where.CANDIDATE_REJECTED_BY_VALIDATION)
-        no_rows = self.counted(Where.NO_OCR_WORDS)
+        no_rows = self.counted(Where.NO_WORDS_AT_ALL)
         head = (
             f"This page returned "
             f"{_count_of(self.rows_received, 'word row')}, "
