@@ -67,7 +67,9 @@ from accountant.extract.adapter import NOT_FOUND, ExtractedRecord
 from accountant.extract.freeocr import FreeReader
 from accountant.extract.labels import (
     PARTY_LABELS,
+    TOTAL_LABELS,
     Printing,
+    amounts_for,
     values_for,
 )
 from accountant.extract.pagereader import page_reader
@@ -293,3 +295,60 @@ def test_a_field_the_tolerance_recovered_never_carries_the_text_layer_exactness(
     )
 
     assert 0.0 < seen.party.confidence < EXACT
+
+
+# =============================================================================
+# The four rules that refused every real bill, 2026-08-15
+# =============================================================================
+#
+# Traced in docs/OCR_0_CHARS_DIAGNOSIS.md. `amount_on` used a bare `re.match`
+# with no case flag while `_values_on` three lines above already used
+# `_LABEL_AT`. One reader, two rules about where a label may sit, and only the
+# money path had the strict one. The synthetic corpus never caught it because
+# its generator prints `TOTAL:` in capitals at column 0.
+
+
+def test_a_lowercase_label_is_read() -> None:
+    """RULE 1. `Total: 500.00` is how a real bill prints it; capitals are the
+    exception. This refused, and the field came back not_found rather than
+    unparseable, so nothing downstream could tell the two apart."""
+    assert amounts_for(("Total: 500.00",), TOTAL_LABELS)[0].paise == 50000
+    assert amounts_for(("total: 500.00",), TOTAL_LABELS)[0].paise == 50000
+
+
+def test_a_label_indented_into_a_column_is_read() -> None:
+    """RULE 2. `re.match` anchors at position 0, so two leading spaces refused
+    the line. Every bill that prints its totals inside a table indents them."""
+    assert amounts_for(("  TOTAL: 500.00",), TOTAL_LABELS)[0].paise == 50000
+
+
+def test_rupees_spelled_the_way_india_spells_it_is_read() -> None:
+    """RULE 3. `CURRENCY` is written in capitals and `_ONLY_AMOUNT` carried no
+    IGNORECASE, so `Rs.` failed the whole line while `RS.` passed. `Rs.` is the
+    ordinary spelling and `RS.` is the rare one."""
+    assert amounts_for(("TOTAL Rs. 500.00",), TOTAL_LABELS)[0].paise == 50000
+    assert amounts_for(("Total Rs. 1,23,456.00",), TOTAL_LABELS)[0].paise == 12345600
+
+
+def test_the_column_gap_rule_is_reused_and_not_loosened() -> None:
+    """THE CONTROL FOR RULES 1-3. A single space before the label still refuses.
+    `_LABEL_AT` is what stops the second field on a two-field line being read
+    into the first one's value, and widening it to `\\s+` would trade a missing
+    total for a wrong one. A wrong total is the worse failure."""
+    assert amounts_for(("X TOTAL: 500.00",), TOTAL_LABELS) == ()
+
+
+def test_subtotal_is_still_never_read_as_the_total() -> None:
+    """THE CONTROL THAT MATTERS MOST. Case-insensitive matching is one careless
+    step from `SUBTOTAL` matching `TOTAL`, which posts the bill short by the
+    whole of its tax - money lost, with a bill that still looks read."""
+    assert amounts_for(("SUBTOTAL: 100.00",), TOTAL_LABELS) == ()
+    assert amounts_for(("Subtotal: 100.00",), TOTAL_LABELS) == ()
+    assert amounts_for(("Sub Total: 100.00",), TOTAL_LABELS) == ()
+
+
+def test_a_number_that_is_not_an_amount_is_still_refused() -> None:
+    """THE OTHER CONTROL. `TAX INVOICE 2026` must not report 2026 rupees of
+    tax. Relaxing the label rules must not relax what counts as an amount."""
+    assert amounts_for(("TAX INVOICE 2026",), TOTAL_LABELS) == ()
+    assert amounts_for(("TOTAL PAGES 3 OF 4",), TOTAL_LABELS) == ()

@@ -240,8 +240,20 @@ _RATE: Final = r"(?:\s*@?\s*\d{1,2}(?:\.\d+)?\s*%)?"
 
 #: After the label, the rest of the line must be the amount and nothing else.
 #: This is what stops `TAX INVOICE 2026` being read as 2026 rupees of tax.
+#:
+#: IGNORECASE ADDED 2026-08-15. `CURRENCY` is written in capitals, and without
+#: the flag `TOTAL Rs. 500.00` was refused while `TOTAL RS. 500.00` was read.
+#: `Rs.` is how an Indian bill prints rupees; the uppercase spelling is the rare
+#: one. MEASURED: the refusal was total, not partial - the whole line failed
+#: `_ONLY_AMOUNT`, so the amount was reported as absent rather than as
+#: unparseable, and nothing downstream could tell the difference.
+#:
+#: The flag reaches only the currency token and the optional trailing pipe. The
+#: digits, the comma grouping and the decimal point have no case to ignore, so
+#: nothing about which strings parse as money changes.
 _ONLY_AMOUNT: Final = re.compile(
-    rf"^[\s:|]*{CURRENCY}?\s*(-?[\d,]+(?:\.\d+)?)\s*{CURRENCY}?\s*\|?\s*$"
+    rf"^[\s:|]*{CURRENCY}?\s*(-?[\d,]+(?:\.\d+)?)\s*{CURRENCY}?\s*\|?\s*$",
+    re.IGNORECASE,
 )
 
 #: Names a supplier gives the amount payable. Longest first, so `TOTAL DUE` is
@@ -389,8 +401,32 @@ def amount_on(line: str, label: str) -> tuple[int, int, int] | None:
     the rest of the line is not an amount, or the amount will not parse - and
     all three mean the same thing to the caller: this line states no figure for
     that label.
+
+    `_LABEL_AT` AND `IGNORECASE`, BOTH ADDED 2026-08-15, BOTH MEASURED. This
+    function used a bare `re.match` with no case flag, and `_values_on` three
+    lines up already used `_LABEL_AT`. One reader, two rules about where a label
+    may sit, and only the money path had the strict one. Measured on
+    `data/real_invoices_indian/gst-portal-and-govt-004.jpg`, a legible Navi
+    Mumbai restaurant bill that Tesseract reads at 95 words:
+
+        TOTAL: 500.00          matched      the only shape that ever worked
+        Total: 500.00          REFUSED      no IGNORECASE
+        '  TOTAL: 500.00'      REFUSED      `re.match` anchors at column 0
+        TOTAL Rs. 500.00       REFUSED      `CURRENCY` is written uppercase
+
+    All four fields on that bill came back not_found while the engine had read
+    the page correctly. The synthetic corpus never caught it because its
+    generator prints `TOTAL:` in capitals at column 0, so 20/20 on that corpus
+    was measuring the generator.
+
+    `_LABEL_AT` is REUSED and not loosened. A single space before the label
+    still refuses - `Food Total : 525.00` does not match `TOTAL` - because the
+    column-gap rule is what stops the second field on a two-field line being
+    read into the first one's value. Widening the VOCABULARY is a separate,
+    evidence-led change; this one only stops the reader refusing text it can
+    already see.
     """
-    head = re.match(rf"{re.escape(label)}\b{_RATE}", line)
+    head = re.search(rf"{_LABEL_AT}{re.escape(label)}\b{_RATE}", line, re.IGNORECASE)
     if head is None:
         return None
     tail = _ONLY_AMOUNT.match(line[head.end() :])
