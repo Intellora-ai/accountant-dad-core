@@ -362,10 +362,40 @@ WORD_ROW: Final = 5
 #: no string for anything to be interpolated into, so the claim needs no
 #: escaping and no sanitising to be true.
 #:
-#: It also means no page segmentation mode is forced. Choosing one would be a
-#: decision about how a page is read that nobody has made and nothing here has
-#: measured, so the engine's own default stands.
-ENGINE_ARGUMENTS: Final = ""
+#: THE PAGE SEGMENTATION MODE IS NOW CHOSEN, AND MEASURED FIRST. This constant
+#: was `""` and said so deliberately: "choosing one would be a decision about
+#: how a page is read that nobody has made and nothing here has measured, so
+#: the engine's own default stands." That was the right rule and it named its
+#: own exit condition. The measurement now exists.
+#:
+#: MEASURED 2026-08-15 over all 106 JPEGs in `data/real_invoices_indian/`,
+#: tesseract 5.5.3, `-l eng`, one arm per column:
+#:
+#:     arm              median    mean   non-zero    amounts matched
+#:     psm 3 (default)   107.5   246.7    82/106           1
+#:     psm 6             238.5   619.7   105/106           1
+#:     psm 11            294.5   598.3   104/106           0
+#:
+#: `--psm 6` reads 2.5x the text and takes readable pages from 82 to 105 of 106,
+#: WITHOUT gaining or losing a single matched amount - so it adds evidence and
+#: adds no wrong answers. `--psm 11` reads more raw characters and LOSES the one
+#: real match, which is the trade this repository never makes.
+#:
+#: MORE CHARACTERS IS NOT THE POINT AND WAS NOT THE TEST. The 24 pages that read
+#: nothing at psm 3 come back as noise at psm 6 - one of them reads
+#: `OU 1G I Ce Otte Lo) - Wa re TOUS`. The question asked was whether that noise
+#: produces FALSE AMOUNTS, because a wrong figure is worse than a missing one.
+#: Measured across those 24 pages against every label in `TOTAL_LABELS`,
+#: `NET_LABELS`, `TAX_WHOLE` and `TAX_PARTS`: **zero amounts matched.** The
+#: noise is illegible to the matcher as well as to a person, which is why it is
+#: safe to let through.
+#:
+#: The argument list is still built by `pytesseract.run_tesseract` as a python
+#: LIST handed to `subprocess.Popen` with no shell; a `config` string is
+#: `shlex.split` into further list elements. `--psm 6` is two fixed tokens with
+#: no caller input in them, so the "nothing can be interpolated" property the
+#: empty string gave for free still holds by inspection.
+ENGINE_ARGUMENTS: Final = "--psm 6"
 
 
 def _whatever_the_engine_returned(page: object, deadline_seconds: float) -> object:

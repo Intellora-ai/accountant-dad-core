@@ -73,11 +73,13 @@ import datetime
 import pathlib
 import shutil
 import subprocess
+from typing import Final
 
 import pytesseract  # pyright: ignore[reportMissingTypeStubs]
 import pytest
 
 from accountant.cage.wall import Observation
+from accountant.extract import freeocr
 from accountant.extract.adapter import NOT_FOUND, ExtractedRecord, Extractor
 from accountant.extract.freeocr import (
     ALL_REFUSALS,
@@ -838,11 +840,45 @@ def test_the_control_the_refusal_map_is_not_answering_everything_the_same_way() 
 # =============================================================================
 
 
-def test_the_engine_is_handed_no_arguments_of_ours_at_all() -> None:
-    """The whole of "no user input reaches a shell", checkable in one line.
-    An empty config means `pytesseract` appends nothing to its argument LIST,
-    so there is no string for anything to be interpolated into."""
-    assert ENGINE_ARGUMENTS == ""
+#: Every token `ENGINE_ARGUMENTS` is allowed to contain. A LIST and not a
+#: pattern, because a pattern is how `--psm` becomes `--psm {mode}` becomes a
+#: caller's string. Adding a token here is a deliberate act with a diff on it.
+PERMITTED_ENGINE_TOKENS: Final[frozenset[str]] = frozenset({"--psm", "6"})
+
+
+def test_the_engine_is_handed_nothing_a_caller_can_reach() -> None:
+    """The whole of "no user input reaches a shell", and the property is NOT
+    "the config is empty".
+
+    Until 2026-08-15 this asserted `ENGINE_ARGUMENTS == ""`, which guaranteed
+    the property by having no string at all. `--psm 6` was then chosen on
+    measured evidence, and the guarantee has to be re-proved rather than
+    dropped: `pytesseract.run_tesseract` `shlex.split`s the config into further
+    elements of a python LIST handed to `subprocess.Popen` with no shell, so
+    what matters is that every element is a FIXED literal of ours.
+
+    Asserting the exact string would pass just as well and prove less - it would
+    still pass the day somebody writes an f-string. This checks the property:
+    every token is one we named, and none of them can carry a value."""
+    tokens = ENGINE_ARGUMENTS.split()
+
+    assert set(tokens) <= PERMITTED_ENGINE_TOKENS, tokens
+    for token in tokens:
+        assert "{" not in token and "%" not in token and "$" not in token, token
+
+
+def test_the_engine_arguments_are_a_constant_and_not_a_template() -> None:
+    """THE CONTROL, and it is the one that survives a refactor. An f-string or a
+    `.format` in `ENGINE_ARGUMENTS` would keep every assertion above true on the
+    day it was written and become a shell-adjacent injection the day a caller's
+    value reached it. The constant is read out of the SOURCE, not the module, so
+    a value computed at import time cannot hide behind its own result."""
+    source = pathlib.Path(freeocr.__file__).read_text(encoding="utf-8")
+    declaration = next(
+        line for line in source.splitlines() if line.startswith("ENGINE_ARGUMENTS")
+    )
+
+    assert declaration == 'ENGINE_ARGUMENTS: Final = "--psm 6"', declaration
 
 
 @pytest.mark.parametrize("bad", [0, -1, -0.5, "8", None, True])
