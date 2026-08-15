@@ -727,13 +727,27 @@ def test_a_jpg_that_is_really_a_zip_is_refused_and_never_unzipped() -> None:
 
 
 def test_a_pdf_with_no_text_layer_is_refused_in_words_rather_than_guessed_at() -> None:
-    """A scan has no text layer, and the tier that reads pixels is not wired.
-    Inventing a figure here is the exact defect `TYPED_TEXT_MIME` records."""
+    """Inventing a figure here is the exact defect `TYPED_TEXT_MIME` records.
+
+    REWORDED 2026-08-13, and the sentence it asserted was the reason. It read
+    "no text layer", which is the text rung's own refusal, and it passed because
+    that refusal was the last word about this file. `ladder.py` now routes a PDF
+    with no text layer to the picture rung, so the last word is the fall-through
+    saying that this file has NEITHER characters NOR a picture - both halves,
+    which is what the person holding it needs to hear.
+
+    The docstring also claimed the picture tier "is not wired". It was wired
+    earlier the same day and is routed to now; a comment that outlives its fact
+    is how a test starts guarding the wrong thing.
+
+    What is asserted has not moved: nothing was read, and the blank says why.
+    """
     run = named("a_pdf_with_no_text_layer")
 
     assert run.record is not None
     assert run.record.total_paise is None
-    assert "no text layer" in run.record.per_field_source["total_paise"]
+    assert "no text in it" in run.record.per_field_source["total_paise"]
+    assert "no picture" in run.record.per_field_source["total_paise"]
 
 
 def png_chunk_crcs(data: bytes) -> list[tuple[bytes, bool]]:

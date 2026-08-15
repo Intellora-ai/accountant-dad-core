@@ -61,6 +61,30 @@ it is neither an error nor an empty bill. It does not fall through to OCR -
 this module contains no OCR and must not acquire any, because a ladder whose
 top rung silently does the bottom rung's work is one rung with two names.
 
+IT NOW HANDS THE PICTURE OVER, AND THAT IS NOT THE SAME THING, 2026-08-13
+--------------------------------------------------------------------------
+`picture_of` below takes the largest embedded raster out of a PDF and returns
+it as image-file bytes with a media type. It reads no character off it, scores
+nothing and decides nothing about the document. `ladder.py` is what routes
+those bytes to the rung that does read pixels, and this module still cannot.
+
+IT IS EXTRACTION AND IT IS NOT RASTERISING, and the difference is the whole
+honest limit of it. `pypdf` has no renderer: it cannot draw a page's content
+stream into an image, so a page DRAWN with vector operators and carrying no
+text layer comes back from here with nothing. What it can do is hand back a
+picture the file already contains, which for a scan - a photograph of paper in
+a PDF wrapper - is the page itself. MEASURED on the ten no-text-layer PDFs in
+`data/real_invoices/`: eight yield a picture, two meet a `pypdf` refusal
+(a missing image codec, and a decode limit) and are refused in words.
+
+THE BYTES COME BACK AS `pypdf` ALREADY SERIALISED THEM, and no image library is
+imported here to do it. `D-30` grants this module `pypdf` and grants `PIL` to
+`freeocr.py`, each getting only what it needs, "because a single shared pool
+would mean nothing noticed if the PDF reader started doing OCR". Reaching for
+`PIL` here to re-encode a picture would be exactly that. `pypdf` reports the
+file extension it wrote, `PICTURE_MEDIA` maps the ones we read, and anything
+not on that table is refused rather than guessed at.
+
 FAILS CLOSED, AND WHY THAT MATTERS MORE HERE THAN ANYWHERE
 ------------------------------------------------------------
 `pypdf` parses UNTRUSTED bytes in this process. Somebody emails a bill; the
@@ -966,6 +990,230 @@ def _said_about(pages: int, answers: dict[str, Answered[object]]) -> str:
 
 
 # =============================================================================
+# the picture inside a PDF that has no text layer
+# =============================================================================
+#
+# Nothing below reads a character. It finds the raster a scan is made of and
+# hands it on, and every claim about what that is worth belongs to the rung
+# that looks at it.
+
+#: The file extensions `pypdf` writes, mapped to the media types the picture
+#: rung declares it reads. WRITTEN OUT AND NOT SNIFFED, for the reason the whole
+#: package is built on: `freeocr.READABLE_MEDIA` is matched against a caller's
+#: declaration, and what crosses that line has to be a constant somebody wrote
+#: down rather than a string derived from a file we were sent.
+#:
+#: `.jp2` IS DELIBERATELY ABSENT. `pypdf` emits it for a JPEG 2000 stream and
+#: the picture rung does not list `image/jp2`, so a document carrying one is
+#: refused here in a sentence instead of being handed across under a media type
+#: that lies about it. `.tif` and `.tiff` are both present because `pypdf` emits
+#: both spellings from two different code paths for the same format.
+PICTURE_MEDIA: Final[dict[str, str]] = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
+}
+
+#: The dictionary keys a page's own picture resources live behind.
+_RESOURCES: Final = "/Resources"
+_XOBJECT: Final = "/XObject"
+_SUBTYPE: Final = "/Subtype"
+_IMAGE: Final = "/Image"
+_WIDTH: Final = "/Width"
+_HEIGHT: Final = "/Height"
+
+
+@dataclass(frozen=True)
+class PagePicture:
+    """A picture taken out of a PDF, or the sentence saying why there is none.
+
+    `data` empty is the refusal, and `said` is then never empty - the same shape
+    `TextLayerReading` uses, for the same reason: a blank with no reason on it is
+    the one thing this package will not produce.
+
+    `said` CARRIES NO `not_found` PREFIX, unlike `TextLayerReading.said`, and the
+    difference is deliberate. This one is always handed to
+    `UnavailableExtractor`, which writes `not_found: ` in front of whatever
+    reason it is given; carrying one here too produced `not_found: not_found:`
+    on a person's screen, which is what the first run of this code did.
+
+    Frozen, and carrying the page it came off, because a reading that cannot say
+    which page it is about is not evidence about a multi-page document.
+    """
+
+    data: bytes = b""
+    media_type: str = ""
+    page: int = 0
+    said: str = ""
+
+
+def _area(resources: object, name: str) -> int | None:
+    """How big this picture resource says it is, or None if it is not one.
+
+    READ OFF THE DICTIONARY AND NOT BY DECODING, and that is a measurement
+    rather than a tidiness. `gov-and-open-data-106.pdf` carries FIFTY-THREE
+    picture resources on its one page; decoding all of them to find out which is
+    the scan costs fifty-three decodes to throw fifty-two away. The width and
+    height are stated in the object header, so ranking them costs no decode at
+    all and exactly one picture is ever built.
+
+    Everything here arrives from bytes somebody sent us, so a `/Width` that is
+    absent, a string, a float or a bool is a document making a claim about
+    itself that we decline rather than coerce. `type(...) is not int` and not
+    `isinstance`, the rule this repository writes down everywhere a number
+    matters: `isinstance(True, int)` is True, and a flag read as a dimension
+    would rank a picture that does not exist above one that does.
+    """
+    try:
+        resource = resources[name].get_object()  # pyright: ignore[reportIndexIssue, reportUnknownVariableType, reportUnknownMemberType]
+        if resource.get(_SUBTYPE) != _IMAGE:  # pyright: ignore[reportUnknownMemberType]
+            return None
+        width = resource.get(_WIDTH)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+        height = resource.get(_HEIGHT)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+    except Exception:
+        return None
+    # `isinstance` HERE AND `type(...) is int` EVERYWHERE ELSE IN THIS FILE, and
+    # the difference is measured rather than sloppy: `pypdf` answers with its own
+    # `NumberObject`, which SUBCLASSES `int`, so `type(width) is int` is False
+    # for every real dimension in every real PDF and this function would rank
+    # nothing. The bool half of the usual rule is kept explicitly, because
+    # `isinstance(True, int)` is True and a flag read as a dimension would rank a
+    # picture that does not exist above one that does.
+    if not _a_whole_number(width) or not _a_whole_number(height):
+        return None
+    return int(width) * int(height)
+
+
+def _a_whole_number(value: object) -> bool:
+    """An `int`, or something `pypdf` derived from one. Never a bool."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _biggest_on(page: object) -> str:
+    """The name of the largest picture this page carries, or "".
+
+    THE LARGEST, AND THAT NEEDS NO NUMBER TO BE THE RIGHT RULE. A scan of a page
+    is the picture OF that page; everything else printed on it - a stamp, a
+    letterhead, a signature block - is something sitting ON the page and is
+    therefore smaller than the thing it sits on. MEASURED on the eight
+    no-text-layer PDFs that yield anything: the largest resource is 64% to 94%
+    of all the picture area on its page, and its shape matches the page's own.
+
+    WHAT IT COSTS WHEN THAT IS WRONG. A page whose text is a mosaic of small
+    rasters over one large decorative background reads the background, which
+    carries no words, so the rung below refuses. That is a document unread, not
+    a document misread, and unread is the direction this package fails in.
+
+    ONE LEVEL OF RESOURCES AND NOT A WALK. A picture nested inside a Form
+    XObject is not found here. Following those would mean recursing through a
+    structure built by whoever sent us the file, on the upload path, and a cycle
+    in it is a hang. Named rather than discovered later.
+    """
+    try:
+        resources = page[_RESOURCES][_XOBJECT].get_object()  # pyright: ignore[reportIndexIssue, reportUnknownVariableType, reportUnknownMemberType]
+        names = list(resources)  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType]
+    except Exception:
+        return ""
+    biggest = ""
+    largest = 0
+    for name in names:
+        # `isinstance` and not `type(...) is str`, the same measured reason
+        # `_a_whole_number` gives about `int`: `pypdf` keys these dictionaries
+        # with its own `NameObject`, which SUBCLASSES `str`, so the strict form
+        # would skip every resource in every real PDF.
+        if not isinstance(name, str):
+            continue
+        area = _area(resources, name)
+        if area is not None and area > largest:
+            biggest, largest = str(name), area
+    return biggest
+
+
+def _picture_on(page: object, number: int) -> PagePicture:
+    """The largest picture on one page, already serialised by `pypdf`."""
+    name = _biggest_on(page)
+    if not name:
+        return PagePicture(said=f"Page {number} of this PDF carries no picture.")
+    try:
+        # `page.images[name]` builds exactly the one resource named. This is the
+        # only decode in this file and it is where a malformed or enormous
+        # picture stops: `pypdf` raises for a codec it has no decoder for and
+        # for its own decode limits, and `PIL` - which `pypdf` reaches for
+        # underneath - raises `DecompressionBombError` past its own ceiling.
+        # Every one of those is caught here and becomes a sentence, because
+        # `picture_of` promises the same thing `read` promises.
+        built = page.images[name]  # pyright: ignore[reportAttributeAccessIssue, reportUnknownVariableType, reportUnknownMemberType]
+        suffix = str(built.name)  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]
+        body = built.data  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+    except Exception as exc:
+        return PagePicture(
+            page=number,
+            said=f"Page {number} of this PDF has a picture on it that could not "
+            f"be taken out ({type(exc).__name__}).",
+        )
+    extension = suffix[suffix.rfind(".") :].lower() if "." in suffix else ""
+    media = PICTURE_MEDIA.get(extension, "")
+    if not media:
+        return PagePicture(
+            page=number,
+            said=f"Page {number} of this PDF stores its picture as "
+            f"{extension or 'no kind we recognise'}, which is not a kind of "
+            "picture this system reads.",
+        )
+    if not isinstance(body, bytes) or not body:
+        return PagePicture(
+            page=number,
+            said=f"Page {number} of this PDF has a picture with no bytes in it.",
+        )
+    return PagePicture(data=bytes(body), media_type=media, page=number)
+
+
+def picture_of(data: bytes) -> PagePicture:
+    """The largest picture on the FIRST page of this PDF that carries one.
+
+    NEVER RAISES, for the reason `read` never raises: these bytes came from
+    outside and `pipeline.build_draft` calls its extractor with nothing around
+    it, so anything escaping from here is an HTTP 503 telling a person the
+    application is broken when their upload is merely a scan we could not open.
+
+    ONE PICTURE PER DOCUMENT, AND THAT IS A COST DECISION MADE WITHOUT A NUMBER.
+    The rung below reads one picture and takes a bounded wait for it -
+    `pagereader.READING_DEADLINE_SECONDS`, which is already argued for where it
+    is written. Handing it every page would make the whole document's bound that
+    number times the page count, which is not a bound at all: a PDF declaring
+    five thousand pages is then a request that runs for a day. Capping the pages
+    would mean choosing a cap, and no owner has chosen one. So the document gets
+    exactly one engine call and the existing bound is the whole of it.
+
+    WHAT THAT COSTS, STATED RATHER THAN LEFT TO BE FOUND. A multi-page scanned
+    bill has its supplier and its date on page one and often its total on the
+    last page, so the total comes back unread. Unread is a question; it is not a
+    wrong figure. MEASURED on `data/real_invoices/`: nine of the ten
+    no-text-layer PDFs put their picture on page one, so the first page is where
+    the evidence is in every case anybody here has looked at.
+
+    "The first page that carries one" and not "page one", so a leading cover
+    sheet drawn without any raster does not end the search before it starts.
+    """
+    if not data.startswith(PDF_MAGIC):
+        return PagePicture(said="These bytes are not a PDF.")
+    try:
+        pages = list(PdfReader(io.BytesIO(data)).pages)
+    except Exception as exc:
+        return PagePicture(said=f"This PDF could not be parsed ({type(exc).__name__}).")
+    # The FIRST page's sentence and not the last, because a person reading it is
+    # holding a document whose first page is the one they expect to be read.
+    first = ""
+    for number, page in enumerate(pages, start=1):
+        found = _picture_on(page, number)
+        if found.data:
+            return found
+        first = first or found.said
+    return PagePicture(said=first or "This PDF declares no pages.")
+
+
+# =============================================================================
 # the seam
 # =============================================================================
 
@@ -1003,40 +1251,59 @@ class TextLayerReader:
                 f"{declared or 'no media type'}; reading that is another "
                 "tier's job and nothing here guesses at its contents"
             )
-        reading = read(data)
-        return ExtractedRecord(
-            date=_as_date(reading.fields["date"].value),
-            party=_as_str(reading.fields["party"].value),
-            total_paise=_as_int(reading.fields["total_paise"].value),
-            tax_paise=_as_int(reading.fields["tax_paise"].value),
-            line_items=tuple(
-                LineItem(description=item.description, amount_paise=item.amount_paise)
-                for item in reading.lines
-            ),
-            raw_text=reading.text,
-            backend=self.name,
-            per_field_source={
-                name: reading.fields[name].source
-                for name in ("date", "party", "total_paise", "tax_paise")
-            },
-            # The same `EXACT` this reading already states on every field it
-            # read, carried rather than recomputed. `ExtractedRecord` had no
-            # column for it until 2026-08-13, so the tier that is entitled to
-            # 1.0 and the tier that guesses at pixels arrived downstream
-            # indistinguishable - and the consumer that could not tell them
-            # apart was the one turning a party name into a vendor identity.
-            per_field_confidence={
-                name: reading.fields[name].confidence
-                for name in ("date", "party", "total_paise", "tax_paise")
-            },
-            # The fact travels with the evidence, 2026-08-13. This line was
-            # missing and `ExtractedRecord` had nowhere to put it, so a
-            # repaired PDF became an ordinary record here and the decision
-            # layer's ceiling was unreachable from any shipped path. It is not
-            # a per-field source because it is not something read off the
-            # document - it is what we had to do to the bytes to read anything.
-            pdf_repaired=reading.pdf_repaired,
-        )
+        return record_of(read(data))
+
+
+def record_of(reading: TextLayerReading) -> ExtractedRecord:
+    """This reading, as the record `pipeline.build_draft` takes.
+
+    A FUNCTION AND NOT A METHOD, AS OF 2026-08-13, and it moved for one caller.
+    `ladder.py` now needs the reading's `Outcome` in order to decide whether a
+    PDF is a scan, and getting it by calling `extract` and then parsing the
+    document a second time to ask would be two parses of untrusted bytes to
+    answer one question. It calls `read` and then this, so there is still
+    exactly one parse and still exactly one place that builds this record.
+
+    Nothing about the shape changed. `TextLayerReader.extract` is this function
+    behind the media-type check it always had.
+    """
+    return ExtractedRecord(
+        date=_as_date(reading.fields["date"].value),
+        party=_as_str(reading.fields["party"].value),
+        total_paise=_as_int(reading.fields["total_paise"].value),
+        tax_paise=_as_int(reading.fields["tax_paise"].value),
+        line_items=tuple(
+            LineItem(description=item.description, amount_paise=item.amount_paise)
+            for item in reading.lines
+        ),
+        raw_text=reading.text,
+        # `SOURCE` and not a name read off an instance. It is the same string
+        # `TextLayerReader.name` is bound to, and it is what every field this
+        # module reads already stamps itself with - so the record's `backend`
+        # and its per-field sources cannot come apart.
+        backend=SOURCE,
+        per_field_source={
+            name: reading.fields[name].source
+            for name in ("date", "party", "total_paise", "tax_paise")
+        },
+        # The same `EXACT` this reading already states on every field it
+        # read, carried rather than recomputed. `ExtractedRecord` had no
+        # column for it until 2026-08-13, so the tier that is entitled to
+        # 1.0 and the tier that guesses at pixels arrived downstream
+        # indistinguishable - and the consumer that could not tell them
+        # apart was the one turning a party name into a vendor identity.
+        per_field_confidence={
+            name: reading.fields[name].confidence
+            for name in ("date", "party", "total_paise", "tax_paise")
+        },
+        # The fact travels with the evidence, 2026-08-13. This line was
+        # missing and `ExtractedRecord` had nowhere to put it, so a
+        # repaired PDF became an ordinary record here and the decision
+        # layer's ceiling was unreachable from any shipped path. It is not
+        # a per-field source because it is not something read off the
+        # document - it is what we had to do to the bytes to read anything.
+        pdf_repaired=reading.pdf_repaired,
+    )
 
 
 def _declared_media_type(mime: str) -> str:

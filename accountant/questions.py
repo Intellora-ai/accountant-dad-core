@@ -14,6 +14,7 @@ whichever comes first. Owner-set.
 
 from __future__ import annotations
 
+import datetime
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -171,6 +172,63 @@ def purpose_answers(accounts: Sequence[str]) -> tuple[Answer, ...]:
     ]
     out.append(_something_else(accounts))
     return tuple(out)
+
+
+# ---- the period refusal, in plain words -------------------------------------
+#
+# NOT `Question`s. A closed period is not something a person can answer their way
+# out of - clicking a button cannot re-open a financial year - so these are
+# SENTENCES, built here for the same reason every question is: so that the words
+# a person reads have one home and are held to the plain-language rule, instead
+# of being written again at each call site in whatever words that caller felt
+# like. `plain_name` and `rupees` are the existing non-`Question` residents.
+#
+# THE TWO SENTENCES ARE DELIBERATELY DIFFERENT, and that difference is the whole
+# point of having two. "The books are closed" is a statement about the
+# customer's Tally. "I could not check" is a statement about US. Telling
+# somebody their books are closed when really the connection dropped sends them
+# into Tally to fix a problem that is not there.
+
+
+def plain_date(when: datetime.date) -> str:
+    """`12 March 2026`. No ordinals, no abbreviations, no ISO.
+
+    `2026-03-12` is a format, not a date a person reads aloud, and this text is
+    read by somebody who is not an accountant and did not ask for a timestamp.
+    """
+    return f"{when.day} {when:%B} {when.year}"
+
+
+def books_closed_on(
+    when: datetime.date, opens: datetime.date, closes: datetime.date
+) -> str:
+    """WHICH date, and WHY - the window it fell outside, in words.
+
+    "The period is closed" is the sentence this exists to prevent. It sends a
+    person through their whole Tally looking for a setting. Naming the bill's
+    date and the two ends of the open window tells them the one thing they can
+    act on: whether the date on the bill is wrong, or the year really is shut.
+    """
+    return (
+        f"This bill is dated {plain_date(when)}, and your books only take "
+        f"entries between {plain_date(opens)} and {plain_date(closes)}. "
+        "Nothing was posted."
+    )
+
+
+def books_could_not_be_checked(why: str) -> str:
+    """We did not find out. NEVER phrased as "closed".
+
+    `why` is one short plain clause naming what stopped us - not a stack trace
+    and not an error code. The sentence says what was and was not done, because
+    "nothing was posted" without a reason reads as a bug rather than as a guard.
+    """
+    reason = why.strip().rstrip(".")
+    tail = f" ({reason})" if reason else ""
+    return (
+        "I could not check whether your books are open for this date, so "
+        f"nothing was posted{tail}. Nothing in Tally was changed."
+    )
 
 
 # ---- question builders ------------------------------------------------------
