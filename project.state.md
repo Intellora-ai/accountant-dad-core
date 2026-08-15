@@ -361,3 +361,46 @@ cage is too strict for a one-sentence typed entry is an owner decision that has
 not been made, and editing 173 tests until they pass would bury it.
 
 No force push. No branch protection bypassed. No admin merge.
+
+---
+
+## Decision 9 — Problem 1 is READING ONLY
+
+**Owner ruling, 2026-08-15. Closed. Do not reopen.**
+
+**Question.** The ground-truth corpus scores both REACH (did a value come back)
+and ACCURACY (was it right). Which one is Problem 1?
+
+**Decision.** **Problem 1 is READING. Accuracy is a separate problem.**
+
+**What that means for the bar.** Problem 1 asks: does the reader produce a value
+for a field the document actually states. It does NOT ask whether that value is
+correct. Correctness is scored, recorded and reported - it is simply not what
+this problem is judged on.
+
+**The measurement, restated under this ruling.** Of 310 slots, 276 carry a value
+in ground truth and 34 correctly carry nothing.
+
+    slots where the document states a value          276
+    slots the reader produced a value for             50
+    slots the reader missed                          226
+
+    READING SCORE                                50 of 276
+
+`incorrect` and `false positive` are still reported and must still stay at ZERO.
+That is not accuracy creeping back in - it is the safety floor. A reader may miss
+a field under this ruling; it may never invent one. A wrong value is a wrong
+number in somebody's books, and no reading target justifies producing one.
+
+**What this closes.** The three remaining gaps are now the WHOLE of Problem 1:
+
+    invoice_date     55 missed   `dates.py` is built and tested, not wired
+    party            59 missed   no party is read at all today
+    invoice_number   55 missed   `labels.py` has no vocabulary for it
+
+Ceiling if all three land: 219 of 276.
+
+**What this does NOT close, and is now explicitly someone else's problem:**
+whether a read value is right, whether the corpus is representative, and whether
+anything posts. The cage still blocks 954 of 954 - that is the separate decision
+recorded above, and it is untouched by this ruling.
