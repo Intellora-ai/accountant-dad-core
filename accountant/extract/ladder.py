@@ -313,18 +313,45 @@ def _preferring_the_characters(
             read_by_characters = True
             values[name] = exact
             sources[name] = stated
-            scores[name] = characters.confidence_of(name) or EXACT
+            # `is None` AND NOT `or EXACT`, CORRECTED 2026-08-15. `or` treats a
+            # stated 0.0 as absent and replaces it with 1.0 - a fail-open
+            # default sitting on the only tier allowed to auto-post. No reader
+            # produces that today, so this was unreachable; a default that is
+            # only safe because nothing currently exercises it is a trap set
+            # for whoever writes the next reader.
+            told = characters.confidence_of(name)
+            scores[name] = EXACT if told is None else told
             continue
         guessed = picture.value_of(name)
         values[name] = guessed
         sources[name] = picture.per_field_source.get(name, stated)
         scores[name] = picture.confidence_of(name) or 0.0
         read_by_picture = read_by_picture or guessed is not None
+    # THE NET, CARRIED THROUGH THE MERGE. Added 2026-08-15 and this function
+    # UNDID IT the same morning: `net_paise` reached `ExtractedRecord`,
+    # `record_of` and `FreeReader.extract`, and then the record rebuilt below
+    # simply did not name it, so every scanned PDF that fell through here
+    # arrived at the cage with `net_paise=None` and
+    # `conservation.net_plus_tax_equals_gross` went back to INDETERMINATE on
+    # exactly the documents the fall-through exists for. Measured: a characters
+    # record carrying 500 merged to None. No test caught it because no test
+    # touches this function.
+    #
+    # Handled OUTSIDE the loop and guarded by `not in values`, because
+    # `net_paise` is deliberately absent from `ExtractedRecord.FIELDS` today -
+    # that tuple is what `__post_init__` demands a source for - and may join it
+    # later. Written this way the merge is correct either way and neither
+    # version double-counts.
+    if "net_paise" not in values:
+        told_net = characters.net_paise
+        values["net_paise"] = told_net if told_net is not None else picture.net_paise
+
     return ExtractedRecord(
         date=_as_date(values["date"]),
         party=_as_str(values["party"]),
         total_paise=_as_int(values["total_paise"]),
         tax_paise=_as_int(values["tax_paise"]),
+        net_paise=_as_int(values["net_paise"]),
         line_items=characters.line_items or picture.line_items,
         raw_text=characters.raw_text,
         # THE RUNG THAT SUPPLIED THE FIELDS, and not this class. A row saying

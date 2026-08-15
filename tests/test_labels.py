@@ -567,3 +567,62 @@ def test_the_control_a_single_letter_label_reads_a_name_as_a_value() -> None:
         "the control is vacuous: a single-letter label now reads nothing, so "
         "the assertions above no longer guard anything"
     )
+
+
+def test_a_family_nested_inside_another_tuple_is_named_rather_than_crashed() -> None:
+    """THE GUARD THAT WOULD HAVE SAVED 98 TESTS.
+
+    `DATE_LABEL` became a tuple and one of its three call sites still wrapped it:
+    `values_for(lines, (DATE_LABEL,), ...)`. Correct for a string, a nested tuple
+    after, and invisible to the type checker - the parameter says
+    `tuple[str, ...]` and a `tuple[tuple[str, ...]]` is still a tuple.
+
+    MEASURED, what it did before this check: `TypeError: decoding to str: need a
+    bytes-like object, tuple found`, raised inside `re.escape`, six frames below
+    the call and naming nothing the caller wrote. Every date on every tier
+    stopped reading. The message now says which argument and what to write.
+    """
+    with pytest.raises(TypeError, match="family of labels"):
+        values_for(
+            ("Date: 28/01/26",),
+            (DATE_LABEL,),  # pyright: ignore[reportArgumentType]
+            printing=Printing.EXACT_CHARACTERS,
+        )
+
+
+def test_the_three_call_sites_pass_the_family_whole() -> None:
+    """The check above fires at RUNTIME, so it only helps on a line somebody
+    runs. This is the static half: no module may wrap `DATE_LABEL` in a tuple.
+
+    Grepping source is a blunt instrument and it is the right one here - the
+    defect was a two-character edit that no import, no signature and no type
+    survives being asked about.
+
+    A CALL, not a mention. Both halves must be on the line, and a comment does
+    not count - the first version of this test failed on the paragraph in
+    `labels.py` that explains the bug, which is a guard measuring its own
+    documentation rather than the code.
+    """
+    package = REPO / "accountant"
+    wrapped = [
+        f"{path.relative_to(REPO)}:{number}"
+        for path in package.rglob("*.py")
+        for number, line in enumerate(path.read_text().splitlines(), start=1)
+        if "values_for(" in line
+        and "(DATE_LABEL,)" in line
+        and not line.lstrip().startswith("#")
+    ]
+    assert wrapped == [], (
+        f"DATE_LABEL is a family and these sites wrap it in another tuple: "
+        f"{wrapped}. Pass it whole."
+    )
+
+    reading = [
+        f"{path.relative_to(REPO)}"
+        for path in package.rglob("*.py")
+        if "DATE_LABEL" in path.read_text()
+    ]
+    assert len(reading) >= 3, (
+        f"the control is vacuous: only {reading} read DATE_LABEL, so this test "
+        "is scanning a package that no longer has the call sites it guards"
+    )
