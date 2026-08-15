@@ -204,10 +204,59 @@ def test_this_backend_satisfies_the_extractor_protocol_without_changing_it() -> 
 
 
 def test_a_record_from_this_backend_states_a_source_for_every_named_field() -> None:
+    """STILL AN EXACT SET, and that is the point of the test.
+
+    `net_paise` joined the record on 2026-08-15 - it had been read, parsed,
+    judged and then dropped, which left `conservation.net_plus_tax_equals_gross`
+    INDETERMINATE on every bill. It is deliberately NOT in
+    `ExtractedRecord.FIELDS`, because that tuple is the promise `__post_init__`
+    enforces and a fifth name there would raise on every construction site older
+    than that date.
+
+    So the expected set is written out here rather than the assertion being
+    loosened to `>=`. A subset check would pass on the day a source went missing,
+    which is the one thing this test exists to catch."""
     record = FreeReader(reader_saying(a_clean_bill())).extract(AMOUNT_PNG, PNG)
 
     assert record.complete is True
-    assert set(record.per_field_source) == set(ExtractedRecord.FIELDS)
+    assert set(record.per_field_source) == {*ExtractedRecord.FIELDS, "net_paise"}
+
+
+def test_the_net_that_was_read_is_carried_and_not_dropped() -> None:
+    """THE DEFECT THIS FIXES. `Reading` has carried five values since the file
+    was written; the record took four. `pagereader.py:306` reads the net off the
+    page, `_scored` turns it into paise and judges it beside the total and the
+    tax - and then it was gone.
+
+    `gate.py:119` forbids deriving a net from total minus tax: both are already
+    inputs to the same law, so a derived one would be a number checked against
+    itself and the law would pass on every bill for ever while reporting that it
+    had checked something. With no net arriving, that law answered INDETERMINATE
+    on every bill, and INDETERMINATE blocks."""
+    record = FreeReader(reader_saying(a_clean_bill())).extract(AMOUNT_PNG, PNG)
+
+    assert record.net_paise == 4800000
+    assert record.per_field_source["net_paise"] != NOT_FOUND
+
+
+def test_a_net_that_contradicts_its_neighbours_is_zeroed_with_them() -> None:
+    """THE CONTROL. The net shares the law's verdict with the total and the tax,
+    so three figures that do not add up lose all three. A net that survived a
+    disagreement its neighbours did not would be the one number in the record
+    nobody had argued with - and it feeds the very law that spotted the
+    contradiction."""
+    contradictory = Reading(
+        date=spoken("2026-08-11", 94),
+        party=(Word("SHARMA", 96), Word("TRADERS", 96)),
+        total=spoken("56640.00", 92),
+        tax=spoken("8640.00", 91),
+        net=spoken("40000.00", 93),  # 40000 + 8640 is not 56640
+    )
+    record = FreeReader(reader_saying(contradictory)).extract(AMOUNT_PNG, PNG)
+
+    assert record.net_paise is None
+    assert record.total_paise is None
+    assert record.tax_paise is None
 
 
 def test_the_record_never_carries_the_document_that_was_read() -> None:

@@ -794,19 +794,38 @@ class _Answer:
     party: str | None
     total_paise: int | None
     tax_paise: int | None
+
+    #: The pre-tax figure, ADDED 2026-08-15, and it was computed here and
+    #: dropped on this very line until then. `_scored` has read it since the
+    #: file was written - `net, _ = _money(reading.net)` - and used it once, to
+    #: decide whether the three amounts contradict each other. Then it left.
+    #:
+    #: `conservation.net_plus_tax_equals_gross` needs a net that was READ, and
+    #: `gate.py:119` forbids deriving one from total minus tax because that
+    #: would be a number checked against itself. So with no net arriving, that
+    #: law answered INDETERMINATE on every bill, and INDETERMINATE blocks.
+    net_paise: int | None
     confidences: dict[str, float]
     sources: dict[str, str]
     reason: str
 
     @classmethod
     def refused(cls, reason: str) -> _Answer:
+        # `ExtractedRecord.FIELDS` is the four the record PROMISES a source for,
+        # and `net_paise` is deliberately not among them - a fifth name there
+        # would raise on every construction site older than 2026-08-15. So the
+        # net is named here explicitly rather than swept in by the `fromkeys`,
+        # and a refusal states a source for it like any other unread figure.
+        scored = dict.fromkeys(ExtractedRecord.FIELDS, 0.0) | {"net_paise": 0.0}
+        said = f"{NOT_FOUND}: {reason}"
         return cls(
             date=None,
             party=None,
             total_paise=None,
             tax_paise=None,
-            confidences=dict.fromkeys(ExtractedRecord.FIELDS, 0.0),
-            sources=dict.fromkeys(ExtractedRecord.FIELDS, f"{NOT_FOUND}: {reason}"),
+            net_paise=None,
+            confidences=scored,
+            sources=dict.fromkeys(ExtractedRecord.FIELDS, said) | {"net_paise": said},
             reason=reason,
         )
 
@@ -815,7 +834,7 @@ def _scored(reading: Reading, backend: str) -> _Answer:
     """Every field judged, with the amounts checked against one another first."""
     total, total_problem = _money(reading.total)
     tax, tax_problem = _money(reading.tax)
-    net, _ = _money(reading.net)
+    net, net_problem = _money(reading.net)
 
     # The law, not a comparison written out here again. A FAIL is a real
     # contradiction between three numbers on the page; an INDETERMINATE means
@@ -864,6 +883,19 @@ def _scored(reading: Reading, backend: str) -> _Answer:
         disagreement=law.said,
         backend=backend,
     )
+    # THE NET IS JUDGED LIKE THE OTHER TWO AMOUNTS, and by the same law. It
+    # shares `agrees`, so if the three figures contradict each other the net is
+    # zeroed exactly as the total and the tax are - a net that survived a
+    # disagreement its neighbours did not would be the one number in the record
+    # nobody had argued with.
+    net_score, net_source = _judge(
+        reading.net,
+        read=net is not None,
+        problem=net_problem,
+        agrees=agrees,
+        disagreement=law.said,
+        backend=backend,
+    )
 
     # ONE rule, applied here and nowhere else: a value survives only where a
     # confidence above zero was stated for it. It is what makes the record and
@@ -875,17 +907,20 @@ def _scored(reading: Reading, backend: str) -> _Answer:
         party=party_value if party_score > 0.0 else None,
         total_paise=total if total_score > 0.0 else None,
         tax_paise=tax if tax_score > 0.0 else None,
+        net_paise=net if net_score > 0.0 else None,
         confidences={
             "date": date_score,
             "party": party_score,
             "total_paise": total_score,
             "tax_paise": tax_score,
+            "net_paise": net_score,
         },
         sources={
             "date": date_source,
             "party": party_source,
             "total_paise": total_source,
             "tax_paise": tax_source,
+            "net_paise": net_source,
         },
         reason="",
     )
@@ -915,6 +950,10 @@ class FreeReader:
             party=answer.party,
             total_paise=answer.total_paise,
             tax_paise=answer.tax_paise,
+            # CARRIED, 2026-08-15. This line is the whole of the fix: the net was
+            # read at pagereader.py:306, parsed at _scored, judged beside the
+            # total and the tax, and then not written down.
+            net_paise=answer.net_paise,
             # Empty, deliberately, and this is `placeholder.py`'s argument
             # rather than a new one: `pipeline.build_draft` copies `raw_text`
             # into `Voucher.narration`, which reaches the page, the durable

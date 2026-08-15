@@ -130,6 +130,33 @@ class ExtractedRecord:
     party: str | None
     total_paise: int | None
     tax_paise: int | None
+
+    #: The pre-tax figure the bill printed, and it was READ AND THROWN AWAY
+    #: until 2026-08-15.
+    #:
+    #: `freeocr.Reading` has carried five values - date, party, total, tax, net -
+    #: since it was written. `pagereader.py:306` reads the net off the page with
+    #: `NET_LABELS`, `freeocr.py:818` turns it into paise, and `freeocr.py:826`
+    #: uses it ONCE, to ask whether the three amounts contradict each other.
+    #: Then the record was built without it and the number was gone.
+    #:
+    #: WHAT THAT COST, and it is not small. `conservation.net_plus_tax_equals_
+    #: gross` needs a net that was READ. It cannot be derived: `gate.py:119`
+    #: refuses `total - tax` because both are already inputs to the same law, so
+    #: a derived net would be "a number checked against itself" and the law
+    #: would pass on every bill for ever while reporting that it had checked
+    #: something. With no net reaching it, that law returned INDETERMINATE on
+    #: EVERY bill - and INDETERMINATE blocks. One of the four conservation laws
+    #: was dead, and the cause was a dropped assignment rather than a missing
+    #: capability.
+    #:
+    #: NOT IN `FIELDS`, deliberately. `FIELDS` is the promise that those four
+    #: always carry a stated source, enforced by `__post_init__`; a fifth name
+    #: there would raise on every construction site that predates this line.
+    #: This one defaults to `None`, which is the honest answer for a reader that
+    #: does not look for it, and `None` is what `conservation` reads as "nobody
+    #: looked" rather than as zero.
+    net_paise: int | None = None
     line_items: tuple[LineItem, ...] = ()
     raw_text: str = ""
     backend: str = "unknown"
