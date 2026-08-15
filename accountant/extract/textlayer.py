@@ -130,9 +130,10 @@ from __future__ import annotations
 import datetime
 import io
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Final
+from typing import Final, TypeGuard, cast
 
 from pypdf import PdfReader
 
@@ -1101,11 +1102,29 @@ def _area(resources: object, name: str) -> int | None:
     would rank a picture that does not exist above one that does.
     """
     try:
-        resource = resources[name].get_object()  # pyright: ignore[reportIndexIssue, reportUnknownVariableType, reportUnknownMemberType]
-        if resource.get(_SUBTYPE) != _IMAGE:  # pyright: ignore[reportUnknownMemberType]
+        # Cast at the boundary, exactly as `_biggest_on` does and for the same
+        # reason: what comes back is a `pypdf` object with no type information,
+        # and letting the unknown through means every line below it fails too.
+        # `Mapping[object, object]` is all that is actually known - it answers
+        # `.get`, and nothing about what it answers with.
+        resource = cast(
+            "Mapping[object, object]",
+            resources[name].get_object(),  # pyright: ignore[reportIndexIssue, reportUnknownMemberType]
+        )
+        if resource.get(_SUBTYPE) != _IMAGE:
             return None
-        width = resource.get(_WIDTH)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-        height = resource.get(_HEIGHT)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+        # ANNOTATED `object`, 2026-08-15, and that is the whole of the type fix.
+        # `pypdf` has no stubs, so these come back UNKNOWN - and an unknown is
+        # not caught by a `pyright: ignore` on the line that produced it, it
+        # SPREADS. The two ignores below used to silence the symptom here while
+        # `_a_whole_number(width)` and `int(width)` inherited the unknown and
+        # failed on their own lines, which is why this file shipped with six
+        # errors nobody could see the cause of.
+        #
+        # `object` is the honest type: nothing is known about these values,
+        # which is exactly why `_a_whole_number` exists to interrogate them.
+        width: object = resource.get(_WIDTH)  # pyright: ignore[reportUnknownMemberType]
+        height: object = resource.get(_HEIGHT)  # pyright: ignore[reportUnknownMemberType]
     except Exception:
         return None
     # `isinstance` HERE AND `type(...) is int` EVERYWHERE ELSE IN THIS FILE, and
@@ -1120,8 +1139,19 @@ def _area(resources: object, name: str) -> int | None:
     return int(width) * int(height)
 
 
-def _a_whole_number(value: object) -> bool:
-    """An `int`, or something `pypdf` derived from one. Never a bool."""
+def _a_whole_number(value: object) -> TypeGuard[int]:
+    """An `int`, or something `pypdf` derived from one. Never a bool.
+
+    A `TypeGuard` AND NOT A `bool`, AS OF 2026-08-15. Returning a plain bool
+    made this function a check the type checker could not learn anything from:
+    `if not _a_whole_number(width): return None` proved nothing about `width` on
+    the next line, so `int(width)` was still operating on an unknown. The
+    narrowing was real at run time and invisible at check time.
+
+    It changes nothing at run time - the body is the same two `isinstance`
+    calls - and it is what lets the caller multiply the two dimensions without
+    a cast that would hide a genuine mistake.
+    """
     return isinstance(value, int) and not isinstance(value, bool)
 
 
@@ -1146,8 +1176,27 @@ def _biggest_on(page: object) -> str:
     in it is a hang. Named rather than discovered later.
     """
     try:
-        resources = page[_RESOURCES][_XOBJECT].get_object()  # pyright: ignore[reportIndexIssue, reportUnknownVariableType, reportUnknownMemberType]
-        names = list(resources)  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType]
+        # CAST AT THE LIBRARY BOUNDARY, 2026-08-15. `pypdf` ships no type
+        # information, so everything it returns is UNKNOWN - and an unknown is
+        # not contained by a `pyright: ignore` on the line that produced it, it
+        # spreads to every line downstream. That is why this file shipped six
+        # errors none of which were on the line that caused them.
+        #
+        # A `cast` and not an annotation, because `object` is not iterable and
+        # `list(...)` would refuse it. The cast asserts the ONE thing `pypdf`
+        # documents about this value - it is a dictionary of resources - and
+        # asserts nothing about what is inside, which is why `_area` still
+        # interrogates every value it pulls out rather than trusting it.
+        # `Mapping[object, object]` AND NOT `Mapping[str, object]`. The stronger
+        # cast type-checked and was a LIE: it told the checker the keys are
+        # strings, which made the `isinstance(name, str)` guard below look
+        # redundant - and that guard is the only thing standing between a key
+        # `pypdf` did not promise and a lookup that assumes it did.
+        resources = cast(
+            "Mapping[object, object]",
+            page[_RESOURCES][_XOBJECT].get_object(),  # pyright: ignore[reportIndexIssue, reportUnknownMemberType]
+        )
+        names: list[object] = list(resources)
     except Exception:
         return ""
     biggest = ""
