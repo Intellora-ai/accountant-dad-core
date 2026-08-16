@@ -34,6 +34,7 @@ import pathlib
 import statistics
 import sys
 import time
+from collections.abc import Callable, Iterable
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 if str(REPO) not in sys.path:
@@ -84,6 +85,20 @@ def _labels_in(words: list[str]) -> list[str]:
     return sorted({label for label in EVERY_LABEL if label in upper})
 
 
+def _greys(picture: Image.Image) -> list[float]:
+    """Every pixel of a single-band picture, as numbers.
+
+    THE ONE IGNORE IN THIS FILE, and it is Pillow's stub and not this code.
+    `Image.getdata()` is declared to return `_imaging.ImagingCore`, which the
+    shipped `_imaging.pyi` gives a `__getitem__` and no `__iter__` - so a type
+    checker will not accept it as an iterable even though `list()` walks it at
+    runtime, which is what Pillow documents it for. Kept to this one line so
+    that no other unknown can hide behind it.
+    """
+    band: Iterable[float] = picture.getdata()  # pyright: ignore[reportAssignmentType]
+    return list(band)
+
+
 def _measure(picture: Image.Image) -> dict[str, float]:
     """Brightness, contrast and a blur proxy - all from Pillow alone.
 
@@ -94,10 +109,19 @@ def _measure(picture: Image.Image) -> dict[str, float]:
     It is a PROXY and is reported as one - the number is comparable between two
     images here and is not a physical measurement of anything.
     """
-    grey = picture.convert("L")
-    pixels = list(grey.getdata())
-    edges = list(grey.filter(ImageFilter.FIND_EDGES).getdata())
+    grey: Image.Image = picture.convert("L")
+    pixels: list[float] = _greys(grey)
+    edges: list[float] = _greys(grey.filter(ImageFilter.FIND_EDGES))
     low, high = grey.getextrema()
+    if isinstance(low, tuple) or isinstance(high, tuple):
+        # `getextrema` returns one (low, high) pair for a single-band image and
+        # one pair PER BAND for a multi-band one, so its declared type is a
+        # union and subtraction is not defined across it. `grey` is mode "L" and
+        # can only ever be the first shape. RAISED, not asserted, and not
+        # silently defaulted: `python -O` strips an assert, and a measurement
+        # that quietly substitutes a zero for a number it could not compute is
+        # the failure this whole file exists to avoid.
+        raise TypeError(f"expected a single-band extrema pair, got {low!r} {high!r}")
     return {
         "brightness": statistics.fmean(pixels),
         "contrast_spread": float(high - low),
@@ -112,36 +136,60 @@ def _as_bytes(picture: Image.Image) -> bytes:
     return buffer.getvalue()
 
 
+def _point(picture: Image.Image, lut: Callable[[int], float]) -> Image.Image:
+    """`Image.point` into mode "1", with the lookup function's type stated.
+
+    THE SECOND OF THIS FILE'S THREE IGNORES, and again Pillow's stub. `point`
+    unions its `lut` parameter with `NumpyArray`, a name `PIL/_typing.py` only
+    binds when numpy is importable - numpy is not one of this project's three
+    approved dependencies, so the name is unbound and the entire parameter reads
+    as unknown. Declaring `lut` here is what makes the pixel value an `int`
+    again at every call site.
+    """
+    return picture.point(lut, mode="1")  # pyright: ignore[reportUnknownMemberType]
+
+
+def _resize(picture: Image.Image, times: int) -> Image.Image:
+    """`Image.resize` by a whole-number factor, LANCZOS, as every caller wants.
+
+    THE THIRD IGNORE, and the same hole: `resize` unions its `size` parameter
+    with the unbound `NumpyArray` too.
+    """
+    return picture.resize(  # pyright: ignore[reportUnknownMemberType]
+        (picture.width * times, picture.height * times), Image.Resampling.LANCZOS
+    )
+
+
+def _threshold_mean(picture: Image.Image) -> Image.Image:
+    """Split black from white at the picture's OWN mean grey, not at a fixed 128.
+
+    Was an immediately-invoked lambda closing over the mean. Same two calls to
+    `convert("L")` in the same order and the same threshold; it is a `def` only
+    so the pixel value it is handed has a name and therefore a type.
+    """
+    mean = statistics.fmean(_greys(picture.convert("L")))
+    return _point(picture.convert("L"), lambda v: 255 if v > mean else 0)
+
+
 #: The candidate transformations, one at a time and never blindly combined.
 #: Each is a name and a function from an image to an image.
-def _trials() -> dict[str, object]:
+def _trials() -> dict[str, Callable[[Image.Image], Image.Image]]:
     return {
         "original": lambda im: im,
         "grayscale": lambda im: im.convert("L"),
         "contrast_x2": lambda im: ImageEnhance.Contrast(im.convert("L")).enhance(2.0),
-        "upscale_x2": lambda im: im.convert("L").resize(
-            (im.width * 2, im.height * 2), Image.Resampling.LANCZOS
+        "upscale_x2": lambda im: _resize(im.convert("L"), 2),
+        "upscale_x3": lambda im: _resize(im.convert("L"), 3),
+        "threshold_128": lambda im: _point(
+            im.convert("L"), lambda v: 255 if v > 128 else 0
         ),
-        "upscale_x3": lambda im: im.convert("L").resize(
-            (im.width * 3, im.height * 3), Image.Resampling.LANCZOS
-        ),
-        "threshold_128": lambda im: im.convert("L").point(
-            lambda v: 255 if v > 128 else 0, mode="1"
-        ),
-        "threshold_mean": lambda im: im.convert("L").point(
-            (lambda mean: lambda v: 255 if v > mean else 0)(
-                statistics.fmean(list(im.convert("L").getdata()))
-            ),
-            mode="1",
-        ),
+        "threshold_mean": _threshold_mean,
         "sharpen": lambda im: im.convert("L").filter(ImageFilter.SHARPEN),
         "denoise_median": lambda im: im.convert("L").filter(
             ImageFilter.MedianFilter(3)
         ),
         "upscale_x2_contrast": lambda im: ImageEnhance.Contrast(
-            im.convert("L").resize(
-                (im.width * 2, im.height * 2), Image.Resampling.LANCZOS
-            )
+            _resize(im.convert("L"), 2)
         ).enhance(2.0),
     }
 
@@ -202,8 +250,8 @@ def main() -> int:
             try:
                 with Image.open(io.BytesIO(data)) as picture:
                     picture.load()
-                    changed = transform(picture)  # pyright: ignore[reportCallIssue]
-                    rows, words = _legible(_as_bytes(changed))  # pyright: ignore[reportArgumentType]
+                    changed = transform(picture)
+                    rows, words = _legible(_as_bytes(changed))
             except Exception as exc:
                 print(f"    {name:22} FAILED {type(exc).__name__}")
                 continue

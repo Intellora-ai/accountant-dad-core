@@ -67,7 +67,14 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from accountant.extract.freeocr import _scored  # noqa: E402
+from accountant.extract.freeocr import (  # noqa: E402
+    # `_scored` is private and there is no public equivalent: the only public
+    # way in takes BYTES and runs the whole engine, and what is needed here is
+    # the scoring of a `Reading` that has already been produced. Same narrow
+    # ignore, for the same reason, as `scripts/measure_problem1_corpus.py` and
+    # `scripts/measure_ocr_scanned.py`.
+    _scored,  # pyright: ignore[reportPrivateUsage]
+)
 from accountant.extract.pagereader import read_lines, read_page  # noqa: E402
 from accountant.labels import (  # noqa: E402
     DATE_LABEL,

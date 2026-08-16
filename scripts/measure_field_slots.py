@@ -70,6 +70,7 @@ import collections
 import json
 import pathlib
 import sys
+import typing
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 if str(REPO) not in sys.path:
@@ -79,7 +80,14 @@ if str(REPO) not in sys.path:
     # change. Pin it, and print the path that was used.
     sys.path.insert(0, str(REPO))
 
-from accountant.extract.freeocr import _scored  # noqa: E402
+from accountant.extract.freeocr import (  # noqa: E402
+    # `_scored` is private and there is no public equivalent: the only public
+    # way in takes BYTES and runs the whole engine, and what is needed here is
+    # the scoring of a `Reading` that has already been produced. Same narrow
+    # ignore, for the same reason, as `scripts/measure_problem1_corpus.py` and
+    # `scripts/measure_ocr_scanned.py`.
+    _scored,  # pyright: ignore[reportPrivateUsage]
+)
 from accountant.extract.pagereader import read_lines, read_page  # noqa: E402
 from accountant.labels import (  # noqa: E402
     DATE_LABEL,
@@ -114,6 +122,26 @@ AGREED = "4. label matched, candidate agreed"
 ENGINE_REFUSED = "0. the engine refused the file"
 
 
+class Measurement(typing.TypedDict):
+    """Exactly what `measure` returns, named so a reader of it is not guessing.
+
+    A plain `dict[str, object]` said nothing about which keys exist or what is
+    behind them, so `result["where_each_slot_died"].items()` was an unknown
+    walking over an unknown. This is the same dictionary at runtime - a
+    `TypedDict` IS a `dict` - and `json.dumps` writes exactly the same file.
+    """
+
+    documents: int
+    fields_per_document: int
+    slots: int
+    engine_refused_documents: int
+    ocr_rows_received: int
+    ocr_rows_with_characters: int
+    candidates_per_field: dict[str, int]
+    where_each_slot_died: dict[str, int]
+    slots_reaching_a_candidate: int
+
+
 def documents(limit: int) -> list[pathlib.Path]:
     """Every picture in the two real-document folders, in a stable order.
 
@@ -130,7 +158,7 @@ def documents(limit: int) -> list[pathlib.Path]:
     return found[:limit] if limit else found
 
 
-def measure(limit: int) -> dict[str, object]:
+def measure(limit: int) -> Measurement:
     """Count every slot into exactly one bucket."""
     paths = documents(limit)
     where: collections.Counter[str] = collections.Counter()
@@ -233,11 +261,11 @@ def main() -> int:
     print(f"engine refused              : {result['engine_refused_documents']}")
 
     print("\ncandidates generated per field:")
-    for key, count in result["candidates_per_field"].items():  # pyright: ignore[reportAttributeAccessIssue]
+    for key, count in result["candidates_per_field"].items():
         print(f"  {key:34} {count}")
 
     print("\nwhere each field slot died:")
-    for key, count in result["where_each_slot_died"].items():  # pyright: ignore[reportAttributeAccessIssue]
+    for key, count in result["where_each_slot_died"].items():
         print(f"  {key:52} {count}")
 
     reached = result["slots_reaching_a_candidate"]
