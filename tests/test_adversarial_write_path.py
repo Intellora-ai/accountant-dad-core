@@ -175,7 +175,21 @@ def valid_draft(client: TallyClient, memory: CompanyMemory) -> pipeline.Draft:
         today=TODAY,
     )
     draft = pipeline.evaluate(
-        draft, accounts, history, memory, period_open=None, pdf_repaired=None
+        # `period_open=True`, and it was `None` until 2026-08-16. `None` means
+        # NOBODY LOOKED, which the cage refuses - so this helper asserted VALID
+        # on the very next line while telling the cage the books might be shut.
+        # A fixture that contradicts its own assertion is not a safety test; it
+        # is a broken setup, and it was the single cause of 27 failures across
+        # test_idempotency, test_adversarial_write_path and test_error_responses.
+        # The write-path tests below are about what happens AFTER a valid draft
+        # exists, so this says the books are open and lets them reach their
+        # actual subject.
+        draft,
+        accounts,
+        history,
+        memory,
+        period_open=True,
+        pdf_repaired=None,
     )
     assert draft.outcome is Outcome.VALID, "the fixture must reach the write path"
     return draft
