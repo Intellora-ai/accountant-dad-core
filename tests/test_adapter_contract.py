@@ -91,6 +91,7 @@ from accountant.memory.store import MemoryStore
 from accountant.schema import Outcome, Voucher
 from accountant.tallyio.fake import FakeTally
 from accountant.web import app
+from tests.test_period_handoff import open_books_for
 from tests.test_web import post_for_status
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -860,7 +861,16 @@ def test_two_backends_given_the_same_facts_either_post_or_ask_who_it_was(
     correct refusals happens to sort first.
     """
     t = tally(past(PARTY, "Purchases", n=40))
-    d = pipeline.run(COMPANY, BILL, "text/plain", make(), t, memory_for(t), today=TODAY)
+    d = pipeline.run(
+        COMPANY,
+        BILL,
+        "text/plain",
+        make(),
+        t,
+        memory_for(t),
+        today=TODAY,
+        period_reader=open_books_for(COMPANY),
+    )
 
     if not BELIEVED[make.__name__]:
         assert d.outcome is Outcome.UNCLEAR
@@ -883,7 +893,16 @@ def test_only_a_believed_backend_posts_and_the_other_writes_nothing(
     a reading whose supplier is a guess writes nothing and asks.
     """
     t = tally(past(PARTY, "Purchases", n=40))
-    d = pipeline.run(COMPANY, BILL, "text/plain", make(), t, memory_for(t), today=TODAY)
+    d = pipeline.run(
+        COMPANY,
+        BILL,
+        "text/plain",
+        make(),
+        t,
+        memory_for(t),
+        today=TODAY,
+        period_reader=open_books_for(COMPANY),
+    )
     back = t.read_by_operation_id(COMPANY, d.operation_id)
 
     if not BELIEVED[make.__name__]:
@@ -913,7 +932,16 @@ def test_only_a_believed_backend_moves_the_trial_balance() -> None:
     for make in SWAPPABLE:
         t = tally(past(PARTY, "Purchases", n=40))
         before = t.trial_balance(COMPANY)
-        pipeline.run(COMPANY, BILL, "text/plain", make(), t, memory_for(t), today=TODAY)
+        pipeline.run(
+            COMPANY,
+            BILL,
+            "text/plain",
+            make(),
+            t,
+            memory_for(t),
+            today=TODAY,
+            period_reader=open_books_for(COMPANY),
+        )
         after = t.trial_balance(COMPANY)
         moves[make.__name__] = {
             ledger: after.get(ledger, 0) - before.get(ledger, 0)
@@ -937,6 +965,7 @@ def test_a_backend_that_finds_nothing_still_leaves_the_posting_gate_shut() -> No
         t,
         memory_for(t),
         today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
 
     assert d.outcome is not Outcome.VALID
@@ -1340,7 +1369,16 @@ def test_nothing_from_a_malformed_answer_reaches_the_draft() -> None:
     t = tally(past(PARTY, "Purchases", n=40))
     before = t.trial_balance(COMPANY)
     broken = service_for(BILL, party=PARTY, total_paise="4200.00")
-    d = pipeline.run(COMPANY, BILL, "text/plain", broken, t, memory_for(t), today=TODAY)
+    d = pipeline.run(
+        COMPANY,
+        BILL,
+        "text/plain",
+        broken,
+        t,
+        memory_for(t),
+        today=TODAY,
+        period_reader=open_books_for(COMPANY),
+    )
 
     assert d.voucher.party == ""
     assert d.voucher.amount_paise == 0
@@ -1494,6 +1532,7 @@ def test_a_gst_bill_writes_nothing_and_moves_the_trial_balance_by_zero_paise() -
         t,
         memory_for(t),
         today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
 
     assert draft.outcome is not Outcome.VALID
@@ -1579,6 +1618,7 @@ def test_a_connector_refusal_cannot_happen_after_the_application_said_valid() ->
         today=TODAY,
         log=store,
         run_id="phase7-gst",
+        period_reader=open_books_for(COMPANY),
     )
 
     assert refused.voucher.gst_paise == GST_PAISE, "the fixture stopped carrying tax"
@@ -1591,7 +1631,14 @@ def test_a_connector_refusal_cannot_happen_after_the_application_said_valid() ->
     # Direction 2: the same company, a bill with no tax on it. VALID has to be
     # worth something, or direction 1 is satisfied by refusing everything.
     posted = pipeline.run(
-        COMPANY, BILL, "text/plain", TypedTextExtractor(), t, memory, today=TODAY
+        COMPANY,
+        BILL,
+        "text/plain",
+        TypedTextExtractor(),
+        t,
+        memory,
+        today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
 
     assert posted.voucher.gst_paise is None

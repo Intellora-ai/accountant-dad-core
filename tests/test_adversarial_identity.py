@@ -75,6 +75,7 @@ from accountant.memory.store import BootstrapStatus, MemoryStore
 from accountant.schema import ActionLog, Outcome, Voucher
 from accountant.tallyio.fake import FakeTally
 from accountant.web import app
+from tests.test_period_handoff import open_books_for
 
 COMPANY = "Kapoor Enterprises"
 OTHER_COMPANY = "Deshmukh Timber"
@@ -148,6 +149,7 @@ def _run(
         today=TODAY,
         log=store,
         run_id=RUN_ID,
+        period_reader=open_books_for(company),
     )
 
 
@@ -531,7 +533,7 @@ def test_an_accented_vendor_name_decides_one_way_in_nfc_and_nfd() -> None:
             ACCOUNTS,
             t.read_vouchers(COMPANY),
             memory,
-            period_open=None,
+            period_open=True,
             pdf_repaired=None,
         )
 
@@ -1116,7 +1118,7 @@ def test_memory_belonging_to_another_company_is_refused_and_writes_nothing() -> 
             ACCOUNTS,
             t.read_vouchers(OTHER_COMPANY),
             mem_ours,
-            period_open=None,
+            period_open=True,
             pdf_repaired=None,
         )
     assert "company-scoped memory is never shared" in str(eval_error.value)

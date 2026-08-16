@@ -41,6 +41,7 @@ from accountant.memory.store import MemoryStore
 from accountant.schema import Decision, Outcome, Voucher
 from accountant.tallyio.client import operation_id_in
 from accountant.tallyio.fake import FakeTally
+from tests.test_period_handoff import open_books_for
 
 COMPANY = "Demo Co"
 ACCOUNTS = ("Purchases", "Repairs & Maintenance", "Cash", "Bank")
@@ -88,6 +89,7 @@ def test_one_operation_id_reaches_the_draft_decision_narration_log_and_reversal(
         today=TODAY,
         log=store,
         run_id="run-g51",
+        period_reader=open_books_for(COMPANY),
     )
     assert draft.outcome is Outcome.VALID
     op = draft.operation_id
@@ -205,7 +207,7 @@ def test_a_decision_carrying_no_operation_id_cannot_authorise_a_write():
         today=TODAY,
     )
     draft = pipeline.evaluate(
-        draft, accounts, hist, memory, period_open=None, pdf_repaired=None
+        draft, accounts, hist, memory, period_open=True, pdf_repaired=None
     )
     assert draft.outcome is Outcome.VALID
 
@@ -240,7 +242,7 @@ def test_a_decision_that_authorised_a_different_operation_is_refused():
         accounts,
         hist,
         memory,
-        period_open=None,
+        period_open=True,
         pdf_repaired=None,
     )
     theirs = pipeline.evaluate(
@@ -255,7 +257,7 @@ def test_a_decision_that_authorised_a_different_operation_is_refused():
         accounts,
         hist,
         memory,
-        period_open=None,
+        period_open=True,
         pdf_repaired=None,
     )
     assert mine.operation_id != theirs.operation_id
@@ -286,7 +288,7 @@ def test_the_refusal_names_both_ids_so_a_person_can_reconcile():
         accounts,
         hist,
         memory,
-        period_open=None,
+        period_open=True,
         pdf_repaired=None,
     )
     draft.decision = replace(draft.decision, operation_id="ad_someone_else")  # type: ignore[arg-type]

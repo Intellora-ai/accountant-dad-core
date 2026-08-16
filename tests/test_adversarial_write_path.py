@@ -92,6 +92,7 @@ from accountant.tallyio.fake import FakeTally
 from accountant.web import app
 from tests import test_runtime_backend as guard
 from tests import test_tally_contract as contract
+from tests.test_period_handoff import open_books_for
 from tests.test_real_tally import TallySim
 
 # `tests/test_runtime_backend.py` keeps its call-graph scanner private, which is
@@ -1037,6 +1038,7 @@ def test_a_write_whose_outcome_is_unknown_leaves_two_rows_naming_the_operation()
             today=TODAY,
             log=store,
             run_id=RUN,
+            period_reader=open_books_for(COMPANY),
         )
 
     assert client.write_count == 1
@@ -1089,6 +1091,7 @@ def test_an_unknown_write_outcome_still_records_its_operation_id() -> None:
             today=TODAY,
             log=store,
             run_id=RUN,
+            period_reader=open_books_for(COMPANY),
         )
 
     rows = store.actions(COMPANY)
@@ -1120,6 +1123,7 @@ def test_the_same_run_call_records_a_row_when_nothing_goes_wrong() -> None:
         today=TODAY,
         log=store,
         run_id=RUN,
+        period_reader=open_books_for(COMPANY),
     )
 
     assert draft.outcome is Outcome.VALID
@@ -1171,6 +1175,7 @@ def test_a_read_back_of_zero_vouchers_blocks_the_post_and_writes_no_posted_row()
             today=TODAY,
             log=store,
             run_id=RUN,
+            period_reader=open_books_for(COMPANY),
         )
 
     message = str(raised.value)
@@ -1884,7 +1889,7 @@ def test_the_page_and_the_action_log_can_no_longer_disagree_about_the_backend(
         client.read_accounts(app.COMPANY),
         client.read_vouchers(app.COMPANY),
         app.runtime().memory,
-        period_open=None,
+        period_open=True,
         pdf_repaired=None,
     )
     assert draft.outcome is Outcome.VALID

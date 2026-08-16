@@ -124,6 +124,7 @@ from accountant.memory.store import MemoryStore
 from accountant.schema import Outcome, Voucher
 from accountant.tallyio.fake import FakeTally
 from accountant.web import app
+from tests.test_period_handoff import open_books_for
 from tests.test_web import demo_company, fake_backend, get, post_for_status, serving
 
 COMPANY = "Demo Co"
@@ -382,7 +383,14 @@ def test_no_outage_raises_out_of_the_pipeline(outage: Outage) -> None:
     that a supplier's website is down."""
     t = tally()
     d = pipeline.run(
-        COMPANY, BILL, "text/plain", outage.make(), t, memory_for(t), today=TODAY
+        COMPANY,
+        BILL,
+        "text/plain",
+        outage.make(),
+        t,
+        memory_for(t),
+        today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
 
     assert d.decision is not None
@@ -400,7 +408,14 @@ def test_after_any_outage_the_person_is_asked_something_they_can_answer(
 ) -> None:
     t = tally()
     d = pipeline.run(
-        COMPANY, BILL, "text/plain", outage.make(), t, memory_for(t), today=TODAY
+        COMPANY,
+        BILL,
+        "text/plain",
+        outage.make(),
+        t,
+        memory_for(t),
+        today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
     question = pipeline.next_question(d)
 
@@ -417,13 +432,27 @@ def test_after_any_outage_the_person_can_type_the_entry_and_it_posts(
     t = tally()
     before = t.trial_balance(COMPANY)
     pipeline.run(
-        COMPANY, BILL, "text/plain", outage.make(), t, memory_for(t), today=TODAY
+        COMPANY,
+        BILL,
+        "text/plain",
+        outage.make(),
+        t,
+        memory_for(t),
+        today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
 
     assert t.trial_balance(COMPANY) == before
 
     typed = pipeline.run(
-        COMPANY, BILL, "text/plain", TypedTextExtractor(), t, memory_for(t), today=TODAY
+        COMPANY,
+        BILL,
+        "text/plain",
+        TypedTextExtractor(),
+        t,
+        memory_for(t),
+        today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
 
     assert typed.outcome is Outcome.VALID
@@ -447,7 +476,14 @@ def test_no_outage_writes_a_voucher_or_moves_the_trial_balance(outage: Outage) -
     vouchers_before = len(t.read_vouchers(COMPANY))
 
     d = pipeline.run(
-        COMPANY, BILL, "text/plain", outage.make(), t, memory_for(t), today=TODAY
+        COMPANY,
+        BILL,
+        "text/plain",
+        outage.make(),
+        t,
+        memory_for(t),
+        today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
 
     assert d.posted_tally_id is None
@@ -475,6 +511,7 @@ def test_every_outage_is_written_to_the_durable_action_log_with_its_reason(
         today=TODAY,
         log=store,
         run_id="phase7-outage",
+        period_reader=open_books_for(COMPANY),
     )
     rows = store.actions(COMPANY)
 
@@ -925,7 +962,14 @@ def test_the_complete_outage_matrix_is_thirteen_scenarios_and_every_one_is_safe(
         t = tally()
         before = t.trial_balance(COMPANY)
         d = pipeline.run(
-            COMPANY, BILL, "text/plain", outage.make(), t, memory_for(t), today=TODAY
+            COMPANY,
+            BILL,
+            "text/plain",
+            outage.make(),
+            t,
+            memory_for(t),
+            today=TODAY,
+            period_reader=open_books_for(COMPANY),
         )
         sources = d.record.per_field_source
         if not_found_fields(d.record) == set(ExtractedRecord.FIELDS):

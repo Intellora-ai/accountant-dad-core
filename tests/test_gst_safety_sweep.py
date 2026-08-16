@@ -54,6 +54,7 @@ from accountant.memory.store import MemoryStore
 from accountant.schema import Outcome, Voucher
 from accountant.tallyio.fake import FakeTally
 from accountant.tallyio.real import TallyError, check_writable
+from tests.test_period_handoff import open_books_for
 
 COMPANY = "Demo Co"
 ACCOUNTS = ("Purchases", "Sundry Expenses", "Repairs & Maintenance", "Cash")
@@ -268,6 +269,7 @@ def run_case(case: Case) -> Measured:
         today=TODAY,
         log=store,
         run_id="gst-sweep",
+        period_reader=open_books_for(COMPANY),
     )
 
     # Does the CONNECTOR agree the entry is postable? Asked of the same function

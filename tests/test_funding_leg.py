@@ -248,7 +248,7 @@ def test_purpose_is_asked_before_funding_and_each_answer_lands_on_its_own_leg():
     d = pipeline.answer(d, "Purchases", problem_id="which_account")
     memory.record_correction(d.voucher.party, "Purchases")
     d = pipeline.evaluate(
-        d, chart, history, memory, period_open=None, pdf_repaired=None
+        d, chart, history, memory, period_open=True, pdf_repaired=None
     )
 
     second = pipeline.next_question(d)
@@ -256,7 +256,7 @@ def test_purpose_is_asked_before_funding_and_each_answer_lands_on_its_own_leg():
 
     d = pipeline.answer(d, "Bank", problem_id=second.problem_id)
     d = pipeline.evaluate(
-        d, chart, history, memory, period_open=None, pdf_repaired=None
+        d, chart, history, memory, period_open=True, pdf_repaired=None
     )
 
     assert d.outcome is Outcome.VALID

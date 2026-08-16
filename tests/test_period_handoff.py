@@ -633,3 +633,32 @@ def test_the_period_probe_never_stops_a_bill_with_a_traceback(
     assert spy.period_open is None
     assert draft.decision is not None
     assert draft.posted_tally_id is None
+
+
+def open_books_for(company: str) -> PeriodReader:
+    """A reader that answers OPEN for THE COMPANY YOU NAME. In memory, no socket.
+
+    THE COMPANY IS A PARAMETER AND THAT IS THE WHOLE POINT. `parse_company_periods`
+    matches on the company name, so a canned response naming the wrong company is
+    not "open" - it is NO MATCH, which `check_period` reports as UNVERIFIED and
+    the cage blocks. `tests/test_web.py::open_books_reader` hardcoded
+    `app.COMPANY`, which is correct there and useless to the twelve other files
+    that post as `Demo Co` or `Kapoor Enterprises`. Handing those the hardcoded
+    helper would have failed closed and changed nothing - a fix that looks
+    applied and does nothing is worse than no fix.
+
+    THE TRANSPORT IS CANNED AND THE READER IS REAL, the same choice `reader_for`
+    above makes and for its reason: `build_period_request`,
+    `parse_company_periods`, `period_for` and `open_on` all really run, so this
+    proves the wiring rather than proving what a double was told to say.
+
+    THE WINDOW IS DERIVED FROM TODAY rather than pinned to a financial year, so
+    this does not begin failing every caller on 1 April.
+    """
+    today = datetime.date.today()
+    # The Indian financial year opens on 1 April, so January belongs to the
+    # year that started the previous April.
+    opens = today.year if today.month >= 4 else today.year - 1
+    return PeriodReader(
+        transport=Answering(period_response(f"{opens}0401", name=company))
+    )

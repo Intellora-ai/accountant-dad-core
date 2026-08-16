@@ -51,6 +51,7 @@ from accountant.memory.store import BootstrapStatus, MemoryStore
 from accountant.schema import Outcome, Voucher
 from accountant.tallyio.client import WriteResult
 from accountant.tallyio.fake import FakeTally
+from tests.test_period_handoff import open_books_for
 
 COMPANY = "Demo Co"
 ACCOUNTS = ("Purchases", "Sundry Expenses", "Repairs & Maintenance", "Cash")
@@ -121,6 +122,7 @@ def test_known_vendor_posts_without_asking():
         t,
         memory_for(t),
         today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
     assert d.outcome is Outcome.VALID
     assert d.posted_tally_id is not None
@@ -137,6 +139,7 @@ def test_posted_voucher_is_readable_back_from_tally():
         t,
         memory_for(t),
         today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
     assert t.read_by_operation_id(COMPANY, d.operation_id) is not None
 
@@ -151,6 +154,7 @@ def test_amount_lands_in_tally_as_integer_paise():
         t,
         memory_for(t),
         today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
     assert d.voucher.amount_paise == 420000
     assert isinstance(d.voucher.amount_paise, int)
@@ -166,6 +170,7 @@ def test_every_field_carries_provenance():
         t,
         memory_for(t),
         today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
     assert set(d.provenance) >= {"date", "party", "total_paise", "tax_paise"}
 
@@ -181,6 +186,7 @@ def test_reverse_restores_the_exact_trial_balance():
         t,
         memory_for(t),
         today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
     assert t.trial_balance(COMPANY) != before
     assert pipeline.reverse(d, t) is True
@@ -200,6 +206,7 @@ def test_unknown_vendor_is_unclear_and_does_not_post():
         t,
         memory_for(t),
         today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
     assert d.outcome is Outcome.UNCLEAR
     assert d.posted_tally_id is None
@@ -219,6 +226,7 @@ def test_conflicted_vendor_asks_and_offers_only_accounts_seen_before():
         t,
         memory_for(t),
         today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
     assert d.outcome is Outcome.UNCLEAR
     # plus a "something else" escape so nobody gets stuck
@@ -241,14 +249,14 @@ def test_answering_then_re_evaluating_posts():
         today=TODAY,
     )
     d = pipeline.evaluate(
-        d, accounts, history, memory, period_open=None, pdf_repaired=None
+        d, accounts, history, memory, period_open=True, pdf_repaired=None
     )
     assert d.outcome is Outcome.UNCLEAR
 
     d = pipeline.answer(d, "Purchases")
     memory.record_correction("Verma Cement", "Purchases")
     d = pipeline.evaluate(
-        d, accounts, history, memory, period_open=None, pdf_repaired=None
+        d, accounts, history, memory, period_open=True, pdf_repaired=None
     )
 
     # Verma Cement is new to this company, so its funding leg is unknown too.
@@ -260,7 +268,7 @@ def test_answering_then_re_evaluating_posts():
 
     d = pipeline.answer(d, "Cash", problem_id=q.problem_id)
     d = pipeline.evaluate(
-        d, accounts, history, memory, period_open=None, pdf_repaired=None
+        d, accounts, history, memory, period_open=True, pdf_repaired=None
     )
 
     assert d.outcome is Outcome.VALID
@@ -466,7 +474,7 @@ def test_a_write_that_cannot_be_read_back_raises_and_never_records_a_tally_id():
         today=TODAY,
     )
     d = pipeline.evaluate(
-        d, accounts, history, memory, period_open=None, pdf_repaired=None
+        d, accounts, history, memory, period_open=True, pdf_repaired=None
     )
     assert d.outcome is Outcome.VALID  # the Valid gate is not what stops this one
 
@@ -533,7 +541,13 @@ def test_stub_extractor_drives_the_same_pipeline():
         date=TODAY, party="Sharma Traders", total_paise=420000, tax_paise=None
     )
     d = pipeline.run(
-        COMPANY, b"<pretend pdf>", "application/pdf", stub, t, memory_for(t)
+        COMPANY,
+        b"<pretend pdf>",
+        "application/pdf",
+        stub,
+        t,
+        memory_for(t),
+        period_reader=open_books_for(COMPANY),
     )
     assert d.outcome is Outcome.VALID
     assert d.voucher.amount_paise == 420000
@@ -551,6 +565,7 @@ def test_backend_outage_asks_the_person_to_type_instead():
         UnavailableExtractor("provider timed out"),
         t,
         memory_for(t),
+        period_reader=open_books_for(COMPANY),
     )
     assert d.outcome is not Outcome.VALID
     assert d.posted_tally_id is None
@@ -569,6 +584,7 @@ def test_swapping_the_backend_changes_no_pipeline_code():
         t1,
         memory_for(t1),
         today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
     b = pipeline.run(
         COMPANY,
@@ -579,6 +595,7 @@ def test_swapping_the_backend_changes_no_pipeline_code():
         ),
         t2,
         memory_for(t2),
+        period_reader=open_books_for(COMPANY),
     )
     assert a.outcome is b.outcome is Outcome.VALID
 
@@ -618,6 +635,7 @@ def test_a_brand_new_company_never_posts_silently():
             t,
             memory,
             today=TODAY,
+            period_reader=open_books_for(COMPANY),
         )
         assert d.outcome is Outcome.UNCLEAR
     assert t.list_our_vouchers(COMPANY) == ()
@@ -635,6 +653,7 @@ def _draft_for(t: FakeTally, memory: CompanyMemory, spelling: str) -> pipeline.D
         t,
         memory,
         today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
 
 
@@ -710,6 +729,7 @@ def test_every_draft_carries_a_check_count():
         t,
         memory_for(t),
         today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
     assert len(d.checks) == len(
         __import__("accountant.checks", fromlist=["x"]).ALL_CHECKS

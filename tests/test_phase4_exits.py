@@ -156,7 +156,7 @@ def test_re_evaluating_an_answered_draft_runs_the_whole_order_again() -> None:
         ACCOUNTS,
         t.read_vouchers(COMPANY),
         memory,
-        period_open=None,
+        period_open=True,
         pdf_repaired=None,
     )
 
@@ -176,7 +176,7 @@ def test_re_evaluating_an_answered_draft_runs_the_whole_order_again() -> None:
         ACCOUNTS,
         t.read_vouchers(COMPANY),
         memory,
-        period_open=None,
+        period_open=True,
         pdf_repaired=None,
     )
 

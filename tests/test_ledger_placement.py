@@ -862,7 +862,7 @@ def test_a_refused_placement_is_recorded_by_the_existing_write_ahead_row() -> No
         _ACCOUNTS,
         inner.read_vouchers(_POST_COMPANY),
         memory,
-        period_open=None,
+        period_open=True,
         pdf_repaired=None,
     )
     assert draft.outcome is Outcome.VALID, draft.reason

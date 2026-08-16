@@ -60,7 +60,7 @@ from accountant.tallyio.factory import BackendIdentity, new_run_id
 from accountant.tallyio.fake import FakeTally
 from accountant.tallyio.period import PeriodReader
 from accountant.web import app
-from tests.test_period_handoff import Answering, period_response
+from tests.test_period_handoff import open_books_for
 
 # The demo company's chart of accounts. S7 reads this list back: no name in it
 # may appear inside a question, so it has to be the same list the app was given.
@@ -158,13 +158,7 @@ def open_books_reader() -> PeriodReader:
     on 1 April 2027 - a test that expires is a test that fails for a reason
     nobody changed.
     """
-    today = datetime.date.today()
-    # The Indian financial year opens on 1 April, so a date in January belongs
-    # to the year that started the previous April.
-    opens = today.year if today.month >= 4 else today.year - 1
-    return PeriodReader(
-        transport=Answering(period_response(f"{opens}0401", name=app.COMPANY))
-    )
+    return open_books_for(app.COMPANY)
 
 
 @contextlib.contextmanager

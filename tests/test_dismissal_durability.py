@@ -322,7 +322,7 @@ def test_a_matched_vendor_posts_without_ever_offering_a_flag():
         tally.read_accounts(app.COMPANY),
         tally.read_vouchers(app.COMPANY),
         memory,
-        period_open=None,
+        period_open=True,
         pdf_repaired=None,
     )
 

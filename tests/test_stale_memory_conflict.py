@@ -59,6 +59,7 @@ from accountant.memory.store import MemoryStore
 from accountant.schema import Outcome, Voucher
 from accountant.tallyio.client import TallyClient, WriteResult
 from accountant.tallyio.fake import FakeTally
+from tests.test_period_handoff import open_books_for
 
 COMPANY = "Demo Co"
 ACCOUNTS = ("Purchases", "Sundry Expenses", "Repairs & Maintenance", "Cash")
@@ -133,7 +134,14 @@ def run_one(
     t: TallyClient, memory: CompanyMemory, text: str = f"paid {VENDOR} 4200 for cement"
 ) -> pipeline.Draft:
     return pipeline.run(
-        COMPANY, typed(text), "text/plain", TypedTextExtractor(), t, memory, today=TODAY
+        COMPANY,
+        typed(text),
+        "text/plain",
+        TypedTextExtractor(),
+        t,
+        memory,
+        today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
 
 
@@ -424,7 +432,7 @@ def test_the_person_s_answer_resolves_the_conflict_and_the_entry_is_decided_agai
         today=TODAY,
     )
     draft = pipeline.evaluate(
-        draft, accounts, history, memory, period_open=None, pdf_repaired=None
+        draft, accounts, history, memory, period_open=True, pdf_repaired=None
     )
     assert draft.outcome is Outcome.UNCLEAR
 
@@ -433,7 +441,7 @@ def test_the_person_s_answer_resolves_the_conflict_and_the_entry_is_decided_agai
     assert draft.decision is None
 
     draft = pipeline.evaluate(
-        draft, accounts, history, memory, period_open=None, pdf_repaired=None
+        draft, accounts, history, memory, period_open=True, pdf_repaired=None
     )
     assert draft.outcome is Outcome.VALID
     assert pipeline.next_question(draft) is None
@@ -569,6 +577,7 @@ def test_the_durable_row_carries_both_accounts_and_both_counts() -> None:
         today=TODAY,
         log=store,
         run_id="d06",
+        period_reader=open_books_for(COMPANY),
     )
 
     (row,) = store.actions(COMPANY)

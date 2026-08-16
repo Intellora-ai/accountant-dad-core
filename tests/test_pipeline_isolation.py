@@ -48,6 +48,7 @@ from accountant.memory.index import normalise_vendor
 from accountant.memory.store import BootstrapStatus, MemoryStore
 from accountant.schema import MatchStatus, Outcome, Voucher
 from accountant.tallyio.fake import FakeTally
+from tests.test_period_handoff import open_books_for
 
 COMPANY_A = "Ahuja Builders"
 COMPANY_B = "Bansal Motors"
@@ -120,7 +121,14 @@ def run_for(
     t: FakeTally, company: str, memory: CompanyMemory, text: bytes = ENTRY
 ) -> pipeline.Draft:
     return pipeline.run(
-        company, text, "text/plain", TypedTextExtractor(), t, memory, today=TODAY
+        company,
+        text,
+        "text/plain",
+        TypedTextExtractor(),
+        t,
+        memory,
+        today=TODAY,
+        period_reader=open_books_for(company),
     )
 
 
@@ -276,7 +284,7 @@ def test_a_correction_recorded_on_one_company_leaves_the_other_unchanged():
         accounts_a,
         t.read_vouchers(COMPANY_A),
         mem_a,
-        period_open=None,
+        period_open=True,
         pdf_repaired=None,
     )
     assert a.outcome is Outcome.VALID
