@@ -330,5 +330,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           uv run --no-project python ci/report_runtimes.py \
             | tee -a "$GITHUB_STEP_SUMMARY"
