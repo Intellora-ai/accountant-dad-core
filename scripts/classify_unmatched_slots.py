@@ -68,7 +68,8 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from accountant.extract.freeocr import _scored  # noqa: E402
-from accountant.extract.labels import (  # noqa: E402
+from accountant.extract.pagereader import read_lines, read_page  # noqa: E402
+from accountant.labels import (  # noqa: E402
     DATE_LABEL,
     NET_LABELS,
     PARTY_LABELS,
@@ -78,7 +79,6 @@ from accountant.extract.labels import (  # noqa: E402
     amounts_for,
     values_for,
 )
-from accountant.extract.pagereader import read_lines, read_page  # noqa: E402
 
 PRINTING = Printing.READ_OFF_A_PHOTOGRAPH
 PICTURES = {".jpg", ".jpeg", ".png"}

@@ -49,18 +49,30 @@ from __future__ import annotations
 import argparse
 import collections
 import csv
+import datetime
 import json
 import pathlib
 import re
 import sys
+import typing
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from accountant.extract.freeocr import _scored  # noqa: E402
-from accountant.extract.labels import paise_or_none  # noqa: E402
+from accountant.extract.freeocr import (  # noqa: E402
+    _scored,  # pyright: ignore[reportPrivateUsage]
+)
 from accountant.extract.pagereader import read_lines, read_page  # noqa: E402
+from accountant.labels import paise_or_none  # noqa: E402
+
+#: What one ground-truth slot holds: `{"status": ..., "value": ..., "page": ...}`.
+#: `value` is a string for a date, a party or an invoice number, and a dict
+#: `{"paise": int, "text": str}` for money - which is why `Expected` is a union
+#: and not a `str`. Naming both shapes is what lets the type checker catch the
+#: comparator bug that scored 50 correct money reads as INCORRECT.
+Slot = dict[str, object]
+Expected = dict[str, object] | str
 
 CORPUS = REPO / "data" / "problem1_corpus"
 TRUTH = REPO / "artifacts" / "problem1_ground_truth.json"
@@ -89,7 +101,7 @@ def _read(path: pathlib.Path) -> object:
     return _scored(read_page(lines), "free_ocr")
 
 
-def _same_money(got: object, expected: object) -> bool:
+def _same_money(got: object, expected: Expected) -> bool:
     """Integer paise on both sides, never float.
 
     THE GROUND TRUTH STORES MONEY AS A DICT, not a string:
@@ -108,7 +120,7 @@ def _same_money(got: object, expected: object) -> bool:
     this script forming its own opinion about the truth it is scoring against.
     """
     if isinstance(expected, dict):
-        want = expected.get("paise")
+        want: object = expected.get("paise")
         return isinstance(want, int) and got == want
     want = paise_or_none(str(expected))
     return want is not None and got == want
@@ -128,16 +140,50 @@ def _same_party(got: object, expected: str) -> bool:
 
 
 def _same_date(got: object, expected: str) -> bool:
-    """Compared as a date when both sides parse, else as characters."""
-    return (
-        str(got) == expected.strip() or str(got).replace("-", "/") == expected.strip()
-    )
+    """A date on both sides, never a date compared to a printed string.
+
+    THE READER RETURNS `datetime.date`. THE GROUND TRUTH STORES WHAT THE PAGE
+    PRINTED - `23-10-2014`, `17/09/2023`. An earlier version compared
+    `str(got)` to that text and scored every correct read as INCORRECT.
+    MEASURED: 33 dates reported wrong, all 33 exact matches -
+    "expected '23-10-2014', read datetime.date(2014, 10, 23)". That is the
+    second time a broken comparator has claimed the reader invented values, and
+    it is the more dangerous direction of error: it argues for "fixing" a reader
+    that was already right.
+
+    THE DAY-FIRST ASSUMPTION IS STATED HERE BECAUSE IT IS SHARED. This parses
+    `DD-MM-YYYY` / `DD/MM/YYYY` day-first, which is the same convention
+    `DateLocale.INDIAN` gives the reader. Where both numbers are 12 or under -
+    `08-02-2024` - the comparator CANNOT independently confirm the reader; a
+    shared wrong assumption would pass. Where one number is over 12 -
+    `23-10-2014` - arithmetic settles the order and the check is independent.
+    `problem1_date_wiring.md` records how many of each the corpus holds.
+
+    MONTH-FIRST IS TRIED LAST, AND ONLY LAST. The corpus is not all Indian:
+    `real-voxel51-05` prints `11/26/2018`, a US bill. Day-first is attempted
+    first and fails on it arithmetically - 26 is not a month - so month-first
+    settles it with nothing assumed. Because the order is fixed, a date both
+    orders could read never reaches the month-first line: `%d/%m/%Y` already
+    matched it. Adding this pattern therefore cannot silently reinterpret an
+    ambiguous date, and the reader refuses those anyway.
+    """
+    if not isinstance(got, datetime.date):
+        return False
+    text = expected.strip()
+    for pattern in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%Y/%m/%d", "%m/%d/%Y"):
+        try:
+            return datetime.datetime.strptime(text, pattern).date() == got
+        except ValueError:
+            continue
+    return False
 
 
-def _verdict(field: str, truth: dict[str, object], answer: object) -> tuple[str, str]:
+def _verdict(field: str, truth: Slot, answer: object) -> tuple[str, str]:
     status = str(truth.get("status", "")).upper()
-    raw = truth.get("value")
-    expected = raw if isinstance(raw, dict) else str(raw or "")
+    raw: object = truth.get("value")
+    expected: Expected = (
+        typing.cast(dict[str, object], raw) if isinstance(raw, dict) else str(raw or "")
+    )
     got = getattr(answer, _ATTRIBUTE[field], None) if answer is not None else None
 
     if status not in NOTHING_TO_FIND and not expected:
@@ -189,7 +235,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    truth = json.loads(TRUTH.read_text())
+    truth: dict[str, dict[str, object]] = json.loads(TRUTH.read_text())
     tally: collections.Counter[str] = collections.Counter()
     per_field: dict[str, collections.Counter[str]] = collections.defaultdict(
         collections.Counter
@@ -200,16 +246,17 @@ def main() -> int:
     print(f"corpus: {len(documents)} documents, ground truth for {len(truth)}")
 
     for path in documents:
-        entry = truth.get(path.stem) or truth.get(path.name)
+        entry: dict[str, object] | None = truth.get(path.stem) or truth.get(path.name)
         if entry is None:
             continue
         answer = _read(path)
         for field in FIELDS:
-            field_truth = entry.get(field)
-            if not isinstance(field_truth, dict):
+            raw_slot: object = entry.get(field)
+            if not isinstance(raw_slot, dict):
                 tally[NO_TRUTH] += 1
                 per_field[field][NO_TRUTH] += 1
                 continue
+            field_truth: Slot = typing.cast(Slot, raw_slot)
             verdict, why = _verdict(field, field_truth, answer)
             tally[verdict] += 1
             per_field[field][verdict] += 1

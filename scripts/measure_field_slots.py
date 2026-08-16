@@ -80,7 +80,8 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from accountant.extract.freeocr import _scored  # noqa: E402
-from accountant.extract.labels import (  # noqa: E402
+from accountant.extract.pagereader import read_lines, read_page  # noqa: E402
+from accountant.labels import (  # noqa: E402
     DATE_LABEL,
     PARTY_LABELS,
     TAX_WHOLE,
@@ -88,7 +89,6 @@ from accountant.extract.labels import (  # noqa: E402
     Printing,
     values_for,
 )
-from accountant.extract.pagereader import read_lines, read_page  # noqa: E402
 
 #: The five the owner named for the fast pass. `net` is deliberately absent: it
 #: is not one of the five and counting it would change the denominator.

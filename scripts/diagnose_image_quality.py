@@ -41,14 +41,14 @@ if str(REPO) not in sys.path:
 
 from PIL import Image, ImageEnhance, ImageFilter  # noqa: E402
 
-from accountant.extract.labels import (  # noqa: E402
+from accountant.extract.pagereader import read_lines  # noqa: E402
+from accountant.labels import (  # noqa: E402
     DATE_LABEL,
     NET_LABELS,
     PARTY_LABELS,
     TAX_WHOLE,
     TOTAL_LABELS,
 )
-from accountant.extract.pagereader import read_lines  # noqa: E402
 
 PICTURES = {".jpg", ".jpeg", ".png"}
 LEGIBLE_ENOUGH = 5
