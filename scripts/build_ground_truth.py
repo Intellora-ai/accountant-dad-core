@@ -80,7 +80,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, TypeGuard
 
 #: The sentinel `accountant/extract/adapter.py` writes into `per_field_source`
 #: when a field has no value. Spelled here rather than imported so the scorer
@@ -1063,15 +1063,17 @@ def build_corpus() -> tuple[list[dict[str, Any]], dict[str, bytes]]:
 
 
 def matrix(records: Sequence[dict[str, Any]]) -> dict[str, dict[str, int]]:
-    out = {t: dict.fromkeys(CATEGORIES, 0) for t in INPUT_TYPES}
+    out: dict[str, dict[str, int]] = {
+        t: dict.fromkeys(CATEGORIES, 0) for t in INPUT_TYPES
+    }
     for record in records:
         out[str(record["input_type"])][str(record["category"])] += 1
     return out
 
 
 def corpus_manifest(records: Sequence[dict[str, Any]]) -> dict[str, Any]:
-    by_type = dict.fromkeys(INPUT_TYPES, 0)
-    by_category = dict.fromkeys(CATEGORIES, 0)
+    by_type: dict[str, int] = dict.fromkeys(INPUT_TYPES, 0)
+    by_category: dict[str, int] = dict.fromkeys(CATEGORIES, 0)
     by_label: dict[str, int] = {}
     for record in records:
         by_type[str(record["input_type"])] += 1
@@ -1155,13 +1157,26 @@ def write_corpus(root: Path = CORPUS_ROOT) -> dict[str, int]:
     return {"cases": len(records), "documents": len(documents)}
 
 
+# A decoded case file, and whatever a backend put in `per_field_source` or
+# `line_items`, are `object` until something checks them. These two ask what the
+# value actually is rather than trusting the shape it is supposed to have.
+def _is_obj(value: object) -> TypeGuard[dict[str, object]]:
+    """A decoded JSON object. Its keys are strings by construction."""
+    return isinstance(value, dict)
+
+
+def _is_iterable(value: object) -> TypeGuard[Iterable[object]]:
+    """Something that can be walked. Its elements are anything at all."""
+    return isinstance(value, Iterable)
+
+
 def load_records(root: Path = CORPUS_ROOT) -> list[dict[str, Any]]:
     """Every committed case file, in case-id order."""
     paths = sorted((root / "cases").glob("GT-*.json"))
     out: list[dict[str, Any]] = []
     for path in paths:
-        loaded: Any = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(loaded, dict):
+        loaded: object = json.loads(path.read_text(encoding="utf-8"))
+        if not _is_obj(loaded):
             raise ValueError(f"{path} is not a JSON object")
         out.append({str(k): v for k, v in loaded.items()})
     return out
@@ -1240,8 +1255,8 @@ def _observed(record: object) -> dict[str, object]:
     """The five scored answers, read off an `ExtractedRecord`."""
     items: object = getattr(record, "line_items", ()) or ()
     pairs: list[tuple[str, int]] = []
-    if isinstance(items, Iterable):
-        for item in items:  # pyright: ignore[reportUnknownVariableType]
+    if _is_iterable(items):
+        for item in items:
             pairs.append(
                 (
                     str(getattr(item, "description", "")),
@@ -1255,6 +1270,19 @@ def _observed(record: object) -> dict[str, object]:
         "tax_amount": getattr(record, "tax_paise", None),
         "line_items": tuple(pairs),
     }
+
+
+def _extract(extractor: object, data: bytes, mime: str) -> object:
+    """Hand one document to the backend and take back whatever it says.
+
+    `extractor` stays `object` because the scorer must run anything with an
+    `extract` method, the two stubs included, and nothing here may depend on a
+    backend having been selected. The attribute cannot be resolved at type-check
+    time; the RESULT is `object`, so every field is read off it by `_observed`
+    rather than assumed. Attribute lookup and call are unchanged, so a backend
+    with no `extract` still raises `AttributeError` into the caller's handler.
+    """
+    return extractor.extract(data, mime)  # type: ignore[attr-defined]
 
 
 def _wanted(expected: dict[str, Any]) -> dict[str, object]:
@@ -1294,7 +1322,7 @@ def score_corpus(
         case_id = str(record["case_id"])
         data = (documents / str(record["document"])).read_bytes()
         try:
-            answer: object = extractor.extract(data, str(record["mime"]))  # type: ignore[attr-defined]
+            answer: object = _extract(extractor, data, str(record["mime"]))
         # Broad on purpose: an unclassified failure IS the finding here, and
         # a backend that raises must be NAMED rather than dropped out of the
         # denominator, which is how a crash becomes a good-looking score.
@@ -1304,10 +1332,10 @@ def score_corpus(
         score.processed += 1
 
         sources: object = getattr(answer, "per_field_source", None)
-        if not isinstance(sources, dict):
+        if not _is_obj(sources):
             failures.append(f"{case_id}: per_field_source is not a mapping")
             continue
-        stated = {str(k): str(v) for k, v in sources.items()}  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
+        stated = {str(k): str(v) for k, v in sources.items()}
         if stated:
             score.with_provenance += 1
         blanks.extend(

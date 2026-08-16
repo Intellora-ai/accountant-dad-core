@@ -48,12 +48,18 @@ from dataclasses import dataclass, replace
 import pytest
 
 from accountant import pipeline
-from accountant.extract.adapter import Extractor, StubExtractor, TypedTextExtractor
+from accountant.extract.adapter import (
+    Extractor,
+    LineItem,
+    StubExtractor,
+    TypedTextExtractor,
+)
 from accountant.memory.bootstrap import bootstrap
 from accountant.memory.store import MemoryStore
 from accountant.schema import Outcome, Voucher
 from accountant.tallyio.fake import FakeTally
 from accountant.tallyio.real import TallyError, check_writable
+from tests.test_period_handoff import open_books_for
 
 COMPANY = "Demo Co"
 ACCOUNTS = ("Purchases", "Sundry Expenses", "Repairs & Maintenance", "Cash")
@@ -131,16 +137,35 @@ def stubbed(
     *,
     total_paise: int | None,
     tax_paise: int | None,
+    net_paise: int | None = None,
     party: str | None = PARTY,
     expect_valid: bool = False,
+    date: datetime.date | None = None,
+    line_items: tuple[LineItem, ...] = (),
 ) -> Case:
-    """A case with the tax state set exactly, including states no text produces."""
+    """A case with the tax state set exactly, including states no text produces.
+
+    `net_paise` DEFAULTS TO NONE, and that default is the point. A case that does
+    not state the pre-tax figure leaves `net_plus_tax_equals_gross` unable to
+    evaluate, which blocks - so the arms below that expect a refusal keep getting
+    one for a reason they can name. Only a case that expects to POST states the
+    net, because only that case is claiming the arithmetic was checkable.
+
+    It is stated here rather than worked out from `total_paise - tax_paise`:
+    `gate.py:119` refuses a derived net because both of those are already inputs
+    to that same law, and a number checked against itself passes for ever.
+    """
     return Case(
         id=name,
         arm=arm,
         bill=b"a bill",
         backend=StubExtractor(
-            party=party, total_paise=total_paise, tax_paise=tax_paise
+            party=party,
+            total_paise=total_paise,
+            tax_paise=tax_paise,
+            net_paise=net_paise,
+            date=date,
+            line_items=line_items,
         ),
         party=party or PARTY,
         expect_valid=expect_valid,
@@ -215,20 +240,108 @@ VALID_TAX: tuple[Case, ...] = (
     typed(
         "c_timber", "valid", "paid Sharma Traders 3300 for timber", expect_valid=True
     ),
+    # THE FIVE BELOW STATE THREE AMOUNTS, NOT ONE. They read `tax_paise=None`
+    # and no net at all until 2026-08-16, and that is why every one of them was
+    # refused: `tax_paise=None` is "nobody looked for the tax", not "there is no
+    # tax on this bill", and with no net stated `net_plus_tax_equals_gross` could
+    # not be evaluated either. The arm is called "no tax question arises", so the
+    # facts now say exactly that - the tax was looked at and it is zero, and the
+    # pre-tax figure equals the total because zero tax was added to it.
+    #
+    # The net is written out per case rather than computed from the total, for
+    # the reason `stubbed` states: a derived net is checked against itself.
+    # `tax_paise=0`, NOT `None`, SINCE 2026-08-17. These five are arm C - "a bill
+    # with no tax on it" - and until today every one of them said `None`, which
+    # does not mean that. `None` is the field NOBODY READ, and an unread tax
+    # field must block: reading it as zero would post a GST bill without its
+    # input credit, which is real money lost with nothing on screen to notice.
+    # So the arm meant to prove a tax-free bill POSTS was quietly asking the
+    # system to guess, and was correctly refused for it.
+    #
+    # Zero is the fact the arm is actually about, and stating it is what makes
+    # this the disconfirming arm rather than a fifth copy of arm A. Nothing is
+    # derived: `net_paise` equals `total_paise` here because these bills carry no
+    # tax, and both figures are HANDED IN. `tax_paise=None` still blocks, and
+    # arms A and B above are the cases that prove it.
     stubbed(
-        "c_stub_small", "valid", total_paise=90000, tax_paise=None, expect_valid=True
+        "c_stub_small",
+        "valid",
+        total_paise=90000,
+        tax_paise=0,
+        net_paise=90000,
+        expect_valid=True,
+        # Both HANDED IN, neither derived. The date because an invoice's date
+        # applies and an unread one scores 0.0, which drags the minimum under
+        # ASK_FLOOR before any law is reached. The single line because
+        # `lines_sum_to_total` is INDETERMINATE on an empty tuple - no reader
+        # here fills `line_items`, so empty means "nobody read the itemisation",
+        # not "there are no lines".
+        date=TODAY,
+        line_items=(LineItem(description="one line", amount_paise=90000),),
     ),
     stubbed(
-        "c_stub_mid", "valid", total_paise=180000, tax_paise=None, expect_valid=True
+        "c_stub_mid",
+        "valid",
+        total_paise=180000,
+        tax_paise=0,
+        net_paise=180000,
+        expect_valid=True,
+        # Both HANDED IN, neither derived. The date because an invoice's date
+        # applies and an unread one scores 0.0, which drags the minimum under
+        # ASK_FLOOR before any law is reached. The single line because
+        # `lines_sum_to_total` is INDETERMINATE on an empty tuple - no reader
+        # here fills `line_items`, so empty means "nobody read the itemisation",
+        # not "there are no lines".
+        date=TODAY,
+        line_items=(LineItem(description="one line", amount_paise=180000),),
     ),
     stubbed(
-        "c_stub_par", "valid", total_paise=250000, tax_paise=None, expect_valid=True
+        "c_stub_par",
+        "valid",
+        total_paise=250000,
+        tax_paise=0,
+        net_paise=250000,
+        expect_valid=True,
+        # Both HANDED IN, neither derived. The date because an invoice's date
+        # applies and an unread one scores 0.0, which drags the minimum under
+        # ASK_FLOOR before any law is reached. The single line because
+        # `lines_sum_to_total` is INDETERMINATE on an empty tuple - no reader
+        # here fills `line_items`, so empty means "nobody read the itemisation",
+        # not "there are no lines".
+        date=TODAY,
+        line_items=(LineItem(description="one line", amount_paise=250000),),
     ),
     stubbed(
-        "c_stub_high", "valid", total_paise=330000, tax_paise=None, expect_valid=True
+        "c_stub_high",
+        "valid",
+        total_paise=330000,
+        tax_paise=0,
+        net_paise=330000,
+        expect_valid=True,
+        # Both HANDED IN, neither derived. The date because an invoice's date
+        # applies and an unread one scores 0.0, which drags the minimum under
+        # ASK_FLOOR before any law is reached. The single line because
+        # `lines_sum_to_total` is INDETERMINATE on an empty tuple - no reader
+        # here fills `line_items`, so empty means "nobody read the itemisation",
+        # not "there are no lines".
+        date=TODAY,
+        line_items=(LineItem(description="one line", amount_paise=330000),),
     ),
     stubbed(
-        "c_stub_top", "valid", total_paise=420000, tax_paise=None, expect_valid=True
+        "c_stub_top",
+        "valid",
+        total_paise=420000,
+        tax_paise=0,
+        net_paise=420000,
+        expect_valid=True,
+        # Both HANDED IN, neither derived. The date because an invoice's date
+        # applies and an unread one scores 0.0, which drags the minimum under
+        # ASK_FLOOR before any law is reached. The single line because
+        # `lines_sum_to_total` is INDETERMINATE on an empty tuple - no reader
+        # here fills `line_items`, so empty means "nobody read the itemisation",
+        # not "there are no lines".
+        date=TODAY,
+        line_items=(LineItem(description="one line", amount_paise=420000),),
     ),
 )
 
@@ -268,6 +381,7 @@ def run_case(case: Case) -> Measured:
         today=TODAY,
         log=store,
         run_id="gst-sweep",
+        period_reader=open_books_for(COMPANY),
     )
 
     # Does the CONNECTOR agree the entry is postable? Asked of the same function
@@ -335,13 +449,35 @@ def test_a_bill_whose_tax_cannot_be_posted_is_never_called_valid(case: Case) -> 
     assert m.reason.strip(), f"{case.id} refused without saying why"
 
 
-@pytest.mark.parametrize("case", VALID_TAX, ids=lambda c: c.id)
+#: Arm C, split by WHO READ THE BILL. Owner ruling 2026-08-17, decision 2.
+#:
+#: Both halves have identical arithmetic - a stated net, a stated tax of zero,
+#: and a total they add up to - so conservation passes for all ten. What differs
+#: is the tier that produced them, and the whole point of the split is that the
+#: arithmetic alone does NOT decide whether a bill may post on its own.
+#: `decision.AUTO_POST_ALLOWED_TIERS` is `{pdf_text_layer, typed_text}`; `stub`
+#: is deliberately absent, so a test double cannot buy auto-post by handing in
+#: tidy numbers. That is the rule, and these two tuples measure both sides of it.
+TRUSTED_VALID: tuple[Case, ...] = tuple(
+    case for case in VALID_TAX if isinstance(case.backend, TypedTextExtractor)
+)
+UNTRUSTED_VALID: tuple[Case, ...] = tuple(
+    case for case in VALID_TAX if isinstance(case.backend, StubExtractor)
+)
+
+
+@pytest.mark.parametrize("case", TRUSTED_VALID, ids=lambda c: c.id)
 def test_a_bill_with_no_tax_on_it_still_reaches_valid_and_posts(case: Case) -> None:
     """Arm C. The disconfirming arm.
 
     If the tax rule had been written as "refuse anything with a money field on
     it", or the funding leg had quietly stopped resolving, arms A and B would
     still score 20/20 and mean nothing. This is the case that fails then.
+
+    TRUSTED TIERS ONLY, since 2026-08-17. These five come through the SHIPPED
+    typed-text path, which is on `AUTO_POST_ALLOWED_TIERS`, so they are the
+    cases entitled to prove that a tax-free bill really does post. The stubbed
+    five are measured just below, in the opposite direction.
     """
     m = run_case(case)
 
@@ -351,6 +487,37 @@ def test_a_bill_with_no_tax_on_it_still_reaches_valid_and_posts(case: Case) -> N
     assert m.books_moved, f"{case.id} posted and moved nothing"
     assert m.connector_accepts, f"{case.id} was VALID and the connector refuses it"
     assert m.blank_sources == ()
+
+
+@pytest.mark.parametrize("case", UNTRUSTED_VALID, ids=lambda c: c.id)
+def test_clean_arithmetic_alone_does_not_let_an_untrusted_tier_post(
+    case: Case,
+) -> None:
+    """Arm C's other half: the arithmetic is perfect and it STILL may not post.
+
+    THIS IS THE TEST THAT STOPS THE OBVIOUS SHORTCUT. These five hand in a net,
+    a tax of exactly zero and a total that agrees with both, so every
+    conservation law it is possible to satisfy is satisfied - the same numbers
+    that let the typed five above post. They still do not post, because
+    `decision.AUTO_POST_ALLOWED_TIERS` is `{pdf_text_layer, typed_text}` and the
+    `stub` backend is not on it.
+
+    Owner ruling 2026-08-17, decision 2: `stub` is NOT added to that allowlist.
+    A fixture that could buy auto-post by stating tidy numbers would make every
+    other case in this file meaningless, because any of them could be rewritten
+    to do the same.
+
+    NOTHING WRITTEN IS ASSERTED THREE WAYS, not one. "It refused" without "and
+    wrote nothing" is exactly the assertion that lets a silent write through.
+    """
+    m = run_case(case)
+
+    assert m.outcome in SAFE, (
+        f"{case.id} reached {m.outcome.value} from an untrusted tier"
+    )
+    assert not m.posted, f"{case.id} posted from a tier that may not auto-post"
+    assert m.vouchers_written == 0
+    assert not m.books_moved, f"{case.id} moved the books without posting"
 
 
 # =============================================================================
@@ -391,9 +558,20 @@ def test_every_case_with_no_tax_question_reaches_the_expected_valid_result(
     valid = [
         m for m in of_arm(swept, "valid") if m.outcome is Outcome.VALID and m.posted
     ]
-
-    assert len(valid) == 10, [
+    # FIVE, NOT TEN, since the owner's ruling of 2026-08-17. Arm C is ten cases
+    # and every one of them satisfies the arithmetic; only the five from a
+    # trusted tier may post on their own. The other five are accounted for
+    # immediately below rather than dropped, so the arm still adds up to ten and
+    # a case that silently vanished from either half fails this test.
+    trusted = {case.id for case in TRUSTED_VALID}
+    assert {m.case.id for m in valid} == trusted, [
         (m.case.id, m.outcome.value, m.posted) for m in of_arm(swept, "valid")
+    ]
+
+    blocked = [m for m in of_arm(swept, "valid") if m.case.id not in trusted]
+    assert len(valid) + len(blocked) == 10
+    assert all(m.outcome in SAFE and not m.posted for m in blocked), [
+        (m.case.id, m.outcome.value, m.posted) for m in blocked
     ]
 
 
@@ -437,7 +615,14 @@ def test_the_connector_never_refuses_what_the_application_called_valid(
     ]
 
     assert said_valid_and_refused == []
-    assert len([m for m in swept if m.outcome is Outcome.VALID]) == 10
+    # FIVE. Arm C's trusted half is the only half that reaches VALID - the
+    # stubbed half satisfies the same arithmetic and is still refused, because
+    # `stub` is not on `AUTO_POST_ALLOWED_TIERS`. Owner ruling 2026-08-17.
+    # Asserted against the trusted set rather than a bare count, so moving a case
+    # between halves cannot keep this green by accident.
+    assert {m.case.id for m in swept if m.outcome is Outcome.VALID} == {
+        case.id for case in TRUSTED_VALID
+    }
 
 
 def test_no_case_in_the_sweep_leaves_a_silent_blank(swept: list[Measured]) -> None:
@@ -494,14 +679,35 @@ def test_every_bill_in_the_unsafe_arms_really_did_carry_a_tax_field() -> None:
 
 
 def test_the_arm_c_bills_really_do_carry_no_tax_field() -> None:
-    """The other half of the same fixture check."""
-    with_tax = [
+    """The other half of the same fixture check.
+
+    IT ASKS FOR ZERO NOW, NOT FOR ABSENCE. Owner ruling 2026-08-17: `tax_paise`
+    has three states, and the two this test used to conflate are the two that
+    matter most - `None` is "nobody read the tax field", `0` is "somebody read it
+    and there is no tax". Arm C is the second. Asserting `is None` here pinned
+    the first, so the arm meant to prove a tax-free bill posts was in fact asking
+    the system to guess, and being refused for it.
+
+    BOTH NO-TAX STATES ARE ALLOWED HERE, and that is not a softening - it is the
+    arm having two kinds of bill in it. The typed cases go through
+    `TypedTextExtractor`, which reads no tax field from a sentence at all, so
+    they are honestly `None`: nothing was read because there was nothing to read,
+    and `TYPED_EXPENSE_NOTE` is a kind the tax law does not apply to. The stub
+    cases are judged as full invoices, where the law DOES apply, so they have to
+    state the fact: `0`. Demanding one answer for both would force a fixture to
+    lie about one of them.
+
+    WHAT IT STILL CATCHES IS THE DIRECTION THAT HURTS: a POSITIVE tax smuggled
+    into arm C would be claiming a GST bill posts with no tax line, which is the
+    exact failure this whole file exists to make impossible.
+    """
+    carrying_tax = [
         case.id
         for case in VALID_TAX
-        if case.backend.extract(case.bill, "text/plain").tax_paise is not None
+        if (case.backend.extract(case.bill, "text/plain").tax_paise or 0) != 0
     ]
 
-    assert with_tax == []
+    assert carrying_tax == []
 
 
 def test_a_voucher_that_needs_tax_lines_is_the_same_question_on_both_sides() -> None:
@@ -524,9 +730,29 @@ def test_a_voucher_that_needs_tax_lines_is_the_same_question_on_both_sides() -> 
     assert postable.needs_tax_lines is False
     check_writable(postable)
 
-    for tax in (0, 1, -1, 64068):
+    # ZERO LEFT THIS TUPLE 2026-08-17, and it did not leave the test - it moved
+    # below, where it is asserted in the opposite direction. Owner ruling of the
+    # same day: `tax_paise` carries three states, not two - a figure that was
+    # read and is positive, a figure that was read and is ZERO, and a field
+    # nobody read. Only the first two were ever distinguishable here, and this
+    # loop collapsed them by asserting that a bill with no tax on it "carries
+    # tax". There is no CGST/SGST/IGST line to build for zero, so there was
+    # nothing here the connector could not do.
+    #
+    # -1 STAYS, and it is the reason this is `!= 0` and not `> 0`. A voucher
+    # carrying MINUS one paise of GST is a figure no reader should ever produce,
+    # which is exactly why it must not be waved through.
+    for tax in (1, -1, 64068):
         carrying = replace(postable, gst_paise=tax)
 
         assert carrying.needs_tax_lines is True
         with pytest.raises(ValueError, match="builds no tax lines"):
             check_writable(carrying)
+
+    # THE THIRD STATE, PINNED. Read, and it is zero: no tax line is owed, so both
+    # readers of `needs_tax_lines` must say so and the connector must take it.
+    # Asserted here rather than merely removed from the loop above, so that
+    # re-inlining `gst_paise is not None` in either reader still fails a test.
+    no_tax = replace(postable, gst_paise=0)
+    assert no_tax.needs_tax_lines is False
+    check_writable(no_tax)

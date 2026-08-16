@@ -1,15 +1,15 @@
 {
   "verdict": "FAIL",
   "exit_code": 1,
-  "generated_at": "2026-08-10T14:12:48.268340+00:00",
+  "generated_at": "2026-08-15T16:25:29.141336+00:00",
   "harness_error": "",
   "provenance": {
-    "cwd": "/private/tmp/claude-501/-Users-tanveersidhu-ACCOUNTANT/173e27c0-9c4e-4793-a6c4-594143728ef9/scratchpad/wt-gt",
-    "accountant__file__": "/private/tmp/claude-501/-Users-tanveersidhu-ACCOUNTANT/173e27c0-9c4e-4793-a6c4-594143728ef9/scratchpad/wt-gt/accountant/__init__.py",
+    "cwd": "/Users/tanveersidhu/ACCOUNTANT",
+    "accountant__file__": "/Users/tanveersidhu/ACCOUNTANT/accountant/__init__.py",
     "python": "3.14.6",
-    "commit": "b2b2958472a3adc3e01fc4f335d0286f2d57f388",
-    "branch": "phase8/ground-truth-harness",
-    "worktree": "/private/tmp/claude-501/-Users-tanveersidhu-ACCOUNTANT/173e27c0-9c4e-4793-a6c4-594143728ef9/scratchpad/wt-gt",
+    "commit": "daf1e9af18f2a969edbb42d33fd7b84e7f839fb6",
+    "branch": "cage/safety-layer",
+    "worktree": "/Users/tanveersidhu/ACCOUNTANT",
     "dirty": "yes"
   },
   "sections": [
@@ -47,8 +47,8 @@
         {
           "name": "exit1_generated_truth_extraction",
           "status": "FAIL",
-          "measured": "{\"date\": 0, \"party\": 0, \"tax_paise\": 0, \"total_paise\": 0}",
-          "detail": "stub backend, 80 renderable cases, exact matches per field {'date': 0, 'party': 0, 'total_paise': 0, 'tax_paise': 0}, required 76. GENERATED_TRUTH from canonical JSON, SYNTHETIC_EVIDENCE, and never evidence about real-world reader accuracy. Owner decision Q4 = B: no production backend is selected, so a stub cannot pass this."
+          "measured": "{\"date\": 14, \"party\": 23, \"tax_paise\": 20, \"total_paise\": 20}",
+          "detail": "ladder backend, 80 renderable cases, exact matches per field {'date': 14, 'party': 23, 'total_paise': 20, 'tax_paise': 20}, required 76; WRONG rather than unread, per field, over all 100 cases: {'date': 0, 'party': 4, 'total_paise': 0, 'tax_paise': 0}. Rung that answered: {'free_ocr': 40, 'ladder': 20, 'pdf_text_layer': 20, 'typed_text': 20}. The application default is 'ladder', which is the backend scored here. GENERATED_TRUTH from canonical JSON, SYNTHETIC_EVIDENCE, and never evidence about real-world reader accuracy. 20 of the 80 renderable cases reach no rung that can read them at all: the DOCX, which no reader here opens. The 20 PNG now reach the picture rung, which was wired on 2026-08-13, and it reads their supplier exactly on 3 of them - the corpus is rendered in a 5x7 bitmap font. docs/EXTRACTION_MEASURED.md carries the split per input type and the count of fields that came back WRONG rather than unread."
         },
         {
           "name": "exit2_unrenderable_input_is_explicit",
@@ -59,26 +59,158 @@
         {
           "name": "s2_extraction_scored",
           "status": "FAIL",
-          "measured": "{\"date\": 0, \"party\": 0, \"tax_paise\": 0, \"total_paise\": 0}",
-          "detail": "stub backend, 100 cases, per-field hits {'date': 0, 'party': 0, 'total_paise': 0, 'tax_paise': 0}. Owner decision Q4 = B: no production backend is selected, so a stub cannot satisfy the real extraction-quality exit."
+          "measured": "{\"date\": 14, \"party\": 27, \"tax_paise\": 20, \"total_paise\": 20}",
+          "detail": "ladder backend, 100 cases, per-field hits {'date': 14, 'party': 27, 'total_paise': 20, 'tax_paise': 20}. This asks whether every field was SPOKEN TO, which two of the five input types cannot be: a DOCX reaches no rung, and a pixel-free JPEG reaches the picture rung and is refused by it because there is no picture in the file. A refusal is the correct answer there rather than a hit."
         }
       ],
       "facts": {
         "s2_cases_scored": 100,
         "s2_per_field": {
-          "date": 0,
-          "party": 0,
-          "total_paise": 0,
-          "tax_paise": 0
+          "date": 14,
+          "party": 27,
+          "total_paise": 20,
+          "tax_paise": 20
         },
-        "s2_backend": "stub",
+        "s2_backend": "ladder",
+        "s2_backend_is_the_application_default": true,
+        "s2_application_default": "ladder",
+        "s2_rung_that_answered": {
+          "free_ocr": 40,
+          "ladder": 20,
+          "pdf_text_layer": 20,
+          "typed_text": 20
+        },
+        "s2_by_input_type": {
+          "DOCX": {
+            "date": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            },
+            "party": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            },
+            "total_paise": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            },
+            "tax_paise": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            }
+          },
+          "JPG": {
+            "date": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            },
+            "party": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            },
+            "total_paise": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            },
+            "tax_paise": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            }
+          },
+          "PDF": {
+            "date": {
+              "exact": 14,
+              "refused": 6,
+              "wrong": 0
+            },
+            "party": {
+              "exact": 20,
+              "refused": 0,
+              "wrong": 0
+            },
+            "total_paise": {
+              "exact": 20,
+              "refused": 0,
+              "wrong": 0
+            },
+            "tax_paise": {
+              "exact": 20,
+              "refused": 0,
+              "wrong": 0
+            }
+          },
+          "PNG": {
+            "date": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            },
+            "party": {
+              "exact": 3,
+              "refused": 13,
+              "wrong": 4
+            },
+            "total_paise": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            },
+            "tax_paise": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            }
+          },
+          "text": {
+            "date": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            },
+            "party": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            },
+            "total_paise": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            },
+            "tax_paise": {
+              "exact": 0,
+              "refused": 20,
+              "wrong": 0
+            }
+          }
+        },
         "exit1_renderable_cases": 80,
         "exit1_exact_per_field": {
+          "date": 14,
+          "party": 23,
+          "total_paise": 20,
+          "tax_paise": 20
+        },
+        "exit1_wrong_per_field": {
           "date": 0,
-          "party": 0,
+          "party": 4,
           "total_paise": 0,
           "tax_paise": 0
         },
+        "exit1_wrong_examples": [
+          "GT-0041 PNG party: 'AQUANCED PROPULSION CENTRE UK LTO' sourced 'free_ocr'",
+          "GT-0046 PNG party: '\u201cGUPTA HARONARE STORES' sourced 'free_ocr'",
+          "GT-0050 PNG party: 'GECCAN LOGISTICS PUT LTO' sourced 'free_ocr'",
+          "GT-0056 PNG party: '\"NARHAGR PACKAGING CO' sourced 'free_ocr'"
+        ],
         "exit1_required": 76,
         "exit2_unrenderable_cases": 20,
         "exit2_unsafe": [],

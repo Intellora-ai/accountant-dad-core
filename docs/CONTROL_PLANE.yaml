@@ -1810,6 +1810,62 @@ decisions:
       mutually exclusive readings and now has one. STILL BLOCKED - nothing else;
       no other decision waits behind it.
 
+  # ---- D-30 allocated 2026-08-13, next free after D-29. It is NOT D-04.
+  #      D-04 asks about a WEB FRAMEWORK for the front door and stays OPEN.
+  #      D-04's standing rule is what this entry satisfies: the eight items
+  #      that must be recorded BEFORE any runtime dependency is added.
+
+  - id: "D-30"
+    question: >-
+      May the project declare its first runtime dependencies - pypdf,
+      pytesseract and Pillow - so that a PDF, PNG or JPG bill can be read at
+      all? D-23 set the launch input types and three of the four are not text.
+      The current policy is dependencies = [], and two repo-wide guards rest on
+      that line.
+    options:
+      - "A. Approve all three. PDF text layer and free OCR both land. First runtime dependencies the project has ever had."
+      - "B. Approve pypdf only. Born-digital PDFs read; every photograph and scan is refused."
+      - "C. Approve none. PNG and JPG stay input types the product refuses in every case."
+    recommended_default: "None was invented. D-04's standing rule says no runtime dependency is approved automatically, and lists eight things that must be written down first."
+    owner_answer: >-
+      A, APPROVE ALL THREE. OWNER, 2026-08-13, verbatim - "Final authorization -
+      you may add the free OCR + PDF reader dependencies now." Recorded in the
+      approved plan section 5.0 as "B-A | pypdf + the free OCR stack as runtime
+      dependencies | CLEARED - add them, file the completed 8-item register".
+      Declared as lower bounds only - pypdf>=5.0, pytesseract>=0.3, Pillow>=11.0
+      - with the exact resolution pinned in uv.lock and held at zero drift by
+      the lockfile gate.
+    status: ANSWERED
+    evidence_needed: >-
+      THE COMPLETED EIGHT-ITEM REGISTER D-04 REQUIRES is docs/DECISIONS.md
+      section D-30, filed COMPLETED. LICENCES - pypdf BSD-3-Clause, pytesseract
+      Apache-2.0, Pillow MIT-CMU, tesseract-ocr Apache-2.0; all permissive, none
+      distributed by us. SECURITY - pypdf parses untrusted PDFs IN-PROCESS,
+      which is the real risk, mitigated by the size cap, by never unzipping or
+      following anything, and by treating a parse failure as a refusal;
+      pytesseract shells out with a FIXED ARGV and never a shell string; Pillow
+      decodes untrusted images behind the same size cap. pip-audit over the
+      lockfile reported no known vulnerabilities for any of the three at
+      pypdf 6.15.0, pytesseract 0.3.13 and pillow 12.3.0, measured 2026-08-13.
+      DEPLOYMENT - the tesseract binary must be on the host and in CI, and the
+      application starts and refuses cleanly without it, turning FileNotFoundError
+      into a sentence rather than a crash. POLICY - yes, this violates
+      dependencies = [] and is the first one ever; the two guards that rested on
+      that line were re-aimed and not deleted, tests/test_no_reader.py to an
+      allow-list of two modules and three packages, and
+      tests/test_reversal_history.py::test_no_authentication_dependency_was_added
+      to what it was always about, no identity or authentication library in any
+      group.
+    next_action: >-
+      ANSWERED 2026-08-13, NOT YET IMPLEMENTED. accountant/extract/freeocr.py did
+      not exist on disk when this was written. This entry becomes
+      IMPLEMENTED_AFTER_OWNER_DECISION when both approved modules exist and the
+      allow-list in tests/test_no_reader.py passes against them. UNBLOCKED BY
+      THIS ANSWER - extract/textlayer.py and extract/freeocr.py, neither of which
+      could land while the blanket ban stood. STILL BLOCKED - D-04's web-framework
+      question, untouched and still OPEN, and option C of D-16 (cryptography),
+      which this entry does NOT approve and which needs its own register.
+
 blockers:
 
   - id: "B-01"

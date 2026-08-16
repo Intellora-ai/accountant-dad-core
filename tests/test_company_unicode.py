@@ -59,6 +59,7 @@ from accountant.schema import Voucher
 from accountant.tallyio.factory import BackendIdentity, new_run_id
 from accountant.tallyio.fake import FakeTally
 from accountant.web import app
+from tests.test_period_handoff import open_books_for
 
 # Every non-ASCII character below is written as an escape on purpose. Several
 # of them are invisible, and a test fixture whose contents cannot be read in the
@@ -176,7 +177,20 @@ def serve_once(tally: FakeTally, company: str, *, visible: int = 1) -> _Live:
     reason.
     """
     store = MemoryStore(":memory:")
-    app.configure(tally, identity_for(company, visible=visible), store=store)
+    # Without a reader `Runtime.period_open` stays `None` - "nobody looked" - and
+    # the cage refuses every posting with "I could not tell whether the books for
+    # this date are still open", so the end-to-end test never reaches a post.
+    # THE ARGUMENT IS `company`, THE PARAMETER, AND IT IS NOT NORMALISED HERE.
+    # `parse_company_periods` matches the name byte-for-byte against the one the
+    # identity carries; handing it `app.COMPANY`, or an NFC-folded copy of an NFD
+    # name, is NO MATCH, which reads as UNVERIFIED and blocks exactly as before.
+    # That this file's NFD name survives the round trip is the point of the file.
+    app.configure(
+        tally,
+        identity_for(company, visible=visible),
+        store=store,
+        period_reader=open_books_for(company),
+    )
     httpd = HTTPServer(("127.0.0.1", 0), app.Handler)
     httpd.timeout = 5
     return _Live(httpd, store)
@@ -509,7 +523,14 @@ def test_an_nfd_company_name_can_be_worked_in_end_to_end_over_http() -> None:
 
         code, body = live.post("/entry", text=ENTRY)
         assert code == 200
-        assert "posted" in body, f"the entry was not posted:\n{body[:400]}"
+        # THE BADGE, NOT THE BARE WORD. `render_decision` draws "not posted" for
+        # NOT_VALID, so `"posted" in body` was satisfied by the exact refusal this
+        # test exists to rule out - and this test WAS refused, on the period, until
+        # the reader above was wired in. `class="badge b-valid">posted<` is drawn
+        # only for Outcome.VALID. Same form as tests/test_error_responses.py:1115.
+        assert 'class="badge b-valid">posted<' in body, (
+            f"the entry was not posted:\n{body[:400]}"
+        )
 
         written = tally.list_our_vouchers(CAFE_NFD)
         assert len(written) == 1

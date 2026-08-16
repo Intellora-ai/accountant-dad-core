@@ -47,6 +47,7 @@ from accountant.memory.store import MemoryStore
 from accountant.schema import Outcome, Voucher
 from accountant.tallyio.fake import FakeTally
 from accountant.web import app
+from tests.test_period_handoff import open_books_for
 
 COMPANY = "Demo Co"
 ACCOUNTS = ("Purchases", "Repairs & Maintenance", "Cash")
@@ -83,6 +84,7 @@ def posted(t: FakeTally, memory: CompanyMemory) -> pipeline.Draft:
         t,
         memory,
         today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
     assert draft.outcome is Outcome.VALID
     assert draft.posted_tally_id is not None
@@ -258,6 +260,7 @@ def test_a_company_we_never_read_says_so_rather_than_blaming_the_connector():
             t,
             never_read,
             today=TODAY,
+            period_reader=open_books_for(COMPANY),
         )
     assert t.list_our_vouchers(COMPANY) == (), "and still nothing is written"
 

@@ -92,6 +92,7 @@ from accountant.tallyio.fake import FakeTally
 from accountant.web import app
 from tests import test_runtime_backend as guard
 from tests import test_tally_contract as contract
+from tests.test_period_handoff import open_books_for
 from tests.test_real_tally import TallySim
 
 # `tests/test_runtime_backend.py` keeps its call-graph scanner private, which is
@@ -173,7 +174,23 @@ def valid_draft(client: TallyClient, memory: CompanyMemory) -> pipeline.Draft:
         memory,
         today=TODAY,
     )
-    draft = pipeline.evaluate(draft, accounts, history, memory)
+    draft = pipeline.evaluate(
+        # `period_open=True`, and it was `None` until 2026-08-16. `None` means
+        # NOBODY LOOKED, which the cage refuses - so this helper asserted VALID
+        # on the very next line while telling the cage the books might be shut.
+        # A fixture that contradicts its own assertion is not a safety test; it
+        # is a broken setup, and it was the single cause of 27 failures across
+        # test_idempotency, test_adversarial_write_path and test_error_responses.
+        # The write-path tests below are about what happens AFTER a valid draft
+        # exists, so this says the books are open and lets them reach their
+        # actual subject.
+        draft,
+        accounts,
+        history,
+        memory,
+        period_open=True,
+        pdf_repaired=None,
+    )
     assert draft.outcome is Outcome.VALID, "the fixture must reach the write path"
     return draft
 
@@ -190,7 +207,9 @@ def unclear_draft(client: TallyClient, memory: CompanyMemory) -> pipeline.Draft:
         memory,
         today=TODAY,
     )
-    draft = pipeline.evaluate(draft, accounts, history, memory)
+    draft = pipeline.evaluate(
+        draft, accounts, history, memory, period_open=None, pdf_repaired=None
+    )
     assert draft.outcome is Outcome.UNCLEAR, "the fixture must NOT be postable"
     return draft
 
@@ -1033,6 +1052,7 @@ def test_a_write_whose_outcome_is_unknown_leaves_two_rows_naming_the_operation()
             today=TODAY,
             log=store,
             run_id=RUN,
+            period_reader=open_books_for(COMPANY),
         )
 
     assert client.write_count == 1
@@ -1085,6 +1105,7 @@ def test_an_unknown_write_outcome_still_records_its_operation_id() -> None:
             today=TODAY,
             log=store,
             run_id=RUN,
+            period_reader=open_books_for(COMPANY),
         )
 
     rows = store.actions(COMPANY)
@@ -1116,6 +1137,7 @@ def test_the_same_run_call_records_a_row_when_nothing_goes_wrong() -> None:
         today=TODAY,
         log=store,
         run_id=RUN,
+        period_reader=open_books_for(COMPANY),
     )
 
     assert draft.outcome is Outcome.VALID
@@ -1167,6 +1189,7 @@ def test_a_read_back_of_zero_vouchers_blocks_the_post_and_writes_no_posted_row()
             today=TODAY,
             log=store,
             run_id=RUN,
+            period_reader=open_books_for(COMPANY),
         )
 
     message = str(raised.value)
@@ -1880,6 +1903,8 @@ def test_the_page_and_the_action_log_can_no_longer_disagree_about_the_backend(
         client.read_accounts(app.COMPANY),
         client.read_vouchers(app.COMPANY),
         app.runtime().memory,
+        period_open=True,
+        pdf_repaired=None,
     )
     assert draft.outcome is Outcome.VALID
     draft = pipeline.post(draft, client)

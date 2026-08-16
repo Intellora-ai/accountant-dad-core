@@ -273,7 +273,14 @@ def test_the_detector_cannot_fire_on_the_entry_path_at_all():
     draft = pipeline.build_draft(
         app.COMPANY, ENTRY.encode(), "text/plain", TypedTextExtractor(), memory
     )
-    draft = pipeline.evaluate(draft, tally.read_accounts(app.COMPANY), history, memory)
+    draft = pipeline.evaluate(
+        draft,
+        tally.read_accounts(app.COMPANY),
+        history,
+        memory,
+        period_open=None,
+        pdf_repaired=None,
+    )
 
     assert draft.flags == [], "no flag is reachable before somebody answers"
     # And the reason, so a future change that breaks the equality is legible.
@@ -315,6 +322,8 @@ def test_a_matched_vendor_posts_without_ever_offering_a_flag():
         tally.read_accounts(app.COMPANY),
         tally.read_vouchers(app.COMPANY),
         memory,
+        period_open=True,
+        pdf_repaired=None,
     )
 
     assert draft.outcome is Outcome.VALID

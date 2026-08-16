@@ -18,15 +18,18 @@ import datetime
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Final, Protocol, runtime_checkable
 
 from accountant import checks, problems
 from accountant import questions as Q
+from accountant.cage import gate as cage_gate
+from accountant.cage.decision import Action, Decided, DocumentType, Moment
 from accountant.decide import decide_problems
 from accountant.detect import detectors
 from accountant.extract.adapter import NOT_FOUND, ExtractedRecord, Extractor
 from accountant.memory.company import (
     FROM_HUMAN_ANSWER,
+    CompanyMatchStatus,
     CompanyMemory,
     LiveDisagreement,
     disagrees_with_live_history,
@@ -53,10 +56,58 @@ from accountant.tallyio.client import (
 )
 from accountant.tax.decision import TaxDecision, decide_tax
 
+if TYPE_CHECKING:  # pragma: no cover - a type, never a runtime dependency
+    # THIS IMPORT CANNOT BE MADE AT MODULE SCOPE, and the reason is measured
+    # rather than stylistic. `accountant.period` imports
+    # `accountant.observability`, which imports THIS module by name at its line
+    # 54. So a top-level `from accountant.tallyio.period import PeriodReader`
+    # here is fine, but `from accountant.period import check_period` is a
+    # genuine cycle that raises at import time, not a lint. The type is taken
+    # here under `from __future__ import annotations`, where only the checker
+    # reads it, and the function is imported inside `_period_open` below.
+    from accountant.tallyio.period import PeriodReader
+
 #: What `provenance` says about a leg that came out of this company's own books.
 #: A literal in three places until 2026-08-10, and one of them is now read as a
 #: gate rather than only written, so it is named once.
 FROM_COMPANY_HISTORY = "company_history"
+
+#: What the voucher's provenance says about a party name that was ESTIMATED.
+#:
+#: `NOT_FOUND`-prefixed on purpose, because that prefix is already the one rule
+#: two readers share: `cage/gate.py::_was_read` and `web/app.py` both treat a
+#: source beginning `not_found` as an absence whatever value came with it. The
+#: leg IS absent - `voucher.party` is blank - so the line beside it has to say
+#: absent, or the evidence record contradicts the thing it is evidence about.
+#:
+#: It names the tier, because "no party" and "a party we would not act on" are
+#: different facts and the reviewer reading this voucher afterwards needs to
+#: know which one they are looking at. The reading itself is NOT deleted: it
+#: stays on `Draft.record`, with its own source and its own score.
+ESTIMATED_NOT_AN_IDENTITY = (
+    f"{NOT_FOUND}: {{backend}} estimated this name rather than reading it, and "
+    "an estimated name is never used as a supplier's identity - so this one is "
+    "being asked about instead"
+)
+
+#: What the voucher's provenance says about a total that was ESTIMATED.
+#:
+#: `NOT_FOUND`-prefixed for exactly the reason the entry above is: that prefix is
+#: the one rule `cage/gate.py::_was_read` and `web/app.py` already share, so a
+#: reader of this voucher sees an ABSENCE rather than a bill for ₹0.00. The
+#: amount IS absent - it is the zero `build_draft` writes when nothing was read -
+#: and a source line still naming the tier that guessed would leave the evidence
+#: record contradicting the voucher it is evidence about.
+#:
+#: A SECOND SENTENCE RATHER THAN ONE WITH A FIELD PLACEHOLDER IN IT, because the
+#: two refusals are not the same refusal. A name is refused for being an
+#: IDENTITY; a total is refused for being MONEY, and the person is then asked how
+#: much rather than who. One sentence covering both would name neither.
+ESTIMATED_NOT_AN_AMOUNT = (
+    f"{NOT_FOUND}: {{backend}} estimated this amount rather than reading it, and "
+    "an estimated amount is never posted as money - so this one is being asked "
+    "about instead"
+)
 
 #: D-06. The vendor whose remembered account the CURRENT ledger contradicts.
 #:
@@ -98,6 +149,70 @@ class OperationRegister(Protocol):
     def mark_operation_reversed(
         self, company_key: str, operation_id: str, at: str
     ) -> bool: ...
+
+
+#: What the cage's answer does to an outcome that survived the decision order.
+#:
+#: A TABLE BECAUSE IT IS ONE, and because the safety property is then readable
+#: in the data rather than spread over three branches: no value here is wider
+#: than the VALID it is allowed to replace. `tests/test_cage_on_the_live_path.py`
+#: asserts it is total over `Action`, so a fourth action fails at build time
+#: instead of raising `KeyError` in front of somebody's bill.
+CAGE_NARROWS: dict[Action, Outcome] = {
+    Action.POST: Outcome.VALID,
+    Action.ASK: Outcome.UNCLEAR,
+    Action.BLOCK: Outcome.NOT_VALID,
+}
+
+
+def narrowed_by_the_cage(decision: Decision, said: Decided) -> Decision:
+    """Apply the cage's answer to a decision. It may NARROW and never WIDEN.
+
+        existing VALID + cage POST   -> VALID
+        existing VALID + cage ASK    -> UNCLEAR
+        existing VALID + cage BLOCK  -> NOT_VALID
+        existing UNCLEAR             -> UNCHANGED, whatever the cage says
+        existing NOT_VALID           -> UNCHANGED, whatever the cage says
+
+    `docs/ARCHITECTURE.md` 19.4: an advisory layer is ADDED to a deterministic
+    one and never SUBTRACTS from it. The cage weighs confidence, conservation
+    and four world facts; `decide_problems` weighs checks, memory and
+    detectors. Neither can see what the other sees, so agreement is not
+    required - but a cage that could overrule a refusal would be a second,
+    weaker decision order with the last word, and the failure it produces is a
+    bill somebody already refused arriving in their books.
+
+    THE PROPERTY IS STRUCTURAL AND NOT A CONSEQUENCE OF THE TABLE. The early
+    return is what holds it: the only decision this function can replace is one
+    that was VALID, so no cage answer of any kind can reach an UNCLEAR or a
+    NOT_VALID. Deleting the table's `POST -> VALID` row, or adding a row that
+    widened, would still not let a refusal become a post. That is deliberate -
+    a safety property that depends on the contents of a dict is one dict edit
+    away from being gone, and the edit looks like a configuration change.
+
+    THE SENTENCE COMES FROM THE CAGE WHEN THE CAGE IS WHAT REFUSED. A decision
+    that survived the deterministic order carries "nothing unclear and nothing
+    surprising", and leaving that on a screen which now says "needs an answer"
+    tells the person we do not know why we stopped. `said.said` is every reason
+    the cage had, already joined into whole sentences that name no ledger
+    account.
+
+    WHAT IT DOES NOT CARRY OVER, SAID SO NOBODY RELIES ON IT: a cage ASK
+    produces an UNCLEAR with NO `question_options` and NO `question_problem_id`,
+    because the cage has no `Problem` to attach and no reader in this repository
+    can yet offer the answers. So `next_question` returns `None`, the review
+    page renders the cage's sentence with no buttons, and
+    `Decision.refuse_answer` correctly says there is nothing to answer. That is
+    a hand-over wearing an UNCLEAR badge, and it is the honest state until a
+    reader can ask - not a defect to be papered over by inventing a question
+    nobody can answer.
+    """
+    if decision.outcome is not Outcome.VALID:
+        return decision
+    narrowed = CAGE_NARROWS[said.action]
+    if narrowed is Outcome.VALID:
+        return decision
+    return replace(decision, outcome=narrowed, reason=said.said)
 
 
 @dataclass
@@ -220,6 +335,38 @@ def _leg_source(proposed: str) -> str:
     return FROM_COMPANY_HISTORY if proposed else NOT_FOUND
 
 
+def _party_not_taken(record: ExtractedRecord, party: str | None) -> dict[str, str]:
+    """The one provenance line to overwrite when a read name was not taken.
+
+    Empty in every other case, and that is deliberate rather than tidy. The
+    record's own source line is the truth about what the reader did, and the
+    only situation it stops describing the VOUCHER is this one: the reader
+    stated a name and a real backend beside it, and the leg is blank anyway.
+
+    A field the reader genuinely did not read already carries `not_found` and
+    the reader's own sentence, which is better than anything this could write.
+    """
+    if party is not None or record.party is None:
+        return {}
+    return {"party": ESTIMATED_NOT_AN_IDENTITY.format(backend=record.backend)}
+
+
+def _amount_not_taken(
+    record: ExtractedRecord, total_paise: int | None
+) -> dict[str, str]:
+    """The same line, one field over, when a read total was not taken.
+
+    Empty in every other case, for the reason `_party_not_taken` gives above:
+    the record's own source line is the truth about what the reader did, and the
+    only situation it stops describing the VOUCHER is this one - the reader
+    stated a figure with a real backend beside it, and the voucher's amount is
+    zero anyway.
+    """
+    if total_paise is not None or record.total_paise is None:
+        return {}
+    return {"total_paise": ESTIMATED_NOT_AN_AMOUNT.format(backend=record.backend)}
+
+
 def build_draft(
     company: str,
     data: bytes,
@@ -277,13 +424,35 @@ def build_draft(
 
     record = extractor.extract(data, mime)
 
-    proposed_debit = propose_account(memory, record.party) if record.party else None
+    # AN ESTIMATED NAME IS NOT AN IDENTITY. This is the whole of the F-03 fix
+    # and it is one line, because this is the one place a read party name turns
+    # into one. Everything downstream keys off `Voucher.party` - `evaluate`
+    # hands it to `funding_from_history`, to `memory.lookup`, to the detectors
+    # and to `disagrees_with_live_history` - so a name refused here is refused
+    # in all five without five separate guards to keep in step.
+    party = record.party if record.read_exactly("party") else None
+
+    # AND AN ESTIMATED AMOUNT IS NOT MONEY, 2026-08-13, owner-ordered. The line
+    # above guarded IDENTITY and the line at `amount_paise=` below did not guard
+    # MONEY: an estimated name was refused and asked about, and an estimated
+    # TOTAL was taken at face value. `Voucher.amount_paise` is what `checks`
+    # runs on, what the magnitude and duplicate detectors compare against
+    # history, and what `pipeline.post` writes to Tally - so a guessed figure
+    # reaching it is a wrong number in somebody's books, not a wrong screen.
+    #
+    # `read_exactly`, NOT A THRESHOLD, and the SAME `ENTITLED_TO_EXACT` list the
+    # party guard uses. The owner's words were "a tier entitled to be believed",
+    # that list already is one, no number is chosen here, and `ASK_FLOOR` and
+    # `AUTO_POST_FLOOR` stay the only two bands in the product.
+    total_paise = record.total_paise if record.read_exactly("total_paise") else None
+
+    proposed_debit = propose_account(memory, party) if party else None
     proposed_debit = proposed_debit or ""
 
     voucher = Voucher(
         id=f"draft-{uuid.uuid4().hex[:8]}",
         date=record.date or (today or datetime.date.today()),
-        party=record.party or "",
+        party=party or "",
         narration=record.raw_text.strip(),
         debit_account=proposed_debit,
         # Absent on purpose. The funding leg is proposed in `evaluate`, which
@@ -291,9 +460,26 @@ def build_draft(
         # only way a draft can ever acquire a decision. Proposing it here as
         # well would give a second, unguarded route to a ledger leg.
         credit_account="",
-        amount_paise=record.total_paise or 0,
+        # ZERO IS THE UNREAD AMOUNT, and it is a decision rather than a fallback.
+        # `Voucher.amount_paise` is `int` and cannot hold `None`, so the choice
+        # was zero here or `int | None` through `schema`, `tallyio` and every
+        # reader of a posting. Zero is safe because it does not sit still: it is
+        # the exact value `checks.amount_is_positive` exists to catch, that check
+        # runs first in `ALL_CHECKS`, `problems.QUESTION_FOR` already maps it to
+        # `questions.how_much`, and the person reads "How much did you pay X? I
+        # couldn't work it out." No new rule, no new sentence, and the outcome is
+        # UNCLEAR - so nothing auto-posts and nothing is refused outright either.
+        #
+        # A ZERO CANNOT REACH THE CAGE'S ARITHMETIC AND PASS IT, which is the
+        # first thing to check about a number like this. `cage/gate.py::observed`
+        # builds the observation from `draft.record`, never from this voucher, so
+        # `conservation` runs on the figure the reader actually stated and no
+        # 0-against-0 comparison exists to be satisfied.
+        amount_paise=total_paise or 0,
         gst_paise=record.tax_paise,
         provenance=dict(record.per_field_source)
+        | _party_not_taken(record, party)
+        | _amount_not_taken(record, total_paise)
         | {
             "credit_account": NOT_FOUND,
             "debit_account": _leg_source(proposed_debit),
@@ -437,6 +623,55 @@ def tax_for(draft: Draft, accounts: Sequence[str]) -> TaxDecision:
     )
 
 
+#: Which KIND of document each extraction backend produces, by the provenance
+#: string it stamps on `total_paise`. THE ONE TABLE, and a backend that is not
+#: in it is not classified - see `_document_type` for what that costs.
+#:
+#: Keyed on the backend's own `name`, which the reader writes into
+#: `per_field_source`, so the classification follows the EVIDENCE rather than a
+#: flag any caller could set. There is deliberately no parameter anywhere that
+#: lets a caller ask for a particular kind: a caller who could pick would pick
+#: the permissive one by accident, which is the failure this table exists to
+#: prevent.
+_KIND_BY_SOURCE: Final[dict[str, DocumentType]] = {
+    # A person typed the sentence. Nothing was read, so nothing was misread.
+    "typed_text": DocumentType.TYPED_EXPENSE_NOTE,
+    # A test double standing in for a bill. It is judged as one, arithmetic and
+    # all, so a fixture cannot buy a weaker law set by choosing this backend.
+    "stub": DocumentType.INVOICE,
+}
+
+
+def _document_type(record: ExtractedRecord) -> DocumentType:
+    """Which kind of document this is, decided from provenance and nothing else.
+
+    THE `if typed_text ... else INVOICE` THIS REPLACED WAS TWO DEFECTS IN ONE
+    LINE, and the second was the dangerous one. The first is that it read a
+    single prefix, so `typed_text` was the only kind that could ever be
+    recognised. The second is where it landed everything else: `else INVOICE`
+    meant an input nobody had classified was ASSUMED to be a bill. That is a
+    guess, and the guess pointed at a kind whose laws it could not satisfy.
+
+    THE DEFAULT IS NOW `UNSUPPORTED`, WHICH BLOCKS. An unclassified input has
+    not been shown to be anything, and `DocumentType` already states the rule
+    this follows: the absence of a classification is not permission. A new
+    backend therefore arrives blocked and has to be named in `_KIND_BY_SOURCE`
+    on purpose, rather than inheriting a bill's law set by omission.
+
+    PROVENANCE, NOT SHAPE. The kind comes from WHO produced the value, not from
+    what the value looks like, because the shapes are identical: a typed note
+    and a note lifted off a page both carry one amount, one party and no lines.
+    Only the source says whether a machine guessed.
+
+    An unread `total_paise` carries a `not_found:` source rather than a
+    backend's name, so it matches nothing here and blocks - which is correct,
+    since a document whose amount was never read has not been identified at all.
+    """
+    return _KIND_BY_SOURCE.get(
+        record.per_field_source.get("total_paise", ""), DocumentType.UNSUPPORTED
+    )
+
+
 def evaluate(
     draft: Draft,
     accounts: tuple[str, ...],
@@ -445,8 +680,10 @@ def evaluate(
     *,
     detector_set: Sequence[detectors.Detector] = detectors.SLICE_4_DETECTORS,
     flag_cap: int | None = None,
+    period_open: bool | None,
+    pdf_repaired: bool | None,
 ) -> Draft:
-    """Run checks, memory and detectors, then apply the decision order.
+    """Run checks, memory and detectors, apply the decision order, then the cage.
 
     The detectors read history through THIS COMPANY'S index and no other.
     `memory.index()` is derived from the scoped store, so a detector cannot
@@ -479,6 +716,47 @@ def evaluate(
     fixed. A disagreement is UNCLEAR and not NOT_VALID, because an answer fixes
     it — and the answer is new information, not authorisation: `answer` clears
     the decision and the entry re-enters this function at step 1.
+
+    THE CAGE IS ASKED LAST, 2026-08-13, AND IT MAY ONLY NARROW.
+
+    This is the seam rather than `run` because `run` is not where the decision
+    is made. `web/app.py` calls THIS function twice and `run` never — so a gate
+    sited in `run` would guard the demo path and leave the shipped one open,
+    which is the same defect as a guard that is unit-tested and not installed.
+
+    `period_open` and `pdf_repaired` HAVE NO DEFAULTS. The other two facts the
+    cage needs are derived here, from the draft, because they are already in
+    hand and asking the caller would invite an answer that disagrees with the
+    evidence: `party_known` is whether this company's chart of accounts names
+    the party, and `carries_gst` is the same question `Voucher.needs_tax_lines`
+    already answers on the write side. `reading_tiers` is NOT passed - `gate`
+    derives it from the record, which is where the reading tier is stamped.
+
+    `period_open=None` blocks, and blocking is the correct answer to "nobody
+    looked". It is NOT the only value this parameter can carry, and the comment
+    that used to stand here saying so - "nothing in this repository reads
+    whether a company's books are open for a date" - was false when it was
+    written. `accountant/period.py::check_period` reads it, over
+    `accountant/tallyio/period.py`, and hands back three states rather than two:
+    `True` open, `False` closed, `None` we could not check. All three arrive
+    here, from `web/app.py::Runtime.period_open` on the shipped path and from
+    `pipeline._period_open` on this module's own `run`.
+
+    A default of `True` is the one value that would be silently supplied at
+    every call site that forgot, and would grant exactly the permission the
+    field exists to withhold. So there is no default at all.
+
+    MEASURED CONSEQUENCE, 2026-08-13, AND IT IS NOT SMALL. Across this
+    repository's whole suite, 993 drafts reach this function and the cage
+    BLOCKS every one of them - 280 that the decision order called VALID, 624
+    UNCLEAR and 89 NOT_VALID. Only the 280 change outcome, all of them from
+    VALID to NOT_VALID, because the cage may not widen the other two. So the
+    live path posts NOTHING. Four independent hard blocks are responsible and
+    supplying `period_open=True` clears only one of them: `net_paise` has no
+    source, so `net_plus_tax_equals_gross` is INDETERMINATE on every bill;
+    `party_known` is False for every supplier that is not itself a ledger; and
+    270 of the 280 read below `ASK_FLOOR`. That is a real measurement of how
+    much this product actually knows, not a tuning problem.
     """
     if memory.identity.key != normalise_company(draft.company):
         raise ValueError(
@@ -572,6 +850,125 @@ def evaluate(
         # decides. `answer` clears the decision and this rebuilds it, so the
         # id survives every question without ever being minted again.
         operation_id=draft.operation_id,
+    )
+
+    # The cage, immediately after the decision order and before the draft is
+    # handed back. Asked on EVERY draft and not only on the VALID ones: the
+    # property that it cannot widen belongs in `narrowed_by_the_cage`, in one
+    # place, and short-circuiting here would put a second copy of it at the
+    # call site where the two could drift. `decide` is pure and does no IO, and
+    # it was run over all 993 drafts in this suite without raising.
+    draft.decision = narrowed_by_the_cage(
+        draft.decision,
+        cage_gate.gate(
+            draft,
+            moment=Moment.BEFORE_THE_WRITE,
+            # Derived here, not asked for. Both are already on the draft, and a
+            # caller asked for them could answer differently from the evidence.
+            # THE PARTY WAS BEING LOOKED UP IN THE WRONG PLACE. `accounts` is
+            # the CHART OF ACCOUNTS - Purchases, Cash, Rent. A supplier is not
+            # one of those, so this asked "is Sharma Traders a ledger head" and
+            # answered no.
+            #
+            # MEASURED over the 173 failing tests: `party_known` was False on
+            # 299 of 299 gate calls, while 288 of those records carried a party
+            # and the fixtures give that party FORTY past vouchers. The cage
+            # said "I have never seen Sharma Traders in your books" about a
+            # vendor with forty entries in the books. After this: 169 of 299.
+            #
+            # `history` IS THE BOOKS. The owner's hard rule 7 is untouched and
+            # is why the `or` is this way round: a party in NEITHER the chart
+            # nor the history is still unknown, and still blocks.
+            # THE KIND OF DOCUMENT, DERIVED FROM THE TIER THAT READ IT, and
+            # not asked of the caller. `typed_text` is a person typing a
+            # sentence - there is no document, so there are no line items and
+            # no invoice date, and the invoice conservation laws describe
+            # nothing on it. Every other tier read an actual file.
+            #
+            # MEASURED: this is what refused `paid Sharma Traders 4200 for
+            # cement` with three reasons, none of which were true of it.
+            # OWNER RULING, 2026-08-16: the kind turns on WHERE THE CHARACTERS
+            # CAME FROM. `typed_text` means a person typed the sentence, so
+            # nothing was read and nothing could be misread - that is
+            # `TYPED_EXPENSE_NOTE`, and it may reach VALID on the ordinary
+            # checks. Anything else was lifted off a document by a reader and
+            # is judged as an invoice here; a reader that some day reports an
+            # expense note off a PAGE passes `NON_INVOICE_EXPENSE_NOTE`, which
+            # `decision._needs_a_person` caps at a question.
+            document_type=_document_type(draft.record),
+            # THE SAME NAME IS THE SAME VENDOR, decided the way the rest of the
+            # product decides it. This read `party in accounts or any(one.party
+            # == party ...)` - raw string equality, and the ONLY identity check
+            # in this system that did not go through `normalise_vendor`. The
+            # memory index, the lookup, the correction store and every account
+            # proposal already normalise; this one line did not, so a person who
+            # typed `M/s Sharma Traders` was refused as a stranger by books that
+            # hold forty postings under `Sharma Traders`.
+            #
+            # IT OPENS NOTHING. Measured on the real normaliser: the four
+            # spellings of a vendor the books DO hold now match, while
+            # `M/s Sharma Traders Pvt Ltd` stays unmatched - owner ruling D-05,
+            # a different legal entity is a different vendor - and a name the
+            # books have never seen, `Gupta Hardware`, stays unmatched too. The
+            # refusal at tests/test_reversal_guard.py:205 and tests/test_gate.py
+            # :302 is unchanged, which is the direction that must never move.
+            #
+            # MEMORY IS THE THIRD PLACE A VENDOR CAN BE KNOWN FROM, added on the
+            # owner's ruling of 2026-08-17. The chart of accounts and the live
+            # ledger were the only two, so a vendor the PERSON had explicitly
+            # confirmed - `memory.record_correction(...)`, a measured mapping
+            # they typed themselves - was still a stranger to the cage. Rule D2a
+            # says the opposite: once their answer HAS created a mapping, the
+            # same entry posts. The two rules contradicted each other and the
+            # cage won, so answering the question changed nothing and the person
+            # was asked again for ever.
+            #
+            # ONLY `MATCH` COUNTS, and that is what keeps this from being a hole.
+            # `NO_MATCH` is a vendor nobody has answered about - still refused.
+            # `CONFLICTED` is a vendor whose history disagrees with itself -
+            # still refused, and it must be, because a conflict is a question and
+            # not an approval. `MEMORY_NOT_READY` means we have not read the
+            # person's books at all, and it is the least postable state there is.
+            # Only an explicit, recorded, unambiguous mapping opens this door.
+            party_known=(
+                normalise_vendor(draft.voucher.party)
+                in {normalise_vendor(one) for one in accounts}
+                or any(
+                    normalise_vendor(one.party) == normalise_vendor(draft.voucher.party)
+                    for one in history
+                )
+                or memory.lookup(draft.voucher.party).status is CompanyMatchStatus.MATCH
+            ),
+            carries_gst=draft.voucher.needs_tax_lines,
+            questions_asked=len(draft.answers),
+            # The caller's, because neither is on the draft. `period_open` has
+            # no source anywhere; `pdf_repaired=None` means "not a PDF, nothing
+            # repaired", and `gate._repaired` lets the RECORD overrule it when
+            # the reader says it mended the bytes.
+            period_open=period_open,
+            pdf_repaired=pdf_repaired,
+            # THE NET, HANDED OVER. Added 2026-08-15, and its absence was not a
+            # missing feature - it was evidence that had been read, carried the
+            # whole way here, and then dropped one line short of the check that
+            # needed it.
+            #
+            # MEASURED before this line existed: of 956 blocks, 955 cited "there
+            # is something on this bill I could not check at all". That sentence
+            # is `net_plus_tax_equals_gross` returning INDETERMINATE, and it
+            # returned INDETERMINATE because `net_paise` took its default of
+            # `None` here while `draft.record.net_paise` held the figure the
+            # reader had already found. Measured on the text-layer bill in
+            # `tests/test_textlayer.py`: the record carried 104624 and the law
+            # said "the net amount was not read".
+            #
+            # `record` AND NOT A DERIVATION. `gate.gate`'s docstring is explicit
+            # that the net is a parameter and is never worked out as total minus
+            # tax: a number derived from the law's own inputs is checked against
+            # itself and passes for ever. So this is the READ figure or nothing,
+            # and nothing still blocks - the correct direction for a bill whose
+            # pre-tax figure genuinely was not printed on it.
+            net_paise=draft.record.net_paise,
+        ),
     )
     return draft
 
@@ -983,6 +1380,49 @@ def reverse(draft: Draft, client: TallyClient) -> bool:
     return reverse_operation(client, draft.company, draft.operation_id).reversed_
 
 
+def _period_open(
+    company: str,
+    on: datetime.date,
+    reader: PeriodReader | None,
+) -> bool | None:
+    """Are this company's books open on `on`? Three answers, two of which block.
+
+    THE THIRD STATE IS THE WHOLE POINT, and collapsing it was a measured defect
+    rather than a hypothetical one. `PeriodCheck.open_for_posting` is a bare
+    `bool`, so an unreachable Tally comes back `False`; handed to the cage,
+    `False` is read by `decision._period_closed` as *"The books for 12 March
+    2026 are closed, so nothing can be added to them"* - a confident, specific
+    statement about the customer's Tally that OUR dropped connection invented.
+    It sends somebody into their accounting software to fix a setting that was
+    never wrong. So this returns `PeriodCheck.for_cage`, which keeps them apart:
+
+        OPEN        -> True    may post
+        CLOSED      -> False   blocks, and says the books are closed
+        UNVERIFIED  -> None    blocks, and says WE could not check
+
+    NO READER IS `None`, AND THAT IS NOT A FALLBACK. `TallyClient` has no period
+    method of any kind - `accountant/tallyio/client.py` defines none - so a
+    caller holding only a client genuinely has not looked, and "nobody looked"
+    must never be reportable as "the books are open". `None` blocks, which is
+    the correct answer to a question nobody asked.
+
+    NEVER RAISES. `check_period` turns an unreachable gateway, a timeout, an
+    unparseable body and a company that is not open into UNVERIFIED, and logs
+    one `event=period_check` line whichever way it went. A traceback in front of
+    somebody's bill is the failure this whole layer is written against.
+
+    THE IMPORT IS LAZY AND HAS TO BE. `accountant.period` imports
+    `accountant.observability`, which imports `accountant.pipeline` - so the
+    obvious module-scope import raises `ImportError` before a single test runs.
+    The TYPE_CHECKING block at the top of this file carries the type.
+    """
+    if reader is None:
+        return None
+    from accountant.period import check_period
+
+    return check_period(company=company, on=on, reader=reader).for_cage
+
+
 def run(
     company: str,
     data: bytes,
@@ -996,6 +1436,7 @@ def run(
     today: datetime.date | None = None,
     log: ActionLogSink | None = None,
     run_id: str = "",
+    period_reader: PeriodReader | None = None,
 ) -> Draft:
     """One entry, all the way through. Posts if Valid, stops otherwise.
 
@@ -1012,6 +1453,18 @@ def run(
     store)` - or `resume(store, company)` when it was done earlier - and pass
     the result in. A caller that cannot produce one has not read the person's
     books, and must not be proposing accounts.
+
+    `period_reader` IS OPTIONAL AND DEFAULTS TO NOBODY LOOKING. Supplied, it is
+    one bounded probe of the company's own Tally - five second timeout, one
+    attempt - and its three-way answer reaches `cage.gate` as `True`, `False` or
+    `None`. Omitted, `period_open` is `None`, which blocks, and is the same
+    value this call site passed unconditionally until 2026-08-15. The default is
+    NOT `PeriodReader()`: that would build an `HttpTransport` aimed at port 9000
+    of whatever machine is running, so a suite would go green on one laptop and
+    red on another, and a doubled client would be answered by a real socket.
+
+    `accountant/web/app.py` is the shipped caller and does not come through
+    here - it calls `evaluate` directly, with `Runtime.period_open(on=...)`.
     """
     # A5. BEFORE the two reads, not after them. Both of these can fail on a
     # flaky connector, and when they do on a company we have never successfully
@@ -1025,7 +1478,37 @@ def run(
 
     draft = build_draft(company, data, mime, extractor, memory, today=today)
     draft = evaluate(
-        draft, accounts, history, memory, detector_set=detector_set, flag_cap=flag_cap
+        draft,
+        accounts,
+        history,
+        memory,
+        detector_set=detector_set,
+        flag_cap=flag_cap,
+        # THE PERIOD IS READ, NOT INVENTED, AND NOT ASSUMED EITHER.
+        #
+        # This was `period_open=None` unconditionally, under a comment saying
+        # "nothing in this repository reads whether a company's books are open
+        # for a date". That comment was FALSE when it was written:
+        # `accountant/period.py::check_period` reads exactly that, over
+        # `accountant/tallyio/period.py::PeriodReader`, and both shipped web
+        # call sites already passed a real value through
+        # `web/app.py::Runtime.period_open`. Only this call site declined to
+        # fetch a fact the codebase could read.
+        #
+        # `draft.voucher.date` AND NEVER TODAY. Whether books are open is a
+        # question about a date, and a bill entered today for a purchase made in
+        # March is the exact case this check exists for. `build_draft` has
+        # already run, so the bill's own date is in hand.
+        #
+        # With no reader this is still `None` and still blocks - unchanged
+        # behaviour for every caller that has not looked. See `_period_open` for
+        # why "nobody looked" is `None` and not `False`.
+        #
+        # `pdf_repaired=None` says this caller repaired nothing, which is true:
+        # the reader is what mends bytes, and `cage/gate._repaired` reads that
+        # off the record and overrules this.
+        period_open=_period_open(company, draft.voucher.date, period_reader),
+        pdf_repaired=None,
     )
 
     if draft.decision and draft.decision.outcome is Outcome.VALID:

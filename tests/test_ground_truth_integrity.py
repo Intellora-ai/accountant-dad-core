@@ -652,9 +652,19 @@ def test_a_silent_backend_is_still_processed_and_still_leaves_no_blank() -> None
 
 
 def test_the_production_default_backend_is_measured_rather_than_assumed() -> None:
-    """`typed_text` is `DEFAULT_BACKEND`. Against invoices it scores zero, and
-    on twenty cases it states a source for a total it invented — which is worse
-    than a refusal, because a refusal asks the person a question."""
+    """`typed_text` is `DEFAULT_BACKEND`. Against invoices it scores zero.
+
+    CORRECTED 2026-08-13, PHASE 8 DECISION 1. This asserted `fabricated == 20`,
+    and 20 was the true measurement of a backend that took the FIRST number in
+    the document as the amount — on GT-0001 it read `GT/0001` and answered 100
+    paise for a bill of 14750, sourced `typed_text`.
+
+    The owner closed that: invoice-shaped text is REFUSED rather than guessed
+    at. The 20 fabrications are now 20 refusals, so this pins **0**. The score
+    is unchanged at zero correct, which is the point — refusing is not reading,
+    and nothing here got better at reading a bill. What changed is that the
+    twenty wrong totals no longer reach the ledger with a source on them.
+    """
     result = score(TypedTextExtractor())
 
     assert result.processed == 100
@@ -663,7 +673,8 @@ def test_the_production_default_backend_is_measured_rather_than_assumed() -> Non
     assert result.fields["date"].correct == 0
     assert result.fields["party"].correct == 0
     assert result.fields["total_amount"].correct == 0
-    assert result.fields["total_amount"].fabricated == 20
+    assert result.fields["total_amount"].fabricated == 0
+    assert result.fields["total_amount"].refused == 100
     assert result.passes_gate() is False
 
 

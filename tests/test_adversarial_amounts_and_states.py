@@ -75,6 +75,7 @@ from accountant.tallyio.factory import real_tally as connect_real_tally
 from accountant.tallyio.fake import FakeTally
 from accountant.web import app
 from tests import test_real_tally as sim_module
+from tests.test_period_handoff import open_books_for
 
 COMPANY = "Demo Co"
 ACCOUNTS = ("Purchases", "Repairs & Maintenance", "Cash")
@@ -194,6 +195,11 @@ def _run(client: RecordingTally, store: MemoryStore, text: str) -> pipeline.Draf
         today=TODAY,
         log=store,
         run_id=RUN_ID,
+        # Without a reader `period_open` is `None` - nobody looked - and the
+        # cage blocks every draft that reaches it. That refusal is correct and
+        # is pinned in `tests/test_period_handoff.py`; it is not what any test
+        # in THIS file is about, so the books are read and they are open.
+        period_reader=open_books_for(COMPANY),
     )
 
 
@@ -221,7 +227,14 @@ def _stubbed(
         memory,
         today=TODAY,
     )
-    return pipeline.evaluate(draft, accounts, client.read_vouchers(COMPANY), memory)
+    return pipeline.evaluate(
+        draft,
+        accounts,
+        client.read_vouchers(COMPANY),
+        memory,
+        period_open=None,
+        pdf_repaired=None,
+    )
 
 
 def _rows(store: MemoryStore, company: str = COMPANY) -> tuple[ActionLog, ...]:
@@ -751,7 +764,14 @@ def test_an_amount_tally_changed_under_us_is_also_accepted_in_silence() -> None:
 #                        not surviving to update a field. A `write_attempted`
 #                        with no partner row is the in-flight marker; the
 #                        partner is `posted` or `write_outcome_unknown`.
-#   POSTED               NOT A STATE. `Draft.posted_tally_id is not None`.
+#   POSTED               EXISTS SINCE 2026-08-13 as a real state value:
+#                        `cage.state.State.POSTED`, terminal, reached only by
+#                        `WriteConfirmed` from POSTING. Before the cage it was
+#                        `Draft.posted_tally_id is not None` - a field being
+#                        non-None, which cannot say whether the write was
+#                        confirmed or merely attempted. The field is still
+#                        there and still means what it meant; the state is the
+#                        thing that now has a transition into it.
 #   READ_BACK_VERIFIED   DOES NOT EXIST as a state value, but since 2026-08-09
 #                        it is a real VERDICT: `real.ReadBackVerdict`, with
 #                        `outcome`, the differing `fields`, and `confirmed`.
@@ -773,7 +793,12 @@ INVENTED_STATE_NAMES = (
     # "POSTING" was here until 2026-08-09. It is no longer invented: W2's
     # write-ahead row gives it a durable representation, and this list is only
     # honest while it names things that really are absent.
-    "POSTED",
+    #
+    # "POSTED" was here until 2026-08-13, and left for the same reason:
+    # `cage.state.State.POSTED` is a real, terminal state value with a real
+    # transition into it. This test failed the moment the state machine landed,
+    # which is what it is for - the map above was updated and the count below
+    # lowered together, per the instruction in this file's own error message.
     "READ_BACK_VERIFIED",
     "READ_BACK_FAILED",
     "CLEANED",
@@ -807,11 +832,13 @@ def test_eight_of_the_thirteen_state_names_do_not_exist_in_the_shipped_package()
         f"a state this file reports as absent now exists: {found}. Update the "
         "map at the top of PART B rather than deleting the assertion."
     )
-    # EIGHT since 2026-08-09. "POSTING" left this list when W2's write-ahead
-    # row gave it a durable representation. The count is asserted so the list
-    # cannot be quietly shortened to make a failure go away - shortening it is
-    # allowed, but only together with this number and the map above it.
-    assert len(INVENTED_STATE_NAMES) == 8
+    # SEVEN since 2026-08-13. "POSTING" left on 2026-08-09 when W2's
+    # write-ahead row gave it a durable representation; "POSTED" left when
+    # `cage.state.State.POSTED` gave it a real one. The count is asserted so
+    # the list cannot be quietly shortened to make a failure go away -
+    # shortening it is allowed, but only together with this number and the map
+    # above it, which is exactly the procedure both removals followed.
+    assert len(INVENTED_STATE_NAMES) == 7
 
     # The four that DO exist, pinned so the absence above cannot be vacuous.
     for present in ("READY", "EMPTY_SOURCE", "NOT_VALID", "UNCLEAR"):
@@ -864,17 +891,51 @@ def test_the_states_that_do_exist_are_exactly_these_two_enums() -> None:
     #              makes - a Runtime cannot exist half built - now covers one
     #              more thing than it did. A default here is exactly what would
     #              weaken it, and there is none.
+    # UPDATED 2026-08-15, same rule, and the second half is now scoped rather
+    # than weakened.
+    #
+    #   old        the five above
+    #   new        the same five, plus "period_reader"
+    #   why        the cage asks whether the books are open for the date on the
+    #              bill. `connect()` - the only path holding a `TallyConfig` -
+    #              builds a reader; `configure()` with a double cannot, because
+    #              there is no gateway behind a fake client and a probe would be
+    #              a socket call to whatever is on port 9000 of this machine.
+    #   default?   YES, and it is the ONLY field here that carries one, so the
+    #              blanket claim below could not survive unchanged. It is
+    #              SCOPED and not dropped: every other field must still have no
+    #              default, and this one's default must be exactly `None`.
+    #
+    #              The distinction is fail-open versus fail-closed and it is the
+    #              whole reason one default is allowed here. A missing
+    #              `extractor` would be a silent capability loss - the object
+    #              looks connected and reads nothing. A missing `period_reader`
+    #              is `None`, `Runtime.period_open` returns `None`, the cage
+    #              reads that as "nobody looked" and BLOCKS. The dangerous
+    #              default would be a reader that answered `True`, and pinning
+    #              the default to `None` is what makes that a test failure
+    #              rather than a code review somebody has to remember to do.
     assert [f.name for f in dataclasses.fields(app.Runtime)] == [
         "client",
         "identity",
         "memory",
         "store",
         "extractor",
+        "period_reader",
     ], "CONNECTED is this object existing, and it cannot exist half built"
     assert all(
         f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING
         for f in dataclasses.fields(app.Runtime)
+        if f.name != "period_reader"
     ), "a Runtime field with a default is a Runtime that can be built half empty"
+    period_reader = next(
+        f for f in dataclasses.fields(app.Runtime) if f.name == "period_reader"
+    )
+    assert period_reader.default is None, (
+        "the one field allowed a default must default to the value that BLOCKS. "
+        f"This one defaults to {period_reader.default!r}."
+    )
+    assert period_reader.default_factory is dataclasses.MISSING
 
 
 # ---- the six dangerous transitions ------------------------------------------
@@ -907,6 +968,10 @@ def _app_serving(client: RecordingTally) -> Generator[str]:
                 licence_detail="constructed by this test; nothing was measured",
             ),
             store=MemoryStore(":memory:"),
+            # `configure` builds no reader of its own - see the Runtime field
+            # assertions above - so without this the served app blocks on
+            # "nobody looked whether the books are open".
+            period_reader=open_books_for(app.COMPANY),
         )
         ready.set()
         httpd.serve_forever()
@@ -1089,6 +1154,7 @@ def test_a_bootstrap_that_failed_part_way_through_posts_nothing() -> None:
         today=TODAY,
         log=store,
         run_id=RUN_ID,
+        period_reader=open_books_for(COMPANY),
     )
     assert again.outcome is Outcome.VALID
     assert len(client.writes) == 1
@@ -1146,14 +1212,32 @@ def test_an_empty_source_company_may_be_asked_but_proposes_and_writes_nothing() 
     accounts = client.read_accounts(COMPANY)
     draft = pipeline.answer(draft, "Purchases")
     memory.record_correction(draft.voucher.party, "Purchases")
-    draft = pipeline.evaluate(draft, accounts, client.read_vouchers(COMPANY), memory)
+    draft = pipeline.evaluate(
+        draft,
+        accounts,
+        client.read_vouchers(COMPANY),
+        memory,
+        # This half of D2a is about the ANSWER creating a mapping, so the one
+        # fact the answer cannot supply is read rather than left at "nobody
+        # looked" - which blocks, and would make the post below unreachable for
+        # a reason that has nothing to do with D2a.
+        period_open=True,
+        pdf_repaired=None,
+    )
 
     # An empty-source company has no history at all, so it cannot say how this
     # vendor was paid either. Both legs are asked about; neither is invented.
     assert draft.outcome is Outcome.UNCLEAR
     assert client.writes == [], "still nothing written while a question is open"
     draft = pipeline.answer(draft, "Cash", problem_id=pipeline.FUNDING_PROBLEM)
-    draft = pipeline.evaluate(draft, accounts, client.read_vouchers(COMPANY), memory)
+    draft = pipeline.evaluate(
+        draft,
+        accounts,
+        client.read_vouchers(COMPANY),
+        memory,
+        period_open=True,
+        pdf_repaired=None,
+    )
 
     assert draft.outcome is Outcome.VALID
     draft = pipeline.post(draft, client)
@@ -1195,7 +1279,14 @@ def test_a_not_valid_entry_is_refused_by_the_post_gate_and_moves_no_money() -> N
 
     draft = _stubbed(client, memory, total_paise=4200)
     draft.voucher = dataclasses.replace(draft.voucher, amount_paise=4200.5)  # type: ignore[arg-type]
-    draft = pipeline.evaluate(draft, accounts, client.read_vouchers(COMPANY), memory)
+    draft = pipeline.evaluate(
+        draft,
+        accounts,
+        client.read_vouchers(COMPANY),
+        memory,
+        period_open=None,
+        pdf_repaired=None,
+    )
 
     assert draft.outcome is Outcome.NOT_VALID
     assert draft.reason == "amount_is_integer_paise: amount is float"
@@ -1302,7 +1393,17 @@ def test_a_failed_read_back_is_never_recorded_as_a_posted_entry() -> None:
         memory,
         today=TODAY,
     )
-    draft = pipeline.evaluate(draft, accounts, client.read_vouchers(COMPANY), memory)
+    draft = pipeline.evaluate(
+        draft,
+        accounts,
+        client.read_vouchers(COMPANY),
+        memory,
+        # This test is about the READ-BACK, so the draft has to get past the
+        # Valid gate on its own merits; "nobody looked at the period" would
+        # stop it one step earlier and prove nothing about the read-back.
+        period_open=True,
+        pdf_repaired=None,
+    )
     assert draft.outcome is Outcome.VALID, "the Valid gate is not what stops this"
 
     blind = _Blind(client)

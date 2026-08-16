@@ -55,6 +55,28 @@ gateway. It was attempted and Tally answered:
 **Do not retry it over XML.** Retrying teaches nothing and it is how the gateway
 got wedged the last time somebody went looking for a workaround.
 
+**Owner decision 2026-08-12 — this is a permanent scope boundary, not an open
+problem.** Tally's XML gateway imports and exports masters and transactions into
+a company that is *already loaded*. Creating a company is an administrative flow
+in the TallyPrime window and is not on the documented integration surface at
+all, so `Unknown Request, cannot be processed` is Tally answering correctly
+rather than failing. The split — a person creates and opens the company, the
+software does everything after that — is the same for this run and for every
+future customer being onboarded. Written up in
+`RUNBOOK_PHASE5_ACCEPTANCE.md` §A.0.1. Do not reopen it.
+
+`B-01` therefore stays an ENVIRONMENT blocker for ever. It is not waiting on a
+design decision or on someone finding a cleverer envelope; it is waiting on two
+minutes of clicking, and that is all it will ever be waiting on.
+
+**Not blocked on this: the integration pattern itself.** A licensed TallyPrime,
+a company a person created in the GUI, ledgers created over XML and a voucher
+posted and read back — that happened on 2026-08-12 against `TANVEER SIDHU`
+(`PROJECT_STATE.md` §47). It is **not** an acceptance pass and is not recorded
+as one: four of the fifteen conditions were touched, one of those failed, and
+condition 14 is still failing in those books today. Condition by condition in
+`RUNBOOK_PHASE5_ACCEPTANCE.md` PART J.
+
 - **Stops:** the live validation run (`5-LIVE`), the Tally spine's exit, launch
   gates `LG-09` and `LG-18`.
 - **Cleared by:** the owner, in the GUI, in about two minutes.

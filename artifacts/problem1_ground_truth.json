@@ -1,0 +1,2552 @@
+{
+  "real-voxel51-01": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Andrews, Kirby and Valdez",
+      "evidence": "under the 'Seller:' heading in the left column",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "04/13/2013",
+      "evidence": "'Date of issue:  04/13/2013' below title, MM/DD/YYYY",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "51109338",
+      "evidence": "'Invoice no: 51109338' as the page title",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 620419,
+        "text": "6 204,19",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'Gross worth' column: $ 6 204,19",
+      "page": 1,
+      "sub_total_also_printed": {
+        "text": "5 640,17",
+        "warning": "The same 'Total' row also prints 'Net worth' $ 5 640,17, which is the PRE-TAX figure. Reading the leftmost money cell posts the bill short by exactly the tax."
+      }
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 56402,
+        "text": "564,02",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'VAT' column: $ 564,02",
+      "page": 1
+    }
+  },
+  "real-voxel51-02": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Campos-Hawkins",
+      "evidence": "under the 'Seller:' heading in the left column",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "01/08/2020",
+      "evidence": "'Date of issue:  01/08/2020' below title, MM/DD/YYYY",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "26622011",
+      "evidence": "'Invoice no: 26622011' as the page title",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 98670,
+        "text": "986,70",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'Gross worth' column: $ 986,70",
+      "page": 1,
+      "sub_total_also_printed": {
+        "text": "897,00",
+        "warning": "The same 'Total' row also prints 'Net worth' $ 897,00, which is the PRE-TAX figure. Reading the leftmost money cell posts the bill short by exactly the tax."
+      }
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 8970,
+        "text": "89,70",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'VAT' column: $ 89,70",
+      "page": 1
+    }
+  },
+  "real-voxel51-03": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Morales-Snyder",
+      "evidence": "under the 'Seller:' heading in the left column",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "01/17/2019",
+      "evidence": "'Date of issue:  01/17/2019' below title, MM/DD/YYYY",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "26413291",
+      "evidence": "'Invoice no: 26413291' as the page title",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 7858,
+        "text": "78,58",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'Gross worth' column: $ 78,58",
+      "page": 1,
+      "sub_total_also_printed": {
+        "text": "71,44",
+        "warning": "The same 'Total' row also prints 'Net worth' $ 71,44, which is the PRE-TAX figure. Reading the leftmost money cell posts the bill short by exactly the tax."
+      }
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 714,
+        "text": "7,14",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'VAT' column: $ 7,14",
+      "page": 1
+    }
+  },
+  "real-voxel51-04": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Mcpherson, Stark and Rodriguez",
+      "evidence": "under the 'Seller:' heading in the left column",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "10/28/2019",
+      "evidence": "'Date of issue:  10/28/2019' below title, MM/DD/YYYY",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "35163496",
+      "evidence": "'Invoice no: 35163496' as the page title",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 79210,
+        "text": "792,10",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'Gross worth' column: $ 792,10",
+      "page": 1,
+      "sub_total_also_printed": {
+        "text": "720,09",
+        "warning": "The same 'Total' row also prints 'Net worth' $ 720,09, which is the PRE-TAX figure. Reading the leftmost money cell posts the bill short by exactly the tax."
+      }
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 7201,
+        "text": "72,01",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'VAT' column: $ 72,01",
+      "page": 1
+    }
+  },
+  "real-voxel51-05": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Padilla, Webb and Pearson",
+      "evidence": "under the 'Seller:' heading in the left column",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "11/26/2018",
+      "evidence": "'Date of issue:  11/26/2018' below title, MM/DD/YYYY",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "56427222",
+      "evidence": "'Invoice no: 56427222' as the page title",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 30793,
+        "text": "307,93",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'Gross worth' column: $ 307,93",
+      "page": 1,
+      "sub_total_also_printed": {
+        "text": "279,94",
+        "warning": "The same 'Total' row also prints 'Net worth' $ 279,94, which is the PRE-TAX figure. Reading the leftmost money cell posts the bill short by exactly the tax."
+      }
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 2799,
+        "text": "27,99",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'VAT' column: $ 27,99",
+      "page": 1
+    }
+  },
+  "real-voxel51-06": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Vasquez-Brennan",
+      "evidence": "under the 'Seller:' heading in the left column",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "11/14/2015",
+      "evidence": "'Date of issue:  11/14/2015' below title, MM/DD/YYYY",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "68743594",
+      "evidence": "'Invoice no: 68743594' as the page title",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 4595,
+        "text": "45,95",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'Gross worth' column: $ 45,95",
+      "page": 1,
+      "sub_total_also_printed": {
+        "text": "41,77",
+        "warning": "The same 'Total' row also prints 'Net worth' $ 41,77, which is the PRE-TAX figure. Reading the leftmost money cell posts the bill short by exactly the tax."
+      }
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 418,
+        "text": "4,18",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'VAT' column: $ 4,18",
+      "page": 1
+    }
+  },
+  "real-voxel51-07": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Jackson-Martinez",
+      "evidence": "under the 'Seller:' heading in the left column",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "07/06/2019",
+      "evidence": "'Date of issue:  07/06/2019' below title, MM/DD/YYYY",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "87278875",
+      "evidence": "'Invoice no: 87278875' as the page title",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 7561,
+        "text": "75,61",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'Gross worth' column: $ 75,61",
+      "page": 1,
+      "sub_total_also_printed": {
+        "text": "68,74",
+        "warning": "The same 'Total' row also prints 'Net worth' $ 68,74, which is the PRE-TAX figure. Reading the leftmost money cell posts the bill short by exactly the tax."
+      }
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 687,
+        "text": "6,87",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'VAT' column: $ 6,87",
+      "page": 1
+    }
+  },
+  "real-voxel51-08": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Barton, Garcia and Richards",
+      "evidence": "under the 'Seller:' heading in the left column",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "07/03/2013",
+      "evidence": "'Date of issue:  07/03/2013' below title, MM/DD/YYYY",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "22537855",
+      "evidence": "'Invoice no: 22537855' as the page title",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 1055900,
+        "text": "10 559,00",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'Gross worth' column: $ 10 559,00",
+      "page": 1,
+      "sub_total_also_printed": {
+        "text": "9 599,09",
+        "warning": "The same 'Total' row also prints 'Net worth' $ 9 599,09, which is the PRE-TAX figure. Reading the leftmost money cell posts the bill short by exactly the tax."
+      }
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 95991,
+        "text": "959,91",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'VAT' column: $ 959,91",
+      "page": 1
+    }
+  },
+  "real-voxel51-09": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Gross, Williams and Robinson",
+      "evidence": "under the 'Seller:' heading in the left column",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "12/26/2012",
+      "evidence": "'Date of issue:  12/26/2012' below title, MM/DD/YYYY",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "90885385",
+      "evidence": "'Invoice no: 90885385' as the page title",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 39796,
+        "text": "397,96",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'Gross worth' column: $ 397,96",
+      "page": 1,
+      "sub_total_also_printed": {
+        "text": "361,78",
+        "warning": "The same 'Total' row also prints 'Net worth' $ 361,78, which is the PRE-TAX figure. Reading the leftmost money cell posts the bill short by exactly the tax."
+      }
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 3618,
+        "text": "36,18",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'VAT' column: $ 36,18",
+      "page": 1
+    }
+  },
+  "real-voxel51-10": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Smith and Sons",
+      "evidence": "under the 'Seller:' heading in the left column",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "08/03/2013",
+      "evidence": "'Date of issue:  08/03/2013' below title, MM/DD/YYYY",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "20653012",
+      "evidence": "'Invoice no: 20653012' as the page title",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 64015,
+        "text": "640,15",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'Gross worth' column: $ 640,15",
+      "page": 1,
+      "sub_total_also_printed": {
+        "text": "581,95",
+        "warning": "The same 'Total' row also prints 'Net worth' $ 581,95, which is the PRE-TAX figure. Reading the leftmost money cell posts the bill short by exactly the tax."
+      }
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 5820,
+        "text": "58,20",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'VAT' column: $ 58,20",
+      "page": 1
+    }
+  },
+  "real-voxel51-11": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Taylor-Davis",
+      "evidence": "under the 'Seller:' heading in the left column",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "07/16/2013",
+      "evidence": "'Date of issue:  07/16/2013' below title, MM/DD/YYYY",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "18393770",
+      "evidence": "'Invoice no: 18393770' as the page title",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 433411,
+        "text": "4 334,11",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'Gross worth' column: $ 4 334,11",
+      "page": 1,
+      "sub_total_also_printed": {
+        "text": "3 940,10",
+        "warning": "The same 'Total' row also prints 'Net worth' $ 3 940,10, which is the PRE-TAX figure. Reading the leftmost money cell posts the bill short by exactly the tax."
+      }
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 39401,
+        "text": "394,01",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'VAT' column: $ 394,01",
+      "page": 1
+    }
+  },
+  "real-voxel51-12": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Moore and Sons",
+      "evidence": "under the 'Seller:' heading in the left column",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "10/29/2011",
+      "evidence": "'Date of issue:  10/29/2011' below title, MM/DD/YYYY",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "72415673",
+      "evidence": "'Invoice no: 72415673' as the page title",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 6156850,
+        "text": "61 568,50",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'Gross worth' column: $ 61 568,50",
+      "page": 1,
+      "sub_total_also_printed": {
+        "text": "55 971,36",
+        "warning": "The same 'Total' row also prints 'Net worth' $ 55 971,36, which is the PRE-TAX figure. Reading the leftmost money cell posts the bill short by exactly the tax."
+      }
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 559714,
+        "text": "5 597,14",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'VAT' column: $ 5 597,14",
+      "page": 1
+    }
+  },
+  "real-voxel51-13": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Forbes LLC",
+      "evidence": "under the 'Seller:' heading in the left column",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "08/23/2015",
+      "evidence": "'Date of issue:  08/23/2015' below title, MM/DD/YYYY",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "89305462",
+      "evidence": "'Invoice no: 89305462' as the page title",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 53867,
+        "text": "538,67",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'Gross worth' column: $ 538,67",
+      "page": 1,
+      "sub_total_also_printed": {
+        "text": "489,70",
+        "warning": "The same 'Total' row also prints 'Net worth' $ 489,70, which is the PRE-TAX figure. Reading the leftmost money cell posts the bill short by exactly the tax."
+      }
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 4897,
+        "text": "48,97",
+        "currency": "USD"
+      },
+      "evidence": "SUMMARY table, 'Total' row, 'VAT' column: $ 48,97",
+      "page": 1
+    }
+  },
+  "real-commons-01": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Alliance francaise de Pondichery",
+      "evidence": "letterhead top left, beside the 'af' logo",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "23-10-2014",
+      "evidence": "boxed 'DATE  23-10-2014' at the top right",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "320/10/2014/OL/DC",
+      "evidence": "boxed 'Invoice #  320/10/2014/OL/DC' at the top right",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 400000,
+        "text": "4,000.00",
+        "currency": "INR"
+      },
+      "evidence": "'Total  Rs 4,000.00' in the boxed row below the items",
+      "page": 1,
+      "sub_total_also_printed": {
+        "paise": 400000,
+        "text": "4,000.00",
+        "warning": "This document prints BOTH 'Sub Total' and 'Total' and on this bill they are EQUAL, because there is no tax. Equal here is a coincidence of this document, not a rule."
+      }
+    },
+    "tax": {
+      "status": "ABSENT",
+      "value": null,
+      "evidence": "no tax row of any kind is printed: no GST, CGST, SGST, IGST, VAT or service tax label appears. ABSENT, NOT zero",
+      "page": 1
+    }
+  },
+  "synthetic-001": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Verma Electricals",
+      "evidence": "'Verma Electricals' as the seller heading at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "VER/2023/1001",
+      "evidence": "'Invoice No: VER/2023/1001'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "17/09/2023",
+      "evidence": "'Date: 17/09/2023'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 165795,
+        "text": "1657.95"
+      },
+      "evidence": "CGST @ 2% 828.97 + SGST @ 2% 828.98 = 1657.95",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 3481695,
+        "text": "34816.95"
+      },
+      "evidence": "'GRAND TOTAL   34816.95' on ONE line",
+      "page": 1,
+      "sub_total_also_printed": {
+        "paise": 3315900,
+        "text": "33159.00",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-002": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Rao Cold Storage",
+      "evidence": "'Rao Cold Storage' as the seller heading at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "RAO/2023/1002",
+      "evidence": "'Invoice No: RAO/2023/1002'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "16-11-2023",
+      "evidence": "'Date: 16-11-2023'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 83562,
+        "text": "835.62"
+      },
+      "evidence": "IGST @ 12% 835.62",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 779912,
+        "text": "7,799.12"
+      },
+      "evidence": "'TOTAL' with '7,799.12' on the NEXT line",
+      "page": 1
+    }
+  },
+  "synthetic-003": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Iyer Provision Stores",
+      "evidence": "'Iyer Provision Stores' centred as the letterhead",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "IYE/2025/1003",
+      "evidence": "'Invoice No: IYE/2025/1003'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "20/08/2025",
+      "evidence": "'Date: 20/08/2025'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 2326050,
+        "text": "23,260.50"
+      },
+      "evidence": "CGST @ 9% 11,630.25 + SGST @ 9% 11,630.25 = 23,260.50",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 15248550,
+        "text": "1,52,485.50"
+      },
+      "evidence": "'TOTAL   1,52,485.50' on ONE line",
+      "page": 1
+    }
+  },
+  "synthetic-004": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Bose Stationery Mart",
+      "evidence": "'Bose Stationery Mart' centred at the top of the receipt",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "BOS/2026/1004",
+      "evidence": "'Bill No BOS/2026/1004'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "19-01-2026",
+      "evidence": "'Dt 19-01-2026'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 112980,
+        "text": "1,129.80"
+      },
+      "evidence": "'IGST 28%  1,129.80'",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 516480,
+        "text": "5,164.80"
+      },
+      "evidence": "'TOTAL   5,164.80' on ONE line",
+      "page": 1,
+      "sub_total_also_printed": {
+        "paise": 403500,
+        "text": "4,035.00",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-005": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Sundaram Traders",
+      "evidence": "'Sundaram Traders' at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "SUN/2025/1005",
+      "evidence": "'INVOICE NUMBER' with 'SUN/2025/1005' on the NEXT line",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "13/01/2025",
+      "evidence": "'INVOICE DATE' with '13/01/2025' on the NEXT line",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 1941695,
+        "text": "19,416.95"
+      },
+      "evidence": "CGST @ 2% 9,708.47 + SGST @ 2% 9,708.48 = 19,416.95",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 40775595,
+        "text": "4,07,755.95"
+      },
+      "evidence": "'TOTAL   4,07,755.95' on ONE line",
+      "page": 1
+    }
+  },
+  "synthetic-006": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Verma Electricals",
+      "evidence": "'Verma Electricals' at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "VER/2023/1006",
+      "evidence": "'No. VER/2023/1006'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "27-07-2023",
+      "evidence": "'Dated 27-07-2023'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 3453612,
+        "text": "34536.12"
+      },
+      "evidence": "IGST @ 12% 34536.12",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 32233712,
+        "text": "322337.12"
+      },
+      "evidence": "'TOTAL' with '322337.12' on the NEXT line",
+      "page": 1
+    }
+  },
+  "synthetic-007": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Sundaram Traders",
+      "evidence": "'Sundaram Traders' as the seller heading at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "SUN/2024/1007",
+      "evidence": "'Invoice No: SUN/2024/1007'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "14/03/2024",
+      "evidence": "'Date: 14/03/2024'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 589932,
+        "text": "5,899.32"
+      },
+      "evidence": "CGST @ 9% 2,949.66 + SGST @ 9% 2,949.66 = 5,899.32",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 3867332,
+        "text": "38,673.32"
+      },
+      "evidence": "'GRAND TOTAL   38,673.32' on ONE line",
+      "page": 1,
+      "sub_total_also_printed": {
+        "paise": 3277400,
+        "text": "32,774.00",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-008": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Sundaram Traders",
+      "evidence": "'Sundaram Traders' as the seller heading at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "SUN/2025/1008",
+      "evidence": "'Invoice No: SUN/2025/1008'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "28-01-2025",
+      "evidence": "'Date: 28-01-2025'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 1823304,
+        "text": "18,233.04"
+      },
+      "evidence": "IGST @ 28% 18,233.04",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 8335104,
+        "text": "83,351.04"
+      },
+      "evidence": "'TOTAL   83,351.04' on ONE line",
+      "page": 1
+    }
+  },
+  "synthetic-009": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Patel Auto Spares",
+      "evidence": "'Patel Auto Spares' as the seller heading at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "PAT/2024/1009",
+      "evidence": "'Invoice No: PAT/2024/1009'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "21/10/2024",
+      "evidence": "'Date: 21/10/2024'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 28700,
+        "text": "287.00"
+      },
+      "evidence": "CGST @ 2% 143.50 + SGST @ 2% 143.50 = 287.00",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 602700,
+        "text": "6,027.00"
+      },
+      "evidence": "'TOTAL   6,027.00' on ONE line",
+      "page": 1
+    }
+  },
+  "synthetic-010": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Sundaram Traders",
+      "evidence": "'Sundaram Traders' centred as the letterhead",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "SUN/2024/1010",
+      "evidence": "'Invoice No: SUN/2024/1010'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "08-02-2024",
+      "evidence": "'Date: 08-02-2024'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 1844340,
+        "text": "18,443.40"
+      },
+      "evidence": "IGST @ 12% 18,443.40",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 17213840,
+        "text": "1,72,138.40"
+      },
+      "evidence": "'GRAND TOTAL' with '1,72,138.40' on the NEXT line",
+      "page": 1,
+      "sub_total_also_printed": {
+        "paise": 15369500,
+        "text": "1,53,695.00",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-011": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Sundaram Traders",
+      "evidence": "'Sundaram Traders' centred at the top of the receipt",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "SUN/2023/1011",
+      "evidence": "'Bill No SUN/2023/1011'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "03/06/2023",
+      "evidence": "'Dt 03/06/2023'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 2097738,
+        "text": "20977.38"
+      },
+      "evidence": "'GST 18%  20977.38'",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 13751838,
+        "text": "137518.38"
+      },
+      "evidence": "'TOTAL   137518.38' on ONE line",
+      "page": 1
+    }
+  },
+  "synthetic-012": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Bose Stationery Mart",
+      "evidence": "'Bose Stationery Mart' at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "BOS/2025/1012",
+      "evidence": "'INVOICE NUMBER' with 'BOS/2025/1012' on the NEXT line",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "06-12-2025",
+      "evidence": "'INVOICE DATE' with '06-12-2025' on the NEXT line",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 127988,
+        "text": "1,279.88"
+      },
+      "evidence": "IGST @ 28% 1,279.88",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 585088,
+        "text": "5,850.88"
+      },
+      "evidence": "'TOTAL   5,850.88' on ONE line",
+      "page": 1
+    }
+  },
+  "synthetic-013": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Patel Auto Spares",
+      "evidence": "'Patel Auto Spares' as the seller heading at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "PAT/2023/1013",
+      "evidence": "'Invoice No: PAT/2023/1013'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "17/11/2023",
+      "evidence": "'Date: 17/11/2023'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 3434688,
+        "text": "34,346.88"
+      },
+      "evidence": "IGST @ 12% 34,346.88",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 32057088,
+        "text": "3,20,570.88"
+      },
+      "evidence": "'GRAND TOTAL' with '3,20,570.88' on the NEXT line",
+      "page": 1,
+      "sub_total_also_printed": {
+        "paise": 28622400,
+        "text": "2,86,224.00",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-014": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Patel Auto Spares",
+      "evidence": "'Patel Auto Spares' as the seller heading at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "PAT/2023/1014",
+      "evidence": "'Invoice No: PAT/2023/1014'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "28-10-2023",
+      "evidence": "'Date: 28-10-2023'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 4299336,
+        "text": "42,993.36"
+      },
+      "evidence": "CGST @ 9% 21,496.68 + SGST @ 9% 21,496.68 = 42,993.36",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 28184536,
+        "text": "2,81,845.36"
+      },
+      "evidence": "'GRAND TOTAL   2,81,845.36' on ONE line",
+      "page": 1,
+      "sub_total_also_printed": {
+        "paise": 23885200,
+        "text": "2,38,852.00",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-015": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Konkan Hardware Stores",
+      "evidence": "'Konkan Hardware Stores' centred as the letterhead",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "KON/2023/1015",
+      "evidence": "'Invoice No: KON/2023/1015'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "11/12/2023",
+      "evidence": "'Date: 11/12/2023'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 2741952,
+        "text": "27,419.52"
+      },
+      "evidence": "IGST @ 12% 27,419.52",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 25591552,
+        "text": "2,55,915.52"
+      },
+      "evidence": "'GRAND TOTAL' with '2,55,915.52' on the NEXT line",
+      "page": 1,
+      "sub_total_also_printed": {
+        "paise": 22849600,
+        "text": "2,28,496.00",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-016": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Nilgiri Tea Supply Co",
+      "evidence": "'Nilgiri Tea Supply Co' centred at the top of the receipt",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "NIL/2023/1016",
+      "evidence": "'Bill No NIL/2023/1016'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "19-01-2023",
+      "evidence": "'Dt 19-01-2023'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 4505220,
+        "text": "45,052.20"
+      },
+      "evidence": "'GST 18%  45,052.20'",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 29534220,
+        "text": "2,95,342.20"
+      },
+      "evidence": "'TOTAL   2,95,342.20' on ONE line",
+      "page": 1,
+      "sub_total_also_printed": {
+        "paise": 25029000,
+        "text": "2,50,290.00",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-017": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Patel Auto Spares",
+      "evidence": "'Patel Auto Spares' at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "PAT/2023/1017",
+      "evidence": "'INVOICE NUMBER' with 'PAT/2023/1017' on the NEXT line",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "05/09/2023",
+      "evidence": "'INVOICE DATE' with '05/09/2023' on the NEXT line",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 2743200,
+        "text": "27,432.00"
+      },
+      "evidence": "IGST @ 12% 27,432.00",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 25603200,
+        "text": "2,56,032.00"
+      },
+      "evidence": "'GRAND TOTAL' with '2,56,032.00' on the NEXT line",
+      "page": 1,
+      "sub_total_also_printed": {
+        "paise": 22860000,
+        "text": "2,28,600.00",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-018": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Bose Stationery Mart",
+      "evidence": "'Bose Stationery Mart' at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "BOS/2024/1018",
+      "evidence": "'No. BOS/2024/1018'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "05-07-2024",
+      "evidence": "'Dated 05-07-2024'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 4106916,
+        "text": "41,069.16"
+      },
+      "evidence": "CGST @ 9% 20,534.58 + SGST @ 9% 20,534.58 = 41,069.16",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 26923116,
+        "text": "2,69,231.16"
+      },
+      "evidence": "'GRAND TOTAL   2,69,231.16' on ONE line",
+      "page": 1,
+      "sub_total_also_printed": {
+        "paise": 22816200,
+        "text": "2,28,162.00",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-019": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Sundaram Traders",
+      "evidence": "'Sundaram Traders' as the seller heading at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "SUN/2024/1019",
+      "evidence": "'Invoice No: SUN/2024/1019'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "02/11/2024",
+      "evidence": "'Date: 02/11/2024'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 7161552,
+        "text": "71,615.52"
+      },
+      "evidence": "IGST @ 12% 71,615.52",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 66841152,
+        "text": "6,68,411.52"
+      },
+      "evidence": "'GRAND TOTAL' with '6,68,411.52' on the NEXT line",
+      "page": 1,
+      "sub_total_also_printed": {
+        "paise": 59679600,
+        "text": "5,96,796.00",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-020": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Nilgiri Tea Supply Co",
+      "evidence": "'Nilgiri Tea Supply Co' as the seller heading at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "NIL/2023/1020",
+      "evidence": "'Invoice No: NIL/2023/1020'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "20-04-2023",
+      "evidence": "'Date: 20-04-2023'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 4069980,
+        "text": "40,699.80"
+      },
+      "evidence": "CGST @ 9% 20,349.90 + SGST @ 9% 20,349.90 = 40,699.80",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 26680980,
+        "text": "2,66,809.80"
+      },
+      "evidence": "'GRAND TOTAL   2,66,809.80' on ONE line",
+      "page": 1,
+      "sub_total_also_printed": {
+        "paise": 22611000,
+        "text": "2,26,110.00",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-021": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Nilgiri Tea Supply Co",
+      "evidence": "'Nilgiri Tea Supply Co' as the seller heading at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "NIL/2024/1021",
+      "evidence": "'Invoice No: NIL/2024/1021'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "09/11/2024",
+      "evidence": "'Date: 09/11/2024'",
+      "page": 1
+    },
+    "tax": {
+      "status": "ABSENT",
+      "value": null,
+      "evidence": "non-GST bill: no CGST, SGST, IGST, VAT or tax line is printed. ABSENT, NOT zero - nobody printed a zero",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 5352500,
+        "text": "53,525.00"
+      },
+      "evidence": "'GRAND TOTAL' with '53,525.00' on the NEXT line",
+      "page": 1,
+      "sub_total_also_printed": {
+        "paise": 5352500,
+        "text": "53,525.00",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-022": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Sundaram Traders",
+      "evidence": "'Sundaram Traders' as the seller heading at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "SUN/2025/1022",
+      "evidence": "'Invoice No: SUN/2025/1022'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "26-08-2025",
+      "evidence": "'Date: 26-08-2025'",
+      "page": 1
+    },
+    "tax": {
+      "status": "ABSENT",
+      "value": null,
+      "evidence": "non-GST bill: no CGST, SGST, IGST, VAT or tax line is printed. ABSENT, NOT zero - nobody printed a zero",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 10521000,
+        "text": "1,05,210.00"
+      },
+      "evidence": "'TOTAL   1,05,210.00' on ONE line",
+      "page": 1
+    }
+  },
+  "synthetic-023": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Iyer Provision Stores",
+      "evidence": "'Iyer Provision Stores' centred as the letterhead",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "IYE/2025/1023",
+      "evidence": "'Invoice No: IYE/2025/1023'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "18/02/2025",
+      "evidence": "'Date: 18/02/2025'",
+      "page": 1
+    },
+    "tax": {
+      "status": "ABSENT",
+      "value": null,
+      "evidence": "non-GST bill: no CGST, SGST, IGST, VAT or tax line is printed. ABSENT, NOT zero - nobody printed a zero",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 683000,
+        "text": "6,830.00"
+      },
+      "evidence": "'GRAND TOTAL   6,830.00' on ONE line",
+      "page": 1,
+      "sub_total_also_printed": {
+        "paise": 683000,
+        "text": "6,830.00",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-024": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Verma Electricals",
+      "evidence": "'Verma Electricals' centred at the top of the receipt",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "VER/2023/1024",
+      "evidence": "'Bill No VER/2023/1024'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "12-11-2023",
+      "evidence": "'Dt 12-11-2023'",
+      "page": 1
+    },
+    "tax": {
+      "status": "ABSENT",
+      "value": null,
+      "evidence": "non-GST bill: no CGST, SGST, IGST, VAT or tax line is printed. ABSENT, NOT zero - nobody printed a zero",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 4859400,
+        "text": "48,594.00"
+      },
+      "evidence": "'TOTAL   48,594.00' on ONE line",
+      "page": 1
+    }
+  },
+  "synthetic-025": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Iyer Provision Stores",
+      "evidence": "'Iyer Provision Stores' at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "IYE/2025/1025",
+      "evidence": "'INVOICE NUMBER' with 'IYE/2025/1025' on the NEXT line",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "09/10/2025",
+      "evidence": "'INVOICE DATE' with '09/10/2025' on the NEXT line",
+      "page": 1
+    },
+    "tax": {
+      "status": "ABSENT",
+      "value": null,
+      "evidence": "non-GST bill: no CGST, SGST, IGST, VAT or tax line is printed. ABSENT, NOT zero - nobody printed a zero",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 31524750,
+        "text": "3,15,247.50"
+      },
+      "evidence": "'GRAND TOTAL   3,15,247.50' on ONE line",
+      "page": 1,
+      "sub_total_also_printed": {
+        "paise": 31524750,
+        "text": "3,15,247.50",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-026": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Nilgiri Tea Supply Co",
+      "evidence": "'Nilgiri Tea Supply Co' at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "NIL/2026/1026",
+      "evidence": "'No. NIL/2026/1026'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "15-04-2026",
+      "evidence": "'Dated 15-04-2026'",
+      "page": 1
+    },
+    "tax": {
+      "status": "ABSENT",
+      "value": null,
+      "evidence": "non-GST bill: no CGST, SGST, IGST, VAT or tax line is printed. ABSENT, NOT zero - nobody printed a zero",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 10886100,
+        "text": "1,08,861.00"
+      },
+      "evidence": "'TOTAL   1,08,861.00' on ONE line",
+      "page": 1
+    }
+  },
+  "synthetic-027": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Patel Auto Spares",
+      "evidence": "'Patel Auto Spares' centred as the letterhead",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "ABSENT",
+      "value": null,
+      "evidence": "no invoice number, bill number or 'No.' appears anywhere on the document",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "08/11/2024",
+      "evidence": "'Date: 08/11/2024'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 178587,
+        "text": "1,785.87"
+      },
+      "evidence": "IGST @ 18% 1,785.87",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 1170737,
+        "text": "11,707.37"
+      },
+      "evidence": "'GRAND TOTAL   11,707.37' on ONE line",
+      "page": 1,
+      "sub_total_also_printed": {
+        "paise": 992150,
+        "text": "9,921.50",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-028": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Sundaram Traders",
+      "evidence": "'Sundaram Traders' centred at the top of the receipt",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "ABSENT",
+      "value": null,
+      "evidence": "no invoice number, bill number or 'No.' appears anywhere on the document",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "18-11-2024",
+      "evidence": "'Dt 18-11-2024'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 1604808,
+        "text": "16,048.08"
+      },
+      "evidence": "'GST 18%  16,048.08'",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 10520408,
+        "text": "1,05,204.08"
+      },
+      "evidence": "'TOTAL   1,05,204.08' on ONE line",
+      "page": 1
+    }
+  },
+  "synthetic-029": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Patel Auto Spares",
+      "evidence": "'Patel Auto Spares' at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "ABSENT",
+      "value": null,
+      "evidence": "no invoice number, bill number or 'No.' appears anywhere on the document",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "21/09/2024",
+      "evidence": "'INVOICE DATE' with '21/09/2024' on the NEXT line",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 33840,
+        "text": "338.40"
+      },
+      "evidence": "IGST @ 18% 338.40",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 221840,
+        "text": "2,218.40"
+      },
+      "evidence": "'GRAND TOTAL   2,218.40' on ONE line",
+      "page": 1,
+      "sub_total_also_printed": {
+        "paise": 188000,
+        "text": "1,880.00",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-030": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Bose Stationery Mart",
+      "evidence": "'Bose Stationery Mart' at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "ABSENT",
+      "value": null,
+      "evidence": "no invoice number, bill number or 'No.' appears anywhere on the document",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "07-07-2026",
+      "evidence": "'Dated 07-07-2026'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 5724072,
+        "text": "57,240.72"
+      },
+      "evidence": "CGST @ 9% 28,620.36 + SGST @ 9% 28,620.36 = 57,240.72",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 37524472,
+        "text": "3,75,244.72"
+      },
+      "evidence": "'TOTAL   3,75,244.72' on ONE line",
+      "page": 1
+    }
+  },
+  "synthetic-031": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Sundaram Traders",
+      "evidence": "'Sundaram Traders' as the seller heading at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "SUN/2023/1031",
+      "evidence": "'Invoice No: SUN/2023/1031'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "06/02/2023",
+      "evidence": "'Date: 06/02/2023'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 2073636,
+        "text": "20,736.36"
+      },
+      "evidence": "CGST @ 9% 10,368.18 + SGST @ 9% 10,368.18 = 20,736.36",
+      "page": 1
+    },
+    "total": {
+      "status": "AMBIGUOUS",
+      "value": {
+        "candidates_paise": [
+          13593836,
+          13599392
+        ],
+        "candidates_text": [
+          "1,35,938.36",
+          "1,35,993.92"
+        ]
+      },
+      "evidence": "TWO different totals printed: 'TOTAL 1,35,938.36' and 'TOTAL PAYABLE 1,35,993.92'",
+      "page": 1,
+      "sub_total_also_printed": {
+        "paise": 11520200,
+        "text": "1,15,202.00",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-032": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Sundaram Traders",
+      "evidence": "'Sundaram Traders' centred as the letterhead",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "SUN/2024/1032",
+      "evidence": "'Invoice No: SUN/2024/1032'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "13-09-2024",
+      "evidence": "'Date: 13-09-2024'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 5886384,
+        "text": "58,863.84"
+      },
+      "evidence": "IGST @ 28% 58,863.84",
+      "page": 1
+    },
+    "total": {
+      "status": "AMBIGUOUS",
+      "value": {
+        "candidates_paise": [
+          26909184,
+          26952043
+        ],
+        "candidates_text": [
+          "2,69,091.84",
+          "2,69,520.43"
+        ]
+      },
+      "evidence": "TWO different totals printed: 'TOTAL 2,69,091.84' and 'TOTAL PAYABLE 2,69,520.43'",
+      "page": 1
+    }
+  },
+  "synthetic-033": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Rao Cold Storage",
+      "evidence": "'Rao Cold Storage' centred at the top of the receipt",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "RAO/2023/1033",
+      "evidence": "'Bill No RAO/2023/1033'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "17/07/2023",
+      "evidence": "'Dt 17/07/2023'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 1161090,
+        "text": "11,610.90"
+      },
+      "evidence": "'GST 18%  11,610.90'",
+      "page": 1
+    },
+    "total": {
+      "status": "AMBIGUOUS",
+      "value": {
+        "candidates_paise": [
+          7611590,
+          7643257
+        ],
+        "candidates_text": [
+          "76,115.90",
+          "76,432.57"
+        ]
+      },
+      "evidence": "'TOTAL   76,115.90' on ONE line",
+      "page": 1,
+      "sub_total_also_printed": {
+        "paise": 6450500,
+        "text": "64,505.00",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-034": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Patel Auto Spares",
+      "evidence": "'Patel Auto Spares' at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "PAT/2026/1034",
+      "evidence": "'INVOICE NUMBER' with 'PAT/2026/1034' on the NEXT line",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "25-02-2026",
+      "evidence": "'INVOICE DATE' with '25-02-2026' on the NEXT line",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 6922160,
+        "text": "69,221.60"
+      },
+      "evidence": "IGST @ 28% 69,221.60",
+      "page": 1
+    },
+    "total": {
+      "status": "AMBIGUOUS",
+      "value": {
+        "candidates_paise": [
+          31644160,
+          31678446
+        ],
+        "candidates_text": [
+          "3,16,441.60",
+          "3,16,784.46"
+        ]
+      },
+      "evidence": "TWO different totals printed: 'TOTAL 3,16,441.60' and 'TOTAL PAYABLE 3,16,784.46'",
+      "page": 1
+    }
+  },
+  "synthetic-035": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Iyer Provision Stores",
+      "evidence": "'Iyer Provision Stores' centred at the top of the receipt",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "IYE/2023/1035",
+      "evidence": "'Bill No IYE/2023/1035'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "22/09/2023",
+      "evidence": "'Dt 22/09/2023'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 2578212,
+        "text": "25,782.12"
+      },
+      "evidence": "'IGST 18%  25,782.12'",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 16901612,
+        "text": "1,69,016.12"
+      },
+      "evidence": "'TOTAL   1,69,016.12' on ONE line",
+      "page": 1,
+      "sub_total_also_printed": {
+        "paise": 14323400,
+        "text": "1,43,234.00",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-036": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Bose Stationery Mart",
+      "evidence": "'Bose Stationery Mart' at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "BOS/2026/1036",
+      "evidence": "'INVOICE NUMBER' with 'BOS/2026/1036' on the NEXT line",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "17-10-2026",
+      "evidence": "'INVOICE DATE' with '17-10-2026' on the NEXT line",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 895752,
+        "text": "8,957.52"
+      },
+      "evidence": "CGST @ 9% 4,478.76 + SGST @ 9% 4,478.76 = 8,957.52",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 5872152,
+        "text": "58,721.52"
+      },
+      "evidence": "'TOTAL   58,721.52' on ONE line",
+      "page": 1
+    }
+  },
+  "synthetic-037": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Iyer Provision Stores",
+      "evidence": "'Iyer Provision Stores' at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "IYE/2026/1037",
+      "evidence": "'No. IYE/2026/1037'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "10/07/2026",
+      "evidence": "'Dated 10/07/2026'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 92574,
+        "text": "925.74"
+      },
+      "evidence": "IGST @ 18% 925.74",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 606874,
+        "text": "6,068.74"
+      },
+      "evidence": "'GRAND TOTAL   6,068.74' on ONE line",
+      "page": 1,
+      "sub_total_also_printed": {
+        "paise": 514300,
+        "text": "5,143.00",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-038": {
+    "party": {
+      "status": "UNREADABLE",
+      "value": null,
+      "evidence": "downscaled to 22% and blended 34% with uniform noise, then rotated 2.4 degrees; a human reader confirmed the glyphs cannot be read",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "UNREADABLE",
+      "value": null,
+      "evidence": "downscaled to 22% and blended 34% with uniform noise, then rotated 2.4 degrees; a human reader confirmed the glyphs cannot be read",
+      "page": 1
+    },
+    "total": {
+      "status": "UNREADABLE",
+      "value": null,
+      "evidence": "downscaled to 22% and blended 34% with uniform noise, then rotated 2.4 degrees; a human reader confirmed the glyphs cannot be read",
+      "page": 1
+    },
+    "tax": {
+      "status": "UNREADABLE",
+      "value": null,
+      "evidence": "downscaled to 22% and blended 34% with uniform noise, then rotated 2.4 degrees; a human reader confirmed the glyphs cannot be read",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "UNREADABLE",
+      "value": null,
+      "evidence": "downscaled to 22% and blended 34% with uniform noise, then rotated 2.4 degrees; a human reader confirmed the glyphs cannot be read",
+      "page": 1
+    }
+  },
+  "synthetic-039": {
+    "party": {
+      "status": "UNREADABLE",
+      "value": null,
+      "evidence": "downscaled to 22% and blended 34% with uniform noise, then rotated 2.4 degrees; a human reader confirmed the glyphs cannot be read",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "UNREADABLE",
+      "value": null,
+      "evidence": "downscaled to 22% and blended 34% with uniform noise, then rotated 2.4 degrees; a human reader confirmed the glyphs cannot be read",
+      "page": 1
+    },
+    "total": {
+      "status": "UNREADABLE",
+      "value": null,
+      "evidence": "downscaled to 22% and blended 34% with uniform noise, then rotated 2.4 degrees; a human reader confirmed the glyphs cannot be read",
+      "page": 1
+    },
+    "tax": {
+      "status": "UNREADABLE",
+      "value": null,
+      "evidence": "downscaled to 22% and blended 34% with uniform noise, then rotated 2.4 degrees; a human reader confirmed the glyphs cannot be read",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "UNREADABLE",
+      "value": null,
+      "evidence": "downscaled to 22% and blended 34% with uniform noise, then rotated 2.4 degrees; a human reader confirmed the glyphs cannot be read",
+      "page": 1
+    }
+  },
+  "synthetic-040": {
+    "party": {
+      "status": "UNREADABLE",
+      "value": null,
+      "evidence": "downscaled to 22% and blended 34% with uniform noise, then rotated 2.4 degrees; a human reader confirmed the glyphs cannot be read",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "UNREADABLE",
+      "value": null,
+      "evidence": "downscaled to 22% and blended 34% with uniform noise, then rotated 2.4 degrees; a human reader confirmed the glyphs cannot be read",
+      "page": 1
+    },
+    "total": {
+      "status": "UNREADABLE",
+      "value": null,
+      "evidence": "downscaled to 22% and blended 34% with uniform noise, then rotated 2.4 degrees; a human reader confirmed the glyphs cannot be read",
+      "page": 1
+    },
+    "tax": {
+      "status": "UNREADABLE",
+      "value": null,
+      "evidence": "downscaled to 22% and blended 34% with uniform noise, then rotated 2.4 degrees; a human reader confirmed the glyphs cannot be read",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "UNREADABLE",
+      "value": null,
+      "evidence": "downscaled to 22% and blended 34% with uniform noise, then rotated 2.4 degrees; a human reader confirmed the glyphs cannot be read",
+      "page": 1
+    }
+  },
+  "synthetic-041": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Nilgiri Tea Supply Co",
+      "evidence": "'Nilgiri Tea Supply Co' at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "NIL/2025/1041",
+      "evidence": "'INVOICE NUMBER' with 'NIL/2025/1041' on the NEXT line",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "ABSENT",
+      "value": null,
+      "evidence": "no date is printed anywhere on the document",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 841440,
+        "text": "8,414.40"
+      },
+      "evidence": "IGST @ 12% 8,414.40",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 7853440,
+        "text": "78,534.40"
+      },
+      "evidence": "'TOTAL   78,534.40' on ONE line",
+      "page": 1
+    }
+  },
+  "synthetic-042": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Konkan Hardware Stores",
+      "evidence": "'Konkan Hardware Stores' at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "KON/2025/1042",
+      "evidence": "'No. KON/2025/1042'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "ABSENT",
+      "value": null,
+      "evidence": "no date is printed anywhere on the document",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 449730,
+        "text": "4,497.30"
+      },
+      "evidence": "IGST @ 12% 4,497.30",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 4197480,
+        "text": "41,974.80"
+      },
+      "evidence": "'TOTAL   41,974.80' on ONE line",
+      "page": 1
+    }
+  },
+  "synthetic-043": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Patel Auto Spares",
+      "evidence": "'Patel Auto Spares' as the seller heading at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "PAT/2023/1043",
+      "evidence": "'Invoice No: PAT/2023/1043'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "ABSENT",
+      "value": null,
+      "evidence": "no date is printed anywhere on the document",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 237852,
+        "text": "2,378.52"
+      },
+      "evidence": "IGST @ 12% 2,378.52",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 2219952,
+        "text": "22,199.52"
+      },
+      "evidence": "'TOTAL   22,199.52' on ONE line",
+      "page": 1
+    }
+  },
+  "synthetic-044": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Iyer Provision Stores",
+      "evidence": "'Iyer Provision Stores' as the seller heading at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "IYE/2023/1044",
+      "evidence": "'Invoice No: IYE/2023/1044'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "ABSENT",
+      "value": null,
+      "evidence": "no date is printed anywhere on the document",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 2508732,
+        "text": "25,087.32"
+      },
+      "evidence": "IGST @ 12% 25,087.32",
+      "page": 1
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 23414832,
+        "text": "2,34,148.32"
+      },
+      "evidence": "'TOTAL   2,34,148.32' on ONE line",
+      "page": 1
+    }
+  },
+  "synthetic-045": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Rao Cold Storage",
+      "evidence": "'Rao Cold Storage' as the seller heading at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "RAO/2026/1045",
+      "evidence": "'Invoice No: RAO/2026/1045'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "16/02/2026",
+      "evidence": "'Date: 16/02/2026'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 3413133,
+        "text": "34,131.33"
+      },
+      "evidence": "IGST @ 18% 34,131.33",
+      "page": 3
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 22374983,
+        "text": "2,23,749.83"
+      },
+      "evidence": "'GRAND TOTAL' with '2,23,749.83' on the NEXT line",
+      "page": 3,
+      "sub_total_also_printed": {
+        "paise": 18961850,
+        "text": "1,89,618.50",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-046": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Iyer Provision Stores",
+      "evidence": "'Iyer Provision Stores' as the seller heading at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "IYE/2023/1046",
+      "evidence": "'Invoice No: IYE/2023/1046'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "02-11-2023",
+      "evidence": "'Date: 02-11-2023'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 3325887,
+        "text": "33,258.87"
+      },
+      "evidence": "CGST @ 9% 16,629.43 + SGST @ 9% 16,629.44 = 33,258.87",
+      "page": 3
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 21803037,
+        "text": "2,18,030.37"
+      },
+      "evidence": "'GRAND TOTAL   2,18,030.37' on ONE line",
+      "page": 3,
+      "sub_total_also_printed": {
+        "paise": 18477150,
+        "text": "1,84,771.50",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-047": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Verma Electricals",
+      "evidence": "'Verma Electricals' as the seller heading at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "VER/2025/1047",
+      "evidence": "'Invoice No: VER/2025/1047'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "02/05/2025",
+      "evidence": "'Date: 02/05/2025'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 1579545,
+        "text": "15,795.45"
+      },
+      "evidence": "IGST @ 18% 15,795.45",
+      "page": 3
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 10354795,
+        "text": "1,03,547.95"
+      },
+      "evidence": "'GRAND TOTAL' with '1,03,547.95' on the NEXT line",
+      "page": 3,
+      "sub_total_also_printed": {
+        "paise": 8775250,
+        "text": "87,752.50",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  },
+  "synthetic-048": {
+    "party": {
+      "status": "PRESENT",
+      "value": "Patel Auto Spares",
+      "evidence": "'Patel Auto Spares' as the seller heading at the top left",
+      "page": 1
+    },
+    "invoice_number": {
+      "status": "PRESENT",
+      "value": "PAT/2025/1048",
+      "evidence": "'Invoice No: PAT/2025/1048'",
+      "page": 1
+    },
+    "invoice_date": {
+      "status": "PRESENT",
+      "value": "21-08-2025",
+      "evidence": "'Date: 21-08-2025'",
+      "page": 1
+    },
+    "tax": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 8848080,
+        "text": "88,480.80"
+      },
+      "evidence": "CGST @ 9% 44,240.40 + SGST @ 9% 44,240.40 = 88,480.80",
+      "page": 3
+    },
+    "total": {
+      "status": "PRESENT",
+      "value": {
+        "paise": 58004080,
+        "text": "5,80,040.80"
+      },
+      "evidence": "'GRAND TOTAL   5,80,040.80' on ONE line",
+      "page": 3,
+      "sub_total_also_printed": {
+        "paise": 49156000,
+        "text": "4,91,560.00",
+        "warning": "SUB TOTAL is printed on this page and is NOT the total. Reading it as the total posts the bill short by exactly the tax."
+      }
+    }
+  }
+}

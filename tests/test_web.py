@@ -58,7 +58,9 @@ from accountant.memory.store import IN_MEMORY, MemoryStore
 from accountant.schema import Outcome, Voucher
 from accountant.tallyio.factory import BackendIdentity, new_run_id
 from accountant.tallyio.fake import FakeTally
+from accountant.tallyio.period import PeriodReader
 from accountant.web import app
+from tests.test_period_handoff import open_books_for
 
 # The demo company's chart of accounts. S7 reads this list back: no name in it
 # may appear inside a question, so it has to be the same list the app was given.
@@ -133,6 +135,32 @@ def fake_backend() -> BackendIdentity:
     )
 
 
+def open_books_reader() -> PeriodReader:
+    """A TEST DOUBLE that answers OPEN for this company. In memory, no socket.
+
+    WHY IT HAD TO EXIST. `Runtime.period_reader` defaults to `None`, and `None`
+    BLOCKS: `app.Runtime.period_open` reads it as "nobody looked", which is not
+    the same fact as "the books are open" and is deliberately not treated as
+    one. Every test through `serving` posts a voucher dated today, so every one
+    of them needs somebody to have looked. Without this they all stopped on
+    `decision._PERIOD_UNKNOWN` - measured 2026-08-16, 9 of them in this file.
+
+    THE TRANSPORT IS CANNED AND THE READER IS REAL, which is the choice
+    `tests/test_period_handoff.py` already made and it is reused rather than
+    re-made: a doubled `PeriodReader` would prove only that `check_period`
+    returns what a double told it to, where this way `build_period_request`,
+    `parse_company_periods`, `period_for` and `open_on` all really run. No
+    socket is opened, no Tally is asked and nothing here is reachable from
+    shipped code.
+
+    THE WINDOW IS DERIVED FROM TODAY, not pinned to a literal financial year.
+    A pinned `20260401` passes now and starts blocking every test in this file
+    on 1 April 2027 - a test that expires is a test that fails for a reason
+    nobody changed.
+    """
+    return open_books_for(app.COMPANY)
+
+
 @contextlib.contextmanager
 def serving(
     tally: FakeTally,
@@ -142,6 +170,7 @@ def serving(
     seed: Callable[[MemoryStore], None] | None = None,
     store_path: str | Path = IN_MEMORY,
     tls: ssl.SSLContext | None = None,
+    period_reader: PeriodReader | None = None,
 ) -> Generator[str]:
     """A real server on a real ephemeral port, torn down on the way out.
 
@@ -232,7 +261,20 @@ def serving(
 
     def serve() -> None:
         store = MemoryStore(store_path)
-        app.configure(tally, identity, store=store, extractor=extractor)
+        # `period_reader` goes in through the SAME `configure` seam the backend
+        # and the extractor use. Left unset it is `open_books_reader()` and not
+        # `None`: `None` is what the shipped app gets when nobody built a reader
+        # and it must go on blocking, so a test that wants the blocking path
+        # asks for it by name - `unreachable_reader()` from
+        # `tests/test_period_handoff.py` reaches it through the real code rather
+        # than by removing the reader.
+        app.configure(
+            tally,
+            identity,
+            store=store,
+            extractor=extractor,
+            period_reader=period_reader or open_books_reader(),
+        )
         if seed is not None:
             seed(store)
         ready.set()
@@ -428,7 +470,14 @@ def test_an_answer_is_stored_under_the_vendor_key_not_the_typed_spelling(server:
     answer_purpose_and_funding(server, asked, "Purchases")
 
     again = post(server, "/entry", text="paid M/s GUPTA HARDWARE. 1600 for tools")
-    assert "posted" in again.lower()
+    # THE BADGE, NOT THE BARE WORD. `render_decision` draws "not posted" for
+    # NOT_VALID, so `"posted" in body` is satisfied by the exact refusal these
+    # tests exist to rule out - green for the wrong reason, and silently so.
+    # `class="badge b-valid">posted<` is drawn only for Outcome.VALID; the
+    # NOT_VALID badge is `b-notvalid">not posted<` and cannot match it. The
+    # negated form of this assertion is already in use at
+    # tests/test_error_responses.py:1115. Repeated at :507, :578 and :599 below.
+    assert 'class="badge b-valid">posted<' in again
     written = app.runtime().client.list_our_vouchers(app.COMPANY)[-1]
     assert written.debit_account == "Purchases"
     assert written.amount_paise == 160000
@@ -462,7 +511,9 @@ def test_an_answer_for_the_bare_name_does_not_post_for_the_private_limited(
 
 def test_a_known_vendor_posts_without_asking(server: str):
     body = post(server, "/entry", text="paid Sharma Traders 4200 for cement")
-    assert "posted" in body.lower()
+    # The VALID badge, because "not posted" contains "posted". See the comment
+    # on the first of these, above.
+    assert 'class="badge b-valid">posted<' in body
     assert len(app.runtime().client.list_our_vouchers(app.COMPANY)) == 1
 
 
@@ -533,7 +584,9 @@ def answer_purpose_and_funding(server: str, asked: str, account: str) -> str:
 def test_answering_the_question_posts_the_entry(server: str):
     asked = post(server, "/entry", text="paid Gupta Hardware 1500 for tools")
     done = answer_purpose_and_funding(server, asked, "Purchases")
-    assert "posted" in done.lower()
+    # The VALID badge, because "not posted" contains "posted". See the comment
+    # on the first of these, above.
+    assert 'class="badge b-valid">posted<' in done
     assert len(app.runtime().client.list_our_vouchers(app.COMPANY)) == 1
 
 
@@ -554,7 +607,9 @@ def test_an_answer_is_remembered_so_the_same_vendor_is_not_asked_twice(server: s
     asked = post(server, "/entry", text="paid Gupta Hardware 1500 for tools")
     answer_purpose_and_funding(server, asked, "Purchases")
     again = post(server, "/entry", text="paid Gupta Hardware 1600 for tools")
-    assert "posted" in again.lower()
+    # The VALID badge, because "not posted" contains "posted". See the comment
+    # on the first of these, above.
+    assert 'class="badge b-valid">posted<' in again
 
 
 def test_answering_an_expired_draft_says_so_and_posts_nothing(server: str):

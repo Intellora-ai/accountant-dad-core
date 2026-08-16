@@ -171,6 +171,42 @@ jobs:
             --compare-branch="origin/${base}" \
             --fail-under=90
 
+
+      - name: failure-diagnostics
+
+        # REPORTING ONLY, AND IT CANNOT BECOME A GATE. `failure()` means a gate
+
+        # has already failed; this step declares nothing in ci/gates.toml, runs
+
+        # no test, and exits 0 on every path it controls. It restates a verdict
+
+        # that was reached without it.
+
+        #
+
+        # WHY IT EXISTS. Measured on run 31958210449: the pull-request page
+
+        # carried `Process completed with exit code 1.` and nothing else - no
+
+        # test, no file, no assertion - while the log held all 75 tracebacks,
+
+        # with the failure LIST 10,210 lines into the step because a 5,261-line
+
+        # warnings summary sits in front of it. Nothing was truncated. It was
+
+        # simply 97% of the way down a log nobody scrolls.
+
+        #
+
+        # IT READS junit.xml, NOT THE LOG. `FORCE_COLOR: "1"` above makes pytest
+
+        # put an ANSI escape between `FAILED` and the space after it, so
+
+        # `grep "FAILED "` over the log matches nothing at all.
+
+        if: ${{ failure() }}
+
+        run: uv run --no-project python ci/explain_failure.py junit.xml 
       # Mutation testing is deliberately NOT here. Measured 2026-08-07: it was
       # 69 of the 100 seconds of a warm pull-request run, while every other gate
       # together took 18. A fresh runner has no gremlins cache, so "changed

@@ -6,9 +6,9 @@
 |---|---|
 | **Purpose** | The project's operational memory. What was decided, what is built, what is verified, what remains, why. One file. No other progress document exists. |
 | **Repository** | `Intellora-ai/accountant-dad-core` — public — owner type **User** — created `2026-08-07T11:38:55Z` — VERIFIED (GitHub API) |
-| **Branch / commit** | `closure/flag-cap-and-truth` @ `3445992` — "the first detector (#17)" — measured 2026-08-10 with `git rev-parse HEAD`. **The working tree is NOT clean**: the `flag_cap = 3` change is in flight in `accountant/detect/detectors.py`, `accountant/pipeline.py` and `accountant/web/app.py`, and several documents and test files are untracked. Several agents are working in this tree at once. <br><br>*Audit note, 2026-08-10: this row said `main @ f7bf5d9`, 16 commits, with `accountant/ingest/` and `accountant/taxonomy/` untracked. Both were committed in `6867ca9`. The row was two days stale.* |
-| **Updated** | 2026-08-08 |
-| **Last verified state** | 2026-08-08. CI evidence is from nightly runs `31237228028` and `31238866032`. **The newest evidence is §21 (first real Tally), §22 (first product-quality measurements) and §23 (documentation drift corrected)** — those three sections supersede any older statement in this file that contradicts them. |
+| **Branch / commit** | `cage/safety-layer` @ `8050dcd` — "ladder: the merge dropped the net and read a stated 0.0 as certainty" — measured 2026-08-15 with `git rev-parse HEAD`. **The working tree is NOT clean**: `accountant/cage/gate.py` and `accountant/pipeline.py` carry uncommitted changes, and `scripts/measure_*.py`, `scripts/corpus/` and `tests/test_cage_on_the_live_path.py` are untracked. Several agents are working in this tree at once. <br><br>*Audit note, 2026-08-15: this row said `closure/flag-cap-and-truth` @ `3445992`, measured 2026-08-10. It was five days and one branch stale.* <br>*Audit note, 2026-08-10: this row said `main @ f7bf5d9`, 16 commits, with `accountant/ingest/` and `accountant/taxonomy/` untracked. Both were committed in `6867ca9`. The row was two days stale.* |
+| **Updated** | 2026-08-15 |
+| **Last verified state** | 2026-08-15. **The newest evidence is §52 (the cage on the live path, and the two defects found there)**, and before it §49–§51. Those supersede any older statement in this file that contradicts them. CI evidence in §10 is still from nightly runs `31237228028` and `31238866032` and has not been re-run since 2026-08-08. |
 | **Companion documents** | [`ARCHITECTURE.md`](./ARCHITECTURE.md) — the design. [`BOTTLENECKS.md`](./BOTTLENECKS.md) — what currently costs more than it should, with the smallest guard per class of defect. |
 | **Who may update** | The owner, or Claude on the owner's instruction. |
 
@@ -126,7 +126,7 @@ re-enters the decision order and can still come out Not valid.
 |---|---|---|
 | Unique `operation_id` generated **before** posting, attached to draft, decision, narration, action log and reversal request | correction C5 | VERIFIED in code — `accountant/tallyio/client.py:31` `new_operation_id()` |
 | Accountant Dad marker on every written voucher — `[ACCOUNTANT_DAD:<op>]` | correction C4 | VERIFIED — `client.py:27-56`, asserted by contract test |
-| A duplicate `operation_id` cannot create a second voucher | C5 | VERIFIED against the fake; **still UNVERIFIED against real Tally** — the contract test that proves it is licence-blocked (§21) |
+| A duplicate `operation_id` cannot create a second voucher | C5 | VERIFIED against the fake; **still UNVERIFIED against real Tally** — and on 2026-08-12 it was DISPROVED in real books: `mvp_real_tally.py` ran twice and left a duplicate (§47.10). The write path now requires an `operation_id` and asks Tally first; the contract test that would prove it on real Tally is **no longer licence-blocked** (§48) but has still not been run |
 | Every write is read back from Tally, not trusted from an HTTP 200 | C6 | **VERIFIED against real Tally** (§21) |
 | Reversal tested against the **exact prior trial balance**, in paise | #6.5 | **VERIFIED against real Tally** — exact restore `True`, voucher gone `True` (§21) |
 | **Memory must be bootstrapped from an existing company's own Tally history before the first proposal is shown** | measured cross-organisation result, §22 | **PRODUCT INVARIANT — NOT YET ENFORCED.** An empty memory for an existing company is a **product failure**, not a neutral state. Design rule in [`ARCHITECTURE.md` §4.3](./ARCHITECTURE.md#43-memory-index--accountantmemoryindexpy--present); exit criteria in [`ARCHITECTURE.md` §11](./ARCHITECTURE.md#11-mvp-completion-checklist) |
@@ -221,8 +221,9 @@ total, is [`artifacts/phase_truth_table.md`](../artifacts/phase_truth_table.md).
 
 | | |
 |---|---|
-| **Stopped by** | a **non-Educational TallyPrime licence**. Educational mode rejects voucher dates outside the 1st, 2nd and 31st, so the client-fixture tests in `tests/test_tally_contract.py` — which post on `2026-08-07` — cannot run unmodified. Blocker `B-02`. |
-| **Owner decision, 2026-08-08** | **Option 2 — Educational-mode exception.** No licence is to be purchased, activated, bypassed or simulated. See §24 and decision `D-26`. The separate question of which of two contradictory licence instructions is live is `D-01`, and it is still open. |
+| **Stopped by** | **nobody having run it.** `B-01` — the company `Demo Co` and its four ledgers must be made in the TallyPrime window — plus the acceptance run itself, which has still never been executed. Neither is waiting on a decision. |
+| **No longer stopped by: THE LICENCE.** Superseded 2026-08-12 | The licence is **not a blocker any more.** The TallyPrime on the owner's machine is a **licensed free trial, not Educational** — and that is measured, not just attested: the §47 voucher is dated the **12th** of the month, and Educational mode accepts only the 1st, 2nd and 31st. A voucher that posted on the 12th could not have been posted by an Educational instance. `B-02` is satisfied for as long as the trial lasts. **No expiry date is recorded here** — see §48. |
+| **What that unblocks, and what it does not** | The `2026-08-07` fixture in `tests/test_tally_contract.py` **can now run unmodified**. It has **not** been run. A licence being available and a test having passed are different sentences. The fixture is still never edited (§24). |
 | **No longer stopped by** | the Windows VM. TallyPrime is installed and answering. The earlier "Windows VM + TallyPrime — NOT INSTALLED — the single blocker" is **superseded** (§17, §21). |
 
 > **Audit note, 2026-08-10 — the largest single correction in this file.**
@@ -344,7 +345,7 @@ proved it. Evidence cross-references §9 (gates), §10 (runs), §16 (security).
 | Tally connector — real impl | **BUILT AND RUN AGAINST REAL TALLY** | `accountant/tallyio/real.py`, 63.5 KB. First real read HTTP 200, 1,594 bytes, 65 ms (§21). *The earlier evidence line "`grep … → nothing`" was drift and is superseded.* | fix `trial_balance()` derived head — [`BOTTLENECKS.md` A4](./BOTTLENECKS.md#a4--trial_balance-includes-a-derived-figure) |
 | Tally read | **VERIFIED on real Tally** | companies, chart of accounts, vouchers, trial balance — all read (§21) | — |
 | Tally write | **VERIFIED on real Tally** | Rs 5,000 posted, trial balance moved by exactly that amount (§21) | — |
-| Idempotency (C5) | **UNVERIFIED on real Tally** | passes against fake; the contract test that proves it is licence-blocked (§21) | needs a non-Educational licence |
+| Idempotency (C5) | **UNVERIFIED on real Tally** | passes against fake. Guarded in code and tested since §47.10, after a real duplicate | **no longer needs a licence (§48)** — needs somebody to run it |
 | Read-back (C6) | **VERIFIED on real Tally** | `read_by_operation_id()` returned the written voucher, then `None` after reversal (§21) | — |
 | Reversal (#6.5) | **VERIFIED on real Tally** | `reverse_by_operation_id()` → `True`; trial balance restored to the exact prior paise (§21) | — |
 | Memory index #2 | **CODE EXISTS, NOT AUDITED** | `accountant/memory/index.py` | audit vs #2.1–#2.7. **Company-local only; every customer is a permanent cold start** (§22) |
@@ -1599,6 +1600,29 @@ rule.
 ---
 
 ## 24. Tally licensing — OWNER DECISION, 2026-08-08
+
+> ## ⚠ SUPERSEDED ON THE LICENCE, 2026-08-12. READ §48 FIRST.
+>
+> **"Educational mode only" and "a legitimate non-Educational Tally licence is
+> unavailable" are no longer true.** The machine now runs a **licensed
+> TallyPrime on a free trial**. `B-02` is not a blocker.
+>
+> This section is left standing rather than rewritten, exactly as §46.4 was left
+> standing for §47. It was true from 2026-08-08 to 2026-08-11 and the record of
+> what was true then is worth more than a tidy document.
+>
+> **Two of its standing instructions survive the change and are NOT superseded:**
+>
+> - **`2026-08-07` is still never edited.** The licence removes the *reason* the
+>   fixture could not run. It does not license changing the fixture, and the
+>   whole point of freezing it was that it must pass unaltered or not at all.
+> - **`ENVIRONMENT_LIMITED` is still never converted into `PASS` by decision.**
+>   A test passes by running. The 2026-08-07 contract **has still not been run**
+>   against the licensed instance.
+>
+> The instruction that does lapse is *"do not purchase, activate, bypass or
+> simulate a non-Educational licence"* — a free trial was activated by the
+> owner, which is the "activate" case, and it was the owner's call to make.
 
 **Option 2 selected: Educational-mode exception.**
 
@@ -3465,7 +3489,7 @@ Group D is deliberately last and the reason is not cosmetic.
 ```
 GROUP A - unblocks the most, no side effects, do first
   B-01 / H-03   create Demo Co + 4 ledgers in the TallyPrime GUI
-  B-02 / H-04   obtain a non-Educational licence
+  B-02 / H-04   DONE 2026-08-12 - free trial licence active, see 48
 
 GROUP B - one decision in two halves, decide together
   H-01          approve a production extraction backend
@@ -3860,7 +3884,7 @@ Everything else in Phase 8 that had an answer has been built, tested and merged.
 |---|---|---|---|
 | H-06 | Create repository secret `CLAUDE_AUDIT_TOKEN` — fine-grained, **Administration: read**, nothing else | PR #34, and with it `test_bypass_actors_are_still_empty` | Credentials are the one thing that is never created on the owner's behalf |
 | B-01 / H-03 | Create `Demo Co` and four ledgers in the TallyPrime GUI | the 19 RealTally contract tests | The XML gateway refuses: `<RESPONSE>Unknown Request, cannot be processed</RESPONSE>` |
-| B-02 / H-04 | Obtain a non-Educational licence, **or decide not to** | `LICENSED_REALTALLY` | Educational accepts vouchers only on the 1st, 2nd and 31st, and the `2026-08-07` fixture is never edited to fit. **A decision closes this as well as a purchase does** |
+| ~~B-02 / H-04~~ | **DONE 2026-08-12 — a free trial licence is active.** Nothing to obtain and nothing to decide. Proof is the §47 voucher dated the **12th**: Educational accepts only the 1st, 2nd and 31st, so an Educational instance would have refused it. See §48. **Not recorded anywhere: when the trial expires** | nothing any more |  |
 | — | Confirm `claude.yml`'s pin comment `# v1` → `# v1.0.187` stays | nothing; already applied | A `.github` edit outside the authorised token diff |
 
 **H-06 in detail, because the reason is structural.** The workflow token *can*
@@ -4091,3 +4115,867 @@ self-registration.
 and as **no action wanted**, because it is parked deliberately with a measured
 reason and a standing owner rule. It is listed only so "2 of 20 gates never
 execute" is not read as two defects when it is one.
+
+## §47 The first write into a real, licensed TallyPrime
+
+Dated 2026-08-12. **§46.4 opens with "Everything is FAKETALLY." That sentence is
+now out of date, for this one area, and for nothing else.**
+
+§46.4 is left standing rather than edited. It was true on 2026-08-11 and the
+record of what was true then is worth more than a tidy document; this section is
+what supersedes it, and a reader who arrives at §46.4 first should arrive here
+second. Every other bullet in §46.4 — nothing deployed, `S2` not measured, GST
+posting off — is unchanged by anything below.
+
+The evidence class for this run is `LICENSED_REALTALLY`, and it is the third
+piece of live Tally evidence in this document after §21 and §28.
+
+**READ THIS BEFORE FOLLOWING ANY `logs/` PATH BELOW.** This section cites files
+under `logs/` as evidence. **Those files are deliberately not committed** —
+`logs/` was added to `.gitignore` on 2026-08-12, alongside `data/` and for the
+same reason: measured, every one of the 21 files named the live company, and
+this repository is public. The paths are exact and the files are real; they are
+on the machine that produced them, not in a clone. `ACCOUNTANT_LOG_DIR` and
+`ACCOUNTANT_XML_LOG_DIR` move them.
+
+This is a genuine weakness in the evidence and is named rather than smoothed: a
+reader who did not run it cannot check these citations. A redacted evidence
+bundle would fix it and does not exist yet.
+
+### §47.1 The channel, and the address that does not work
+
+```
+Mac  ->  VirtualBox NAT port forward  ->  Windows 11  ->  TallyPrime XML gateway
+```
+
+The VM's own address is **unreachable from the host**. Measured 2026-08-12:
+`10.0.2.15:9000` answers with `TimeoutError`, because under VirtualBox NAT that
+address is private to the guest. This is worth writing down because it is the
+address the guest itself reports, so it is the address a person copies.
+
+The address that works is `127.0.0.1:9000`, via a forwarding rule:
+
+```
+VBoxManage controlvm "Windows 11" natpf1 "tally9000,tcp,127.0.0.1,9000,,9000"
+```
+
+Recorded in the tree at `tally_client.py:19-24`, beside the constant it
+explains, rather than only here.
+
+**Round trip: median 30.8 ms over 10 reads; 100 sequential round trips in about
+2.8 s.** The retained audit log corroborates the order of magnitude on a
+different run — `logs/audit.jsonl` records reads at 13 ms and 32 ms and the
+voucher import at 542 ms. A write costs an order of magnitude more than a read,
+which is the number that matters for any future batching decision.
+
+### §47.2 What makes this `LICENSED_REALTALLY` is a licence, not a code change
+
+The owner confirmed on 2026-08-12 that the TallyPrime behind that port is a
+**licensed installation on a free trial, not Educational**. Nothing in this
+repository could have established that: §25.5 records licence mode as
+**unreadable over the gateway**, and that probing for it wedged the live
+TallyPrime.
+
+So the class is owner-attested. That is a weaker provenance than a measurement
+and it is stated as such. It matters because it is the whole difference between
+this run and `EDUCATIONAL_TALLY` — Educational mode accepts vouchers only on the
+1st, 2nd or 31st of a month, and this voucher is dated the 12th.
+
+### §47.3 What shipped
+
+Six modules under `accountant/tallyio/`, plus one script at the repository
+root. Line counts measured 2026-08-12; these files were still being edited on
+the day this section was written, so the counts are a snapshot and the file
+names are the durable part.
+
+| File | Lines | What it is |
+|---|---|---|
+| `accountant/tallyio/errors.py` | 336 | Tally's complaints, classified into codes and sentences |
+| `accountant/tallyio/writedoor.py` | 187 | the RUNTIME allow-list — every write this system may perform, with a written reason each |
+| `accountant/tallyio/audit.py` | 234 | one JSON line and two raw XML files per operation, written before the result is reported |
+| `accountant/tallyio/masters.py` | 548 | ledgers: exists, `create_ledger`, `ensure_ledger` |
+| `accountant/tallyio/vouchers.py` | 373 | the direct Purchase write path |
+| `accountant/tallyio/reports.py` | 236 | reading the books back out |
+| `mvp_real_tally.py` | 141 | the end-to-end run: masters → voucher → read back → audit |
+
+Covered by `tests/test_tallyio_mvp.py` and `tests/test_tallyio_reports.py` —
+**72 tests, all passing**, measured 2026-08-12. Those run against fakes; the
+live evidence is §47.5.
+
+### §47.4 No guard was widened, and that is checkable
+
+The static write-door scanner was **not touched**. It already permitted this
+work, for reasons written into it before this work existed:
+
+- `tests/test_write_door.py:405` — `test_nothing_outside_the_connector_builds_a_tally_import_envelope` skips any path with `CONNECTOR` among its parents (`:415`), and `CONNECTOR` is `accountant/tallyio` (`:67`). A `<TALLYREQUEST>Import` envelope built **inside** the connector was always allowed; the guard exists to stop one being built outside it.
+- `ALLOWED` (`:124`) keys on `write_voucher` and `reverse_by_operation_id` only (`:56`). `vouchers.py` calls neither — it builds its own envelope inside the connector — so it needs no permit and got none.
+
+Measured: `tests/test_write_door.py` is **37 tests, all passing**, with no edit
+to the file.
+
+That is the honest reading, and it cuts both ways. The static guard proves
+nobody built a *third* connector-bypassing path. It does not prove
+`vouchers.py` is safe, because `vouchers.py` is inside the boundary the guard
+draws. What holds `vouchers.py` is `writedoor.allow_write`, called at
+`accountant/tallyio/vouchers.py:263` and `accountant/tallyio/masters.py:459` —
+a different mechanism, described in `docs/ARCHITECTURE.md` §4.2. Two call
+sites, two permits, and `writedoor.ALLOWED_WRITES` holds exactly two entries.
+
+### §47.5 What is in the books now
+
+Company **TANVEER SIDHU**, on a live TallyPrime:
+
+```
+ledgers   Test Supplier    under Sundry Creditors
+          Purchase         under Purchase Accounts
+          Bank Of Test     under Bank Accounts
+voucher   Purchase, 12-Aug-2026, Rs 1,000.00
+          narration "MVP end-to-end run"
+```
+
+Verified two ways, neither of which is the response to the write: by
+`RealTally.read_vouchers`, and by `trial_balance` reporting **Purchase
++1,000.00 / Test Supplier -1,000.00** — equal and opposite, which is the
+conservation check §46 keeps reaching for, and it needs no expert to read.
+
+Two provenance notes, because a record that overstates its own evidence is the
+thing §44 was written about:
+
+- The retained `logs/audit.jsonl` is from a **re-run**, and holds four
+  operations, none of them a ledger creation. `masters.ensure_ledger`
+  (`accountant/tallyio/masters.py:507`) returns early with `already_existed=True`
+  and writes no row when the ledger is already there. The creations happened; the
+  log of them is not in this tree.
+- Only two of the three ledgers are named by anything retained here
+  (`mvp_real_tally.py:50-53`). `Bank Of Test` appears in no file in the
+  repository. It exists in the company; the evidence for it is the owner's
+  screen, not this tree.
+
+The write response itself is retained at
+`logs/xml/2026-08-12/create_purchase_voucher_2bbedf2838fa_response.xml`:
+`STATUS 1`, `CREATED 1`, `LASTVCHID 1`.
+
+### §47.6 Three defects, all found by running it against something real
+
+Each is recorded because it is a lesson about a *kind* of check.
+
+1. **`errors.ERROR_ELEMENTS` contained `DESC`, and it turned two successful
+   writes into reported failures.** A successful ledger import answers with
+   `CREATED 1` and a `<DESC>` holding `<CMPINFO>` — a long row of zero counters,
+   `"0 0 1 0 0 …"`. `DESC` is a generic container that appears in *requests*
+   too, so scraping it read the counter row as a complaint nobody could
+   classify. **Two ledgers were genuinely created while this code reported
+   `success=False`.**
+
+   A false negative on a write is worse than a false positive on a read: it
+   makes a caller retry something that already happened, in a customer's books.
+   Fixed twice over at `accountant/tallyio/errors.py:228` — `DESC` removed from
+   the list — and at `:266`, where whitespace is stripped before the all-digits
+   test, because `str.isdigit()` answers False for `"0 0 1"` and the spaces were
+   doing the damage. The reason is written into the module at `:219-227` rather
+   than only here.
+
+2. **A successful response containing nothing was read as a successful
+   read-back.** The first `reports.py` asked for reports the obvious way,
+   `<TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>Day Book</ID>`.
+   TallyPrime answered `STATUS 1` and `<DATA>  </DATA>` — two spaces. Not an
+   error, not a refusal: a successful response containing nothing, while a real
+   Rs 1,000 Purchase sat in the company and `real.read_vouchers` could see it
+   perfectly well. Retained verbatim at
+   `logs/xml/2026-08-12/get_day_book_c9825b73a0f9_response.xml`.
+
+   The `Ledger Vouchers` report was worse, because it was not empty. It answers
+   in a **display shape** — `<DSPVCHDATE>`, `<DSPVCHLEDACCOUNT>`,
+   `<DSPVCHCRAMT>`, with the `1000.00` plainly there and **no `<VOUCHER>`
+   element at all**
+   (`logs/xml/2026-08-12/get_ledger_vouchers_8d28e0dbdb67_response.xml`). The
+   parser iterated `VOUCHER`, found none, and returned an empty tuple with no
+   error. A shape that answers a different question than the one asked, without
+   saying so, is harder to catch than a refusal.
+
+   `create_purchase_voucher` confirms its OWN write with that same query
+   (`accountant/tallyio/vouchers.py:324-340`), so it reported `confirmed=False`
+   for a voucher that had posted — visible in `logs/audit.jsonl` as
+   `"confirmed": false` on a row whose `"status"` is `"success"`.
+
+   Fixed: `reports.py` no longer builds its own request. It calls
+   `real.build_voucher_list_request` (`accountant/tallyio/reports.py:218`) — an
+   Export COLLECTION, the shape TallyPrime actually answers — and parses with
+   `real.parse_vouchers` (`:229`), the pair `RealTally` has used since §21 and
+   the pair that read the voucher back in §47.5. Date and ledger filtering moved
+   into Python, which is a real limitation and is listed in §47.7. The whole
+   measurement is written into the module's own docstring at
+   `accountant/tallyio/reports.py:13-48`, beside the code it explains.
+
+3. **A NO-BREAK SPACE (U+00A0) was sitting invisibly inside a string literal**
+   in `reports.py`, caught by `ruff` RUF001. It is the *right* character to
+   strip — TallyPrime uses it as a thousands separator in some locales — so the
+   code is correct and the bug is that nobody could see it. An invisible
+   character in a literal does not appear in a diff, which means it cannot be
+   reviewed. Written as the escape `\u00a0`, it is greppable, reviewable and
+   survives a copy-paste.
+
+   That literal is gone from `reports.py` now, because the amount parsing went
+   with defect 2 — `real.parse_vouchers` does the conversion, and the
+   connector's own stripper already had it written correctly, as
+   `_STRIP_FROM_AMOUNT` at `accountant/tallyio/real.py:415`. Measured
+   2026-08-12: **no literal U+00A0 remains anywhere under `accountant/`.** The
+   defect is recorded anyway, because the lesson is not about this character —
+   it is that `ruff` RUF001 is the only reviewer in this repository that can
+   see one.
+
+   This paragraph had the same bug while it was being written: a real NO-BREAK
+   SPACE was pasted into the sentence describing NO-BREAK SPACES, and only a
+   scan for non-ASCII found it. That is the argument for the escape, restated
+   by accident.
+
+### §47.7 What is NOT claimed
+
+- **Only Purchase is implemented.** Sales, Payment, Receipt, Journal and Contra
+  are not. `writedoor.ALLOWED_WRITES` (`accountant/tallyio/writedoor.py:85-110`)
+  holds exactly two permits, and that list is the whole of it.
+- **Only ledgers.** Stock items, godowns and cost centres are not implemented.
+- **GST posting is still off.** Owner decision `Q3 = D`, unchanged by any of
+  this. Nothing in these six modules touches the rules engine.
+- **The reports fetch the whole voucher collection and filter in Python.** That
+  is the wrong shape for a company with a hundred thousand entries, and it is
+  the wrong shape now, not later — it is recorded here so it is not discovered
+  as a surprise.
+- **One voucher, one company, one machine.** Nothing here says anything about
+  scale, about concurrency, or about another person's Tally. A single Rs 1,000
+  Purchase on a trial licence, on the owner's own laptop, is one data point.
+- **The read-back has not been re-run against the live gateway since it was
+  fixed.** Defect 2's fix is proved against fakes by
+  `tests/test_tallyio_reports.py`. The retained `logs/audit.jsonl` still shows
+  `"confirmed": false`, because it is from the run that found the defect. The
+  live confirmation in §47.5 came from `RealTally`, by hand — not from the
+  module that is now supposed to do it.
+
+### §47.8 Three existing guards caught this work, and none was written for it
+
+Measured 2026-08-12 with `.venv/bin/python -m pytest -q -n auto`. The six
+modules arrived red and finished green:
+
+```
+first run, modules as written    2 failed, 3286 passed, 6 skipped, 4 xfailed
+the same tree with them stashed  0 failed, 3288 passed, 6 skipped, 4 xfailed
+after the three fixes            0 failed, 3360 passed, 6 skipped, 4 xfailed
+```
+
+The interesting number is the middle one. Stashing the new modules made the
+suite green, which is how it was established that the failures were **caused by
+this work** rather than inherited — a two-minute measurement that replaces an
+argument.
+
+Each failure was one line, and none of the three guards was touched:
+
+1. **`audit.py` imported `accountant.redact`**, reaching above the connector
+   boundary. Only `__main__.py` may, because nothing imports `__main__.py`.
+   Caught by `tests/test_reverse_all_cli.py:280`. Fixed: the scrubber is
+   **injected**, not imported, so the boundary holds and the behaviour does not
+   change.
+2. **A working-tree check failed under `-n auto`.**
+   `audit.JsonLineAuditLogger` defaults its directory to `logs/`, relative to
+   the current directory, so a code path that logs writes into the repository
+   itself. Caught by
+   `tests/test_upload.py::test_an_upload_writes_nothing_to_the_working_tree_or_a_data_directory`
+   — the same shape as the `data/app.db` defect in §46.3, found by the same
+   kind of check. It only failed in parallel, which is the argument for running
+   `-n auto` rather than a serial suite.
+3. **A docstring heading read as a state name.** `vouchers.py` carried
+   `` `STATUS 1` IS NOT `POSTED` ``, which put the whole word `POSTED` into
+   `accountant/` for the first time. Caught by
+   `tests/test_adversarial_amounts_and_states.py:806`, which scans the shipped
+   package on whole words and cannot tell a heading from an identifier.
+
+The third is worth a sentence on its own. It is a guard firing on prose, and
+the reflex is to call that a false positive and loosen the scan. That would
+remove the check that named eight invented states in the first place, to save
+one word in a comment. The heading was reworded instead — the cheap side of the
+trade was the docstring, not the test.
+
+**`logs/` is still untracked in the working tree**, written by the live runs
+that produced §47.5's evidence. It is the record of the first real write and it
+is not in version control.
+
+### §47.9 Owner work created by this section
+
+Nothing new is added to `docs/OWNER_WORK.md` by §47.
+
+One of the two questions this run raised — whether `logs/` is evidence worth
+committing or scratch worth ignoring — **is now answered and was not the owner's
+to be asked.** It is neither: it is a customer's accounting data, and the
+repository is public. `logs/` is in `.gitignore`. See the note under §47.
+
+The other stands: whether the Python-side report filtering is fixed before or
+after a book large enough to make it hurt. It blocks nothing today.
+
+### §47.10 The other five voucher types, and the duplicate that made them wait
+
+Dated 2026-08-12, after §47.9. `vouchers.py` shipped with Purchase alone. Sales,
+Payment, Receipt, Journal and Contra now exist, on one shared builder and one
+shared balance check rather than six copies. Seven permits in
+`writedoor.ALLOWED_WRITES`, all `destructive=False`, all naming one company.
+
+**They waited on idempotency, and the reason is in the books.** §47.5 records a
+Purchase of ₹1,000. The trial balance showed **₹2,000** against `Test Supplier`,
+because `mvp_real_tally.py` was run twice and nothing in the write path could
+tell the second run from the first. Adding five more write paths on that
+foundation would have multiplied one defect by six.
+
+So `operation_id` is now **required** on every `create_*_voucher`, TallyPrime is
+asked before writing, and the result carries `already_posted`. Verified offline
+against a transport that answers reads from what the writes actually put in:
+same id twice → **one** Import sent, the repeat reporting `already_posted=True`.
+
+The check **fails closed**: a probe that cannot be answered posts nothing.
+Verified with a transport whose reads raise and whose writes would succeed —
+**zero** Imports sent. Returning "not found" on an unreadable probe would have
+rebuilt the original defect exactly.
+
+`mvp_real_tally.py` derives its id from the day and amount rather than
+generating a fresh one, so re-running it finds the existing voucher instead of
+adding another. A fresh id would have left the ₹2,000 bug in place behind a
+mechanism built to prevent it.
+
+**One rename.** `create_contra_voucher`'s first account parameter was
+`from_account` and is now `debit_account`. On `create_payment_voucher`,
+`from_account` is the *credited* side — the account money leaves. On Contra it
+was the *debited* side. The same name meant opposite sides on two neighbouring
+methods, so a caller writing "from Cash to Bank" would have inverted a real
+transfer between two real accounts. A warning comment was written first and was
+not enough; the name itself was the defect.
+
+**Still not claimed:** none of this ran against live TallyPrime. The evidence
+class for §47.10 is offline verification against a fake transport, not
+`LICENSED_REALTALLY`. Only the Purchase path in §47.5 has touched real books,
+and the duplicate voucher it created is still there — removing it is the owner's
+call, because a deletion in TallyPrime is not undoable.
+
+---
+
+## §48 The licence stopped being a blocker
+
+Dated 2026-08-12. **§24 says "Educational mode only" and calls a non-Educational
+licence "unavailable". Both stopped being true. This section is what supersedes
+it, and §24 is left standing rather than edited — the same treatment §46.4 got
+from §47.**
+
+### §48.1 What changed
+
+The owner activated a **free TallyPrime trial licence**. The installation behind
+port 9000 is licensed, not Educational.
+
+### §48.2 It is measured, not just attested — and this is the part that matters
+
+§47.2 records the owner's word for it, and says plainly that owner-attestation
+is weaker provenance than a measurement. That caveat can now be strengthened,
+because the run itself contains the proof.
+
+**The §47 Purchase voucher is dated 12-Aug-2026.**
+
+Educational mode accepts vouchers dated **only the 1st, 2nd or 31st** of a
+month. That is not a guess: it was measured on this project against this
+gateway, and §30.3 records the refusal directly — `2026-08-07` REJECTED,
+`2026-08-31` ACCEPTED, with Tally's own words retained.
+
+An Educational instance would have refused a voucher dated the 12th. It
+accepted one. So:
+
+```
+voucher accepted on the 12th  ->  not Educational
+```
+
+This is the strongest licence evidence the project has, and it arrived sideways
+— from a run that was not looking for it. It does **not** read the licence
+mode. §25.5 stands: licence mode is unreadable over the gateway, probing for it
+wedged a live Tally, and `read_licence()` still returns `UNKNOWN` by design.
+What is established is narrower and sufficient: **whatever this instance is, it
+is not Educational.**
+
+### §48.3 What is unblocked
+
+| | |
+|---|---|
+| `B-02` — a non-Educational licence | **SATISFIED**, for as long as the trial lasts |
+| The `2026-08-07` contract fixture | **CAN NOW RUN unmodified.** The date restriction that refused it is gone |
+| `LICENSED_REALTALLY` as an evidence class | already produced once, in §47 |
+
+### §48.4 What is NOT unblocked, and this is the longer list
+
+- **The `2026-08-07` fixture has not been run.** A licence being available and a
+  test having passed are different sentences. Nothing may be relabelled on the
+  strength of this section.
+- **`2026-08-07` is still never edited.** The licence removes the reason the
+  fixture could not run; it does not license changing it. Freezing it was the
+  whole point.
+- **`B-01` is untouched** — `Demo Co` and its four ledgers are still a GUI
+  action, permanently, and that is a scope boundary rather than a gap
+  (`RUNBOOK_PHASE5_ACCEPTANCE.md` §A.0.1).
+- **The N = 10 acceptance run has still never happened.** It is now waiting on
+  nobody's decision — only on somebody doing it.
+- **`ci/acceptance_cli.py` will still refuse the `LICENSED_REALTALLY` label**,
+  because it requires a MEASURED `licence_mode == licensed` and the licence read
+  is `UNKNOWN` by design. That refusal is not a bug and is not to be loosened to
+  match this section: it exists so the last open question in the project cannot
+  be closed by whoever writes the report. The §47 label is owner-attested and is
+  marked as such.
+- **The UI still shows `real-licence-unknown`**, and correctly. It fails closed
+  on an unreadable licence, which is right, and §25.7 already records that a
+  genuinely Educational user would see the same warning.
+
+### §48.5 The one thing nobody has written down
+
+**No expiry date is recorded anywhere in this repository.** It is a free trial,
+so it ends. Nothing here knows when.
+
+Until that date is supplied, every claim in this section carries an unstated
+condition — that the trial is still live on the day the claim is read. A run
+dated after expiry would silently be an Educational run again, and the only
+thing that would give it away is the same accident that gave this away: a
+voucher date outside the 1st, 2nd and 31st being refused.
+
+**Owner action, small and not optional:** record the trial's expiry date. One
+line in `docs/OWNER_WORK.md` is enough.
+
+---
+
+## §49 The safety cage
+
+Dated 2026-08-12/13, branch `cage/safety-layer`.
+
+### §49.1 What landed
+
+| Module | Tests | Mutants run / killed |
+|---|---|---|
+| `accountant/cage/conservation.py` | 31 | 4 / 4 |
+| `accountant/cage/wall.py` | 23 | 5 / 5 |
+| `accountant/cage/confidence.py` | 24 | 5 / 5 |
+| `accountant/cage/classify.py` | 27 | 4 / 4 |
+
+**18 mutants run, 18 killed.** Every module test-first: the test was written,
+run, and **watched failing** for the intended reason before any implementation
+existed. Four pages in `docs/interfaces/`.
+
+### §49.2 A claim in this document was wrong, and is corrected here
+
+This build began from "`accountant/web/app.py` is 28% covered, 846 statements,
+560 missed; whole repo 86%." **Both numbers were false.** They came from the
+repository's gitignored `.coverage` artefact, last written 2026-08-11 15:33 by a
+partial run whose line numbers no longer matched the file — it reported
+module-level assignments as unexecuted, which is impossible if the module
+imported at all.
+
+Measured fresh, after deleting the artefact and running the whole suite:
+
+```
+accountant/web/app.py    846 stmts, 0 missed, 220 branch, 0 partial   100%
+whole repo               7394 stmts, 136 missed                        98%
+```
+
+**The coverage gate was never failing.** Two agents found this independently and
+it was then verified from scratch rather than taken on trust. What was genuinely
+missing was seven statements and a handful of branch arcs — guards no request had
+ever reached — and those are now covered.
+
+### §49.3 Three defects the discipline caught in this work
+
+1. **A vacuous guard.** The AST scan asserting only `wall.py` constructs a
+   `LedgerEntry` was asserting over an empty set, because `decided()` used
+   `cls(...)`. A control test caught it. `wall.py` now constructs by name.
+2. **A blank audit row.** A `PASS` conservation verdict returned an empty
+   sentence, so a log row could not answer *passed on what numbers* months
+   later. The code changed, not the test.
+3. **Two of my own tests were wrong.** They asserted a truncated `%PD` header
+   classifies as `UNSUPPORTED`. Three printable ASCII bytes *are* plain text —
+   "not a PDF" was right, "therefore unsupported" did not follow. Corrected to
+   the true claim, with a new test using a *binary* prefix where the answer
+   really is a refusal. The docstring records that the test was wrong.
+
+### §49.4 Found in existing source, deliberately not fixed
+
+Each is a decision, not a cleanup, and each is recorded rather than quietly
+patched:
+
+- `decision_rule_kind` joins multiple problem ids with `"; "` then asks whether
+  the joined string is a detector name, so any decision driven by two or more
+  detectors is labelled `rule` on the provenance panel.
+- The retype arm writes a durable audit row `outcome="abandoned"`, reason *"the
+  entry was thrown away"*, then returns **before** `remember_draft`. Measured:
+  the draft survives byte-identical and can still be answered. The audit trail
+  says abandoned while the entry is neither abandoned nor unanswerable.
+- `remember_draft` defaults its principal; `remember_batch` and
+  `remember_deletion` do not and silently record `NOT_RECORDED` — and those two
+  guard a bulk reversal and an account deletion.
+- Cache eviction does not refresh a re-remembered entry: a dict keeps an existing
+  key in its original slot on update.
+- Line 2918 showed covered in one `-n auto` run and missed in the next with no
+  source change. Worth a look before anyone tightens the coverage gate.
+
+---
+
+## §50 Extraction, measured — and the wrong count is not zero
+
+**2026-08-13.** The two readers `D-30` cleared are now reachable by name, and
+the Ground-Truth Pack scores them instead of a stub. The full numbers are in
+[`docs/EXTRACTION_MEASURED.md`](EXTRACTION_MEASURED.md). Four things belong
+here because they change what is believed rather than only what is recorded.
+
+**The score is 20 of 80, not the ~40 that was predicted.** `s2_extraction`
+still FAILS against its required 76 and the threshold was not touched — and as
+of 2026-08-13 that FAIL is a **ruled, closed limitation** rather than an open
+question: the corpus is unreadable on purpose and the gate is red by design for
+this MVP. See §51.1. Per
+field, of the 80 renderable cases: date 14, party 20, total 20, tax 20. Every
+hit is the PDF text layer, which is exact on the 20 PDFs and refuses 6 dates
+for being ambiguous `DD/MM` rather than guessing at them.
+
+**22 fields came back WRONG rather than unread**, and that is the finding.
+All 22 are `typed_text` — `DEFAULT_BACKEND`, what the application runs today —
+reading `INVOICE NO: GT/0001` as a total of one rupee and stating
+`source = "typed_text"` on it. It refuses by media type and never by shape, so
+an invoice pasted as `text/plain` is indistinguishable to it from a typed
+sentence. The harness could not previously see this: a refusal and a
+fabrication both subtracted from `exit1_exact_per_field`. `exit1_wrong_per_field`
+now counts them apart. **No gate covers it** — `exit2` forbids a fabricated
+value only on the 20 unrenderable JPEGs — and writing that gate means setting a
+number, which is the owner's.
+
+**The OCR tier scored nothing, and the engine is not why.** `tesseract` 5.5.3
+is installed and was run for real: it reads all 20 PNGs (42–132 ms each) and
+its generous ceiling there is party 6/20, everything else 0/20 — party is
+*better* than predicted. All 20 JPEGs raise `UnidentifiedImageError`, because
+they contain no pixels at all. The tier is unreachable from the product for a
+different reason: `FreeReader` needs an injected page reader and nothing here
+turns words into "this one is the total". That is field detection, it needs
+`H-02`, and it sits in `registry._NEEDS_WIRING` saying so.
+
+**`DEFAULT_BACKEND` did not move**, and not because the tests break — measured
+with `ladder` as the default the suite is 4114 passed / 1 failed, and that one
+failure pins the default's identity. It did not move because it would hand
+externally-supplied bytes to `pypdf` inside the web process, and `D-30`
+approved a module rather than a route. **That is an owner decision.**
+
+### §50.1 What the numbers do not establish
+
+Nothing about real supplier bills. The corpus is `SYNTHETIC_EVIDENCE` from
+`scripts/build_ground_truth.py`, and `S2 = NOT_MEASURED` against real documents
+is unchanged. By the rule of three, 20 clean reads bound the true error rate at
+**15%** — about 1 bill in 7. "It reads bills" needs ~100 real bills; "safe to
+post without review" needs ~3,000. The gap is two orders of magnitude of real
+documents, and it is a data-collection problem, not a code problem.
+
+### §50.2 One defect found, deliberately not fixed here
+
+`textlayer._NEXT_LABEL` requires two or more spaces before the next label, so
+`SUPPLIER: NORTHERN TRAINS LIMITED HSN/SAC: 998311` returns the party with the
+next label glued on — reproduced through the shipped `pdf_text_layer` backend
+on a real PDF, sourced as read, at confidence EXACT. A wrong supplier name
+reaches `propose_account`, where a name not matching history is a new vendor.
+The one-character fix is worse than the bug (it truncates the party to empty),
+so it needs its own change and its own tests.
+
+---
+
+## §51 Three known limitations the owner ruled on — 2026-08-13
+
+**These are CLOSED. They are limitations, not open questions, and nobody should
+re-ask them or quietly "fix" them.** Each is recorded here because this is where
+a person looks for what this product does not yet do; the full note for each
+lives beside the thing it constrains, linked below.
+
+### §51.1 `s2_extraction` is red by design — the OCR corpus is unreadable on purpose
+
+> "The OCR corpus is intentionally unreadable; s2_extraction is red by design
+> for this MVP. A future task will regenerate a realistic corpus and revisit
+> this gate."
+
+**No threshold moves and the gate is not split.** A red mark with a written
+reason is not a defect. The future task is to regenerate the OCR corpus with
+realistic fonts and images — real typefaces instead of the hand-built 5×7 bitmap
+font, and actual pixels in the JPEGs, which today carry none — and *only then*,
+optionally, to split the gate, because two thresholds are worth setting only
+when there is real data to set them from.
+
+Full note: [`OCR_CORPUS_FINDING.md`](./OCR_CORPUS_FINDING.md). Related: §50,
+where the measured score is recorded, and
+[`CAGE_FINDINGS.md`](./CAGE_FINDINGS.md) Finding 1.
+
+### §51.2 `period_open` is ON the live path — CLOSED 2026-08-13, measured
+
+The ruling below was made in the morning of 2026-08-13 and its "future task" was
+commissioned and delivered the same day:
+
+> "Period check is currently off the live path because Tally open/closed bounds
+> are not read. This is a known limitation for this MVP. A future task will read
+> SVFROMDATE/SVTODATE from Tally and enable this gate on the live pipeline."
+
+**Built.** `accountant/tallyio/period.py` reads `BOOKSFROM` and `STARTINGFROM`
+from an `Export`/`Collection` of `TYPE Company`; `accountant/period.py::
+is_period_open` returns the boolean and logs the timestamp, Tally's answer, the
+result and the elapsed ms on every call; both `pipeline.evaluate` call sites in
+`accountant/web/app.py` pass it, for the date on the BILL.
+
+**Two measurements worth carrying forward.** `SVFROMDATE`/`SVTODATE` are static
+variables you SEND to scope a request, not a place bounds are stored, so the
+mechanism named in the ruling could not have worked. And `ENDINGAT` is not the
+year end — it tracks the last voucher date, so bounding on it would have refused
+every bill dated after the last one entered. The upper bound is therefore
+derived from `STARTINGFROM` and is labelled derived in the log.
+
+Full note: [`OWNER_WORK.md`](./OWNER_WORK.md) under *`period_open` has no
+source*. Design: [`ARCHITECTURE.md`](./ARCHITECTURE.md) §4.1b.
+
+### §51.3 Uploads are read fully into memory — streaming is mandatory before multi-tenant hosting
+
+> "Uploads up to 100 MB are currently read fully into memory per request. This
+> is acceptable for a single local user. Before multi-tenant hosting, this must
+> be changed to streaming with concurrency limits."
+
+**MANDATORY before any multi-tenant hosting or public deployment — not
+optional, just deferred past this MVP.** It needs both halves together:
+streaming into the multipart parser, and a cap on how many uploads may be in
+flight at once. Streaming on its own lowers the cost of one request without
+bounding the total. **No code change now.**
+
+Full note: [`ARCHITECTURE.md`](./ARCHITECTURE.md) §4.8.
+
+---
+
+## §52 The cage went on the live path — 2026-08-15
+
+Plain words first. **The cage** is the folder `accountant/cage/`. Its job is to
+say one of three things about a bill: **post it**, **ask the owner a question**,
+or **block it**. Until 2026-08-15 that folder was finished, tested, and *called
+by nothing that ships*. Now it is called.
+
+Everything below was checked by reading the files, not by trusting a commit
+message.
+
+### §52.1 It is wired in — verified by reading `pipeline.py`
+
+| what | where | verified |
+|---|---|---|
+| the pipeline imports the cage | `accountant/pipeline.py:25` — `from accountant.cage import gate as cage_gate` | yes |
+| the cage's answer is applied | `accountant/pipeline.py:156` — `narrowed_by_the_cage` | yes |
+| the gate is actually called | `accountant/pipeline.py:795` inside `evaluate` | yes |
+
+Landed in commit `6629b51`.
+
+**The cage may only NARROW.** Narrow means: it can make an answer stricter, never
+looser. A draft the older logic called VALID can be pushed down to UNCLEAR or
+NOT_VALID. A draft the older logic already refused cannot be lifted back up, no
+matter what the cage says. The one-way rule is held by an early return in
+`narrowed_by_the_cage`, not by the contents of a lookup table — so deleting a
+row of that table cannot turn a refusal into a post.
+
+### §52.2 Two defects were found there and fixed the same day
+
+Both landed in commit **`e783074`**, 2026-08-15. Both produced a **refusal**
+rather than a wrong number — which is why no existing test caught either. A
+system whose failure mode is "blocks too much" does not announce itself: every
+test asserting a block keeps passing, and the only symptom is a person opening
+bills the machine could have cleared.
+
+**Defect 1 — the pre-tax figure was read and then not handed over.**
+`pipeline.evaluate` called `gate.gate(...)` without passing `net_paise`, while
+`draft.record.net_paise` already held the number the reader had found. So the
+law `net_plus_tax_equals_gross` could never be evaluated. Fixed at
+`accountant/pipeline.py:829` — `net_paise=draft.record.net_paise`.
+
+Measured by the commit's author, recorded with its source so it can be re-run:
+before the fix, of 956 blocks, **955** cited "there is something on this bill I
+could not check at all". End to end on `tests/test_textlayer.py::BILL`:
+
+```
+record.net_paise                   104624          the reader had it
+net_plus_tax_equals_gross before   INDETERMINATE   "the net amount was not read"
+net_plus_tax_equals_gross after    PASS            1,046.24 + 188.32 = 1,234.56
+```
+
+**Defect 2 — the arithmetic compared two different things.**
+On an Indian GST bill the item rows are **pre-tax** (the net). The bill's big
+number at the bottom is the **gross** (net + tax). The law `lines_sum_to_total`
+was adding up the pre-tax rows and comparing them against the gross. A bill
+whose arithmetic was perfect therefore failed by exactly its own tax:
+
+```
+lines   278.61        the item rows, pre-tax
+tax      40.39
+gross   319.00        what the rows were being compared against
+```
+
+Fixed by a new helper, `_lines_add_up_to` at `accountant/cage/gate.py:332-377`.
+It answers with three rules:
+
+- net was read → compare the rows against the **net**. This is the real law.
+- net unread but tax is a **read** zero → compare against the gross, because with
+  no tax the net and the gross are the same number. A never-read tax is `None`,
+  not `0`, so this branch cannot fire by accident.
+- anything else → `None`, which becomes INDETERMINATE, which **blocks**.
+
+The third rule is deliberate. The net could be guessed as gross minus tax, and
+`gate.py`'s own docstring forbids that: a number worked out from the law's own
+inputs is checked against itself and passes for ever.
+
+**Both fixes were mutation-tested.** A *mutant* is a deliberate small break put
+into the code to see whether any test notices. Reverting the handoff kills 1 of
+19 mutants; restoring the gross pairing kills 2 of 19.
+
+**Neither fix makes more bills post, and the commit says so.** That is not a
+disappointment, it is the honest reading: `lines_sum_to_total` is still
+INDETERMINATE whenever the rows were not read, and INDETERMINATE blocks. The
+ordinary document still blocks — on a different and now truthful sentence.
+
+### §52.3 The reader now carries two things it used to drop
+
+`accountant/extract/textlayer.py` is the **text-layer tier** — the reader that
+pulls characters straight out of a born-digital PDF. It is one of the two tiers
+on `AUTO_POST_ALLOWED_TIERS` (`accountant/cage/decision.py:279-281`), which means
+its reads may be posted without asking a person. The other is `typed_text`, where
+a person typed the sentence themselves. Anything read from pixels is capped at
+ASK.
+
+**Several source comments say "the only one on `AUTO_POST_ALLOWED_TIERS`"** —
+`textlayer.py:215`, `textlayer.py:724`, `textlayer.py:1423`. The set has two
+members. Recorded as a documentation defect in source, not fixed here.
+
+| field | where it is now filled | what changed |
+|---|---|---|
+| `net_paise` | `textlayer.py:1426` | was never filled; `net_plus_tax_equals_gross` was INDETERMINATE on exactly the tier allowed to auto-post |
+| `line_items` | `textlayer.py:1427-1430`, from `_read_lines` at `textlayer.py:808` | was never filled; `lines_sum_to_total` was INDETERMINATE on every bill |
+
+`accountant/extract/ladder.py:347,355` merges both when a scanned PDF falls
+through both rungs. `accountant/extract/freeocr.py:1065` carries the net too.
+
+### §52.4 What is still NOT true, said plainly
+
+- **`gate.observed()` does not read the net off the record.**
+  `accountant/cage/gate.py:380-394` builds the `Observation` from date, party,
+  total and tax only. The net reaches the law as a keyword argument that the
+  caller must remember to pass. Today exactly one caller passes it. A second
+  caller that forgets will silently get INDETERMINATE — which blocks, so it fails
+  safe, but it fails silently.
+- **Two docstrings in `gate.py` are now stale and say the opposite of the code.**
+  `accountant/cage/gate.py:113` and `accountant/cage/gate.py:319` both state that
+  `line_items` "defaults to `()` and nothing ever fills it". `textlayer.py:1427`
+  fills it. Recorded as a documentation defect in source, not fixed here.
+- **`accountant/cage/classify.py` is still called by nothing that ships.**
+  `git grep -l "cage.classify"` returns test files, `demo_safety_cage.py`, and
+  documentation. The shipped upload path still routes on the media type the
+  browser declared, never on the bytes.
+- **No number in this section is an accuracy claim.** Whether the cage now posts
+  anything, and how often it is right when it does, is **not measured** as of
+  2026-08-15.
+
+### §52.4b The test suite is 174 RED, and it is one cause
+
+**Measured 2026-08-15 at commit `64b6bce`**, whole suite, no `-x`:
+
+```
+.venv/bin/python -m pytest -q --no-header -p no:randomly
+
+174 failed, 4665 passed, 10 skipped, 4 xfailed, 2 warnings in 476.77s
+```
+
+Before the cage was wired in, the same suite was **1 failed, 4546 passed** at
+commit `f7dda81`. So wiring the cage turned **173 green tests red**.
+
+**173 of the 174 have the same cause, and it is not a bug.** The cage narrows
+the outcome, and the tests were written for a world without a cage. They set up
+a bill, call the pipeline, and assert the outcome is `VALID`. It is now
+`NOT_VALID`, and the refusal names its own reasons in the owner's own sentences:
+
+```
+"There is something on this bill I could not check at all."
+"I could not tell whether the books for this date are still open."
+"I have never seen Sharma Traders in your books."
+"I am less than 70 out of 100 sure about what this bill says."
+```
+
+Those are the four hard blocks the `pipeline.evaluate` docstring already
+predicted. A test fixture is a typed sentence with no line items, no net, no
+Tally to ask about open books, and a supplier that is not in the chart of
+accounts. Every one of the four fires.
+
+**The 1 remaining failure is unrelated and trivial:**
+`tests/test_no_reader.py::test_the_extraction_package_ships_source_and_nothing_else`
+fails because a macOS `.DS_Store` file sits in `accountant/extract/`. The test is
+correct; the file should not be there.
+
+**THIS IS A DECISION, NOT A BUG REPORT, AND IT IS NOT MADE HERE.** There are only
+two honest readings and they lead to different work:
+
+1. **The tests encode the pre-cage world and must be updated.** Each one has to
+   supply the world facts the cage asks for — `period_open=True`, a known party,
+   a reader that fills the fields — or assert the new outcome. That is ~173 test
+   edits and it is the reading the commit messages assume.
+2. **The cage is too strict for a typed sentence.** A person who types "paid
+   Sharma Traders 4200 for cement" has supplied no line items and no pre-tax
+   figure because **there are none**, not because they went unread. That is the
+   "not applicable is not the same as could not check" distinction
+   [`CAGE_FINDINGS.md`](./CAGE_FINDINGS.md) Finding 3 already raised and
+   deliberately left open for the owner.
+
+**Nobody should quietly pick one by editing tests until they pass.** Reading 2
+being right and reading 1 being taken would mean 173 tests were rewritten to
+match a refusal that should not have happened.
+
+### §52.5 Where the reader actually fails on real documents — measured 2026-08-15
+
+Measured on **60 real photographs and scans** from `data/real_invoices_indian`,
+five fields each, **300 field slots**. Reproduced twice, byte-identical both
+times, on the tree that became commit `64b6bce`.
+
+```
+the OCR engine refused the file            0 slots
+no OCR words at all                       10 slots
+words present, NO LABEL MATCHED          287 slots
+reached a candidate                        3 slots
+```
+
+**Tesseract is not the bottleneck and never was.** It refused nothing and
+returned 2,596 word rows. The bottleneck is the join between the words it
+returns and the labels this reader knows.
+
+Per field: party **0 of 60**, invoice date **2 of 60**, total **0 of 60**, tax
+**0 of 60**, invoice number **1 of 60**. Full table with the reason for every
+miss: [`EXTRACTION_MEASURED.md`](./EXTRACTION_MEASURED.md), section *Where every
+field slot dies, on REAL documents*.
+
+**Two warnings that belong with the number, not below it.**
+
+1. This counts **reach**, not **accuracy**. A document that confidently reads
+   the wrong total is counted here as a success. There is no labelled truth for
+   these documents.
+2. **The script's own docstring records a different set of counts** (6,210 word
+   rows, 0 slots with no words, 296 with no label) and that set does **not
+   reproduce**. Both runs agree on the conclusion and on `3 of 300`; they
+   disagree by 2.4x on word rows. Nobody has explained it. Four causes have been
+   checked and ruled out; they are listed in `EXTRACTION_MEASURED.md`.
+
+### §52.6 The three constants and the dependency set have not moved
+
+Read 2026-08-15 at commit `e163e5b`:
+
+```
+AUTO_POST_FLOOR  0.95   accountant/cage/decision.py:206
+ASK_FLOOR        0.70   accountant/cage/decision.py:211
+QUESTION_CAP     5      accountant/questions.py:24   owner-set 2026-08-07
+```
+
+Commit `e163e5b` added a plausibility **ceiling** on the party field — a cap that
+can refuse a reading and can never rescue one. No band moved.
+
+
+`pyproject.toml:13-17`, read 2026-08-15. The runtime dependencies are exactly
+three and no more:
+
+```
+pypdf>=5.0        reads a born-digital PDF's text layer
+pytesseract>=0.3  a thin wrapper over the tesseract binary, for scans
+Pillow>=11.0      decodes the image pytesseract hands to tesseract
+```
+
+A fourth fails
+`test_the_project_declares_exactly_the_dependencies_the_owner_approved`.

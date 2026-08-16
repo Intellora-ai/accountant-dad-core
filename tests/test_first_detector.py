@@ -435,7 +435,15 @@ def test_a_detector_that_raises_stops_the_entry_rather_than_posting_it():
     )
 
     with pytest.raises(RuntimeError, match="fell over"):
-        pipeline.evaluate(draft, accounts, history, memory, detector_set=(explodes,))
+        pipeline.evaluate(
+            draft,
+            accounts,
+            history,
+            memory,
+            detector_set=(explodes,),
+            period_open=None,
+            pdf_repaired=None,
+        )
 
     assert draft.decision is None
     with pytest.raises(ValueError, match="not been evaluated"):

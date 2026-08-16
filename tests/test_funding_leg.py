@@ -87,7 +87,13 @@ def draft_for(t: FakeTally, memory: CompanyMemory, text: str):
         memory,
         today=TODAY,
     )
-    return pipeline.evaluate(d, chart, t.read_vouchers(COMPANY), memory)
+    # The books are open. `period_open=None` means NOBODY LOOKED, which the cage
+    # blocks on its own - correctly, and pinned in `tests/test_period_handoff.py`.
+    # This file is about the FUNDING LEG, so the period is answered here rather
+    # than left to refuse every draft before the leg is ever examined.
+    return pipeline.evaluate(
+        d, chart, t.read_vouchers(COMPANY), memory, period_open=True, pdf_repaired=None
+    )
 
 
 # ---- proposed from this company's own history, or not at all ----------------
@@ -197,7 +203,9 @@ def test_the_funding_question_offers_only_ledgers_this_company_actually_has():
     d = draft_for(t, memory, "paid Gupta Hardware 1500 for tools")
     d = pipeline.answer(d, "Purchases", problem_id="which_account")
     memory.record_correction(d.voucher.party, "Purchases")
-    d = pipeline.evaluate(d, chart, t.read_vouchers(COMPANY), memory)
+    d = pipeline.evaluate(
+        d, chart, t.read_vouchers(COMPANY), memory, period_open=None, pdf_repaired=None
+    )
 
     q = pipeline.next_question(d)
     assert q is not None and q.problem_id == pipeline.FUNDING_PROBLEM
@@ -243,13 +251,17 @@ def test_purpose_is_asked_before_funding_and_each_answer_lands_on_its_own_leg():
 
     d = pipeline.answer(d, "Purchases", problem_id="which_account")
     memory.record_correction(d.voucher.party, "Purchases")
-    d = pipeline.evaluate(d, chart, history, memory)
+    d = pipeline.evaluate(
+        d, chart, history, memory, period_open=True, pdf_repaired=None
+    )
 
     second = pipeline.next_question(d)
     assert second is not None and second.problem_id == pipeline.FUNDING_PROBLEM
 
     d = pipeline.answer(d, "Bank", problem_id=second.problem_id)
-    d = pipeline.evaluate(d, chart, history, memory)
+    d = pipeline.evaluate(
+        d, chart, history, memory, period_open=True, pdf_repaired=None
+    )
 
     assert d.outcome is Outcome.VALID
     assert d.voucher.debit_account == "Purchases", "the funding answer left it alone"
@@ -272,7 +284,9 @@ def test_a_human_answer_is_never_overwritten_by_the_history_afterwards():
     assert d.voucher.credit_account == "Cash"
 
     d = pipeline.answer(d, "Bank", problem_id=pipeline.FUNDING_PROBLEM)
-    d = pipeline.evaluate(d, chart, history, memory)
+    d = pipeline.evaluate(
+        d, chart, history, memory, period_open=None, pdf_repaired=None
+    )
 
     assert d.voucher.credit_account == "Bank"
     assert (d.voucher.provenance or {})["credit_account"] == "human_answer"

@@ -1,0 +1,6 @@
+field,correct,incorrect,missing,false positive,review-required
+party,16,0,0,0,1
+invoice_date,16,0,0,0,1
+invoice_number,16,0,0,0,1
+tax,11,0,4,0,2
+total,14,0,0,1,2

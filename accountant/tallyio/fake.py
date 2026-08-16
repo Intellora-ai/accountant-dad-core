@@ -43,6 +43,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 
 from accountant.schema import Voucher
+from accountant.tallyio import chart as ledger_chart
 from accountant.tallyio.client import (
     CompanyNotBackedUp,
     DuplicateOperation,
@@ -63,6 +64,46 @@ class _Company:
     vouchers: list[Voucher] = field(default_factory=list[Voucher])
     backed_up: bool = False
     next_tally_id: int = 1
+    #: Ledger name -> its Tally group, for the ledgers this company has one for.
+    #:
+    #: SEPARATE FROM `accounts` rather than replacing it, so that the thirty-odd
+    #: existing `add_company(accounts=(...))` call sites keep meaning what they
+    #: meant: a chart of names with NO groups. That is not a shortcut, it is the
+    #: honest simulation of a gateway whose response carries no `<PARENT>`, and
+    #: `chart.derive_group` refuses on it rather than inventing one.
+    groups: dict[str, str] = field(default_factory=dict[str, str])
+
+
+@dataclass(frozen=True)
+class _ChartBook:
+    """`chart.LedgerBook` over the in-memory company. The real one is `real._ChartBook`.
+
+    Same protocol, same caller, so the placement rule that decides where a
+    missing ledger goes is ONE piece of code with two transports under it -
+    which is the only arrangement in which "both backends behave identically"
+    is a fact instead of two copies that agree today.
+    """
+
+    company: _Company
+
+    def chart(self) -> tuple[ledger_chart.Placement, ...]:
+        return tuple(
+            ledger_chart.Placement(name=name, parent=self.company.groups.get(name, ""))
+            for name in self.company.accounts
+        )
+
+    def create(self, name: str, group: str) -> str:
+        """Always succeeds, and says so the same way a confirmed create does.
+
+        There is no transport to fail and no read-back to come back empty, so
+        this returns "". The failure paths belong to `real._ChartBook`, where
+        they are real; simulating them here would make the double able to fail
+        in ways it cannot actually reproduce, which is the mirror image of the
+        alibi this module's docstring is about.
+        """
+        self.company.accounts.append(name)
+        self.company.groups[name] = group
+        return ""
 
 
 class FakeTally:
@@ -79,10 +120,43 @@ class FakeTally:
         accounts: tuple[str, ...] = (),
         vouchers: tuple[Voucher, ...] = (),
         backed_up: bool = True,
+        *,
+        groups: dict[str, str] | None = None,
     ) -> None:
+        """`groups` is the chart's PARENT column - ledger name -> Tally group.
+
+        Keyword-only and optional so that every existing call site keeps
+        describing a company whose gateway reports no groups. A company with no
+        groups is not a company with default groups: `chart.derive_group`
+        refuses to place a new ledger in it, which is the measured `TANVEER
+        SIDHU` case (`masters.py:5-9`) and the correct answer for it.
+        """
         self._companies[name] = _Company(
-            accounts=list(accounts), vouchers=list(vouchers), backed_up=backed_up
+            accounts=list(accounts),
+            vouchers=list(vouchers),
+            backed_up=backed_up,
+            groups=dict(groups or {}),
         )
+
+    def ledger_book(self, company: str) -> ledger_chart.LedgerBook:
+        """This company's chart, behind the interface the placement rule uses.
+
+        A test helper, not part of `TallyClient`. It exists so one test can
+        drive `chart.place_ledgers` against BOTH backends and compare the two
+        answers character for character - which is the only way "both backends
+        behave identically" is a measurement rather than a hope.
+        """
+        return _ChartBook(self._co(company))
+
+    def ledger_group(self, company: str, name: str) -> str:
+        """The group a ledger sits under, or "" if the chart does not say.
+
+        A test helper, not part of `TallyClient`. It exists so a test can assert
+        WHERE a created ledger landed - the one fact that decides whether a
+        balance is a credit or a debit and that no trial-balance comparison
+        catches (`docs/RUNBOOK_PHASE5_ACCEPTANCE.md:180-186`).
+        """
+        return self._co(company).groups.get(name, "")
 
     def seed_voucher(self, company: str, voucher: Voucher) -> None:
         """Place a voucher we did NOT write, as if the accountant typed it."""
@@ -151,29 +225,41 @@ class FakeTally:
             )
 
         # W6, 2026-08-09. `RealTally._check_ledgers_exist` has always refused a
-        # ledger that is not in the company's chart, EXACTLY - Tally creates one
-        # silently if you send it a name it does not have, so "purchases"
-        # against a chart holding "Purchases" makes a second ledger next to the
-        # real one. This file never looked at `co.accounts` on the write path
-        # at all, which made the double softer than the connector on the one
-        # path that touches somebody's books. See the module docstring: a
-        # double that makes an easier call does not merely fail to catch a bug,
-        # it issues an alibi. Same refusal, same class, same wording.
-        missing = [
-            ledger
-            for ledger in (voucher.debit_account, voucher.credit_account)
-            # NOT `if ledger and ...`. An empty leg is a ledger named '' that the
-            # chart does not hold, which is exactly how `RealTally` reports it.
-            # Skipping the blank made the double answer with a different
-            # exception class for the same voucher.
-            if ledger not in co.accounts
-        ]
-        if missing:
-            raise TallyDataError(
-                f"refusing to write operation {operation_id!r} to {company!r}: "
-                f"the ledger(s) {', '.join(repr(m) for m in missing)} do not "
-                f"exist there"
-            )
+        # ledger that is not in the company's chart, EXACTLY. This file never
+        # looked at `co.accounts` on the write path at all, which made the
+        # double softer than the connector on the one path that touches
+        # somebody's books. See the module docstring: a double that makes an
+        # easier call does not merely fail to catch a bug, it issues an alibi.
+        #
+        # 2026-08-13: the refusal became a PLACEMENT. A missing ledger is now
+        # created under a group read from this company's own chart, and refused
+        # only when the chart cannot say where it belongs. The rule, the
+        # refusal and its wording are `chart.place_ledgers` - the SAME function
+        # `RealTally._check_ledgers_exist` calls, not a copy of it. Two matched
+        # copies is what W6 and W4 both were, and `schema.py:115-132` records
+        # the third instance of the same drift.
+        #
+        # THE CLAIM THAT USED TO SIT HERE, and its answer. This comment said
+        # Tally "creates one silently if you send it a name it does not have,
+        # so 'purchases' against a chart holding 'Purchases' makes a second
+        # ledger next to the real one". `RealTally._check_ledgers_exist` said
+        # the opposite - that Tally does NOT create a master on the fly and the
+        # import fails. Neither has been measured against a licensed
+        # TallyPrime and they cannot both be true. The resolution is written
+        # out in full at `real.py::RealTally._check_ledgers_exist`: pre-creating
+        # under a derived group is the better move under either reading, so the
+        # code does not have to choose. What did not survive either way is a
+        # name differing only in case, which is refused rather than created.
+        #
+        # An empty leg still arrives here as a ledger named '' that the chart
+        # does not hold, and `chart.derive_group` refuses it - exactly how
+        # `RealTally` reports it. Skipping the blank would make the double
+        # answer with a different exception class for the same voucher.
+        refusal = ledger_chart.place_ledgers(
+            _ChartBook(co), company, voucher, operation_id
+        )
+        if refusal:
+            raise TallyDataError(refusal)
 
         # W6 AGAIN, and only half fixed the first time. 2026-08-10.
         #

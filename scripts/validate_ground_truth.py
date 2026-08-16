@@ -55,7 +55,7 @@ import sys
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, TypeGuard
 
 _REPO = Path(__file__).resolve().parent.parent
 if str(_REPO) not in sys.path:
@@ -131,6 +131,27 @@ class Finding:
         return f"{self.kind}  {self.case_id}  {self.detail}"
 
 
+# A case file is decoded JSON, so every value in it is `object` until something
+# checks. `isinstance(x, dict)` on its own narrows only as far as
+# `dict[Unknown, Unknown]`, which makes every later `.get`, `.items()` and loop
+# variable unknown in turn - that is where all 25 of this file's strict errors
+# came from. These three are the same checks the code already made, stated once
+# so the narrowed shape survives.
+def _is_obj(value: object) -> TypeGuard[dict[str, object]]:
+    """A decoded JSON object. Its keys are strings by construction."""
+    return isinstance(value, dict)
+
+
+def _is_seq(value: object) -> TypeGuard[list[object]]:
+    """A decoded JSON array."""
+    return isinstance(value, list)
+
+
+def _obj(value: object) -> dict[str, object]:
+    """The object, or an empty one. Reads a value that SHOULD be an object."""
+    return value if _is_obj(value) else {}
+
+
 def _decimal(value: object, where: str) -> Decimal:
     try:
         return Decimal(str(value))
@@ -193,7 +214,7 @@ def check_expected_is_derived(record: dict[str, Any]) -> list[Finding]:
     case_id = str(record.get("case_id", "<no case_id>"))
     raw = record.get("raw_fields")
     expected = record.get("expected")
-    if not isinstance(raw, dict) or not isinstance(expected, dict):
+    if not _is_obj(raw) or not _is_obj(expected):
         return []
     derived = expected_from({str(k): v for k, v in raw.items()})
     out: list[Finding] = []
@@ -216,7 +237,7 @@ def check_hashes(record: dict[str, Any], root: Path) -> list[Finding]:
     raw = record.get("raw_fields")
     gst = record.get("gst_context")
     out: list[Finding] = []
-    if isinstance(raw, dict) and isinstance(gst, dict):
+    if _is_obj(raw) and _is_obj(gst):
         recomputed = generation_hash(
             {str(k): v for k, v in raw.items()},
             {str(k): str(v) for k, v in gst.items()},
@@ -250,7 +271,7 @@ def check_hashes(record: dict[str, Any], root: Path) -> list[Finding]:
 def check_rules(record: dict[str, Any], root: Path) -> list[Finding]:
     case_id = str(record.get("case_id", "<no case_id>"))
     ids = record.get("rule_ids")
-    if not isinstance(ids, list):
+    if not _is_seq(ids):
         return [Finding("MISSING_RULE_REFERENCE", case_id, "rule_ids is not a list")]
     if not ids:
         return []
@@ -278,7 +299,7 @@ def check_arithmetic(record: dict[str, Any]) -> list[Finding]:
     """The conservation law. It holds or it does not; no expert required."""
     case_id = str(record.get("case_id", "<no case_id>"))
     raw = record.get("raw_fields")
-    if not isinstance(raw, dict):
+    if not _is_obj(raw):
         return []
     try:
         subtotal = _decimal(raw.get("subtotal"), "subtotal")
@@ -298,9 +319,9 @@ def check_arithmetic(record: dict[str, Any]) -> list[Finding]:
             )
         )
     items = raw.get("line_items")
-    if isinstance(items, list) and items:
+    if _is_seq(items) and items:
         summed = sum(
-            (_decimal(i.get("amount"), "line amount") for i in items), Decimal(0)
+            (_decimal(_obj(i).get("amount"), "line amount") for i in items), Decimal(0)
         )
         if summed != subtotal:
             out.append(

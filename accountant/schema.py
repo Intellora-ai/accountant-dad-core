@@ -130,8 +130,36 @@ class Voucher:
         The day tax lines can actually be built, this one line changes and both
         sides move together. There is no arrangement in which the check passes
         and the connector still refuses.
+
+        A BILL WITH ZERO TAX DOES NOT CARRY TAX. Corrected 2026-08-17. This read
+        `gst_paise is not None`, so a bill a reader had looked at and found no
+        GST on was refused for "carrying GST of 0 paise" - and the refusal named
+        a tax line that would have been worth nothing to build. There is no
+        CGST/SGST/IGST line to write for zero, so there is nothing here the
+        connector cannot do.
+
+        THE THREE STATES WERE ALREADY IN THE DATA, and only this line collapsed
+        two of them. `tax_paise` is `None` when nobody read the field and an int
+        when somebody did, and `per_field_source` says which - `not_found:` for
+        the first. So *unread* and *read, and it is zero* were always
+        distinguishable; what was missing was a reader of that distinction.
+
+        NOTHING IS COERCED AND NOTHING IS DERIVED. `None` still means nobody
+        looked, and it still blocks - one layer up, where
+        `conservation.net_plus_tax_equals_gross` returns INDETERMINATE, exactly
+        as its own docstring demands: "Zero tax is a fact; an unread tax field is
+        not." Measured on that law 2026-08-17: `(None, 0, 420000)` is
+        INDETERMINATE on the unread NET, `(420000, None, 420000)` is
+        INDETERMINATE on the unread TAX, and only `(420000, 0, 420000)` passes.
+        A positive figure is untouched and still refused here.
+
+        `!= 0`, NOT `> 0`, and the difference is a hole this nearly had.
+        `tests/test_gst_safety_sweep.py` sweeps `(0, 1, -1, 64068)`, and `> 0`
+        would have called a voucher carrying MINUS one paise of GST postable - a
+        figure no reader should ever produce, which is exactly why it must not
+        be waved through. Only an exact zero is "there is no tax here".
         """
-        return self.gst_paise is not None
+        return self.gst_paise is not None and self.gst_paise != 0
 
 
 @dataclass(frozen=True)
@@ -248,6 +276,24 @@ class Decision:
 #: hold SQL NULL in those columns and read back as this, exactly as
 #: `raw_subject` reads back as INCOMPLETE for the same reason.
 NOT_RECORDED = "NOT_RECORDED"
+
+#: What `ExtractedRecord.with_answer` stamps when a PERSON supplied the value.
+#: Named rather than typed inline so the string cannot drift between the place
+#: that writes it and any place that reads it. It is deliberately NOT in
+#: `extract/adapter.py::ENTITLED_TO_EXACT`: that list grants the right to become
+#: a vendor identity with no question asked, and a person's typed answer has not
+#: earned it.
+#:
+#: IT LIVES HERE, NOT IN `extract/adapter.py`, SINCE 2026-08-17. It is a string
+#: two sides compare — `adapter.py` writes it, `uncertainty.py` reads it — and
+#: nothing about it belongs behind the reader boundary. Keeping it in the
+#: extraction package meant `uncertainty.py` took a name from
+#: `accountant.extract.*` that the contract in
+#: `tests/test_adapter_contract.py::CONTRACT` does not name, so the seam said
+#: the core depended on the extraction package for something a swap could
+#: change. It cannot: this is one word, and both sides only ever compare it to
+#: itself.
+HUMAN_ANSWER = "human_answer"
 
 
 class Actor(StrEnum):

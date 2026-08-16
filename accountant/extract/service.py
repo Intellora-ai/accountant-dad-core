@@ -59,6 +59,23 @@ DOCUMENT_KEY: Final = "document"
 #: Optional. The service's own transcription of the bill, carried, never parsed.
 TEXT_KEY: Final = "text"
 
+#: Optional. Field name -> how sure the service says it is, 0.0 to 1.0.
+#:
+#: OPTIONAL, AND WHAT SILENCE COSTS. Most paid readers report a per-field
+#: confidence and this is where theirs arrives. A service that reports none says
+#: nothing here, the record states no score for any field, and a field with no
+#: stated score is treated downstream as an estimate - so its party name is not
+#: used as a supplier's identity and the person is asked instead. That is the
+#: correct price of silence: the alternative is this adapter inventing a
+#: certainty on behalf of a reader that never claimed one, which is exactly the
+#: defect `adapter.ExtractedRecord.per_field_confidence` was added to close.
+#:
+#: NOT REFUSED WHEN ABSENT, unlike the four named fields. The difference is that
+#: a missing VALUE is ambiguous - "not on the bill" and "the service stopped
+#: halfway" mean opposite things - while a missing SCORE is not: it means nobody
+#: stated one, and the safe reading of that is the only reading of it.
+CONFIDENCE_KEY: Final = "confidence"
+
 # ---- the ten ways this can go wrong, in the words the person will read -------
 #
 # Named constants rather than inline strings so the set is enumerable, and so a
@@ -209,6 +226,52 @@ def _as_party(value: object) -> tuple[str | None, str]:
     return None, f"the party arrived as {type(value).__name__}"
 
 
+def _as_confidence(value: object) -> tuple[dict[str, float], str]:
+    """The per-field scores, or the sentence explaining why they are not usable.
+
+    Refused rather than repaired, in three ways, and each one is a way a caller
+    could otherwise end up believing a number nobody measured:
+
+      a name we did not ask about   the service is answering a question we did
+                                    not put, and a key we silently drop is a
+                                    field it thinks it has told us about.
+      a bool, or anything but a     `isinstance(True, float)` is False but
+      real number                   `bool` is an `int`, and `True` read as a
+                                    score is 1.0 - full certainty from a flag.
+      outside 0.0 to 1.0            a score above 1.0 clears the auto-post band
+                                    by accident. `wall.Field` refuses the same
+                                    number for the same reason.
+
+    A partial map is allowed: a service may be sure about the total and say
+    nothing about the date. Silence about a field is not a score of zero, and
+    the record's own contract already reads an absent score as "nobody said".
+    """
+    if value is None:
+        return {}, ""
+    if not isinstance(value, Mapping):
+        return {}, f"the confidences arrived as {type(value).__name__}"
+    pairs = cast("Mapping[object, object]", value)
+    scores: dict[str, float] = {}
+    for name, score in pairs.items():
+        if name not in ExtractedRecord.FIELDS:
+            return {}, f"a confidence was given for {name!r}, which is not a field"
+        # bool before the number check, and `type(...) is not` rather than
+        # isinstance: `True` is an `int`, and an `int` is accepted below, so an
+        # unguarded check turns a flag into full certainty.
+        if type(score) is not float and type(score) is not int:
+            return {}, (
+                f"the confidence for {name} arrived as {type(score).__name__}, "
+                "and a confidence is a number from 0.0 to 1.0"
+            )
+        if not 0.0 <= score <= 1.0:
+            return {}, (
+                f"the confidence for {name} is {score}, which is outside 0.0 "
+                "to 1.0. Guessing which scale it is on would be inventing data"
+            )
+        scores[cast("str", name)] = float(score)
+    return scores, ""
+
+
 def _as_text(value: object) -> tuple[str, str]:
     if value is None:
         return "", ""
@@ -281,6 +344,7 @@ class ServiceExtractor:
         total, total_problem = _as_paise("total_paise", named["total_paise"])
         tax, tax_problem = _as_paise("tax_paise", named["tax_paise"])
         text, text_problem = _as_text(named.get(TEXT_KEY))
+        scores, score_problem = _as_confidence(named.get(CONFIDENCE_KEY))
 
         wrong = [
             problem
@@ -290,6 +354,7 @@ class ServiceExtractor:
                 total_problem,
                 tax_problem,
                 text_problem,
+                score_problem,
             )
             if problem
         ]
@@ -316,5 +381,15 @@ class ServiceExtractor:
                     else f"{NOT_FOUND}: the reading service found no {field}"
                 )
                 for field, value in supplied.items()
+            },
+            # Only for fields that came back with a value. A score attached to
+            # a field the service said nothing about would be a certainty about
+            # an absence, and `ExtractedRecord.read_exactly` requires both
+            # halves anyway - so carrying it would be noise in the evidence row
+            # rather than a fact.
+            per_field_confidence={
+                field: score
+                for field, score in scores.items()
+                if supplied.get(field) is not None
             },
         )

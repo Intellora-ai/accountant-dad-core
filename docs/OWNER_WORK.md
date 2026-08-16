@@ -234,7 +234,7 @@ was no way to hand this product a document at all. There is now.
 What shipped:
 
 - `POST /upload` in `accountant/web/app.py`, reachable from a file input on the
-  home page. Authenticated like every other route; a maximum of **10 MB**
+  home page. Authenticated like every other route; a maximum of **100 MB**
   refused with `413` on the declared length **before the body is read**; an
   allow-list of `application/pdf`, `image/jpeg`, `image/png` refused with `415`;
   a malformed body answered with `400` and a sentence rather than a crash.
@@ -249,6 +249,20 @@ What shipped:
   uses — so the answer flows into the existing decision path and the person is
   told plainly. Nothing is written to disk and nothing is logged: the durable
   row records the decision, never the document.
+
+**One limitation of that 100 MB, ruled 2026-08-13 and deferred, not forgotten.**
+In your own words:
+
+> "Uploads up to 100 MB are currently read fully into memory per request. This
+> is acceptable for a single local user. Before multi-tenant hosting, this must
+> be changed to streaming with concurrency limits."
+
+**MANDATORY before any multi-tenant hosting or public deployment** — not an
+optional improvement, just deferred past this MVP. It needs two things together:
+streaming into the multipart parser instead of one whole body in memory, and a
+cap on how many uploads may be in flight at once. The full note lives in
+[`ARCHITECTURE.md`](./ARCHITECTURE.md) §4.8, beside the web application it
+constrains. **No code change now.**
 
 **What swapping in a real vendor costs, exactly.** Three edits, all inside
 `accountant/extract/`:
@@ -293,16 +307,34 @@ what the product says when they do not. A decision closes this as firmly as a
 purchase would.
 
 ### Real-Tally testing infrastructure
-No test in this repository touches a real TallyPrime.
-`tests/test_tally_contract.py:63` yields `FakeTally`; `tests/test_real_tally.py`
-drives a simulator and says so in its own header. `LICENSED_REALTALLY` evidence:
-**none, anywhere.**
+**No automated test in this repository touches a real TallyPrime**, and that is
+still true. `tests/test_tally_contract.py:63` yields `FakeTally`;
+`tests/test_real_tally.py` drives a simulator and says so in its own header.
 
-**Needed:** `Demo Co` and four ledgers (`Purchases`, `Sundry Expenses`, `Cash`,
-`Sharma Traders`) created **in the TallyPrime GUI** — the XML gateway refuses
+**Corrected 2026-08-12.** This entry used to end *"`LICENSED_REALTALLY`
+evidence: none, anywhere."* That is no longer true. `PROJECT_STATE.md` §47
+records a run against a licensed TallyPrime — the owner's `TANVEER SIDHU`
+company, ledgers created over XML, a Purchase voucher posted and read back. It
+was a script (`mvp_real_tally.py`), not a test, so the first sentence stands and
+the third did not.
+
+It is **not** an acceptance pass. Four of the fifteen conditions in
+`RUNBOOK_PHASE5_ACCEPTANCE.md` were touched, one of those four failed, and
+condition 14 (`trial_balance_restored`) is failing in those books today: the
+script ran twice and left a duplicate ₹1,000 voucher. Condition by condition in
+that runbook's PART J. The duplicate guard that prevents a repeat is in code and
+tested; **removing the existing duplicate is an owner action** — a deletion in
+TallyPrime cannot be undone and those are real books.
+
+**Needed, and settled as permanent 2026-08-12:** `Demo Co` and four ledgers
+(`Purchases`, `Sundry Expenses`, `Cash`, `Sharma Traders`) created **in the
+TallyPrime GUI**, with the HTTP gateway switched on. The XML gateway refuses
 company creation with `<RESPONSE>Unknown Request, cannot be processed</RESPONSE>`
-and retrying it wedged a live gateway once already. Then a Windows VM reachable
-from CI if those tests are ever to run automatically.
+because company creation is an administrative flow and is not on the documented
+integration surface at all — not because a workaround is missing. No XML
+workaround will be attempted; retrying wedged a live gateway once already. See
+`RUNBOOK_PHASE5_ACCEPTANCE.md` §A.0.1. Then a Windows VM reachable from CI if
+those tests are ever to run automatically.
 
 ### GST scope for launch
 Owner decision `Q3 = D`: GST posting is **not** implemented and that is
@@ -591,4 +623,85 @@ above.
 outcome turns into a real verdict on its own, and the strict-xfail pair around
 it fails loudly until somebody removes the now-passing half. Nothing else needs
 changing.
+
+### `period_open` has no source — RULED 2026-08-13, and BUILT 2026-08-13
+
+**Nothing is asked of you here.** The ruling below was made in the morning and
+the "future task" it names was commissioned and delivered the same day, so this
+entry now records a limitation that has been CLOSED rather than one that stands.
+
+The original ruling, in your own words, kept so the sequence is readable:
+
+> "Period check is currently off the live path because Tally open/closed bounds
+> are not read. This is a known limitation for this MVP. A future task will read
+> SVFROMDATE/SVTODATE from Tally and enable this gate on the live pipeline."
+
+**What was built:** `accountant/tallyio/period.py` reads the bounds and
+`accountant/period.py::is_period_open` turns them into the boolean, logged on
+every call. `accountant/web/app.py` passes it at both `pipeline.evaluate` call
+sites, as the date on the BILL rather than today's date.
+
+**THE MECHANISM IN THE RULING WAS THE WRONG ONE, and measuring it is what found
+that.** `SVFROMDATE`/`SVTODATE` are static variables that SCOPE a request to a
+period; they are something you SEND, not a place the company's bounds are
+stored, so they could never have answered "what are this company's bounds". The
+answer is an `Export`/`Collection` of `TYPE Company` fetching `BOOKSFROM` and
+`STARTINGFROM` — the same request family as the startup company list, so no new
+request shape was introduced and the shape that hung Tally on 2026-08-09 (A11)
+was never built.
+
+**One thing Tally would not give us, measured rather than assumed.** No member
+on this build states the financial year END. `ENDINGAT` looks like it does and
+does not: it came back as the LAST VOUCHER DATE (proved by `LASTVOUCHERDATE`
+holding the identical value, and by every voucher in the company carrying that
+date). Bounding on it would have refused every bill dated after the last one
+entered — an outage wearing the costume of a safety check. So the lower bound is
+Tally's own `BOOKSFROM` and the upper bound is DERIVED as `STARTINGFROM` plus
+twelve months minus one day, labelled as derived everywhere it appears,
+including in the log line. A company whose FIRST year is short or long is the
+known way for that derivation to be wrong, and it was not exercised.
+
+Wiring this is also what let `accountant/cage/gate.py` move toward the pipeline
+path. It was never the only thing needed — per-field reader confidence and the
+conservation-law inputs are separate — but it was the one that needed a live
+Tally rather than more code, and it now has one.
+
+### A bill whose own numbers contradict each other — CLOSED 2026-08-13, BLOCK
+
+**Your decision, verbatim:** *"Conservation FAIL → BLOCK, always. This is now a
+hard rule. Any failure of conservation checks (lines != total, net+tax != gross,
+debits != credits, 1-paisa mismatch, etc.) blocks the document. No auto-post, no
+ask, on conservation FAIL."*
+
+Done. `decide()` refuses instead of asking, in your own sentence: *"The numbers
+in this bill do not add up. Please check the original and upload a correct
+version."*, followed by the failing law's own line so the person has the two
+figures to check against the bill.
+
+**What moved.** The hard-rule list went from five to six. `decision.py::_asking`
+no longer looks at a FAIL at all — it is refused in `_blocking` — the band lists
+in `accountant/cage/decision.py`, `docs/interfaces/decision.md` and
+`tests/test_decision.py` all say block, and rows 5, 6 and 7 of
+`demo_safety_cage.DIVERGENCE` are deleted because there is nothing left to
+disagree about. **Your demo was right and the cage was wrong; the cage moved.**
+
+**What it cost, measured on the 502-case corpus.** 200 ask / 302 block became
+38 ask / 464 block. 162 cases crossed and none crossed back. **The refusal rate
+did not change at all** — it was 502/502 before and after, and 500/500 clean
+bills still post. This decision changed what the product SAYS to a person, not
+how much it lets through.
+
+**One thing was deliberately NOT touched, and you should know it was a choice.**
+"I could not check this" (INDETERMINATE) is still a separate hard rule from
+"I checked it and it does not add up" (FAIL). They share an outcome and nothing
+else: one means send a copy somebody can read, the other means the figures on
+the page contradict each other, and a person handed the wrong one of those does
+the wrong thing next.
+`test_the_control_could_not_check_and_checked_and_wrong_stay_two_facts` fails if
+they are ever collapsed into one branch.
+
+**Still open on the other row, and it is the smaller half.** A bill with no
+party on it at all: the demo asks for it, `decide()` blocks ("too little to even
+ask about"). Nothing posts either way. It is row 20 in
+`demo_safety_cage.DIVERGENCE`, printed on every demo run.
 

@@ -137,7 +137,7 @@ from tests.test_auth import (
 )
 from tests.test_durable_log import type_an_entry_that_posts
 from tests.test_reversal_guard import a_posted_voucher, as_user
-from tests.test_web import demo_company, fake_backend, log_block, serving
+from tests.test_web import demo_company, draft_id, fake_backend, log_block, serving
 
 #: `production_auth` is `tests/test_auth.py`'s autouse fixture, which DELETES
 #: LOCAL_DEV_MODE so this file runs the shipped path. Imported rather than
@@ -160,15 +160,16 @@ BILAL_EMAIL = "bilal@alpha.test"
 #: The other tenant's person. Step 6 is about what she can reach.
 CARLA = f"user-{BETA}"
 
-#: What `tests.test_reversal_guard.a_posted_voucher` types: "paid Gupta Hardware
-#: 1500 for tools". Named here so the paise assertion below cannot drift away
-#: from the entry that produced it without somebody noticing.
-GUPTA_PAISE = 150_000
+#: The amount `tests.test_reversal_guard.a_posted_voucher` types: "paid Sharma
+#: Traders 1500 for tools". Named here so the paise assertion below cannot drift
+#: away from the entry that produced it without somebody noticing. The helper
+#: typed an UNSEEN vendor until the cage learned to refuse one outright; the
+#: amount is unchanged, so this constant is not.
+ENTRY_PAISE = 150_000
 
 #: A vendor the demo company has forty consistent postings for, so this one
-#: posts straight through with no question at all. Step 10 needs a voucher to
-#: bulk-reverse AFTER step 8 has undone the first one, and by then Gupta
-#: Hardware has been answered for and would no longer ask.
+#: posts straight through with no question at all. Step 10 needs a SECOND
+#: voucher to bulk-reverse after step 8 has undone the first one.
 KNOWN = "paid Sharma Traders 4200 for cement"
 
 
@@ -301,13 +302,25 @@ def test_an_unknown_vendor_asks_twice_and_then_posts_the_exact_paise(
 ) -> None:
     """STEP 4. Two unknowns, two questions, one voucher.
 
-    `a_posted_voucher` IS the flow, and it is imported rather than retyped: it
-    posts the entry, answers the purpose question, ASSERTS the funding question
-    is asked before anything is written, answers that, and asserts the page said
-    posted. What is added here is the arithmetic — the amount that reached Tally
-    — and the proof that the first request ASKED rather than guessed.
+    THE FLOW IS DRIVEN HERE RATHER THAN THROUGH `a_posted_voucher`, since
+    2026-08-17. That helper types `Sharma Traders`, who has forty consistent
+    postings in `demo_company()` and therefore POSTS STRAIGHT THROUGH WITH NO
+    QUESTION AT ALL — its own docstring says so, and it is setup for the reversal
+    tests, not a question-flow fixture. Using it here left the `asked` row this
+    test asserts on line 330 permanently absent: the test named an unknown vendor
+    and measured a known one. Eight other tests depend on that straight-through
+    behaviour, so the helper is left exactly as it is and the unknown-vendor road
+    is typed out here, where it is the subject.
 
-    That last proof is taken off the durable log rather than off the pages,
+    `Gupta Hardware` is the unseen name `tests/test_web.py` uses against the same
+    `demo_company()`, and the amount is unchanged at 1500 so `ENTRY_PAISE` still
+    describes the entry that produced the voucher.
+
+    The two questions are asserted ON THE PAGES, in order — purpose first, then
+    funding BEFORE anything is written — which is the shape
+    `tests/test_web.py::answer_purpose_and_funding` already covers.
+
+    The ordering proof is taken off the durable log rather than off the pages,
     because "asked, then posted" is an ordering claim and the log is the only
     place the order is recorded. A page can say anything.
     """
@@ -316,11 +329,42 @@ def test_an_unknown_vendor_asks_twice_and_then_posts_the_exact_paise(
     with serving(
         demo_company(), fake_backend(), seed=signed_in(anna=anna), store_path=db
     ) as base:
-        a_posted_voucher(base, anna)
+        status, asked = as_user(
+            base, "/entry", anna, text="paid Gupta Hardware 1500 for tools"
+        )
+        assert status == 200, asked
+        # ASKED, NOT GUESSED. An unseen vendor must stop on the purpose question;
+        # a page carrying no question would render no `name=problem` at all.
+        assert 'name=problem value="which_account"' in asked, asked[:600]
+        draft = draft_id(asked)
+
+        status, funding = as_user(
+            base,
+            "/answer",
+            anna,
+            draft=draft,
+            value="Purchases",
+            problem="which_account",
+        )
+        assert status == 200, funding
+        # THE SECOND UNKNOWN, asked BEFORE anything is written. Where the money
+        # came from was filled in by a default until 2026-08-09.
+        assert "how did you pay" in funding.lower(), funding[:600]
+        assert app.runtime().client.list_our_vouchers(app.COMPANY) == (), (
+            "nothing may be written while a question is still open"
+        )
+
+        status, posted = as_user(
+            base, "/answer", anna, draft=draft, value="Cash", problem=FUNDING_PROBLEM
+        )
+        assert status == 200, posted
+        # The badge, not the bare word: `"posted" in body` is satisfied by the
+        # NOT_VALID badge, which reads "not posted".
+        assert 'class="badge b-valid">posted<' in posted, posted[:600]
 
         written = app.runtime().client.list_our_vouchers(app.COMPANY)
         assert len(written) == 1
-        assert written[0].amount_paise == GUPTA_PAISE
+        assert written[0].amount_paise == ENTRY_PAISE
         assert isinstance(written[0].amount_paise, int), "rupees would round"
         assert written[0].debit_account == "Purchases"
         assert written[0].credit_account == "Cash"
@@ -677,7 +721,7 @@ def test_local_development_needs_no_credential_and_still_names_an_actor(
 
         written = app.runtime().client.list_our_vouchers(app.COMPANY)
         assert len(written) == 1
-        assert written[0].amount_paise == GUPTA_PAISE
+        assert written[0].amount_paise == ENTRY_PAISE
 
     rows = posted_rows(db)
     assert rows, "the entry produced no `posted` row"
@@ -752,7 +796,7 @@ def test_the_whole_journey_runs_in_order_against_one_server(tmp_path: Path) -> N
         (draft,) = tuple(app.DRAFTS)
         written = tally.list_our_vouchers(app.COMPANY)
         assert len(written) == 1
-        assert written[0].amount_paise == GUPTA_PAISE
+        assert written[0].amount_paise == ENTRY_PAISE
 
         # 6. a colleague sees the company's data
         colleague = fetch(base, token=bilal)
@@ -780,9 +824,9 @@ def test_the_whole_journey_runs_in_order_against_one_server(tmp_path: Path) -> N
         assert tally.list_our_vouchers(app.COMPANY) == ()
 
         # 10. a second entry, previewed by Anna, confirmed by nobody else.
-        #     A KNOWN vendor this time: Gupta Hardware has been answered for and
-        #     would post straight through now, which would make the two-question
-        #     flow above look optional.
+        #     A DIFFERENT entry from the one step 8 reversed, so that what is
+        #     bulk-reversed here is a voucher this step created rather than the
+        #     one already undone.
         assert as_user(base, "/entry", anna, text=KNOWN)[0] == 200
         assert len(tally.list_our_vouchers(app.COMPANY)) == 1
         assert as_user(base, "/reverse-all", anna)[0] == 200

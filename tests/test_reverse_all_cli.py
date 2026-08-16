@@ -238,10 +238,35 @@ def test_the_command_refuses_to_run_without_reverse_all():
 
 
 TALLYIO = pathlib.Path(cli.__file__).parent
+PACKAGE = TALLYIO.parent
+
+#: Modules the connector MAY reach, because each is a LEAF and not a layer.
+#:
+#: `accountant.schema` is the shared vocabulary. `accountant.money` is the one
+#: rupee renderer: integer in, string out, no IO, no clock, no config. Neither
+#: carries a product decision, so depending on one cannot drag the product
+#: layer in behind it - and that is not taken on trust here, it is the
+#: property `test_every_exempted_module_is_a_leaf_and_not_a_layer` measures.
+#:
+#: WHY `money` WAS ADDED, 2026-08-13. `tallyio/vouchers.py` hands a PERSON a
+#: sentence to authorise - "dry run: would post ... to Sharma Traders" - and
+#: with `format_inr` on the far side of this boundary it built the figure
+#: itself, as `f"{amount_paise / 100:.2f}"`. A twenty lakh supplier bill was
+#: previewed as `2000000.00`: float arithmetic on integer paise, no symbol,
+#: and grouped in threes for a reader in another country. This boundary did
+#: not prevent that defect. It CAUSED it, by putting the only correct renderer
+#: out of reach of the only layer that needed it.
+#:
+#: The deeper fix is for the connector to stop writing sentences for people at
+#: all and hand back the paise, leaving every word to the layer above. That is
+#: a change to a public result type and it is the owner's, open in
+#: `docs/OWNER_WORK.md`. Until then the renderer is reachable, and the
+#: measured leaf property below is what stops this list becoming a door.
+LEAVES = frozenset({"accountant.schema", "accountant.money"})
 
 
 def _imports_above_the_boundary(path: pathlib.Path) -> set[str]:
-    """Every `accountant.*` import that is not schema and not tallyio itself."""
+    """Every `accountant.*` import that is not a leaf and not tallyio itself."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
     reached: set[str] = set()
     for node in ast.walk(tree):
@@ -252,7 +277,7 @@ def _imports_above_the_boundary(path: pathlib.Path) -> set[str]:
             module = node.names[0].name
         if not module.startswith("accountant"):
             continue
-        if module in ("accountant.schema",) or module.startswith("accountant.tallyio"):
+        if module in LEAVES or module.startswith("accountant.tallyio"):
             continue
         # `from accountant import reversal` parses as module "accountant" with
         # the name in `node.names`. Resolve it, or the check would report the
@@ -280,6 +305,40 @@ def test_only_the_command_imports_above_the_connector_boundary():
     assert offenders == {}, (
         f"modules inside accountant/tallyio/ import above the connector "
         f"boundary: {offenders}. Only __main__.py may, because nothing imports it."
+    )
+
+
+def _accountant_imports(path: pathlib.Path) -> set[str]:
+    """Every `accountant.*` module this file imports, with NOTHING exempted."""
+    reached: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(
+            "accountant"
+        ):
+            reached.add(node.module or "")
+        elif isinstance(node, ast.Import):
+            reached.update(
+                a.name for a in node.names if a.name.startswith("accountant")
+            )
+    return reached
+
+
+@pytest.mark.parametrize("leaf", sorted(LEAVES))
+def test_every_exempted_module_is_a_leaf_and_not_a_layer(leaf: str):
+    """THE EXEMPTION HAS TO EARN ITSELF, and this is the payment.
+
+    An allow-list is a hole in a guard, and a hole nobody measures widens.
+    `accountant.schema` sat on that list from the start on trust alone; both
+    entries are now held to a PROPERTY instead - a module that imports nothing
+    from `accountant` cannot drag the product layer in behind it, whatever it
+    is later asked to do, so exempting it costs the boundary nothing.
+
+    This fails the moment somebody puts a product import into `schema.py` or
+    `money.py`, which is the only route by which the exemption above could
+    quietly start meaning something larger than it says.
+    """
+    assert (
+        _accountant_imports(PACKAGE / f"{leaf.removeprefix('accountant.')}.py") == set()
     )
 
 

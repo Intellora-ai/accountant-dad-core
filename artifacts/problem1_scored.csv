@@ -1,0 +1,311 @@
+document_id,page,field,truth_status,expected,verdict,evidence
+real-commons-01,1,party,PRESENT,Alliance francaise de Pondichery,incorrectly unresolved,"expected 'Alliance francaise de Pondichery', read nothing"
+real-commons-01,1,invoice_date,PRESENT,23-10-2014,correct,"read datetime.date(2014, 10, 23)"
+real-commons-01,1,total,PRESENT,"{'paise': 400000, 'text': '4,000.00', 'currency': 'INR'}",incorrectly unresolved,"expected {'paise': 400000, 'text': '4,000.00', 'currency': 'INR'}, read nothing"
+real-commons-01,1,tax,ABSENT,,correctly unresolved,nothing to find (ABSENT) and nothing returned
+real-commons-01,1,invoice_number,PRESENT,320/10/2014/OL/DC,incorrect,"expected '320/10/2014/OL/DC', read '320/10/2014/0L/DC'"
+real-voxel51-01,1,party,PRESENT,"Andrews, Kirby and Valdez",incorrectly unresolved,"expected 'Andrews, Kirby and Valdez', read nothing"
+real-voxel51-01,1,invoice_date,PRESENT,04/13/2013,incorrectly unresolved,"expected '04/13/2013', read nothing"
+real-voxel51-01,1,total,PRESENT,"{'paise': 620419, 'text': '6 204,19', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 620419, 'text': '6 204,19', 'currency': 'USD'}, read nothing"
+real-voxel51-01,1,tax,PRESENT,"{'paise': 56402, 'text': '564,02', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 56402, 'text': '564,02', 'currency': 'USD'}, read nothing"
+real-voxel51-01,1,invoice_number,PRESENT,51109338,incorrectly unresolved,"expected '51109338', read nothing"
+real-voxel51-02,1,party,PRESENT,Campos-Hawkins,incorrectly unresolved,"expected 'Campos-Hawkins', read nothing"
+real-voxel51-02,1,invoice_date,PRESENT,01/08/2020,incorrectly unresolved,"expected '01/08/2020', read nothing"
+real-voxel51-02,1,total,PRESENT,"{'paise': 98670, 'text': '986,70', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 98670, 'text': '986,70', 'currency': 'USD'}, read nothing"
+real-voxel51-02,1,tax,PRESENT,"{'paise': 8970, 'text': '89,70', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 8970, 'text': '89,70', 'currency': 'USD'}, read nothing"
+real-voxel51-02,1,invoice_number,PRESENT,26622011,incorrectly unresolved,"expected '26622011', read nothing"
+real-voxel51-03,1,party,PRESENT,Morales-Snyder,incorrectly unresolved,"expected 'Morales-Snyder', read nothing"
+real-voxel51-03,1,invoice_date,PRESENT,01/17/2019,incorrectly unresolved,"expected '01/17/2019', read nothing"
+real-voxel51-03,1,total,PRESENT,"{'paise': 7858, 'text': '78,58', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 7858, 'text': '78,58', 'currency': 'USD'}, read nothing"
+real-voxel51-03,1,tax,PRESENT,"{'paise': 714, 'text': '7,14', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 714, 'text': '7,14', 'currency': 'USD'}, read nothing"
+real-voxel51-03,1,invoice_number,PRESENT,26413291,incorrectly unresolved,"expected '26413291', read nothing"
+real-voxel51-04,1,party,PRESENT,"Mcpherson, Stark and Rodriguez",incorrectly unresolved,"expected 'Mcpherson, Stark and Rodriguez', read nothing"
+real-voxel51-04,1,invoice_date,PRESENT,10/28/2019,incorrectly unresolved,"expected '10/28/2019', read nothing"
+real-voxel51-04,1,total,PRESENT,"{'paise': 79210, 'text': '792,10', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 79210, 'text': '792,10', 'currency': 'USD'}, read nothing"
+real-voxel51-04,1,tax,PRESENT,"{'paise': 7201, 'text': '72,01', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 7201, 'text': '72,01', 'currency': 'USD'}, read nothing"
+real-voxel51-04,1,invoice_number,PRESENT,35163496,incorrectly unresolved,"expected '35163496', read nothing"
+real-voxel51-05,1,party,PRESENT,"Padilla, Webb and Pearson",incorrectly unresolved,"expected 'Padilla, Webb and Pearson', read nothing"
+real-voxel51-05,1,invoice_date,PRESENT,11/26/2018,correct,"read datetime.date(2018, 11, 26)"
+real-voxel51-05,1,total,PRESENT,"{'paise': 30793, 'text': '307,93', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 30793, 'text': '307,93', 'currency': 'USD'}, read nothing"
+real-voxel51-05,1,tax,PRESENT,"{'paise': 2799, 'text': '27,99', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 2799, 'text': '27,99', 'currency': 'USD'}, read nothing"
+real-voxel51-05,1,invoice_number,PRESENT,56427222,incorrectly unresolved,"expected '56427222', read nothing"
+real-voxel51-06,1,party,PRESENT,Vasquez-Brennan,incorrectly unresolved,"expected 'Vasquez-Brennan', read nothing"
+real-voxel51-06,1,invoice_date,PRESENT,11/14/2015,incorrectly unresolved,"expected '11/14/2015', read nothing"
+real-voxel51-06,1,total,PRESENT,"{'paise': 4595, 'text': '45,95', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 4595, 'text': '45,95', 'currency': 'USD'}, read nothing"
+real-voxel51-06,1,tax,PRESENT,"{'paise': 418, 'text': '4,18', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 418, 'text': '4,18', 'currency': 'USD'}, read nothing"
+real-voxel51-06,1,invoice_number,PRESENT,68743594,incorrectly unresolved,"expected '68743594', read nothing"
+real-voxel51-07,1,party,PRESENT,Jackson-Martinez,incorrectly unresolved,"expected 'Jackson-Martinez', read nothing"
+real-voxel51-07,1,invoice_date,PRESENT,07/06/2019,incorrectly unresolved,"expected '07/06/2019', read nothing"
+real-voxel51-07,1,total,PRESENT,"{'paise': 7561, 'text': '75,61', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 7561, 'text': '75,61', 'currency': 'USD'}, read nothing"
+real-voxel51-07,1,tax,PRESENT,"{'paise': 687, 'text': '6,87', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 687, 'text': '6,87', 'currency': 'USD'}, read nothing"
+real-voxel51-07,1,invoice_number,PRESENT,87278875,incorrectly unresolved,"expected '87278875', read nothing"
+real-voxel51-08,1,party,PRESENT,"Barton, Garcia and Richards",incorrectly unresolved,"expected 'Barton, Garcia and Richards', read nothing"
+real-voxel51-08,1,invoice_date,PRESENT,07/03/2013,incorrectly unresolved,"expected '07/03/2013', read nothing"
+real-voxel51-08,1,total,PRESENT,"{'paise': 1055900, 'text': '10 559,00', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 1055900, 'text': '10 559,00', 'currency': 'USD'}, read nothing"
+real-voxel51-08,1,tax,PRESENT,"{'paise': 95991, 'text': '959,91', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 95991, 'text': '959,91', 'currency': 'USD'}, read nothing"
+real-voxel51-08,1,invoice_number,PRESENT,22537855,incorrectly unresolved,"expected '22537855', read nothing"
+real-voxel51-09,1,party,PRESENT,"Gross, Williams and Robinson",incorrectly unresolved,"expected 'Gross, Williams and Robinson', read nothing"
+real-voxel51-09,1,invoice_date,PRESENT,12/26/2012,incorrectly unresolved,"expected '12/26/2012', read nothing"
+real-voxel51-09,1,total,PRESENT,"{'paise': 39796, 'text': '397,96', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 39796, 'text': '397,96', 'currency': 'USD'}, read nothing"
+real-voxel51-09,1,tax,PRESENT,"{'paise': 3618, 'text': '36,18', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 3618, 'text': '36,18', 'currency': 'USD'}, read nothing"
+real-voxel51-09,1,invoice_number,PRESENT,90885385,incorrectly unresolved,"expected '90885385', read nothing"
+real-voxel51-10,1,party,PRESENT,Smith and Sons,incorrectly unresolved,"expected 'Smith and Sons', read nothing"
+real-voxel51-10,1,invoice_date,PRESENT,08/03/2013,incorrectly unresolved,"expected '08/03/2013', read nothing"
+real-voxel51-10,1,total,PRESENT,"{'paise': 64015, 'text': '640,15', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 64015, 'text': '640,15', 'currency': 'USD'}, read nothing"
+real-voxel51-10,1,tax,PRESENT,"{'paise': 5820, 'text': '58,20', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 5820, 'text': '58,20', 'currency': 'USD'}, read nothing"
+real-voxel51-10,1,invoice_number,PRESENT,20653012,incorrectly unresolved,"expected '20653012', read nothing"
+real-voxel51-11,1,party,PRESENT,Taylor-Davis,incorrectly unresolved,"expected 'Taylor-Davis', read nothing"
+real-voxel51-11,1,invoice_date,PRESENT,07/16/2013,incorrectly unresolved,"expected '07/16/2013', read nothing"
+real-voxel51-11,1,total,PRESENT,"{'paise': 433411, 'text': '4 334,11', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 433411, 'text': '4 334,11', 'currency': 'USD'}, read nothing"
+real-voxel51-11,1,tax,PRESENT,"{'paise': 39401, 'text': '394,01', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 39401, 'text': '394,01', 'currency': 'USD'}, read nothing"
+real-voxel51-11,1,invoice_number,PRESENT,18393770,incorrectly unresolved,"expected '18393770', read nothing"
+real-voxel51-12,1,party,PRESENT,Moore and Sons,incorrectly unresolved,"expected 'Moore and Sons', read nothing"
+real-voxel51-12,1,invoice_date,PRESENT,10/29/2011,incorrectly unresolved,"expected '10/29/2011', read nothing"
+real-voxel51-12,1,total,PRESENT,"{'paise': 6156850, 'text': '61 568,50', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 6156850, 'text': '61 568,50', 'currency': 'USD'}, read nothing"
+real-voxel51-12,1,tax,PRESENT,"{'paise': 559714, 'text': '5 597,14', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 559714, 'text': '5 597,14', 'currency': 'USD'}, read nothing"
+real-voxel51-12,1,invoice_number,PRESENT,72415673,incorrectly unresolved,"expected '72415673', read nothing"
+real-voxel51-13,1,party,PRESENT,Forbes LLC,incorrectly unresolved,"expected 'Forbes LLC', read nothing"
+real-voxel51-13,1,invoice_date,PRESENT,08/23/2015,incorrectly unresolved,"expected '08/23/2015', read nothing"
+real-voxel51-13,1,total,PRESENT,"{'paise': 53867, 'text': '538,67', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 53867, 'text': '538,67', 'currency': 'USD'}, read nothing"
+real-voxel51-13,1,tax,PRESENT,"{'paise': 4897, 'text': '48,97', 'currency': 'USD'}",incorrectly unresolved,"expected {'paise': 4897, 'text': '48,97', 'currency': 'USD'}, read nothing"
+real-voxel51-13,1,invoice_number,PRESENT,89305462,incorrectly unresolved,"expected '89305462', read nothing"
+synthetic-001,1,party,PRESENT,Verma Electricals,incorrectly unresolved,"expected 'Verma Electricals', read nothing"
+synthetic-001,1,invoice_date,PRESENT,17/09/2023,correct,"read datetime.date(2023, 9, 17)"
+synthetic-001,1,total,PRESENT,"{'paise': 3481695, 'text': '34816.95'}",correct,read 3481695
+synthetic-001,1,tax,PRESENT,"{'paise': 165795, 'text': '1657.95'}",incorrectly unresolved,"expected {'paise': 165795, 'text': '1657.95'}, read nothing"
+synthetic-001,1,invoice_number,PRESENT,VER/2023/1001,correct,read 'VER/2023/1001'
+synthetic-002,1,party,PRESENT,Rao Cold Storage,incorrectly unresolved,"expected 'Rao Cold Storage', read nothing"
+synthetic-002,1,invoice_date,PRESENT,16-11-2023,correct,"read datetime.date(2023, 11, 16)"
+synthetic-002,1,total,PRESENT,"{'paise': 779912, 'text': '7,799.12'}",correct,read 779912
+synthetic-002,1,tax,PRESENT,"{'paise': 83562, 'text': '835.62'}",correct,read 83562
+synthetic-002,1,invoice_number,PRESENT,RAO/2023/1002,correct,read 'RAO/2023/1002'
+synthetic-003,1,party,PRESENT,Iyer Provision Stores,incorrectly unresolved,"expected 'Iyer Provision Stores', read nothing"
+synthetic-003,1,invoice_date,PRESENT,20/08/2025,correct,"read datetime.date(2025, 8, 20)"
+synthetic-003,1,total,PRESENT,"{'paise': 15248550, 'text': '1,52,485.50'}",correct,read 15248550
+synthetic-003,1,tax,PRESENT,"{'paise': 2326050, 'text': '23,260.50'}",incorrectly unresolved,"expected {'paise': 2326050, 'text': '23,260.50'}, read nothing"
+synthetic-003,1,invoice_number,PRESENT,IYE/2025/1003,correct,read 'IYE/2025/1003'
+synthetic-004,1,party,PRESENT,Bose Stationery Mart,incorrectly unresolved,"expected 'Bose Stationery Mart', read nothing"
+synthetic-004,1,invoice_date,PRESENT,19-01-2026,correct,"read datetime.date(2026, 1, 19)"
+synthetic-004,1,total,PRESENT,"{'paise': 516480, 'text': '5,164.80'}",correct,read 516480
+synthetic-004,1,tax,PRESENT,"{'paise': 112980, 'text': '1,129.80'}",correct,read 112980
+synthetic-004,1,invoice_number,PRESENT,BOS/2026/1004,incorrectly unresolved,"expected 'BOS/2026/1004', read nothing"
+synthetic-005,1,party,PRESENT,Sundaram Traders,incorrectly unresolved,"expected 'Sundaram Traders', read nothing"
+synthetic-005,1,invoice_date,PRESENT,13/01/2025,incorrectly unresolved,"expected '13/01/2025', read nothing"
+synthetic-005,1,total,PRESENT,"{'paise': 40775595, 'text': '4,07,755.95'}",correct,read 40775595
+synthetic-005,1,tax,PRESENT,"{'paise': 1941695, 'text': '19,416.95'}",incorrectly unresolved,"expected {'paise': 1941695, 'text': '19,416.95'}, read nothing"
+synthetic-005,1,invoice_number,PRESENT,SUN/2025/1005,incorrectly unresolved,"expected 'SUN/2025/1005', read nothing"
+synthetic-006,1,party,PRESENT,Verma Electricals,incorrectly unresolved,"expected 'Verma Electricals', read nothing"
+synthetic-006,1,invoice_date,PRESENT,27-07-2023,correct,"read datetime.date(2023, 7, 27)"
+synthetic-006,1,total,PRESENT,"{'paise': 32233712, 'text': '322337.12'}",correct,read 32233712
+synthetic-006,1,tax,PRESENT,"{'paise': 3453612, 'text': '34536.12'}",correct,read 3453612
+synthetic-006,1,invoice_number,PRESENT,VER/2023/1006,incorrectly unresolved,"expected 'VER/2023/1006', read nothing"
+synthetic-007,1,party,PRESENT,Sundaram Traders,incorrectly unresolved,"expected 'Sundaram Traders', read nothing"
+synthetic-007,1,invoice_date,PRESENT,14/03/2024,correct,"read datetime.date(2024, 3, 14)"
+synthetic-007,1,total,PRESENT,"{'paise': 3867332, 'text': '38,673.32'}",correct,read 3867332
+synthetic-007,1,tax,PRESENT,"{'paise': 589932, 'text': '5,899.32'}",incorrectly unresolved,"expected {'paise': 589932, 'text': '5,899.32'}, read nothing"
+synthetic-007,1,invoice_number,PRESENT,SUN/2024/1007,correct,read 'SUN/2024/1007'
+synthetic-008,1,party,PRESENT,Sundaram Traders,incorrectly unresolved,"expected 'Sundaram Traders', read nothing"
+synthetic-008,1,invoice_date,PRESENT,28-01-2025,correct,"read datetime.date(2025, 1, 28)"
+synthetic-008,1,total,PRESENT,"{'paise': 8335104, 'text': '83,351.04'}",correct,read 8335104
+synthetic-008,1,tax,PRESENT,"{'paise': 1823304, 'text': '18,233.04'}",correct,read 1823304
+synthetic-008,1,invoice_number,PRESENT,SUN/2025/1008,correct,read 'SUN/2025/1008'
+synthetic-009,1,party,PRESENT,Patel Auto Spares,incorrectly unresolved,"expected 'Patel Auto Spares', read nothing"
+synthetic-009,1,invoice_date,PRESENT,21/10/2024,correct,"read datetime.date(2024, 10, 21)"
+synthetic-009,1,total,PRESENT,"{'paise': 602700, 'text': '6,027.00'}",correct,read 602700
+synthetic-009,1,tax,PRESENT,"{'paise': 28700, 'text': '287.00'}",incorrectly unresolved,"expected {'paise': 28700, 'text': '287.00'}, read nothing"
+synthetic-009,1,invoice_number,PRESENT,PAT/2024/1009,correct,read 'PAT/2024/1009'
+synthetic-010,1,party,PRESENT,Sundaram Traders,incorrectly unresolved,"expected 'Sundaram Traders', read nothing"
+synthetic-010,1,invoice_date,PRESENT,08-02-2024,incorrectly unresolved,"expected '08-02-2024', read nothing"
+synthetic-010,1,total,PRESENT,"{'paise': 17213840, 'text': '1,72,138.40'}",incorrectly unresolved,"expected {'paise': 17213840, 'text': '1,72,138.40'}, read nothing"
+synthetic-010,1,tax,PRESENT,"{'paise': 1844340, 'text': '18,443.40'}",correct,read 1844340
+synthetic-010,1,invoice_number,PRESENT,SUN/2024/1010,correct,read 'SUN/2024/1010'
+synthetic-011,1,party,PRESENT,Sundaram Traders,incorrectly unresolved,"expected 'Sundaram Traders', read nothing"
+synthetic-011,1,invoice_date,PRESENT,03/06/2023,incorrectly unresolved,"expected '03/06/2023', read nothing"
+synthetic-011,1,total,PRESENT,"{'paise': 13751838, 'text': '137518.38'}",incorrectly unresolved,"expected {'paise': 13751838, 'text': '137518.38'}, read nothing"
+synthetic-011,1,tax,PRESENT,"{'paise': 2097738, 'text': '20977.38'}",incorrectly unresolved,"expected {'paise': 2097738, 'text': '20977.38'}, read nothing"
+synthetic-011,1,invoice_number,PRESENT,SUN/2023/1011,incorrectly unresolved,"expected 'SUN/2023/1011', read nothing"
+synthetic-012,1,party,PRESENT,Bose Stationery Mart,incorrectly unresolved,"expected 'Bose Stationery Mart', read nothing"
+synthetic-012,1,invoice_date,PRESENT,06-12-2025,incorrectly unresolved,"expected '06-12-2025', read nothing"
+synthetic-012,1,total,PRESENT,"{'paise': 585088, 'text': '5,850.88'}",correct,read 585088
+synthetic-012,1,tax,PRESENT,"{'paise': 127988, 'text': '1,279.88'}",correct,read 127988
+synthetic-012,1,invoice_number,PRESENT,BOS/2025/1012,incorrectly unresolved,"expected 'BOS/2025/1012', read nothing"
+synthetic-013,1,party,PRESENT,Patel Auto Spares,incorrectly unresolved,"expected 'Patel Auto Spares', read nothing"
+synthetic-013,1,invoice_date,PRESENT,17/11/2023,correct,"read datetime.date(2023, 11, 17)"
+synthetic-013,1,total,PRESENT,"{'paise': 32057088, 'text': '3,20,570.88'}",correct,read 32057088
+synthetic-013,1,tax,PRESENT,"{'paise': 3434688, 'text': '34,346.88'}",correct,read 3434688
+synthetic-013,1,invoice_number,PRESENT,PAT/2023/1013,correct,read 'PAT/2023/1013'
+synthetic-014,1,party,PRESENT,Patel Auto Spares,incorrectly unresolved,"expected 'Patel Auto Spares', read nothing"
+synthetic-014,1,invoice_date,PRESENT,28-10-2023,correct,"read datetime.date(2023, 10, 28)"
+synthetic-014,1,total,PRESENT,"{'paise': 28184536, 'text': '2,81,845.36'}",incorrectly unresolved,"expected {'paise': 28184536, 'text': '2,81,845.36'}, read nothing"
+synthetic-014,1,tax,PRESENT,"{'paise': 4299336, 'text': '42,993.36'}",incorrectly unresolved,"expected {'paise': 4299336, 'text': '42,993.36'}, read nothing"
+synthetic-014,1,invoice_number,PRESENT,PAT/2023/1014,correct,read 'PAT/2023/1014'
+synthetic-015,1,party,PRESENT,Konkan Hardware Stores,incorrectly unresolved,"expected 'Konkan Hardware Stores', read nothing"
+synthetic-015,1,invoice_date,PRESENT,11/12/2023,incorrectly unresolved,"expected '11/12/2023', read nothing"
+synthetic-015,1,total,PRESENT,"{'paise': 25591552, 'text': '2,55,915.52'}",incorrectly unresolved,"expected {'paise': 25591552, 'text': '2,55,915.52'}, read nothing"
+synthetic-015,1,tax,PRESENT,"{'paise': 2741952, 'text': '27,419.52'}",correct,read 2741952
+synthetic-015,1,invoice_number,PRESENT,KON/2023/1015,correct,read 'KON/2023/1015'
+synthetic-016,1,party,PRESENT,Nilgiri Tea Supply Co,incorrectly unresolved,"expected 'Nilgiri Tea Supply Co', read nothing"
+synthetic-016,1,invoice_date,PRESENT,19-01-2023,correct,"read datetime.date(2023, 1, 19)"
+synthetic-016,1,total,PRESENT,"{'paise': 29534220, 'text': '2,95,342.20'}",correct,read 29534220
+synthetic-016,1,tax,PRESENT,"{'paise': 4505220, 'text': '45,052.20'}",correct,read 4505220
+synthetic-016,1,invoice_number,PRESENT,NIL/2023/1016,incorrectly unresolved,"expected 'NIL/2023/1016', read nothing"
+synthetic-017,1,party,PRESENT,Patel Auto Spares,incorrectly unresolved,"expected 'Patel Auto Spares', read nothing"
+synthetic-017,1,invoice_date,PRESENT,05/09/2023,incorrectly unresolved,"expected '05/09/2023', read nothing"
+synthetic-017,1,total,PRESENT,"{'paise': 25603200, 'text': '2,56,032.00'}",correct,read 25603200
+synthetic-017,1,tax,PRESENT,"{'paise': 2743200, 'text': '27,432.00'}",correct,read 2743200
+synthetic-017,1,invoice_number,PRESENT,PAT/2023/1017,incorrectly unresolved,"expected 'PAT/2023/1017', read nothing"
+synthetic-018,1,party,PRESENT,Bose Stationery Mart,incorrectly unresolved,"expected 'Bose Stationery Mart', read nothing"
+synthetic-018,1,invoice_date,PRESENT,05-07-2024,incorrectly unresolved,"expected '05-07-2024', read nothing"
+synthetic-018,1,total,PRESENT,"{'paise': 26923116, 'text': '2,69,231.16'}",correct,read 26923116
+synthetic-018,1,tax,PRESENT,"{'paise': 4106916, 'text': '41,069.16'}",incorrectly unresolved,"expected {'paise': 4106916, 'text': '41,069.16'}, read nothing"
+synthetic-018,1,invoice_number,PRESENT,BOS/2024/1018,incorrectly unresolved,"expected 'BOS/2024/1018', read nothing"
+synthetic-019,1,party,PRESENT,Sundaram Traders,incorrectly unresolved,"expected 'Sundaram Traders', read nothing"
+synthetic-019,1,invoice_date,PRESENT,02/11/2024,incorrectly unresolved,"expected '02/11/2024', read nothing"
+synthetic-019,1,total,PRESENT,"{'paise': 66841152, 'text': '6,68,411.52'}",correct,read 66841152
+synthetic-019,1,tax,PRESENT,"{'paise': 7161552, 'text': '71,615.52'}",correct,read 7161552
+synthetic-019,1,invoice_number,PRESENT,SUN/2024/1019,correct,read 'SUN/2024/1019'
+synthetic-020,1,party,PRESENT,Nilgiri Tea Supply Co,incorrectly unresolved,"expected 'Nilgiri Tea Supply Co', read nothing"
+synthetic-020,1,invoice_date,PRESENT,20-04-2023,correct,"read datetime.date(2023, 4, 20)"
+synthetic-020,1,total,PRESENT,"{'paise': 26680980, 'text': '2,66,809.80'}",correct,read 26680980
+synthetic-020,1,tax,PRESENT,"{'paise': 4069980, 'text': '40,699.80'}",incorrectly unresolved,"expected {'paise': 4069980, 'text': '40,699.80'}, read nothing"
+synthetic-020,1,invoice_number,PRESENT,NIL/2023/1020,correct,read 'NIL/2023/1020'
+synthetic-021,1,party,PRESENT,Nilgiri Tea Supply Co,incorrectly unresolved,"expected 'Nilgiri Tea Supply Co', read nothing"
+synthetic-021,1,invoice_date,PRESENT,09/11/2024,incorrectly unresolved,"expected '09/11/2024', read nothing"
+synthetic-021,1,total,PRESENT,"{'paise': 5352500, 'text': '53,525.00'}",incorrectly unresolved,"expected {'paise': 5352500, 'text': '53,525.00'}, read nothing"
+synthetic-021,1,tax,ABSENT,,correctly unresolved,nothing to find (ABSENT) and nothing returned
+synthetic-021,1,invoice_number,PRESENT,NIL/2024/1021,correct,read 'NIL/2024/1021'
+synthetic-022,1,party,PRESENT,Sundaram Traders,incorrectly unresolved,"expected 'Sundaram Traders', read nothing"
+synthetic-022,1,invoice_date,PRESENT,26-08-2025,correct,"read datetime.date(2025, 8, 26)"
+synthetic-022,1,total,PRESENT,"{'paise': 10521000, 'text': '1,05,210.00'}",incorrectly unresolved,"expected {'paise': 10521000, 'text': '1,05,210.00'}, read nothing"
+synthetic-022,1,tax,ABSENT,,correctly unresolved,nothing to find (ABSENT) and nothing returned
+synthetic-022,1,invoice_number,PRESENT,SUN/2025/1022,correct,read 'SUN/2025/1022'
+synthetic-023,1,party,PRESENT,Iyer Provision Stores,incorrectly unresolved,"expected 'Iyer Provision Stores', read nothing"
+synthetic-023,1,invoice_date,PRESENT,18/02/2025,correct,"read datetime.date(2025, 2, 18)"
+synthetic-023,1,total,PRESENT,"{'paise': 683000, 'text': '6,830.00'}",correct,read 683000
+synthetic-023,1,tax,ABSENT,,correctly unresolved,nothing to find (ABSENT) and nothing returned
+synthetic-023,1,invoice_number,PRESENT,IYE/2025/1023,correct,read 'IYE/2025/1023'
+synthetic-024,1,party,PRESENT,Verma Electricals,incorrectly unresolved,"expected 'Verma Electricals', read nothing"
+synthetic-024,1,invoice_date,PRESENT,12-11-2023,incorrectly unresolved,"expected '12-11-2023', read nothing"
+synthetic-024,1,total,PRESENT,"{'paise': 4859400, 'text': '48,594.00'}",correct,read 4859400
+synthetic-024,1,tax,ABSENT,,correctly unresolved,nothing to find (ABSENT) and nothing returned
+synthetic-024,1,invoice_number,PRESENT,VER/2023/1024,incorrectly unresolved,"expected 'VER/2023/1024', read nothing"
+synthetic-025,1,party,PRESENT,Iyer Provision Stores,incorrectly unresolved,"expected 'Iyer Provision Stores', read nothing"
+synthetic-025,1,invoice_date,PRESENT,09/10/2025,incorrectly unresolved,"expected '09/10/2025', read nothing"
+synthetic-025,1,total,PRESENT,"{'paise': 31524750, 'text': '3,15,247.50'}",correct,read 31524750
+synthetic-025,1,tax,ABSENT,,correctly unresolved,nothing to find (ABSENT) and nothing returned
+synthetic-025,1,invoice_number,PRESENT,IYE/2025/1025,incorrectly unresolved,"expected 'IYE/2025/1025', read nothing"
+synthetic-026,1,party,PRESENT,Nilgiri Tea Supply Co,incorrectly unresolved,"expected 'Nilgiri Tea Supply Co', read nothing"
+synthetic-026,1,invoice_date,PRESENT,15-04-2026,correct,"read datetime.date(2026, 4, 15)"
+synthetic-026,1,total,PRESENT,"{'paise': 10886100, 'text': '1,08,861.00'}",correct,read 10886100
+synthetic-026,1,tax,ABSENT,,correctly unresolved,nothing to find (ABSENT) and nothing returned
+synthetic-026,1,invoice_number,PRESENT,NIL/2026/1026,incorrectly unresolved,"expected 'NIL/2026/1026', read nothing"
+synthetic-027,1,party,PRESENT,Patel Auto Spares,incorrectly unresolved,"expected 'Patel Auto Spares', read nothing"
+synthetic-027,1,invoice_date,PRESENT,08/11/2024,incorrectly unresolved,"expected '08/11/2024', read nothing"
+synthetic-027,1,total,PRESENT,"{'paise': 1170737, 'text': '11,707.37'}",correct,read 1170737
+synthetic-027,1,tax,PRESENT,"{'paise': 178587, 'text': '1,785.87'}",correct,read 178587
+synthetic-027,1,invoice_number,ABSENT,,correctly unresolved,nothing to find (ABSENT) and nothing returned
+synthetic-028,1,party,PRESENT,Sundaram Traders,incorrectly unresolved,"expected 'Sundaram Traders', read nothing"
+synthetic-028,1,invoice_date,PRESENT,18-11-2024,correct,"read datetime.date(2024, 11, 18)"
+synthetic-028,1,total,PRESENT,"{'paise': 10520408, 'text': '1,05,204.08'}",incorrectly unresolved,"expected {'paise': 10520408, 'text': '1,05,204.08'}, read nothing"
+synthetic-028,1,tax,PRESENT,"{'paise': 1604808, 'text': '16,048.08'}",incorrectly unresolved,"expected {'paise': 1604808, 'text': '16,048.08'}, read nothing"
+synthetic-028,1,invoice_number,ABSENT,,correctly unresolved,nothing to find (ABSENT) and nothing returned
+synthetic-029,1,party,PRESENT,Patel Auto Spares,incorrectly unresolved,"expected 'Patel Auto Spares', read nothing"
+synthetic-029,1,invoice_date,PRESENT,21/09/2024,correct,"read datetime.date(2024, 9, 21)"
+synthetic-029,1,total,PRESENT,"{'paise': 221840, 'text': '2,218.40'}",correct,read 221840
+synthetic-029,1,tax,PRESENT,"{'paise': 33840, 'text': '338.40'}",correct,read 33840
+synthetic-029,1,invoice_number,ABSENT,,correctly unresolved,nothing to find (ABSENT) and nothing returned
+synthetic-030,1,party,PRESENT,Bose Stationery Mart,incorrectly unresolved,"expected 'Bose Stationery Mart', read nothing"
+synthetic-030,1,invoice_date,PRESENT,07-07-2026,correct,"read datetime.date(2026, 7, 7)"
+synthetic-030,1,total,PRESENT,"{'paise': 37524472, 'text': '3,75,244.72'}",correct,read 37524472
+synthetic-030,1,tax,PRESENT,"{'paise': 5724072, 'text': '57,240.72'}",incorrectly unresolved,"expected {'paise': 5724072, 'text': '57,240.72'}, read nothing"
+synthetic-030,1,invoice_number,ABSENT,,correctly unresolved,nothing to find (ABSENT) and nothing returned
+synthetic-031,1,party,PRESENT,Sundaram Traders,incorrectly unresolved,"expected 'Sundaram Traders', read nothing"
+synthetic-031,1,invoice_date,PRESENT,06/02/2023,incorrectly unresolved,"expected '06/02/2023', read nothing"
+synthetic-031,1,total,AMBIGUOUS,"{'candidates_paise': [13593836, 13599392], 'candidates_text': ['1,35,938.36', '1,35,993.92']}",correctly unresolved,nothing to find (AMBIGUOUS) and nothing returned
+synthetic-031,1,tax,PRESENT,"{'paise': 2073636, 'text': '20,736.36'}",incorrectly unresolved,"expected {'paise': 2073636, 'text': '20,736.36'}, read nothing"
+synthetic-031,1,invoice_number,PRESENT,SUN/2023/1031,correct,read 'SUN/2023/1031'
+synthetic-032,1,party,PRESENT,Sundaram Traders,incorrectly unresolved,"expected 'Sundaram Traders', read nothing"
+synthetic-032,1,invoice_date,PRESENT,13-09-2024,correct,"read datetime.date(2024, 9, 13)"
+synthetic-032,1,total,AMBIGUOUS,"{'candidates_paise': [26909184, 26952043], 'candidates_text': ['2,69,091.84', '2,69,520.43']}",correctly unresolved,nothing to find (AMBIGUOUS) and nothing returned
+synthetic-032,1,tax,PRESENT,"{'paise': 5886384, 'text': '58,863.84'}",correct,read 5886384
+synthetic-032,1,invoice_number,PRESENT,SUN/2024/1032,correct,read 'SUN/2024/1032'
+synthetic-033,1,party,PRESENT,Rao Cold Storage,incorrectly unresolved,"expected 'Rao Cold Storage', read nothing"
+synthetic-033,1,invoice_date,PRESENT,17/07/2023,correct,"read datetime.date(2023, 7, 17)"
+synthetic-033,1,total,AMBIGUOUS,"{'candidates_paise': [7611590, 7643257], 'candidates_text': ['76,115.90', '76,432.57']}",correctly unresolved,nothing to find (AMBIGUOUS) and nothing returned
+synthetic-033,1,tax,PRESENT,"{'paise': 1161090, 'text': '11,610.90'}",incorrectly unresolved,"expected {'paise': 1161090, 'text': '11,610.90'}, read nothing"
+synthetic-033,1,invoice_number,PRESENT,RAO/2023/1033,incorrectly unresolved,"expected 'RAO/2023/1033', read nothing"
+synthetic-034,1,party,PRESENT,Patel Auto Spares,incorrectly unresolved,"expected 'Patel Auto Spares', read nothing"
+synthetic-034,1,invoice_date,PRESENT,25-02-2026,incorrectly unresolved,"expected '25-02-2026', read nothing"
+synthetic-034,1,total,AMBIGUOUS,"{'candidates_paise': [31644160, 31678446], 'candidates_text': ['3,16,441.60', '3,16,784.46']}",correctly unresolved,nothing to find (AMBIGUOUS) and nothing returned
+synthetic-034,1,tax,PRESENT,"{'paise': 6922160, 'text': '69,221.60'}",correct,read 6922160
+synthetic-034,1,invoice_number,PRESENT,PAT/2026/1034,incorrectly unresolved,"expected 'PAT/2026/1034', read nothing"
+synthetic-035,1,party,PRESENT,Iyer Provision Stores,incorrectly unresolved,"expected 'Iyer Provision Stores', read nothing"
+synthetic-035,1,invoice_date,PRESENT,22/09/2023,correct,"read datetime.date(2023, 9, 22)"
+synthetic-035,1,total,PRESENT,"{'paise': 16901612, 'text': '1,69,016.12'}",correct,read 16901612
+synthetic-035,1,tax,PRESENT,"{'paise': 2578212, 'text': '25,782.12'}",incorrectly unresolved,"expected {'paise': 2578212, 'text': '25,782.12'}, read nothing"
+synthetic-035,1,invoice_number,PRESENT,IYE/2023/1035,incorrectly unresolved,"expected 'IYE/2023/1035', read nothing"
+synthetic-036,1,party,PRESENT,Bose Stationery Mart,incorrectly unresolved,"expected 'Bose Stationery Mart', read nothing"
+synthetic-036,1,invoice_date,PRESENT,17-10-2026,correct,"read datetime.date(2026, 10, 17)"
+synthetic-036,1,total,PRESENT,"{'paise': 5872152, 'text': '58,721.52'}",correct,read 5872152
+synthetic-036,1,tax,PRESENT,"{'paise': 895752, 'text': '8,957.52'}",incorrectly unresolved,"expected {'paise': 895752, 'text': '8,957.52'}, read nothing"
+synthetic-036,1,invoice_number,PRESENT,BOS/2026/1036,incorrectly unresolved,"expected 'BOS/2026/1036', read nothing"
+synthetic-037,1,party,PRESENT,Iyer Provision Stores,incorrectly unresolved,"expected 'Iyer Provision Stores', read nothing"
+synthetic-037,1,invoice_date,PRESENT,10/07/2026,incorrectly unresolved,"expected '10/07/2026', read nothing"
+synthetic-037,1,total,PRESENT,"{'paise': 606874, 'text': '6,068.74'}",correct,read 606874
+synthetic-037,1,tax,PRESENT,"{'paise': 92574, 'text': '925.74'}",correct,read 92574
+synthetic-037,1,invoice_number,PRESENT,IYE/2026/1037,incorrectly unresolved,"expected 'IYE/2026/1037', read nothing"
+synthetic-038,1,party,UNREADABLE,,correctly unresolved,nothing to find (UNREADABLE) and nothing returned
+synthetic-038,1,invoice_date,UNREADABLE,,correctly unresolved,nothing to find (UNREADABLE) and nothing returned
+synthetic-038,1,total,UNREADABLE,,correctly unresolved,nothing to find (UNREADABLE) and nothing returned
+synthetic-038,1,tax,UNREADABLE,,correctly unresolved,nothing to find (UNREADABLE) and nothing returned
+synthetic-038,1,invoice_number,UNREADABLE,,correctly unresolved,nothing to find (UNREADABLE) and nothing returned
+synthetic-039,1,party,UNREADABLE,,correctly unresolved,nothing to find (UNREADABLE) and nothing returned
+synthetic-039,1,invoice_date,UNREADABLE,,correctly unresolved,nothing to find (UNREADABLE) and nothing returned
+synthetic-039,1,total,UNREADABLE,,correctly unresolved,nothing to find (UNREADABLE) and nothing returned
+synthetic-039,1,tax,UNREADABLE,,correctly unresolved,nothing to find (UNREADABLE) and nothing returned
+synthetic-039,1,invoice_number,UNREADABLE,,correctly unresolved,nothing to find (UNREADABLE) and nothing returned
+synthetic-040,1,party,UNREADABLE,,correctly unresolved,nothing to find (UNREADABLE) and nothing returned
+synthetic-040,1,invoice_date,UNREADABLE,,correctly unresolved,nothing to find (UNREADABLE) and nothing returned
+synthetic-040,1,total,UNREADABLE,,correctly unresolved,nothing to find (UNREADABLE) and nothing returned
+synthetic-040,1,tax,UNREADABLE,,correctly unresolved,nothing to find (UNREADABLE) and nothing returned
+synthetic-040,1,invoice_number,UNREADABLE,,correctly unresolved,nothing to find (UNREADABLE) and nothing returned
+synthetic-041,1,party,PRESENT,Nilgiri Tea Supply Co,incorrectly unresolved,"expected 'Nilgiri Tea Supply Co', read nothing"
+synthetic-041,1,invoice_date,ABSENT,,correctly unresolved,nothing to find (ABSENT) and nothing returned
+synthetic-041,1,total,PRESENT,"{'paise': 7853440, 'text': '78,534.40'}",correct,read 7853440
+synthetic-041,1,tax,PRESENT,"{'paise': 841440, 'text': '8,414.40'}",correct,read 841440
+synthetic-041,1,invoice_number,PRESENT,NIL/2025/1041,incorrectly unresolved,"expected 'NIL/2025/1041', read nothing"
+synthetic-042,1,party,PRESENT,Konkan Hardware Stores,incorrectly unresolved,"expected 'Konkan Hardware Stores', read nothing"
+synthetic-042,1,invoice_date,ABSENT,,correctly unresolved,nothing to find (ABSENT) and nothing returned
+synthetic-042,1,total,PRESENT,"{'paise': 4197480, 'text': '41,974.80'}",correct,read 4197480
+synthetic-042,1,tax,PRESENT,"{'paise': 449730, 'text': '4,497.30'}",correct,read 449730
+synthetic-042,1,invoice_number,PRESENT,KON/2025/1042,incorrectly unresolved,"expected 'KON/2025/1042', read nothing"
+synthetic-043,1,party,PRESENT,Patel Auto Spares,incorrectly unresolved,"expected 'Patel Auto Spares', read nothing"
+synthetic-043,1,invoice_date,ABSENT,,correctly unresolved,nothing to find (ABSENT) and nothing returned
+synthetic-043,1,total,PRESENT,"{'paise': 2219952, 'text': '22,199.52'}",correct,read 2219952
+synthetic-043,1,tax,PRESENT,"{'paise': 237852, 'text': '2,378.52'}",correct,read 237852
+synthetic-043,1,invoice_number,PRESENT,PAT/2023/1043,correct,read 'PAT/2023/1043'
+synthetic-044,1,party,PRESENT,Iyer Provision Stores,incorrectly unresolved,"expected 'Iyer Provision Stores', read nothing"
+synthetic-044,1,invoice_date,ABSENT,,correctly unresolved,nothing to find (ABSENT) and nothing returned
+synthetic-044,1,total,PRESENT,"{'paise': 23414832, 'text': '2,34,148.32'}",correct,read 23414832
+synthetic-044,1,tax,PRESENT,"{'paise': 2508732, 'text': '25,087.32'}",correct,read 2508732
+synthetic-044,1,invoice_number,PRESENT,IYE/2023/1044,correct,read 'IYE/2023/1044'
+synthetic-045,1,party,PRESENT,Rao Cold Storage,incorrectly unresolved,"expected 'Rao Cold Storage', read nothing"
+synthetic-045,1,invoice_date,PRESENT,16/02/2026,incorrectly unresolved,"expected '16/02/2026', read nothing"
+synthetic-045,3,total,PRESENT,"{'paise': 22374983, 'text': '2,23,749.83'}",incorrectly unresolved,"expected {'paise': 22374983, 'text': '2,23,749.83'}, read nothing"
+synthetic-045,3,tax,PRESENT,"{'paise': 3413133, 'text': '34,131.33'}",incorrectly unresolved,"expected {'paise': 3413133, 'text': '34,131.33'}, read nothing"
+synthetic-045,1,invoice_number,PRESENT,RAO/2026/1045,incorrectly unresolved,"expected 'RAO/2026/1045', read nothing"
+synthetic-046,1,party,PRESENT,Iyer Provision Stores,incorrectly unresolved,"expected 'Iyer Provision Stores', read nothing"
+synthetic-046,1,invoice_date,PRESENT,02-11-2023,incorrectly unresolved,"expected '02-11-2023', read nothing"
+synthetic-046,3,total,PRESENT,"{'paise': 21803037, 'text': '2,18,030.37'}",incorrectly unresolved,"expected {'paise': 21803037, 'text': '2,18,030.37'}, read nothing"
+synthetic-046,3,tax,PRESENT,"{'paise': 3325887, 'text': '33,258.87'}",incorrectly unresolved,"expected {'paise': 3325887, 'text': '33,258.87'}, read nothing"
+synthetic-046,1,invoice_number,PRESENT,IYE/2023/1046,incorrectly unresolved,"expected 'IYE/2023/1046', read nothing"
+synthetic-047,1,party,PRESENT,Verma Electricals,incorrectly unresolved,"expected 'Verma Electricals', read nothing"
+synthetic-047,1,invoice_date,PRESENT,02/05/2025,incorrectly unresolved,"expected '02/05/2025', read nothing"
+synthetic-047,3,total,PRESENT,"{'paise': 10354795, 'text': '1,03,547.95'}",incorrectly unresolved,"expected {'paise': 10354795, 'text': '1,03,547.95'}, read nothing"
+synthetic-047,3,tax,PRESENT,"{'paise': 1579545, 'text': '15,795.45'}",incorrectly unresolved,"expected {'paise': 1579545, 'text': '15,795.45'}, read nothing"
+synthetic-047,1,invoice_number,PRESENT,VER/2025/1047,incorrectly unresolved,"expected 'VER/2025/1047', read nothing"
+synthetic-048,1,party,PRESENT,Patel Auto Spares,incorrectly unresolved,"expected 'Patel Auto Spares', read nothing"
+synthetic-048,1,invoice_date,PRESENT,21-08-2025,incorrectly unresolved,"expected '21-08-2025', read nothing"
+synthetic-048,3,total,PRESENT,"{'paise': 58004080, 'text': '5,80,040.80'}",incorrectly unresolved,"expected {'paise': 58004080, 'text': '5,80,040.80'}, read nothing"
+synthetic-048,3,tax,PRESENT,"{'paise': 8848080, 'text': '88,480.80'}",incorrectly unresolved,"expected {'paise': 8848080, 'text': '88,480.80'}, read nothing"
+synthetic-048,1,invoice_number,PRESENT,PAT/2025/1048,incorrectly unresolved,"expected 'PAT/2025/1048', read nothing"

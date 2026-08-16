@@ -1,0 +1,63 @@
+document_id,truth_status,expected,boundary,detail
+real-commons-01,PRESENT,Alliance francaise de Pondichery,C_label_printed_but_not_matched,page prints ['FROM'] but PARTY_LABELS matched nothing
+real-voxel51-01,PRESENT,"Andrews, Kirby and Valdez",C_label_printed_but_not_matched,"page prints ['SELLER', 'CLIENT'] but PARTY_LABELS matched nothing"
+real-voxel51-02,PRESENT,Campos-Hawkins,C_label_printed_but_not_matched,"page prints ['SELLER', 'CLIENT'] but PARTY_LABELS matched nothing"
+real-voxel51-03,PRESENT,Morales-Snyder,C_label_printed_but_not_matched,"page prints ['SELLER', 'CLIENT'] but PARTY_LABELS matched nothing"
+real-voxel51-04,PRESENT,"Mcpherson, Stark and Rodriguez",C_label_printed_but_not_matched,"page prints ['SELLER', 'CLIENT'] but PARTY_LABELS matched nothing"
+real-voxel51-05,PRESENT,"Padilla, Webb and Pearson",C_label_printed_but_not_matched,"page prints ['SELLER', 'CLIENT'] but PARTY_LABELS matched nothing"
+real-voxel51-06,PRESENT,Vasquez-Brennan,C_label_printed_but_not_matched,"page prints ['SELLER', 'CLIENT'] but PARTY_LABELS matched nothing"
+real-voxel51-07,PRESENT,Jackson-Martinez,C_label_printed_but_not_matched,"page prints ['SELLER', 'CLIENT'] but PARTY_LABELS matched nothing"
+real-voxel51-08,PRESENT,"Barton, Garcia and Richards",C_label_printed_but_not_matched,"page prints ['SELLER', 'CLIENT'] but PARTY_LABELS matched nothing"
+real-voxel51-09,PRESENT,"Gross, Williams and Robinson",C_label_printed_but_not_matched,"page prints ['SELLER', 'CLIENT'] but PARTY_LABELS matched nothing"
+real-voxel51-10,PRESENT,Smith and Sons,C_label_printed_but_not_matched,"page prints ['SELLER', 'CLIENT'] but PARTY_LABELS matched nothing"
+real-voxel51-11,PRESENT,Taylor-Davis,C_label_printed_but_not_matched,"page prints ['SELLER', 'CLIENT'] but PARTY_LABELS matched nothing"
+real-voxel51-12,PRESENT,Moore and Sons,C_label_printed_but_not_matched,"page prints ['SELLER', 'CLIENT'] but PARTY_LABELS matched nothing"
+real-voxel51-13,PRESENT,Forbes LLC,C_label_printed_but_not_matched,"page prints ['SELLER', 'CLIENT'] but PARTY_LABELS matched nothing"
+synthetic-001,PRESENT,Verma Electricals,C_label_printed_but_not_matched,page prints ['BILL TO'] but PARTY_LABELS matched nothing
+synthetic-002,PRESENT,Rao Cold Storage,C_label_printed_but_not_matched,page prints ['BILL TO'] but PARTY_LABELS matched nothing
+synthetic-003,PRESENT,Iyer Provision Stores,B_no_party_label_on_the_page,"18 lines, none naming a party"
+synthetic-004,PRESENT,Bose Stationery Mart,B_no_party_label_on_the_page,"16 lines, none naming a party"
+synthetic-005,PRESENT,Sundaram Traders,B_no_party_label_on_the_page,"20 lines, none naming a party"
+synthetic-006,PRESENT,Verma Electricals,B_no_party_label_on_the_page,"19 lines, none naming a party"
+synthetic-007,PRESENT,Sundaram Traders,C_label_printed_but_not_matched,page prints ['BILL TO'] but PARTY_LABELS matched nothing
+synthetic-008,PRESENT,Sundaram Traders,C_label_printed_but_not_matched,page prints ['BILL TO'] but PARTY_LABELS matched nothing
+synthetic-009,PRESENT,Patel Auto Spares,C_label_printed_but_not_matched,page prints ['BILL TO'] but PARTY_LABELS matched nothing
+synthetic-010,PRESENT,Sundaram Traders,B_no_party_label_on_the_page,"19 lines, none naming a party"
+synthetic-011,PRESENT,Sundaram Traders,B_no_party_label_on_the_page,"33 lines, none naming a party"
+synthetic-012,PRESENT,Bose Stationery Mart,B_no_party_label_on_the_page,"17 lines, none naming a party"
+synthetic-013,PRESENT,Patel Auto Spares,C_label_printed_but_not_matched,page prints ['BILL TO'] but PARTY_LABELS matched nothing
+synthetic-014,PRESENT,Patel Auto Spares,C_label_printed_but_not_matched,page prints ['BILL TO'] but PARTY_LABELS matched nothing
+synthetic-015,PRESENT,Konkan Hardware Stores,B_no_party_label_on_the_page,"19 lines, none naming a party"
+synthetic-016,PRESENT,Nilgiri Tea Supply Co,B_no_party_label_on_the_page,"18 lines, none naming a party"
+synthetic-017,PRESENT,Patel Auto Spares,B_no_party_label_on_the_page,"20 lines, none naming a party"
+synthetic-018,PRESENT,Bose Stationery Mart,B_no_party_label_on_the_page,"15 lines, none naming a party"
+synthetic-019,PRESENT,Sundaram Traders,C_label_printed_but_not_matched,page prints ['BILL TO'] but PARTY_LABELS matched nothing
+synthetic-020,PRESENT,Nilgiri Tea Supply Co,C_label_printed_but_not_matched,page prints ['BILL TO'] but PARTY_LABELS matched nothing
+synthetic-021,PRESENT,Nilgiri Tea Supply Co,C_label_printed_but_not_matched,page prints ['BILL TO'] but PARTY_LABELS matched nothing
+synthetic-022,PRESENT,Sundaram Traders,C_label_printed_but_not_matched,page prints ['BILL TO'] but PARTY_LABELS matched nothing
+synthetic-023,PRESENT,Iyer Provision Stores,B_no_party_label_on_the_page,"16 lines, none naming a party"
+synthetic-024,PRESENT,Verma Electricals,B_no_party_label_on_the_page,"17 lines, none naming a party"
+synthetic-025,PRESENT,Iyer Provision Stores,B_no_party_label_on_the_page,"17 lines, none naming a party"
+synthetic-026,PRESENT,Nilgiri Tea Supply Co,B_no_party_label_on_the_page,"19 lines, none naming a party"
+synthetic-027,PRESENT,Patel Auto Spares,B_no_party_label_on_the_page,"17 lines, none naming a party"
+synthetic-028,PRESENT,Sundaram Traders,B_no_party_label_on_the_page,"28 lines, none naming a party"
+synthetic-029,PRESENT,Patel Auto Spares,B_no_party_label_on_the_page,"15 lines, none naming a party"
+synthetic-030,PRESENT,Bose Stationery Mart,B_no_party_label_on_the_page,"20 lines, none naming a party"
+synthetic-031,PRESENT,Sundaram Traders,C_label_printed_but_not_matched,page prints ['BILL TO'] but PARTY_LABELS matched nothing
+synthetic-032,PRESENT,Sundaram Traders,B_no_party_label_on_the_page,"17 lines, none naming a party"
+synthetic-033,PRESENT,Rao Cold Storage,B_no_party_label_on_the_page,"29 lines, none naming a party"
+synthetic-034,PRESENT,Patel Auto Spares,B_no_party_label_on_the_page,"18 lines, none naming a party"
+synthetic-035,PRESENT,Iyer Provision Stores,B_no_party_label_on_the_page,"17 lines, none naming a party"
+synthetic-036,PRESENT,Bose Stationery Mart,B_no_party_label_on_the_page,"18 lines, none naming a party"
+synthetic-037,PRESENT,Iyer Provision Stores,B_no_party_label_on_the_page,"15 lines, none naming a party"
+synthetic-038,UNREADABLE,,A_no_words_from_engine,engine returned no words
+synthetic-039,UNREADABLE,,A_no_words_from_engine,engine returned no words
+synthetic-040,UNREADABLE,,A_no_words_from_engine,engine returned no words
+synthetic-041,PRESENT,Nilgiri Tea Supply Co,B_no_party_label_on_the_page,"16 lines, none naming a party"
+synthetic-042,PRESENT,Konkan Hardware Stores,B_no_party_label_on_the_page,"13 lines, none naming a party"
+synthetic-043,PRESENT,Patel Auto Spares,C_label_printed_but_not_matched,page prints ['BILL TO'] but PARTY_LABELS matched nothing
+synthetic-044,PRESENT,Iyer Provision Stores,C_label_printed_but_not_matched,page prints ['BILL TO'] but PARTY_LABELS matched nothing
+synthetic-045,PRESENT,Rao Cold Storage,A_no_words_from_engine,reader raised UnidentifiedImageError
+synthetic-046,PRESENT,Iyer Provision Stores,A_no_words_from_engine,reader raised UnidentifiedImageError
+synthetic-047,PRESENT,Verma Electricals,A_no_words_from_engine,reader raised UnidentifiedImageError
+synthetic-048,PRESENT,Patel Auto Spares,A_no_words_from_engine,reader raised UnidentifiedImageError

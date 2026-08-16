@@ -49,6 +49,7 @@ from typing import Any
 import pytest
 
 from accountant.auth import ENV_LOCAL_DEV_MODE, LOCAL_DEV_TENANT, AuthRefusal
+from accountant.tallyio import writedoor
 from accountant.web import app
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -57,8 +58,10 @@ DOCKERIGNORE = ROOT / ".dockerignore"
 DEPLOY = ROOT / "scripts" / "deploy"
 DEPLOY_DOC = ROOT / "docs" / "DEPLOY.md"
 PYPROJECT = ROOT / "pyproject.toml"
+UV_LOCK = ROOT / "uv.lock"
 PYTHON_VERSION = ROOT / ".python-version"
 APP = ROOT / "accountant" / "web" / "app.py"
+PACKAGE = ROOT / "accountant"
 
 #: The variable `scripts/deploy` reads, and the one it must never default.
 REGISTRY = "ACCOUNTANT_REGISTRY"
@@ -1115,3 +1118,517 @@ def test_the_control_the_tenant_named_only_in_prose_is_not_a_documented_row() ->
         f"every request is refused 403.\n"
     )
     assert TENANT not in documented_variables(planted)
+
+
+# ---------------------------------------------------------------------------
+# reading the dependency install, and the variables the code actually reads
+# ---------------------------------------------------------------------------
+
+
+def run_commands(instrs: list[tuple[str, str]]) -> list[str]:
+    """Every RUN as one string, continuations already joined."""
+    return [rest for name, rest in instrs if name == "RUN"]
+
+
+def copied_paths(instrs: list[tuple[str, str]]) -> str:
+    """Every COPY argument, joined. What reaches the image at all."""
+    return " ".join(rest for name, rest in instrs if name == "COPY")
+
+
+def locked_install(instrs: list[tuple[str, str]]) -> str | None:
+    """The RUN that installs dependencies FROM THE LOCKFILE, or None.
+
+    `--locked` is the half that makes this a pin rather than a resolution: uv
+    installs exactly the versions `uv.lock` names, and refuses when `uv.lock`
+    and `pyproject.toml` have drifted apart. `pip install pypdf` would satisfy
+    "installs something" and neither of those — it would put whatever version
+    the index served that morning into an image tagged with a commit.
+    """
+    for command in run_commands(instrs):
+        if "uv sync" in command and "--locked" in command:
+            return command
+    return None
+
+
+def system_installs(instrs: list[tuple[str, str]]) -> list[str]:
+    """Every RUN that installs a Debian package. Nothing pins these."""
+    return [c for c in run_commands(instrs) if re.search(r"\bapt(-get)?\s+install", c)]
+
+
+#: The engine and the one language pack this image is allowed to carry.
+#: `pytesseract` is a wrapper; `tesseract-ocr` is the binary it shells out to,
+#: and `tesseract-ocr-eng` is the trained data it reads English with. English
+#: ONLY — "as small as possible" is the constraint the owner set on this
+#: install, and each further pack is tens of megabytes of a language no corpus
+#: in this repository contains.
+OCR_PACKAGES = ("tesseract-ocr", "tesseract-ocr-eng")
+
+
+def apt_packages(instrs: list[tuple[str, str]]) -> list[str]:
+    """Every Debian package NAME an `apt-get install` here asks for.
+
+    Flags are dropped — `-y` and `--no-install-recommends` are not packages —
+    and each argument list stops at `&&`, `;` or `|`, so the `rm -rf` ending the
+    same RUN is not read as a package somebody asked to install.
+    """
+    names: list[str] = []
+    for command in system_installs(instrs):
+        for install in re.finditer(r"\bapt(?:-get)?\s+install\b([^&|;]*)", command):
+            names.extend(t for t in install.group(1).split() if not t.startswith("-"))
+    return names
+
+
+def canonical(name: str) -> str:
+    """PEP 503 normalisation. `Pillow` and `pillow` are one package."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def declared_dependencies() -> set[str]:
+    """The runtime dependency NAMES `pyproject.toml` declares."""
+    with PYPROJECT.open("rb") as fh:
+        data: dict[str, Any] = tomllib.load(fh)
+    required = [str(item) for item in data["project"]["dependencies"]]
+    return {canonical(re.split(r"[<>=!~;\[ ]", item)[0]) for item in required}
+
+
+def locked_dependencies() -> set[str]:
+    """The runtime dependency names `uv.lock` resolves for this project."""
+    with PYPROJECT.open("rb") as fh:
+        project = canonical(str(tomllib.load(fh)["project"]["name"]))
+    with UV_LOCK.open("rb") as fh:
+        data: dict[str, Any] = tomllib.load(fh)
+    for package in data["package"]:
+        if canonical(str(package["name"])) == project:
+            found = package.get("dependencies", [])
+            return {canonical(str(entry["name"])) for entry in found}
+    raise AssertionError(f"uv.lock carries no entry for {project!r}")
+
+
+def _reads_the_environment(func: ast.expr) -> bool:
+    """True for `os.environ.get` and `os.getenv`, false for any other `.get`.
+
+    Narrow on purpose. `mapping.get("SOME_KEY")` is not a variable this process
+    reads from its environment, and a predicate that could not tell the two
+    apart would demand documentation for dictionary keys.
+    """
+    if not isinstance(func, ast.Attribute):
+        return False
+    if func.attr == "getenv":
+        return isinstance(func.value, ast.Name) and func.value.id == "os"
+    inner = func.value
+    return (
+        func.attr == "get"
+        and isinstance(inner, ast.Attribute)
+        and inner.attr == "environ"
+        and isinstance(inner.value, ast.Name)
+        and inner.value.id == "os"
+    )
+
+
+def env_names_in(source: str) -> set[str]:
+    """Every environment variable one module reads, from its AST.
+
+    Two shapes, because the package uses both: an `ENV_X = "NAME"` constant
+    handed to `os.environ.get` later, and a literal handed to it directly.
+
+    From the AST and not by grep, for the reason the Dockerfile is parsed into
+    instructions. These modules explain at length which variables they refuse
+    to read — `LOCAL_DEV_MODE` in the Dockerfile, `ACCOUNTANT_TLS_*` in a
+    comment about a leg that carries no TLS — and a scan cannot tell an
+    explanation from a read.
+    """
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Assign | ast.AnnAssign):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            named = [t.id for t in targets if isinstance(t, ast.Name)]
+            value = node.value
+            if (
+                any(name.startswith("ENV_") for name in named)
+                and isinstance(value, ast.Constant)
+                and isinstance(value.value, str)
+            ):
+                found.add(value.value)
+        elif isinstance(node, ast.Call) and node.args:
+            first = node.args[0]
+            if _reads_the_environment(node.func) and isinstance(first, ast.Constant):
+                found.add(str(first.value))
+    return found
+
+
+def variables_the_code_reads() -> set[str]:
+    """Every environment variable the SHIPPED package reads.
+
+    `accountant/` only: it is the one directory the image copies. A variable
+    read by a test or by `scripts/deploy` is not one an operator has to set.
+    """
+    names: set[str] = set()
+    for path in sorted(PACKAGE.rglob("*.py")):
+        names |= env_names_in(path.read_text(encoding="utf-8"))
+    return names
+
+
+def states_the_default(sentence: str) -> bool:
+    """True when a row says which way a flag falls with nobody setting it.
+
+    "Set it to 0 to stop every write" is advice about the value you might
+    choose. "Unset, it is ON and writes are permitted" is the fact that decides
+    whether a container somebody starts posts into real books, and a reader
+    given only the first half will assume the safer half.
+    """
+    lowered = sentence.lower()
+    return "default" in lowered and re.search(r"\b(on|off)\b", lowered) is not None
+
+
+# ---------------------------------------------------------------------------
+# 15. the image installs the code's dependencies, pinned to the lockfile
+# ---------------------------------------------------------------------------
+
+
+def test_the_image_installs_the_runtime_dependencies_the_project_declares() -> None:
+    """The defect, 2026-08-13: `dependencies = []` stopped being true and the
+    image did not notice.
+
+    D-30 gave the project pypdf, pytesseract and Pillow, and the Dockerfile
+    went on installing nothing — its own comment still said "NOTHING IS
+    INSTALLED". `accountant/extract/textlayer.py` imports pypdf and
+    `freeocr.py` imports pytesseract and PIL, so the image carried code that
+    could not import. Nothing in the image was edited to break it, which is
+    exactly why this is a check and not a comment.
+    """
+    assert declared_dependencies(), "pyproject.toml declares no runtime dependency"
+    assert locked_install(dockerfile()) is not None, (
+        f"nothing in the Dockerfile installs {sorted(declared_dependencies())}, "
+        f"so the image ships code that cannot import"
+    )
+
+
+def test_the_lockfile_reaches_the_build_that_reads_it() -> None:
+    """An install is only a pin while the file it pins to is in the context.
+
+    Two places lose it and neither says so out loud: a COPY that never mentions
+    it, and a `.dockerignore` line that keeps it from the daemon. The second is
+    the likelier one here — `.dockerignore` already excludes fifteen paths.
+    """
+    copied = copied_paths(dockerfile())
+    for needed in ("pyproject.toml", "uv.lock"):
+        assert needed in copied, f"the build never copies {needed}"
+        assert needed not in ignored(), f".dockerignore keeps {needed} out"
+
+
+def test_the_image_installs_no_development_tooling() -> None:
+    """pytest, ruff, pyright and eleven others are an EXTRA here, and CI asks
+    for it by name: `uv sync --extra dev --locked`. This image must not.
+
+    `--no-dev` is redundant today — `dev` is an extra, so `uv sync` leaves it
+    out unless asked — and it stays anyway: the day `dev` moves to a dependency
+    group, uv's default flips to installing it and nothing else would notice.
+    """
+    command = locked_install(dockerfile())
+    assert command is not None
+    assert "--extra dev" not in command and "--all-extras" not in command, command
+    assert "--no-dev" in command, command
+
+
+def test_the_lockfile_resolves_exactly_the_dependencies_pyproject_declares() -> None:
+    """Two lists that must be equal, checked here rather than on a build day.
+
+    A dependency added to `pyproject.toml` and never locked is one the image
+    will not install. `uv sync --locked` does refuse it — inside a `docker
+    build` nobody has run yet, which is the wrong place to find out.
+    """
+    assert locked_dependencies() == declared_dependencies(), (
+        f"pyproject.toml declares {sorted(declared_dependencies())} and uv.lock "
+        f"resolves {sorted(locked_dependencies())}. Run `uv lock`."
+    )
+
+
+def test_the_image_installs_the_ocr_engine_a_photo_upload_needs() -> None:
+    """CORRECTED 2026-08-13, and it asserts the OPPOSITE of what it did.
+
+    This was `test_the_image_installs_no_system_package_including_tesseract`,
+    and it asserted `system_installs(dockerfile()) == []`. The measurement it
+    rested on has not changed and is exactly why the owner reversed it: with
+    `PATH=/usr/bin:/bin` and no `tesseract` binary, `default_extractor()` on a
+    corpus PNG returns all four fields unread, each saying `not_found: the text
+    reading program is not installed on this machine`. `DEFAULT_BACKEND` is
+    `ladder` and `app.py` routes every uploaded image to it, so on the shipped
+    artefact a photograph read ZERO of four fields, always.
+
+    Owner decision, 2026-08-13, verbatim: *"This is required because the MVP
+    requirement is: a user can upload a photo and get fields read. A Docker
+    image where photos are dead by design does not satisfy that requirement."*
+
+    The costs the old docstring listed are ACCEPTED, not refuted — apt pins
+    nothing, and the image is bigger and slower to build. The half of that
+    guard which was never about tesseract survives below, as
+    `test_the_image_installs_no_system_package_beyond_the_ocr_engine`.
+    """
+    assert "tesseract-ocr" in apt_packages(dockerfile()), (
+        f"the image installs {apt_packages(dockerfile())}, so an uploaded "
+        f"photograph reads zero of four fields on the artefact that ships"
+    )
+
+
+def test_the_image_installs_the_language_pack_the_engine_reads_with() -> None:
+    """An engine with no trained data reads nothing.
+
+    `tesseract-ocr` depends on `tesseract-ocr-eng` on Debian, so this asks apt
+    for something it would supply anyway — deliberately. WHICH languages this
+    image can read is a decision, and a decision resting on another package's
+    dependency list is one no reader of this file can see or defend.
+    """
+    assert "tesseract-ocr-eng" in apt_packages(dockerfile()), (
+        f"the image installs {apt_packages(dockerfile())} and names no "
+        f"language pack, so which languages it reads is apt's choice"
+    )
+
+
+def test_the_image_carries_no_language_pack_beyond_english() -> None:
+    """Smallest possible is the constraint, and language data is where size is.
+
+    Each `tesseract-ocr-<lang>` is tens of megabytes and `tesseract-ocr-all` is
+    every language there is. Nothing in this repository reads a bill in
+    anything but English, and no corpus here contains one.
+    """
+    extra = [
+        package
+        for package in apt_packages(dockerfile())
+        if package.startswith("tesseract-ocr-") and package not in OCR_PACKAGES
+    ]
+    assert extra == [], f"language packs nothing in this repository reads: {extra}"
+
+
+def test_the_image_installs_no_system_package_beyond_the_ocr_engine() -> None:
+    """What survives of the old guard, and the half that was never about OCR.
+
+    apt pins nothing: every package here is whatever Debian's index served on
+    the morning of the build, which is the one property `uv sync --locked`
+    exists to give the wheels. TWO named packages is a cost the owner weighed
+    and accepted. A third that arrived because somebody needed it once is not.
+    """
+    strangers = [p for p in apt_packages(dockerfile()) if p not in OCR_PACKAGES]
+    assert strangers == [], (
+        f"the image installs unpinned system packages nobody decided on: {strangers}"
+    )
+
+
+def test_the_engine_is_installed_without_its_recommended_packages() -> None:
+    """`--no-install-recommends`, because "keep it as small as possible" is an
+    explicit constraint on this install and not a preference. Without the flag
+    apt pulls tesseract-ocr's whole recommends chain into the layer."""
+    for command in system_installs(dockerfile()):
+        assert "--no-install-recommends" in command, command
+
+
+def test_the_package_lists_are_downloaded_and_deleted_in_one_layer() -> None:
+    """`apt-get update` writes tens of megabytes into `/var/lib/apt/lists`, and
+    a layer is immutable: delete them in a LATER `RUN` and the bytes are still
+    in the image, hidden under a whiteout, and the image is the same size while
+    the Dockerfile reads as if it were not."""
+    for command in system_installs(dockerfile()):
+        assert "apt-get update" in command, command
+        assert "rm -rf /var/lib/apt/lists" in command, command
+
+
+def test_the_deploy_document_names_the_engine_the_image_now_carries() -> None:
+    """The half of this decision a Dockerfile cannot carry.
+
+    The image is bigger and slower to build than it was yesterday, and an
+    operator reading only `docs/DEPLOY.md` would not know why. This repository
+    has already shipped that failure twice — the Azure rows, and `D-30`'s three
+    wheels — so the document is read rather than trusted.
+    """
+    text = DEPLOY_DOC.read_text(encoding="utf-8")
+    for package in OCR_PACKAGES:
+        assert package in text, f"docs/DEPLOY.md never mentions {package}"
+
+
+def test_the_control_a_dockerfile_that_installs_nothing_is_caught() -> None:
+    """The image exactly as it stood before 2026-08-13."""
+    planted = instructions(
+        "FROM python:3.14.6-slim\n"
+        "COPY accountant/ /app/accountant/\n"
+        'CMD ["python", "-m", "accountant.web"]\n'
+    )
+    assert locked_install(planted) is None
+
+
+def test_the_control_an_unpinned_install_is_not_a_locked_install() -> None:
+    """The likelier wrong fix, and the reason the predicate wants `--locked`.
+
+    Both lines below install the right NAMES. Neither installs the versions the
+    4233 tests ran against, and an image tagged with a commit that contains
+    versions nobody measured is the drift this whole file exists to catch.
+    """
+    named = instructions(
+        "FROM python:3.14.6-slim\nRUN pip install pypdf pytesseract Pillow\n"
+    )
+    assert locked_install(named) is None
+    unlocked = instructions("FROM python:3.14.6-slim\nRUN uv sync --no-dev\n")
+    assert locked_install(unlocked) is None
+
+
+def test_the_control_a_dockerfile_that_installs_no_engine_is_caught() -> None:
+    """The image exactly as it stood until 2026-08-13: the wrapper wheel
+    installed, the binary it shells out to absent, and every uploaded
+    photograph reading zero of four fields on the artefact that ships."""
+    planted = instructions("FROM python:3.14.6-slim\nRUN uv sync --locked --no-dev\n")
+    assert apt_packages(planted) == []
+
+
+def test_the_control_an_unrelated_system_package_is_caught() -> None:
+    """CORRECTED 2026-08-13. This planted `tesseract-ocr`, which is now the
+    thing the image is supposed to install, so it would have controlled
+    nothing. The guard it controls is unchanged: an unpinned Debian package
+    that no owner decision named."""
+    planted = instructions(
+        "FROM python:3.14.6-slim\n"
+        "RUN apt-get update && apt-get install -y --no-install-recommends curl\n"
+    )
+    assert system_installs(planted) != []
+    assert [p for p in apt_packages(planted) if p not in OCR_PACKAGES] == ["curl"]
+
+
+def test_the_control_a_language_pack_nothing_here_reads_is_caught() -> None:
+    """`tesseract-ocr-all` is the whole point of the size check: one word, every
+    language there is, and no test anywhere would otherwise notice."""
+    planted = instructions(
+        "FROM python:3.14.6-slim\n"
+        "RUN apt-get install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-all\n"
+    )
+    extra = [
+        p
+        for p in apt_packages(planted)
+        if p.startswith("tesseract-ocr-") and p not in OCR_PACKAGES
+    ]
+    assert extra == ["tesseract-ocr-all"]
+
+
+def test_the_control_an_install_that_takes_the_recommends_chain_is_caught() -> None:
+    planted = instructions(
+        "FROM python:3.14.6-slim\n"
+        "RUN apt-get update && apt-get install -y tesseract-ocr\n"
+    )
+    assert all("--no-install-recommends" not in c for c in system_installs(planted))
+
+
+def test_the_control_package_lists_left_behind_in_the_image_are_caught() -> None:
+    """The likelier mistake than forgetting the deletion outright: putting it in
+    its own RUN, where it reads as done and removes nothing from the layer
+    above it."""
+    planted = instructions(
+        "FROM python:3.14.6-slim\n"
+        "RUN apt-get update && apt-get install -y --no-install-recommends x\n"
+        "RUN rm -rf /var/lib/apt/lists/*\n"
+    )
+    left = [c for c in system_installs(planted) if "rm -rf /var/lib/apt/lists" not in c]
+    assert left != []
+
+
+def test_the_control_tesseract_named_in_a_comment_is_not_an_install() -> None:
+    """The other direction, and it matters MORE since 2026-08-13 than it did
+    before. The Dockerfile no longer explains why the binary is absent; it
+    explains what is installed and what that costs, in prose that names the
+    packages. A comment cannot install anything and must not be able to satisfy
+    — or fail — a check about what is installed."""
+    planted = instructions(
+        "FROM python:3.14.6-slim\n# NOT installed: apt-get install -y tesseract-ocr\n"
+    )
+    assert system_installs(planted) == []
+    assert apt_packages(planted) == []
+
+
+# ---------------------------------------------------------------------------
+# 16. every variable the code reads is documented, and no other
+# ---------------------------------------------------------------------------
+
+
+def test_every_environment_variable_the_code_reads_is_documented() -> None:
+    """The image is not the only place a variable hides. `ACCOUNTANT_DB` is set
+    there and was documented; `ACCOUNTANT_POSTING_ENABLED` is set nowhere,
+    defaults to ON, and decides whether this software writes into a real
+    business's books — and no document mentioned it until 2026-08-13."""
+    documented = set(documented_variables(DEPLOY_DOC.read_text(encoding="utf-8")))
+    missing = sorted(variables_the_code_reads() - documented)
+    assert not missing, (
+        f"the code reads {missing} and docs/DEPLOY.md's environment table does "
+        f"not list them. An undocumented variable is one an operator cannot set "
+        f"and cannot know the default of."
+    )
+
+
+def test_the_deploy_document_invents_no_variable_the_code_never_reads() -> None:
+    """The direction that had actually broken.
+
+    `ACCOUNTANT_AZURE_ENDPOINT` and `ACCOUNTANT_AZURE_KEY` were documented as
+    "Declared, empty" in an image that declared neither, for a backend no `.py`
+    file in this repository imports. A row for a variable nothing reads is
+    worse than no row: an operator sets it, nothing changes, and the document
+    says something should have.
+    """
+    documented = set(documented_variables(DEPLOY_DOC.read_text(encoding="utf-8")))
+    invented = sorted(documented - variables_the_code_reads())
+    assert not invented, (
+        f"docs/DEPLOY.md documents {invented}, which no file under accountant/ "
+        f"reads. Delete the row or wire the variable."
+    )
+
+
+@pytest.mark.parametrize("variable", [writedoor.ENV_POSTING, writedoor.ENV_SAFE_MODE])
+def test_the_flags_that_decide_whether_books_are_written_state_their_default(
+    variable: str,
+) -> None:
+    """Both FAIL OPEN, and that is the whole reason the default has to be
+    written down. Unset, posting is permitted and safe mode is on. A reader who
+    is told only "set it to 0 to stop writing" does not learn that a container
+    started with neither variable will post."""
+    rows = documented_variables(DEPLOY_DOC.read_text(encoding="utf-8"))
+    assert variable in rows, f"docs/DEPLOY.md does not list {variable}"
+    assert states_the_default(rows[variable]), rows[variable]
+
+
+def test_the_control_a_variable_named_only_in_prose_is_not_one_the_code_reads() -> None:
+    """The reason the source is parsed. This package writes paragraphs about
+    variables it deliberately does NOT read."""
+    planted = '"""Never set ACCOUNTANT_DANGER=1."""\n# ACCOUNTANT_DANGER is refused\n'
+    assert env_names_in(planted) == set()
+
+
+def test_the_control_a_new_constant_the_document_never_lists_is_caught() -> None:
+    planted = 'from typing import Final\n\nENV_NEW: Final = "ACCOUNTANT_NEW"\n'
+    assert env_names_in(planted) == {"ACCOUNTANT_NEW"}
+    documented = set(documented_variables(DEPLOY_DOC.read_text(encoding="utf-8")))
+    assert "ACCOUNTANT_NEW" not in documented
+
+
+def test_the_control_a_literal_read_straight_from_the_environment_is_caught() -> None:
+    """The shape that skips the `ENV_` convention entirely. A scanner that knew
+    only the constants would report nothing and pass."""
+    planted = (
+        "import os\n"
+        'first = os.environ.get("ACCOUNTANT_SNEAKY", "")\n'
+        'second = os.getenv("ACCOUNTANT_SNEAKIER")\n'
+    )
+    assert env_names_in(planted) == {"ACCOUNTANT_SNEAKY", "ACCOUNTANT_SNEAKIER"}
+
+
+def test_the_control_an_ordinary_mapping_lookup_is_not_an_environment_read() -> None:
+    """The other direction, and the one that would make this check unusable:
+    every `.get("SOME_KEY")` in the package reported as a variable to
+    document."""
+    planted = 'row = payload.get("ACCOUNTANT_DB")\nvalue = mapping.get("TOTAL")\n'
+    assert env_names_in(planted) == set()
+
+
+def test_the_control_a_row_that_names_a_flag_without_its_default_is_caught() -> None:
+    """The likely regression: the row survives an edit and the sentence that
+    says which way it falls does not."""
+    planted = (
+        "| Variable | Set in the image? | If it is missing |\n"
+        "|---|---|---|\n"
+        f"| `{writedoor.ENV_POSTING}` | No | Set it to 0 to stop every write. |\n"
+    )
+    rows = documented_variables(planted)
+    assert writedoor.ENV_POSTING in rows
+    assert not states_the_default(rows[writedoor.ENV_POSTING])

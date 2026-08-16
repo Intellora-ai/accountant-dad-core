@@ -1,0 +1,56 @@
+document_id,expected,reach,detail
+real-commons-01,320/10/2014/OL/DC,F_true_value_not_in_the_text_at_all,label on line 3 but '320/10/2014/OL/DC' is nowhere in the text
+real-voxel51-01,51109338,C_label_and_value_on_the_same_line,line 0: 'Invoice no: 51109338'
+real-voxel51-02,26622011,C_label_and_value_on_the_same_line,line 0: 'Invoice no: 26622011'
+real-voxel51-03,26413291,C_label_and_value_on_the_same_line,line 0: 'Invoice no: 26413291'
+real-voxel51-04,35163496,C_label_and_value_on_the_same_line,line 0: 'Invoice no: 35163496'
+real-voxel51-05,56427222,C_label_and_value_on_the_same_line,line 0: 'Invoice no: 56427222'
+real-voxel51-06,68743594,C_label_and_value_on_the_same_line,line 0: 'Invoice no: 68743594'
+real-voxel51-07,87278875,C_label_and_value_on_the_same_line,line 0: 'Invoice no: 87278875'
+real-voxel51-08,22537855,C_label_and_value_on_the_same_line,line 0: 'Invoice no: 22537855'
+real-voxel51-09,90885385,C_label_and_value_on_the_same_line,line 0: 'Invoice no: 90885385'
+real-voxel51-10,20653012,C_label_and_value_on_the_same_line,line 0: 'Invoice no: 20653012'
+real-voxel51-11,18393770,C_label_and_value_on_the_same_line,line 0: 'Invoice no: 18393770'
+real-voxel51-12,72415673,C_label_and_value_on_the_same_line,line 0: 'Invoice no: 72415673'
+real-voxel51-13,89305462,C_label_and_value_on_the_same_line,line 0: 'Invoice no: 89305462'
+synthetic-001,VER/2023/1001,C_label_and_value_on_the_same_line,line 0: 'Verma Electricals Invoice No: VER/2023/1001'
+synthetic-002,RAO/2023/1002,C_label_and_value_on_the_same_line,line 5: 'Invoice No: RAO/2023/1002'
+synthetic-003,IYE/2025/1003,C_label_and_value_on_the_same_line,line 8: 'Invoice No: IYE/2025/1003 Date: 20/08/2025'
+synthetic-004,BOS/2026/1004,C_label_and_value_on_the_same_line,line 4: 'Bill No Bos/2026/1004'
+synthetic-005,SUN/2025/1005,E_label_printed_value_somewhere_else,"label on [4], value on [8]"
+synthetic-006,VER/2023/1006,B_no_invoice_number_label_printed,no label printed; value is on the page
+synthetic-007,SUN/2024/1007,C_label_and_value_on_the_same_line,line 0: 'Sundaram Traders Invoice No: SUN/2024/1007'
+synthetic-008,SUN/2025/1008,C_label_and_value_on_the_same_line,line 5: 'Invoice No: SUN/2025/1008'
+synthetic-009,PAT/2024/1009,C_label_and_value_on_the_same_line,line 0: 'Patel Auto Spares Invoice No: PAT/2024/1009'
+synthetic-010,SUN/2024/1010,C_label_and_value_on_the_same_line,line 8: 'Invoice No: SUN/2024/1010 Date: 08-02-2024'
+synthetic-011,SUN/2023/1011,C_label_and_value_on_the_same_line,line 4: 'Bill No suN/2023/1011'
+synthetic-012,BOS/2025/1012,E_label_printed_value_somewhere_else,"label on [4], value on [8]"
+synthetic-013,PAT/2023/1013,C_label_and_value_on_the_same_line,line 0: 'Patel Auto Spares Invoice No: PAT/2023/1013'
+synthetic-014,PAT/2023/1014,C_label_and_value_on_the_same_line,line 0: 'Patel Auto Spares Invoice No: PAT/2023/1014'
+synthetic-015,KON/2023/1015,C_label_and_value_on_the_same_line,line 8: 'Invoice No: KON/2023/1015 Date: 11/12/2023'
+synthetic-016,NIL/2023/1016,C_label_and_value_on_the_same_line,line 4: 'Bill No NIL/2023/1016'
+synthetic-017,PAT/2023/1017,E_label_printed_value_somewhere_else,"label on [4], value on [8]"
+synthetic-018,BOS/2024/1018,B_no_invoice_number_label_printed,no label printed; value is on the page
+synthetic-019,SUN/2024/1019,C_label_and_value_on_the_same_line,line 0: 'Sundaram Traders Invoice No: SUN/2024/1019'
+synthetic-020,NIL/2023/1020,C_label_and_value_on_the_same_line,line 0: 'Nilgiri Tea Supply Co Invoice No: NIL/2023/1020'
+synthetic-021,NIL/2024/1021,C_label_and_value_on_the_same_line,line 5: 'Invoice No: NIL/2024/1021'
+synthetic-022,SUN/2025/1022,C_label_and_value_on_the_same_line,line 5: 'Invoice No: SUN/2025/1022'
+synthetic-023,IYE/2025/1023,C_label_and_value_on_the_same_line,line 7: 'Invoice No: IYE/2025/1023 Date: 18/02/2025'
+synthetic-024,VER/2023/1024,C_label_and_value_on_the_same_line,line 4: 'Bill No VER/2023/1024'
+synthetic-025,IYE/2025/1025,E_label_printed_value_somewhere_else,"label on [4], value on [8]"
+synthetic-026,NIL/2026/1026,B_no_invoice_number_label_printed,no label printed; value is on the page
+synthetic-031,SUN/2023/1031,C_label_and_value_on_the_same_line,line 0: 'Sundaram Traders Invoice No: SUN/2023/1031'
+synthetic-032,SUN/2024/1032,C_label_and_value_on_the_same_line,line 8: 'Invoice No: SUN/2024/1032 Date: 13-09-2024'
+synthetic-033,RAO/2023/1033,C_label_and_value_on_the_same_line,line 5: 'Bill No RAO/2023/1033'
+synthetic-034,PAT/2026/1034,E_label_printed_value_somewhere_else,"label on [4], value on [8]"
+synthetic-035,IYE/2023/1035,F_true_value_not_in_the_text_at_all,label on line 4 but 'IYE/2023/1035' is nowhere in the text
+synthetic-036,BOS/2026/1036,D_value_on_the_next_line,line 6: 'BOS/2026/1036'
+synthetic-037,IYE/2026/1037,B_no_invoice_number_label_printed,no label printed; value is not on the page
+synthetic-041,NIL/2025/1041,D_value_on_the_next_line,line 5: 'NIL/2025/1041'
+synthetic-042,KON/2025/1042,B_no_invoice_number_label_printed,no label printed; value is on the page
+synthetic-043,PAT/2023/1043,C_label_and_value_on_the_same_line,line 5: 'Invoice No: PAT/2023/1043'
+synthetic-044,IYE/2023/1044,C_label_and_value_on_the_same_line,line 0: 'lyer Provision Stores Invoice No: IYE/2023/1044'
+synthetic-045,RAO/2026/1045,A_no_words_from_engine,reader raised UnidentifiedImageError
+synthetic-046,IYE/2023/1046,A_no_words_from_engine,reader raised UnidentifiedImageError
+synthetic-047,VER/2025/1047,A_no_words_from_engine,reader raised UnidentifiedImageError
+synthetic-048,PAT/2025/1048,A_no_words_from_engine,reader raised UnidentifiedImageError

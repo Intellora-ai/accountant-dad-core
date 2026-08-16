@@ -38,9 +38,11 @@ import pytest
 
 from accountant import auth
 from accountant.auth import identity as ident
+from accountant.memory.company import CompanyMatchStatus
 from accountant.memory.store import MemoryStore
+from accountant.schema import Outcome
 from accountant.web import app
-from tests.test_web import demo_company, draft_id, fake_backend, serving
+from tests.test_web import demo_company, draft_id, fake_backend, operation, serving
 
 NOW = datetime.datetime(2026, 8, 10, 9, 0, tzinfo=datetime.UTC)
 NEXT_WEEK = NOW + datetime.timedelta(days=7)
@@ -110,38 +112,164 @@ def as_user(base: str, path: str, token: str, **fields: str) -> tuple[int, str]:
 
 
 def a_posted_voucher(base: str, token: str) -> str:
-    """Type an entry, answer both questions, and hand back its operation id.
+    """Type an entry that posts, and hand back its operation id.
 
     Driven through the surface as ONE named person rather than seeded into
     FakeTally, because what these tests are about is who did what: a voucher
     planted behind the app has no actor and could not tell Anna from Bilal.
 
-    An unknown vendor raises two questions, not one - what the money was for,
-    and where it came from - and both must be answered before anything posts.
-    `tests/test_web.py::answer_purpose_and_funding` makes the same two calls;
-    this is that flow carrying a cookie.
+    A KNOWN vendor, and that is the whole of it. This typed `Gupta Hardware`
+    and then answered two questions, which is a longer road than any test here
+    needs: an unseen name stops on a QUESTION first, so every reversal test in
+    this file was made to depend on the question flow keeping exactly the shape
+    it had. Measured over HTTP against `demo_company()`, the three vendor shapes
+    are - an unseen one asks and writes nothing until somebody answers, a
+    conflicted one asks but never resolves, and a consistent one posts without
+    asking. `Sharma Traders` has forty consistent postings, so it takes the
+    third path and posts straight through.
+
+    THIS IS SETUP, NOT A TEST OF THE QUESTION FLOW. That flow is covered where
+    it belongs, by `tests/test_web.py::answer_purpose_and_funding` and
+    `tests/test_web.py::test_answering_the_question_posts_the_entry`; what an
+    unseen vendor does - answered, and unanswered - is the pair of tests below.
+    What the reversal tests need from here is a voucher that reliably exists.
+
+    The operation id is read off the page rather than out of `app.DRAFTS` for
+    the same reason the entry is typed rather than planted: a straight-through
+    post renders no draft input, and `name=op` is what the person's browser
+    would actually carry into `/reverse`.
     """
-    status, asked = as_user(
-        base, "/entry", token, text="paid Gupta Hardware 1500 for tools"
+    status, posted = as_user(
+        base,
+        "/entry",
+        token,
+        text="paid Sharma Traders 1500 for tools",
     )
-    assert status == 200, asked
-    draft = draft_id(asked)
+    assert status == 200, posted
 
-    status, funding = as_user(
-        base, "/answer", token, draft=draft, value="Purchases", problem="which_account"
-    )
-    assert status == 200
-    assert "how did you pay" in funding.lower(), funding
+    op = operation(posted)
+    assert op
+    return op
 
-    status, done = as_user(
-        base, "/answer", token, draft=draft, value="Cash", problem="funding_is_named"
-    )
-    assert status == 200
-    assert "posted" in done.lower(), done
 
-    vouchers = app.runtime().client.list_our_vouchers(app.runtime().company)
-    assert vouchers, "the entry did not post, so there is nothing to reverse"
-    return app.DRAFTS[draft].operation_id
+def test_an_unseen_and_unanswered_vendor_writes_nothing() -> None:
+    """INVARIANT: a name the books have never held, that nobody has answered
+    for, produces no voucher. The entry stops on a question and the register is
+    still empty.
+
+    WHY IT MATTERS. This is the whole of the owner's Decision 1 on the refusing
+    side: `unseen and unanswered vendor -> refuse, write nothing`. The failure
+    it exists to catch is the system inventing a ledger head for a stranger,
+    which is silent, plausible and wrong in the person's real books.
+
+    NOTHING IS ANSWERED HERE, and that is the measurement. It typed both answers
+    until 2026-08-17 and asserted a NOT_VALID refusal afterwards, which stopped
+    being true the moment an answer started counting as the person mapping the
+    vendor - by the time it read the refusal the vendor was no longer unseen, so
+    the test was measuring the answered case while claiming the unanswered one.
+
+    THE SAFE OUTCOME HERE IS A QUESTION, NOT A REFUSAL. Measured over HTTP on
+    2026-08-17: with no answers the draft is `Outcome.UNCLEAR`, memory says
+    `NO_MATCH`, the page names the vendor and says it has never been posted
+    before, and `list_our_vouchers` is empty. UNCLEAR is safe for the reason
+    that matters - it writes nothing. The NOT_VALID refusal that names the
+    vendor is a cage decision and is measured where the cage is, by
+    `tests/test_gate.py::test_a_party_the_books_do_not_know_blocks_and_invents_no_name`;
+    asserting it here would be asserting the string rather than the books.
+
+    "It asked" alone is NOT the assertion. `list_our_vouchers(...) == ()` is,
+    because a question that also posts is the failure nobody would notice.
+    """
+    anna = auth.new_token()
+    with serving(demo_company(), fake_backend(), seed=colleagues((anna, ANNA))) as base:
+        live = app.runtime()
+        status, asked = as_user(
+            base, "/entry", anna, text="paid Gupta Hardware 1500 for tools"
+        )
+        assert status == 200, asked
+        draft = draft_id(asked)
+
+        assert app.DRAFTS[draft].outcome is Outcome.UNCLEAR, asked
+        assert "Gupta Hardware" in asked, asked
+        assert "has never been posted before" in asked, asked
+        assert live.memory.lookup("Gupta Hardware").status is (
+            CompanyMatchStatus.NO_MATCH
+        ), "an unanswered stranger became known to memory on its own"
+        assert live.client.list_our_vouchers(live.company) == (), (
+            "nobody answered for this vendor and a voucher was written anyway"
+        )
+
+
+def test_a_vendor_the_person_answered_for_is_no_longer_unknown() -> None:
+    """INVARIANT: once the person has ANSWERED for a vendor the books have never
+    held, that answer is a mapping, the vendor stops being a stranger, and the
+    entry posts on the ordinary rules.
+
+    WHY IT MATTERS. This is the other half of Decision 1: `previously unseen
+    vendor, explicitly mapped by the user -> no longer unknown`. Without it the
+    cage and the memory contradicted each other and the cage won, so answering
+    the question changed nothing and the same person was asked the same question
+    for ever - a loop with no exit, which is worse than a refusal because it
+    looks like progress.
+
+    IT IS THE ANSWER THAT OPENS IT, NOT THE ASKING. The mapping is asserted
+    directly - `memory.lookup(...) is MATCH` - so this cannot pass on a vendor
+    that merely got as far as a question. Measured 2026-08-17: `NO_MATCH` before
+    the first answer, `MATCH` after it.
+
+    THE POSTING IS ASSERTED AS MEASURED, not forced. After both answers the
+    draft reaches VALID and exactly one voucher exists, carrying the two
+    accounts the person named. If another gate ever blocks this entry, this test
+    must fail and say so rather than be relaxed into "it did not refuse".
+    """
+    anna = auth.new_token()
+    with serving(demo_company(), fake_backend(), seed=colleagues((anna, ANNA))) as base:
+        live = app.runtime()
+        status, asked = as_user(
+            base, "/entry", anna, text="paid Gupta Hardware 1500 for tools"
+        )
+        assert status == 200, asked
+        draft = draft_id(asked)
+        assert live.memory.lookup("Gupta Hardware").status is (
+            CompanyMatchStatus.NO_MATCH
+        ), "the vendor was already known, so this proves nothing"
+
+        status, funding = as_user(
+            base,
+            "/answer",
+            anna,
+            draft=draft,
+            value="Purchases",
+            problem="which_account",
+        )
+        assert status == 200
+        assert "how did you pay" in funding.lower(), funding
+        assert (
+            live.memory.lookup("Gupta Hardware").status is CompanyMatchStatus.MATCH
+        ), (
+            "the person's answer did not become a mapping, so the vendor is "
+            "still a stranger and the question will be asked again"
+        )
+
+        status, posted = as_user(
+            base,
+            "/answer",
+            anna,
+            draft=draft,
+            value="Cash",
+            problem="funding_is_named",
+        )
+        assert status == 200
+
+        assert "never add a new name to your books on my own" not in posted, (
+            "the vendor the person mapped was still refused as unseen"
+        )
+        assert app.DRAFTS[draft].outcome is Outcome.VALID, posted
+        (written,) = live.client.list_our_vouchers(live.company)
+        assert written.party == "Gupta Hardware"
+        assert written.debit_account == "Purchases"
+        assert written.credit_account == "Cash"
+        assert written.amount_paise == 150000
 
 
 # ---------------------------------------------------------------------------

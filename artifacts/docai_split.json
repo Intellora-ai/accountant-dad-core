@@ -1,0 +1,264 @@
+{
+  "rule": "sorted by sha256; first 37 development, next 12 validation, last 13 locked",
+  "counts": {
+    "development": 37,
+    "validation": 12,
+    "locked": 13
+  },
+  "sets": {
+    "development": [
+      {
+        "sha256": "00e72c599c561c50339408b62a6a79adc83a11f378d4ea95df3fe5057e9aa7ba",
+        "file": "synthetic-041.png"
+      },
+      {
+        "sha256": "03e65d2392202e93a262c8cd7c2a7bd6d854bbbb2b9cae74adb1f7f2a4dc4f74",
+        "file": "real-voxel51-03.jpg"
+      },
+      {
+        "sha256": "08ea11c0cbfe50b3c4a99592950da0b78fa61d371ccfbf1fa4d978ec6392ece7",
+        "file": "synthetic-039.png"
+      },
+      {
+        "sha256": "0c9f62f3feeb42c13e6a8ce952d95af4fc4f754fdaf38524e606331fc33d8f60",
+        "file": "synthetic-030.png"
+      },
+      {
+        "sha256": "10ccfe889fb145e2a624627ba5639070811ed2fc9ecda556eae2ae0668546cc1",
+        "file": "synthetic-004.png"
+      },
+      {
+        "sha256": "141114929726892743fcf7097cdf428b46d625baafb25ba2ae2ded51f2ae4ffd",
+        "file": "synthetic-042.png"
+      },
+      {
+        "sha256": "17500d32fc92c6c9d0f33da826437bc808fa2ff8de5f032c67b24ed49a69576c",
+        "file": "synthetic-007.png"
+      },
+      {
+        "sha256": "1de4b906748d79027f0674c60f1e6340b5f0f10922d60b465ee6d8d25d13478d",
+        "file": "synthetic-016.png"
+      },
+      {
+        "sha256": "2151d856c630593eb187f8b8c616b6b8b31a48bfd474db167a667b6c23c0fa99",
+        "file": "synthetic-011.png"
+      },
+      {
+        "sha256": "223ef07779cf7da06c36b42cdce59edf72e2ad279bbc3b2b863282a6bb382e40",
+        "file": "synthetic-013.png"
+      },
+      {
+        "sha256": "2280ece13c208b6256f66150b8bc884a94acfd929cac18a32995cd0e7c35bdb8",
+        "file": "synthetic-026.png"
+      },
+      {
+        "sha256": "25ba8e7ed0e66febeb49f9d20c66e54ddfb959ad5a443c71de1b5ff204ef8beb",
+        "file": "real-voxel51-08.jpg"
+      },
+      {
+        "sha256": "2b07407a86888848d3a08b0032d921beabda21b921858cd4bf8504890451d4c0",
+        "file": "synthetic-031.png"
+      },
+      {
+        "sha256": "2b7b672bf5fe6b431ca52ca41c60df2b76189e257898ec1d4e163971f13c0b15",
+        "file": "synthetic-033.png"
+      },
+      {
+        "sha256": "33d8fc7a871546000b8b7447906698d5fc9163ecad7f8842f5798f736457eec5",
+        "file": "synthetic-009.png"
+      },
+      {
+        "sha256": "3d0da8d997ad3ea75c892fd7489ab5ce32e712b37ce38a38ec2e5489f20d8f3c",
+        "file": "real-voxel51-06.jpg"
+      },
+      {
+        "sha256": "42cb0221251b38cc7228cb33e58ff44bf3c1eb76ea9335f3145ec9da96cee356",
+        "file": "synthetic-010.png"
+      },
+      {
+        "sha256": "50871776100ae1561fc50f1c3ca490ad83ab3bfd01c9bac23e7562d9c7bd1f2a",
+        "file": "real-voxel51-13.jpg"
+      },
+      {
+        "sha256": "50d6057e75e1beaf82d23195b70b126b8f6aac56900f10698f68551f1dca5ce6",
+        "file": "synthetic-020.png"
+      },
+      {
+        "sha256": "5583ad7a81e2744d3d7623ebe15cb6463895e93a30322d377fa63b998fa8df83",
+        "file": "synthetic-014.png"
+      },
+      {
+        "sha256": "56238d4d934c433c24e53d0674f0530e11024f284e8ffcb3bb0bcc0d58850740",
+        "file": "real-voxel51-01.jpg"
+      },
+      {
+        "sha256": "5ddfedaf069cd43a191a6b92f719083dfdfa885d32b01af8c85f78294bf086ac",
+        "file": "synthetic-012.png"
+      },
+      {
+        "sha256": "5fca5eae3d6f1d2437b342561a377767de94618abecf21d36ee5fa2fe8cf7714",
+        "file": "real-commons-01.png"
+      },
+      {
+        "sha256": "6c1b61047a6274041afd8f3dab60f95b9f8750cfbf89b9de89dbae6805c2556f",
+        "file": "synthetic-045.pdf"
+      },
+      {
+        "sha256": "7454cc51837fd465c6c1b86c5f38cc72084073b69fdc1a0f5db5214eb195fc71",
+        "file": "synthetic-006.png"
+      },
+      {
+        "sha256": "7759e1a5b8ab95b9d9beeec14ab1acb8777b38334f48142dc57c0f65555f33ec",
+        "file": "real-voxel51-11.jpg"
+      },
+      {
+        "sha256": "79934214599ac5798c8a94de48c1a2a01f1451481789cf73735d533000e0a4fa",
+        "file": "synthetic-038.png"
+      },
+      {
+        "sha256": "7bcc07fca5205a8f75f6427092dd43f15d716eeb52154305bdc6d30039a0bd62",
+        "file": "synthetic-017.png"
+      },
+      {
+        "sha256": "7c571d96188447ad59fed2147c317c43ebaa7c9a24193eca881b345252bd4db2",
+        "file": "synthetic-028.png"
+      },
+      {
+        "sha256": "7d55df2ca7abd1723938729adac769aeb786031150702fa024bfae96b984a7cd",
+        "file": "synthetic-021.png"
+      },
+      {
+        "sha256": "84326ec10c5531779a437d76c734b4af245abffa6ff25deb53410d92630cff62",
+        "file": "real-voxel51-05.jpg"
+      },
+      {
+        "sha256": "84d8ff41a8b7510f77e0da2414f3e8b0aa0e0b821324dd0d623ead3de118d772",
+        "file": "synthetic-043.png"
+      },
+      {
+        "sha256": "858edc2cb545a6133c4ffb355850388fe12aac01c48f676b311849567ded7872",
+        "file": "real-voxel51-09.jpg"
+      },
+      {
+        "sha256": "8a6965f48c49b28ea14eadae648ab30c054eec36634e301cdbf8c1daeb28821a",
+        "file": "synthetic-023.png"
+      },
+      {
+        "sha256": "8f4bbdfb3d46dd1a92c7c82ea45abce488909cfe5ab59381fba2ebfc7c9d666d",
+        "file": "synthetic-008.png"
+      },
+      {
+        "sha256": "97571dcb0ae8f63a4ad02f46e4fb4546a1fd75e8716548e50185c14ce0d0e1a8",
+        "file": "synthetic-003.png"
+      },
+      {
+        "sha256": "9cd4e0ca7967439b9d6d6da5595889e890f329a6c5b933cdc11e8f1936990367",
+        "file": "synthetic-036.png"
+      }
+    ],
+    "validation": [
+      {
+        "sha256": "9ecdf0e0e65b6f210c5838a134808e21e56bcc2674d7363391c256a298bd4b3a",
+        "file": "real-voxel51-02.jpg"
+      },
+      {
+        "sha256": "a1bc1953f12fbb65df1cc03aafaf3d1edb45f83e9ad13780d4a28a4ad65fbc88",
+        "file": "synthetic-001.png"
+      },
+      {
+        "sha256": "a23dc612427f915e793bd70e53cc51f4f7cd194ab374434f747a36af5441d373",
+        "file": "synthetic-035.png"
+      },
+      {
+        "sha256": "a965e0ed47f72612967950464d5ca7ecc838ad3ddc9ebb9320bc7112b7fcc81d",
+        "file": "synthetic-025.png"
+      },
+      {
+        "sha256": "aaa7f1ea6db389805ffe40eabcfda5655425de92678eee52cbd828cf8900401c",
+        "file": "synthetic-015.png"
+      },
+      {
+        "sha256": "ab39328beec400bbd8cdd5cb1ff6f5ddcd81fb1af420645001e461c1bd5eaadd",
+        "file": "synthetic-032.png"
+      },
+      {
+        "sha256": "b23fb6a967d20ec3a5f680cdfd7bd9c537e584841522b6738d38749e066e8f61",
+        "file": "synthetic-048.pdf"
+      },
+      {
+        "sha256": "be0fb4e192fec7d36325f331057b0232bc963edb90aedcdb96880952588de8d2",
+        "file": "synthetic-034.png"
+      },
+      {
+        "sha256": "bf6fcb152c2a503601c9af99c80feb5c69e240920c1d6fc2ce5a319213c35d3c",
+        "file": "synthetic-046.pdf"
+      },
+      {
+        "sha256": "c65d922cb5b6c9820ffc512a1d3c5627ae939caa880bb9e37b2d2049b5a10467",
+        "file": "synthetic-005.png"
+      },
+      {
+        "sha256": "c96db8eb3a36f21ff450300ab77a6fc3ac0273d103581d16332d78ac80641d5b",
+        "file": "synthetic-018.png"
+      },
+      {
+        "sha256": "cc8860a61526f94771cf9c6c24b505b8e3f245c81dbb6a06fc1e23265c55f4a0",
+        "file": "synthetic-002.png"
+      }
+    ],
+    "locked": [
+      {
+        "sha256": "cd3ddb8ba65341fd37effae8f34106d4c4271d5896fcc3c688ab8e3ec5e2bf31",
+        "file": "synthetic-019.png"
+      },
+      {
+        "sha256": "cda88b0db89b1ec186a3d1f46154ae99031e52072fdd77c6aea9d3721d8eb2c3",
+        "file": "real-voxel51-04.jpg"
+      },
+      {
+        "sha256": "d7237c1a22ee58312a12f4685f9129e3a27d4aa6901feb9d59f92e245f0c1f01",
+        "file": "synthetic-024.png"
+      },
+      {
+        "sha256": "dce23866f759886c386993921cabd9b63460bdd57deacb01a74a047887e2ebd5",
+        "file": "synthetic-047.pdf"
+      },
+      {
+        "sha256": "dfeefb17ee886157f6e05d89da1b54e3df0471303f2c1d19c36c0a4974a765ed",
+        "file": "synthetic-029.png"
+      },
+      {
+        "sha256": "e0ff180f008c75eedf1b35f7c378dbfb47319369d589f6d2c22121ace2fd3bac",
+        "file": "synthetic-037.png"
+      },
+      {
+        "sha256": "e63c41344017558fea51af39845fff2eee44956675554921edd0a35066b846c0",
+        "file": "real-voxel51-10.jpg"
+      },
+      {
+        "sha256": "f20716d1f0850bbf8329cbfcfe108d9f8d0dbc29c38b8349cb891780304c52e0",
+        "file": "synthetic-027.png"
+      },
+      {
+        "sha256": "f56a1fda9aafa51e97088e6a3a7a4d7df008c1acef689211cafd9f9dfbfc6d8e",
+        "file": "real-voxel51-12.jpg"
+      },
+      {
+        "sha256": "f6765f62f4b3d6b3a17337d3e6d8b54817f7551aa33aa7a53a1780c0c673f9e1",
+        "file": "real-voxel51-07.jpg"
+      },
+      {
+        "sha256": "f6945f87cfffdf990f70ef1c4c4e74420c9f369c59c00460b06abece6bca52c6",
+        "file": "synthetic-040.png"
+      },
+      {
+        "sha256": "f73e68b13f7047dbcd7c5e88871d699ea0401aff18c21ae017e7f6f0ad9c2f2d",
+        "file": "synthetic-022.png"
+      },
+      {
+        "sha256": "f8efe63d44e8bcad3ffc5ee83481603aff47bbbf0d030e4945bd975bf8da985d",
+        "file": "synthetic-044.png"
+      }
+    ]
+  }
+}

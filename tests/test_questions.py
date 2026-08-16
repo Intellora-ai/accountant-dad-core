@@ -10,7 +10,8 @@ Every one of these is enforced here rather than trusted.
 from __future__ import annotations
 
 import datetime
-from collections.abc import Callable
+import inspect
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from typing import Any
 
@@ -103,6 +104,64 @@ ALL_QUESTION_BUILDERS = [
     lambda: Q.how_paid(ACCOUNTS),
     lambda: Q.tax_bigger_than_total(100000, 500000),
 ]
+
+
+def question_builders_in(namespace: Mapping[str, Any]) -> set[str]:
+    """Every public function in a namespace that RETURNS a Question.
+
+    Found by RETURN ANNOTATION, not by a naming convention and not by a second
+    hand-written list. A builder cannot escape by being called something
+    unexpected, and the discovery rule is the same one a reader of
+    `questions.py` would use.
+
+    `questions.py` has `from __future__ import annotations`, so the annotation
+    arrives as the string "Question" rather than the class.
+    """
+    return {
+        name
+        for name, obj in namespace.items()
+        if not name.startswith("_")
+        and inspect.isfunction(obj)
+        and obj.__annotations__.get("return") == "Question"
+    }
+
+
+def builders_exercised() -> set[str]:
+    """The builder names the lambdas above actually call.
+
+    Read out of each lambda's own bytecode, so the tie is to the code that runs
+    rather than to a list somebody has to remember to update twice.
+    """
+    return {n for b in ALL_QUESTION_BUILDERS for n in b.__code__.co_names}
+
+
+def test_every_question_builder_in_the_module_is_on_the_list():
+    """THE TIE. `ALL_QUESTION_BUILDERS` is ten hand-written lambdas with nothing
+    connecting them to `questions.py`, so until now a new builder joined the
+    module and silently escaped the S7 jargon guard, the text-and-answers guard
+    and the plain-label guard - three tests that would report all-green while
+    covering nine builders out of ten.
+    """
+    found = question_builders_in(vars(Q))
+    assert found, "discovery found no builders at all, so this guard is vacuous"
+    missing = found - builders_exercised()
+    assert not missing, (
+        f"{sorted(missing)} build questions a person reads and no test in this "
+        f"file ever calls them; add a lambda to ALL_QUESTION_BUILDERS"
+    )
+
+
+def test_the_tie_notices_a_builder_the_list_does_not_know_about():
+    """CONTROL. Without it, a discovery rule that quietly found nothing - a
+    renamed annotation, a module that stopped exporting - would pass the test
+    above forever."""
+
+    def brand_new_question():
+        """The builder somebody adds tomorrow."""
+
+    brand_new_question.__annotations__["return"] = "Question"
+    grown = {**vars(Q), "brand_new_question": brand_new_question}
+    assert "brand_new_question" in question_builders_in(grown) - builders_exercised()
 
 
 @pytest.mark.parametrize("build", ALL_QUESTION_BUILDERS)
@@ -281,9 +340,16 @@ def test_a_huge_amount_asks_rather_than_refuses():
 
 
 def test_the_huge_amount_question_shows_both_numbers():
+    """GROUPING AND PAISE CORRECTED 2026-08-13, owner decision.
+
+    This pinned `₹2,000,000` - Python's grouping in threes, and the paise
+    floored away. Both were wrong for the only market this product has: ₹20
+    lakh is written `₹20,00,000.00`, and a question that drops the paise asks
+    a person to confirm a number the screen never showed them.
+    """
     q = Q.is_that_amount_right("Sharma Traders", 200_000_000, 380000)
-    assert "₹2,000,000" in q.text
-    assert "₹3,800" in q.text
+    assert "₹20,00,000.00" in q.text
+    assert "₹3,800.00" in q.text
 
 
 def test_only_an_internal_type_error_refuses():
@@ -344,13 +410,13 @@ def test_a_problem_already_answered_is_never_asked_again():
         memory,
         today=TODAY,
     )
-    d = pipeline.evaluate(d, ACCOUNTS, (), memory)
+    d = pipeline.evaluate(d, ACCOUNTS, (), memory, period_open=None, pdf_repaired=None)
     first = pipeline.next_question(d)
     assert first is not None
 
     d = pipeline.answer(d, "Purchases", problem_id=first.problem_id)
     memory.record_correction("Verma Cement", "Purchases")
-    d = pipeline.evaluate(d, ACCOUNTS, (), memory)
+    d = pipeline.evaluate(d, ACCOUNTS, (), memory, period_open=None, pdf_repaired=None)
 
     again = pipeline.next_question(d)
     assert again is None or again.problem_id != first.problem_id
@@ -390,7 +456,7 @@ def test_a_handed_over_entry_is_never_posted():
         today=TODAY,
     )
     d.answers = [(f"p{i}", "x") for i in range(5)]
-    d = pipeline.evaluate(d, ACCOUNTS, (), memory)
+    d = pipeline.evaluate(d, ACCOUNTS, (), memory, period_open=None, pdf_repaired=None)
     assert d.outcome is not Outcome.VALID
     with pytest.raises(ValueError):
         pipeline.post(d, t)

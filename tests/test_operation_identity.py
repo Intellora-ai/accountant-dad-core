@@ -41,6 +41,7 @@ from accountant.memory.store import MemoryStore
 from accountant.schema import Decision, Outcome, Voucher
 from accountant.tallyio.client import operation_id_in
 from accountant.tallyio.fake import FakeTally
+from tests.test_period_handoff import open_books_for
 
 COMPANY = "Demo Co"
 ACCOUNTS = ("Purchases", "Repairs & Maintenance", "Cash", "Bank")
@@ -88,6 +89,7 @@ def test_one_operation_id_reaches_the_draft_decision_narration_log_and_reversal(
         today=TODAY,
         log=store,
         run_id="run-g51",
+        period_reader=open_books_for(COMPANY),
     )
     assert draft.outcome is Outcome.VALID
     op = draft.operation_id
@@ -132,7 +134,9 @@ def test_the_operation_id_is_minted_once_and_never_regenerated():
     )
     minted = draft.operation_id
 
-    draft = pipeline.evaluate(draft, accounts, hist, memory)
+    draft = pipeline.evaluate(
+        draft, accounts, hist, memory, period_open=None, pdf_repaired=None
+    )
     assert draft.operation_id == minted
     assert draft.outcome is Outcome.UNCLEAR
 
@@ -141,7 +145,9 @@ def test_the_operation_id_is_minted_once_and_never_regenerated():
     draft = pipeline.answer(draft, question.answers[0].value, question.problem_id)
     assert draft.operation_id == minted
 
-    draft = pipeline.evaluate(draft, accounts, hist, memory)
+    draft = pipeline.evaluate(
+        draft, accounts, hist, memory, period_open=None, pdf_repaired=None
+    )
     assert draft.operation_id == minted
     assert draft.decision is not None
     assert draft.decision.operation_id == minted
@@ -161,7 +167,9 @@ def test_answering_carries_the_identity_onto_the_new_decision():
         memory,
         today=TODAY,
     )
-    draft = pipeline.evaluate(draft, accounts, hist, memory)
+    draft = pipeline.evaluate(
+        draft, accounts, hist, memory, period_open=None, pdf_repaired=None
+    )
     first = draft.decision
     assert first is not None and first.operation_id == draft.operation_id
 
@@ -170,7 +178,9 @@ def test_answering_carries_the_identity_onto_the_new_decision():
     draft = pipeline.answer(draft, q.answers[0].value, q.problem_id)
     assert draft.decision is None, "answering clears it — Phase 4 exit 2"
 
-    draft = pipeline.evaluate(draft, accounts, hist, memory)
+    draft = pipeline.evaluate(
+        draft, accounts, hist, memory, period_open=None, pdf_repaired=None
+    )
     assert draft.decision is not None
     assert draft.decision.operation_id == draft.operation_id
 
@@ -196,7 +206,9 @@ def test_a_decision_carrying_no_operation_id_cannot_authorise_a_write():
         memory,
         today=TODAY,
     )
-    draft = pipeline.evaluate(draft, accounts, hist, memory)
+    draft = pipeline.evaluate(
+        draft, accounts, hist, memory, period_open=True, pdf_repaired=None
+    )
     assert draft.outcome is Outcome.VALID
 
     draft.decision = replace(draft.decision, operation_id="")  # type: ignore[arg-type]
@@ -230,6 +242,8 @@ def test_a_decision_that_authorised_a_different_operation_is_refused():
         accounts,
         hist,
         memory,
+        period_open=True,
+        pdf_repaired=None,
     )
     theirs = pipeline.evaluate(
         pipeline.build_draft(
@@ -243,6 +257,8 @@ def test_a_decision_that_authorised_a_different_operation_is_refused():
         accounts,
         hist,
         memory,
+        period_open=True,
+        pdf_repaired=None,
     )
     assert mine.operation_id != theirs.operation_id
 
@@ -272,6 +288,8 @@ def test_the_refusal_names_both_ids_so_a_person_can_reconcile():
         accounts,
         hist,
         memory,
+        period_open=True,
+        pdf_repaired=None,
     )
     draft.decision = replace(draft.decision, operation_id="ad_someone_else")  # type: ignore[arg-type]
 
@@ -321,6 +339,8 @@ def test_a_blocked_decision_also_carries_the_identity():
         accounts,
         hist,
         memory,
+        period_open=None,
+        pdf_repaired=None,
     )
     assert draft.outcome is Outcome.UNCLEAR
     assert draft.decision is not None

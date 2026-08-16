@@ -17,10 +17,94 @@ from __future__ import annotations
 import datetime
 import re
 from dataclasses import dataclass, field
+from dataclasses import replace as _replace
 from decimal import Decimal, InvalidOperation
 from typing import Protocol, runtime_checkable
 
+# The one name for "nothing was estimated", taken rather than written as a bare
+# 1.0. Same exception, same reasoning as `wall.py` importing `money`:
+# `cage/confidence.py` imports `datetime` and `Final` and nothing else, so it
+# touches no network, no filesystem and no Tally. `extract/textlayer.py` already
+# imports it across the same boundary. Writing `1.0` here instead would put a
+# second definition of exactness in the codebase, and two definitions of a
+# constant is how one of them stops meaning what the other does.
+from accountant.cage.confidence import EXACT
+
+# `HUMAN_ANSWER` is the same exception again, and a smaller one: `schema.py`
+# imports `datetime`, `collections.abc`, `dataclasses` and `enum`, and nothing
+# from this package. It is where the words two components have to agree on
+# already live, next to `NOT_RECORDED`.
+from accountant.schema import HUMAN_ANSWER
+
 NOT_FOUND = "not_found"
+
+#: The reading sources whose stated `EXACT` is BELIEVED - the ones allowed to
+#: turn a field into an identity. Named for what the list controls rather than
+#: for a claim about each member's insides, because one member's insides are
+#: not ours to know and the entry below says so.
+#:
+#: WHY THIS IS A LIST AND NOT A NUMBER, 2026-08-13. `EXACT` is 1.0 and
+#: `read_exactly` used to be a bare `confidence_of(name) == EXACT`. But the free
+#: OCR tier computes `min(word_confidence) / 100` with no ceiling, and 100 is an
+#: in-contract score - so a reading whose every word came back at 100 scores
+#: exactly 1.0, and `read_exactly("party")` answered True for a PHOTOGRAPH.
+#: `pipeline.build_draft` is the consumer that matters: it turns that answer
+#: into a vendor identity, which is F-03 reached by a different first step.
+#:
+#: MEASURED: nothing in the corpus reaches 100 - the top word confidence is 96
+#: across the twenty corpus PNGs and 97 across ~900 synthetic renders on
+#: tesseract 5.5.3 - so "a photograph never claims exactness" was true only by
+#: an unpinned accident of a third-party binary's build. Constructed by hand,
+#: the record states 1.0 on all four fields today.
+#:
+#: THE SCORE IS NOT CAPPED TO FIX THIS, deliberately. Clamping the OCR
+#: arithmetic below 1.0 would make that module lie about what the engine
+#: reported, and `tests/test_pagereader.py::test_the_control_the_same_words_at_
+#: full_confidence_do_reach_exactness` exists to prove it does not. Confidence
+#: is what the reader CLAIMED; exactness is whether its tier is believed when it
+#: claims it. `read_exactly`'s own docstring already drew that line - "which a
+#: text layer can make and a photograph cannot" - and the code read a float.
+#:
+#: FAILS CLOSED. A source not named here is an estimate, so a new backend is not
+#: believed until somebody adds it deliberately. The two mistakes are not the
+#: same size: a pixel tier wrongly trusted costs a supplier's balance for ever,
+#: and a character tier wrongly doubted costs a question on screen.
+#:
+#: MEMBER BY MEMBER, because a list like this rots when the reasons are not
+#: written next to it.
+#:
+#:     pdf_text_layer  reads the characters the producing program wrote. The
+#:                     tier the whole `EXACT` argument was made for.
+#:     typed_text      a person typed the sentence. No pixel, no estimate.
+#:     stub            `StubExtractor` returns the values its constructor was
+#:                     HANDED, so it reads nothing and estimates nothing - its
+#:                     own comment makes exactly this argument. Not reachable
+#:                     from an upload: a real one meets
+#:                     `placeholder.PlaceholderReader`, which carries no values
+#:                     and states no scores, and `tests/test_no_reader.py` pins
+#:                     that.
+#:
+#: `reader_service` WAS THE FOURTH MEMBER AND WAS REMOVED, 2026-08-13, OWNER
+#: DECISION 3, verbatim: "No reader that works off pixels (local OCR or remote
+#: API) is allowed to be treated as 'exact' in the sense of bypassing safety
+#: checks." The entry above it recorded the open question and the owner has now
+#: closed it. A remote reader may be reading a PHOTOGRAPH - the bytes we send it
+#: are whatever was uploaded - and a paid API is not a different TIER from a free
+#: one, only a better-funded guess at the same pixels.
+#:
+#: A REMOTE READER MAY REPORT CONFIDENCE 1.0. THIS IS TREATED AS MAXIMUM
+#: CONFIDENCE FROM THAT READER, NOT AS EXACTNESS. ALL SAFETY CHECKS STILL APPLY.
+#: The number is not clamped, not dropped and not rewritten: `service.py` carries
+#: it verbatim onto the record, `cage/gate.py::_sure` hands it to the decision
+#: layer, and it is weighed against `ASK_FLOOR` and `AUTO_POST_FLOOR` exactly as
+#: any other reader's number is. Every conservation law and every hard rule -
+#: GST, period, the write-is-what-was-checked rule - runs on that record
+#: unchanged. What the 1.0 lost is one specific power, and only one: the right to
+#: mean "nothing was estimated", which is what this list grants and what lets a
+#: value become a vendor IDENTITY at `pipeline.py:320` with no question asked.
+#: `tests/test_remote_reader_not_exact.py` holds both halves - the refusal, and
+#: the number surviving the refusal.
+ENTITLED_TO_EXACT: frozenset[str] = frozenset({"pdf_text_layer", "typed_text", "stub"})
 
 #: The one media type a sentence a person typed arrives as.
 #:
@@ -53,10 +137,109 @@ class ExtractedRecord:
     party: str | None
     total_paise: int | None
     tax_paise: int | None
+
+    #: The pre-tax figure the bill printed, and it was READ AND THROWN AWAY
+    #: until 2026-08-15.
+    #:
+    #: `freeocr.Reading` has carried five values - date, party, total, tax, net -
+    #: since it was written. `pagereader.py:306` reads the net off the page with
+    #: `NET_LABELS`, `freeocr.py:818` turns it into paise, and `freeocr.py:826`
+    #: uses it ONCE, to ask whether the three amounts contradict each other.
+    #: Then the record was built without it and the number was gone.
+    #:
+    #: WHAT THAT COST, and it is not small. `conservation.net_plus_tax_equals_
+    #: gross` needs a net that was READ. It cannot be derived: `gate.py:119`
+    #: refuses `total - tax` because both are already inputs to the same law, so
+    #: a derived net would be "a number checked against itself" and the law
+    #: would pass on every bill for ever while reporting that it had checked
+    #: something. With no net reaching it, that law returned INDETERMINATE on
+    #: EVERY bill - and INDETERMINATE blocks. One of the four conservation laws
+    #: was dead, and the cause was a dropped assignment rather than a missing
+    #: capability.
+    #:
+    #: NOT IN `FIELDS`, deliberately. `FIELDS` is the promise that those four
+    #: always carry a stated source, enforced by `__post_init__`; a fifth name
+    #: there would raise on every construction site that predates this line.
+    #: This one defaults to `None`, which is the honest answer for a reader that
+    #: does not look for it, and `None` is what `conservation` reads as "nobody
+    #: looked" rather than as zero.
+    net_paise: int | None = None
     line_items: tuple[LineItem, ...] = ()
     raw_text: str = ""
     backend: str = "unknown"
     per_field_source: dict[str, str] = field(default_factory=dict[str, str])
+
+    #: Did the reader have to MEND the bytes before it could read them?
+    #:
+    #: `None` means there was nothing to mend - not a PDF, or a backend that
+    #: cannot tell. `False` is a reader that looked and found the file whole.
+    #: It is not one of `FIELDS` because it is not something read OFF the
+    #: document; it is a fact about our own processing of it, and it has no
+    #: source line for the same reason.
+    #:
+    #: ADDED 2026-08-13. `textlayer.TextLayerReading` had carried this since the
+    #: rung was written and `TextLayerReader.extract` DROPPED IT while building
+    #: this record, so a repaired PDF reached the cage indistinguishable from an
+    #: honest one - measured: `"repair" in repr(record).lower()` was False, and
+    #: every per-field source said `pdf_text_layer`. The ceiling that refuses to
+    #: auto-post one of these existed and nothing could reach it.
+    pdf_repaired: bool | None = None
+
+    #: How sure the reader was, PER FIELD. A field absent from this map is a
+    #: field NOBODY SCORED, and that is not the same as a field scored 1.0.
+    #:
+    #: ADDED 2026-08-13, the day `registry.DEFAULT_BACKEND` became `ladder` and
+    #: the OCR tier went live on the upload path. Until then this record had
+    #: four values, four sources and no score, so a name the picture rung
+    #: GUESSED and a name the text layer READ arrived downstream identical. The
+    #: measured case: `IYER ELECTRICALS` read as `IVER. ELECTRICALS`, handed
+    #: over with `per_field_source["party"] == "free_ocr"` - a READ source, not
+    #: a refusal - at a confidence of 0.08. `cage/decision.py` sees that 0.08
+    #: and refuses; `pipeline.build_draft` could not see it and made the misread
+    #: name a vendor identity. That is F-03, and its cost is one supplier's
+    #: balance wrong for ever.
+    #:
+    #: PER FIELD AND NOT PER RECORD, which is `cage/wall.py`'s reasoning and
+    #: applies here without change: a bill is not uniformly legible. The total
+    #: is printed large and clean while the party is a smudged letterhead, and
+    #: one number for the document averages a certainty with a guess into
+    #: something that describes neither.
+    #:
+    #: EMPTY BY DEFAULT, AND THE DEFAULT IS THE WHOLE SAFETY PROPERTY. A default
+    #: of `EXACT` would have labelled every OCR guess an exact reading and made
+    #: this field worse than not having it - the record would then be ASSERTING
+    #: certainty nobody measured, and every consumer below would believe it.
+    #: Absent means "nobody said", and nobody-said is never confident. Every
+    #: rung that can score a field states its score; a backend that cannot score
+    #: says nothing and its fields are treated as estimates, which is the
+    #: direction a missing statement has to fail in.
+    per_field_confidence: dict[str, float] = field(default_factory=dict[str, float])
+
+    #: The READINGS A RUNG FOUND AND COULD NOT CHOOSE BETWEEN, per field, as the
+    #: characters the page printed. Added 2026-08-16 to carry what today is
+    #: thrown away.
+    #:
+    #: WHY IT EXISTS. When a bill states two different totals, `labels.the_one`
+    #: and the amount rules refuse - correctly, because picking one is a coin
+    #: toss that posts money - and return `None` with a reason. THE TWO VALUES
+    #: THEMSELVES ARE DISCARDED AT THAT POINT. So the only thing that can be
+    #: said downstream is "I could not read the total", when what is true is "I
+    #: read two and one of them is yours". A person holding the bill answers the
+    #: second question in a second and cannot answer the first at all.
+    #:
+    #: IT GRANTS NOTHING. A candidate is not a value: `total_paise` stays
+    #: `None`, every check still sees an unread field, and no code path reads a
+    #: candidate as a reading. `accountant/uncertainty.py` is its only consumer
+    #: and it uses them for one thing - offering the person the words the page
+    #: actually prints, instead of inventing choices.
+    #:
+    #: EMPTY BY DEFAULT, and empty is what every reader shipping today leaves
+    #: it. Filling it is a change to a reader, which is a separate piece of work
+    #: with a separate blast radius; the carrier is here first so that work has
+    #: somewhere to put its answer.
+    per_field_candidates: dict[str, tuple[str, ...]] = field(
+        default_factory=dict[str, tuple[str, ...]]
+    )
 
     FIELDS = ("date", "party", "total_paise", "tax_paise")
 
@@ -66,10 +249,152 @@ class ExtractedRecord:
             raise ValueError(
                 f"incomplete record: no source stated for {', '.join(missing)}"
             )
+        outside = {
+            name: score
+            for name, score in self.per_field_confidence.items()
+            if not 0.0 <= score <= 1.0
+        }
+        if outside:
+            # The same invariant `wall.Field` enforces, and for the same reason:
+            # a score above 1.0 clears the auto-post band by accident. Enforced
+            # here as well because this record reaches callers that never build
+            # a `Field` at all.
+            raise ValueError(
+                f"confidence must be between 0.0 and 1.0: {outside}. A score "
+                "outside that range means the reader computed it wrongly."
+            )
 
     @property
     def complete(self) -> bool:
         return all(f in self.per_field_source for f in self.FIELDS)
+
+    def confidence_of(self, name: str) -> float | None:
+        """The score this reader stated for one field, or `None` when it stated
+        none.
+
+        `None` rather than `0.0`, and the difference is load-bearing in the
+        opposite direction from the usual one. `0.0` is a reader saying "I
+        looked and read nothing" - a real answer. `None` is nobody having
+        spoken. Collapsing them would let a backend with no scoring machinery at
+        all look like one that measured zero, and a consumer would then be
+        reading an assertion where there is only a silence.
+        """
+        return self.per_field_confidence.get(name)
+
+    def with_answer(self, name: str, text: str) -> tuple[ExtractedRecord | None, str]:
+        """This record with ONE field replaced by what a person typed, or the
+        reason their words could not be read.
+
+        `(record, "")` on success and `(None, reason)` on refusal, so a caller
+        cannot read a rejected answer as an accepted one by looking at the wrong
+        half.
+
+        WHY THIS LIVES HERE AND NOT IN `accountant/uncertainty.py`, which is its
+        only caller. `tests/test_adapter_contract.py` holds a D-30 boundary: a
+        module outside `accountant/extract/` may import the CONTRACT from this
+        package and nothing else. The question flow needs `paise_or_none` and
+        `read_date` - the very parsers the readers are judged by, because a
+        second parser in a second module is a second opinion about what
+        characters mean, and this repository has paid for that four times. Both
+        are internals. Reaching for them from outside would have added a fifth
+        name to that guard's offender list, so the work moved to the side of the
+        boundary the parsers are already on and the caller reaches it through
+        `ExtractedRecord`, which is in the contract.
+
+        `ISO_ONLY` FOR A TYPED DATE. `11/08/2026` is two different days
+        depending on who printed it; `DateLocale.UNKNOWN` refuses exactly that,
+        and asking a person for one shape is kinder than accepting two and
+        picking one.
+
+        A PERSON READING THEIR OWN BILL IS NOT AN ESTIMATE, so the field is
+        scored `EXACT` and sourced `human_answer`. That grants NO post: every
+        check, the open-books question and the cage all still run on the record
+        this returns.
+        """
+        from accountant.extract.dates import DateLocale, read_date
+        from accountant.labels import paise_or_none
+
+        said = text.strip()
+        if not said:
+            return None, "Nothing was typed."
+
+        value: object
+        if name in ("total_paise", "tax_paise", "net_paise"):
+            paise = paise_or_none(said)
+            if paise is None:
+                return None, f"I could not read {said!r} as an amount of money."
+            if paise < 0:
+                return None, "An amount on a bill cannot be less than nothing."
+            value = paise
+        elif name == "date":
+            seen = read_date(said, locale=DateLocale.ISO_ONLY)
+            if seen.value is None:
+                return (
+                    None,
+                    f"I could not read {said!r} as a date. Please type it like "
+                    "2026-08-12.",
+                )
+            value = seen.value
+        elif name == "party":
+            value = said
+        else:
+            return None, f"I do not know how to check an answer about {name!r}."
+
+        sources = dict(self.per_field_source)
+        sources[name] = HUMAN_ANSWER
+        scores = dict(self.per_field_confidence)
+        scores[name] = EXACT
+        return (
+            _replace(
+                self,
+                **{name: value},
+                per_field_source=sources,
+                per_field_confidence=scores,
+            ),
+            "",
+        )
+
+    def read_exactly(self, name: str) -> bool:
+        """Was this field read off the document with NOTHING estimated?
+
+        THE ONE QUESTION A CONSUMER ASKS BEFORE TREATING A FIELD AS AN IDENTITY,
+        and it carries no threshold. `confidence.EXACT` is not a band and it is
+        not tunable: it is the statement that no pixel was guessed at, which a
+        text layer can make and a photograph cannot. Comparing against it needs
+        no owner number, so `ASK_FLOOR` and `AUTO_POST_FLOOR` stay the only two
+        bands in the product and keep meaning exactly what they say.
+
+        A value is required as well as a score. A field with no value cannot
+        have been read exactly however it was labelled, and the two halves fail
+        open in different cases - `wall.Field` refuses the same disagreement.
+
+        AND THE TIER IS ASKED, 2026-08-13, because the two halves above were not
+        enough. The sentence over them - "which a text layer can make and a
+        photograph cannot" - was the rule, and the code did not implement it: it
+        read a float, and the OCR tier's `min(word_confidence) / 100` reaches
+        exactly 1.0 whenever the engine reports 100 on every word, which is a
+        score it is contractually allowed to report. Built by hand that record
+        answers True here, and `pipeline.build_draft` makes the name on a
+        PHOTOGRAPH a vendor identity. `ENTITLED_TO_EXACT` is the list of sources
+        whose claim is believed, and it fails closed.
+
+        CONFIDENCE IS NOT EXACTNESS, AND THIS IS THE ONE FUNCTION THAT KNOWS THE
+        DIFFERENCE. `confidence_of` above returns the reader's own number to
+        anybody who asks, unchanged, whatever tier stated it. A remote reader may
+        report confidence 1.0 and that 1.0 is treated as maximum confidence from
+        that reader, not as exactness - all safety checks still apply to it. This
+        method answers the narrower question, and answers it False for a reader
+        that works off pixels however sure it sounds.
+        """
+        return (
+            self.value_of(name) is not None
+            and self.confidence_of(name) == EXACT
+            and self.per_field_source.get(name, "") in ENTITLED_TO_EXACT
+        )
+
+    def value_of(self, name: str) -> object:
+        """One named field by name, so a rule can be written once for all four."""
+        return getattr(self, name, None) if name in self.FIELDS else None
 
 
 @runtime_checkable
@@ -82,7 +407,11 @@ class Extractor(Protocol):
 # `\.\d+`, not `\.\d{1,2}`. Capturing at most two decimals meant "10.005"
 # matched as "10.00" and the half-paise was gone before any conversion could
 # object to it. The truncation was in the pattern, not in the arithmetic.
-_AMOUNT = re.compile(r"(?:rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)", re.I)
+#
+# `\d[\d,]*`, not `[\d,]+`. The old class matched a BARE COMMA - "paid for the
+# lot, TOTAL 4200" found "," first, `_to_paise` could make nothing of it, and
+# the sentence read as having no amount at all. A number starts with a digit.
+_AMOUNT = re.compile(r"(?:rs\.?|₹)?\s*(\d[\d,]*(?:\.\d+)?)", re.I)
 _GST_PCT = re.compile(
     r"(\d{1,2}(?:\.\d+)?)\s*%\s*gst|gst\s*@?\s*(\d{1,2}(?:\.\d+)?)\s*%", re.I
 )
@@ -95,6 +424,348 @@ _PARTY = re.compile(
 
 
 _HUNDRED = Decimal(100)
+
+
+# =============================================================================
+# THE FIRST NUMBER IS NOT THE AMOUNT
+# =============================================================================
+#
+# `_AMOUNT.findall(text)[0]` took the FIRST number in the text. On a sentence a
+# person typed that is the amount. On an invoice layout it is the invoice
+# number, and the backend could not tell the two apart because it checked the
+# MEDIA TYPE and never the SHAPE - `text/plain` is `text/plain` whether one
+# line was typed or a whole bill was pasted, and that conflation IS the defect.
+#
+# Measured on the committed pack before any of this existed
+# (`scripts/run_ground_truth.py`): 20 of 20 `text/plain` cases returned a WRONG
+# `total_paise` sourced `typed_text`. GT-0001 states TOTAL 147.50 and this
+# backend answered 100 paise, read off `GT/0001`.
+#
+# Everything below decides from the shape of the text. Nothing here opens a
+# container or interprets a byte: it is still string parsing, and reading a
+# document is still the third-party backend's job.
+
+#: What the person reads when the text is laid out like a bill. Owner wording,
+#: PHASE 8 DECISION 1, verbatim - it names the two things they can actually do.
+INVOICE_SHAPED = (
+    "This document looks like an invoice, but the amount could not be reliably "
+    "read. Please upload a clearer image or a proper PDF."
+)
+
+#: What the person reads when the text is NOT invoice-shaped but carries more
+#: than one number. Owner wording, verbatim.
+AMBIGUOUS_NUMBERS = (
+    "Multiple numbers were found and the amount could not be determined. Please "
+    "specify the amount explicitly or upload a clearer document."
+)
+
+#: Invoice SEMANTICS. Each is a thing only a bill says, and each is checked
+#: against the text rather than against the media type.
+_INVOICE_MARKS = (
+    re.compile(r"\btax\s+invoice\b", re.I),
+    # BOTH forms of the invoice number, 2026-08-13. `invoice\s*(?:no|number|#)`
+    # was the only one, and `Invoice 2451` - the commonest form an Indian
+    # supplier prints - matched none of it. Measured: four texts whose first
+    # line said TAX INVOICE were read for their invoice NUMBER and posted.
+    re.compile(r"\binvoice\s*(?:no\b|number\b|#)", re.I),
+    re.compile(r"\binvoice\s+\d", re.I),
+    re.compile(r"\bbill\s+(?:no\.?\s*)?\d", re.I),
+    re.compile(r"\bhsn\s*/?\s*sac\b", re.I),
+    re.compile(r"\bplace\s+of\s+supply\b", re.I),
+    re.compile(r"\bgstin\b", re.I),
+    # A TOTAL LINE, not the word "total". A line that BEGINS with it is a
+    # figure in a column; the same word inside a sentence is somebody talking.
+    #
+    # `[^\w\n]*` and not `[ \t|]*`: a leader of dots, a rule of dashes or a
+    # bullet in front of the word is DECORATION THE PRINTER ADDED, and scoring
+    # zero on it made `..... TOTAL 4,200.00` not a total line. What the anchor
+    # is actually for is unchanged and is tested - a WORD before the word means
+    # somebody is talking, and `paid for the lot, TOTAL 4200` still reads.
+    re.compile(r"^[^\w\n]*(?:grand\s+|sub\s*)?total\b", re.I | re.M),
+    re.compile(r"^[^\w\n]*amount\s+payable\b", re.I | re.M),
+)
+
+#: A line that says nothing but what the document IS. Worth the whole threshold
+#: on its own: no sentence contains such a line, and nobody types one into a
+#: one-line box, so it is not the ambiguous case the two-signal rule hedges.
+_HEADER_LINE = re.compile(
+    r"^[^\w\n]*(?:tax\s+)?(?:invoice|bill|cash\s+memo|receipt|delivery\s+challan"
+    r"|challan|statement\s+of\s+account)[^\w\n]*$",
+    re.I | re.M,
+)
+
+#: `SUPPLIER: SHARMA TRADERS` - one line, a label, a colon, a value. Two or
+#: more of them is a layout; one is a person writing a note with a colon in it.
+_LABEL_LINE = re.compile(r"^[ \t]*[A-Za-z][A-Za-z0-9 /.&()-]{0,40}:[ \t]*\S", re.M)
+
+#: TWO signals, not one. One is a word - "TOTAL 4200" at the start of a typed
+#: line is a person stating an amount, and refusing it would delete the
+#: backend's whole job. Two independent invoice semantics in one text is a
+#: layout. Measured: all 20 corpus cases carry six.
+_SIGNALS_FOR_AN_INVOICE = 2
+
+#: A rate is not an amount. `18%` in "including 18% GST" must not count as a
+#: second number, or every GST sentence the product is built around refuses -
+#: which is a fix that refuses everything wearing the right sentence.
+_IS_A_RATE = re.compile(r"\s*%")
+
+#: A number written with a currency word, a decimal point or a digit-grouping
+#: comma has been written AS MONEY by the person. That is the escape hatch out
+#: of the year and phone checks below: `Rs. 2000` and `2000.00` are amounts,
+#: `2000` on its own is not clearly one.
+_MONEY_MARKED = re.compile(r"(?:rs\.?|₹)\s*$", re.I)
+
+#: Characters that glue a number into a larger token. `GT/0001`, `INV-2026`,
+#: `h1`, `12/08/2026`, `10:00`. A number wedged into one of those is a
+#: reference, a date or a time, and never a price.
+_GLUE_BEFORE = "/-#:"
+_GLUE_AFTER = "/-:"
+
+#: THE SAME QUESTION, ASKED SEMANTICALLY. Glue is positional, so it caught
+#: `GT/0001` because of the slash and missed `HSN 998311` because of the space -
+#: and the second is an invoice field name, in this corpus, worth ₹9,98,311 when
+#: read as money. This is added to the glue check and does not replace it: glue
+#: is what catches a reference the writer ran together with its prefix, and
+#: deleting it would put `GT/0001` back at 100 paise, which is the original
+#: defect.
+#:
+#: The word list is the owner's. A currency symbol between the word and the
+#: number defeats it deliberately - nobody writes a reference number with rupees
+#: in front of it, so `phone bill Rs 1200` is an amount and `bill 1200` is not.
+#:
+#: WHAT IT STILL DOES NOT CATCH, stated rather than left to be found: a bare
+#: `Ahmedabad 380015`. A six-digit pincode with no word in front of it is
+#: indistinguishable from ₹3,80,015, which is an ordinary payment, and any rule
+#: that refuses the first refuses the second.
+_LABELS_AN_IDENTIFIER = re.compile(
+    r"\b(invoice|bill|ref|reference|order|p\.?o|challan|cheque|upi|hsn|sac"
+    r"|gstin|pin|batch)\b\s*(?:no\.?|number|#)?\s*[-#:/]*\s*$",
+    re.I,
+)
+
+#: A month a person writes by name. `August 2026` and `5 Aug` are dates, and a
+#: date component is not a candidate for the total. The risk is named: `may` is
+#: also an ordinary English word, so `4200 may be wrong` refuses. That is a
+#: question asked of the person, never a number, which is the direction this
+#: whole module errs in.
+_MONTH_WORD = (
+    r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?"
+    r"|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?"
+)
+_MONTH_BEFORE = re.compile(rf"\b(?:{_MONTH_WORD})\b[\s,]*$", re.I)
+_MONTH_AFTER = re.compile(rf"\s*(?:st|nd|rd|th)?[\s,]*\b(?:{_MONTH_WORD})\b", re.I)
+
+#: THE NUMBER HAS TO BE SHAPED LIKE A DATE PART TOO, measured the same day the
+#: rule landed: `salary 45000 August` refused, because a month name beside a
+#: number was enough on its own. 45000 is not a day of any month - it is a
+#: salary, and the month is what it was for. A number is part of a date when it
+#: could be a day (1-31 beside the month) or a year (after it), and `August
+#: 4200` is neither, so it reads.
+_LAST_DAY_OF_ANY_MONTH = 31
+
+#: A unit of quantity. `50 bags of cement` is fifty bags, not fifty rupees, and
+#: counting it as a rival to the price refused the sentence outright.
+_UNIT_AFTER = re.compile(
+    r"\s*(?:kgs?|gms?|grams?|tonnes?|tons?|quintals?|litres?|liters?|ltrs?"
+    r"|bags?|boxes|box|cartons?|packets?|packs?|pieces?|pcs|nos|units?|dozens?"
+    r"|bundles?|rolls?|sheets?|bottles?|bricks?|sets?|pairs?)\b",
+    re.I,
+)
+
+#: The window a bare four-digit number is a year rather than an amount in.
+_EARLIEST_YEAR = 1900
+_LATEST_YEAR = 2100
+
+#: An Indian mobile number is exactly ten digits. Read as rupees it posts
+#: ₹98,76,543.21, which is a plausible enough figure that nothing downstream
+#: would blink at it.
+#:
+#: A FRACTION IS NOT A PHONE NUMBER, and that is what separates the two rather
+#: than length alone. Nobody writes a mobile number with paise on the end, so
+#: `92233720368547.75` - fourteen digits, and the exact value `tests/test_money.py`
+#: exists to protect - is money however long it is, while `Rs. 9876543210` is a
+#: phone number however it was written.
+_PHONE_DIGITS = 10
+
+
+@dataclass(frozen=True)
+class _Number:
+    """One number found in the text, with the context that says what it is."""
+
+    raw: str
+    money_marked: bool
+    glued: bool
+    #: The identifier word immediately in front of it, or "".
+    labelled: str = ""
+    #: Written beside a month name, so it is part of a date.
+    dated: bool = False
+    #: Followed by a unit of quantity, so it counts things and not rupees.
+    counted: bool = False
+
+    @property
+    def digits(self) -> int:
+        """How many digits, ignoring the grouping commas.
+
+        `len(raw)` counted the commas, so `1,23,45,678` - ₹1.23 crore, eight
+        digits - measured ten characters and was refused as a phone number.
+        """
+        return sum(c.isdigit() for c in self.raw.split(".")[0])
+
+
+def _glued(text: str, start: int, end: int) -> bool:
+    """Is the number at `text[start:end]` wedged into a larger token?
+
+    Looks one character each way, and asks a different question on each side.
+    BEFORE: any letter or digit, or one of the separators - `GT/0001`, `h1`,
+    `INV-2026`. AFTER: a letter or a separator, but NOT a digit, because the
+    match already ran to the end of its own digits.
+    """
+    head, tail = text[start - 1 : start] if start else "", text[end : end + 1]
+    return bool(
+        (head and (head.isalnum() or head in _GLUE_BEFORE))
+        or (tail and (tail.isalpha() or tail in _GLUE_AFTER))
+    )
+
+
+def _numbers(text: str) -> list[_Number]:
+    """Every monetary-looking number in the text, in the order written.
+
+    A percentage is left out because it is a RATE, and counting rates would
+    turn "4200 including 18% GST" into two candidates. Everything else is kept,
+    including the things that turn out to be references and dates: the count is
+    how ambiguity is detected, so filtering first would hide the ambiguity.
+    """
+    found: list[_Number] = []
+    for match in _AMOUNT.finditer(text):
+        start, end = match.span(1)
+        if _IS_A_RATE.match(text, end):
+            continue
+        raw = match.group(1)
+        before, label = text[:start], _LABELS_AN_IDENTIFIER.search(text[:start])
+        found.append(
+            _Number(
+                raw=raw,
+                money_marked=bool(
+                    _MONEY_MARKED.search(before) or "." in raw or "," in raw
+                ),
+                glued=_glued(text, start, end),
+                labelled=label.group(1) if label else "",
+                dated=_beside_a_month(raw, before, text, end),
+                counted=bool(_UNIT_AFTER.match(text, end)),
+            )
+        )
+    return found
+
+
+def _beside_a_month(raw: str, before: str, text: str, end: int) -> bool:
+    """Is this number the day or the year of a date written with a month name?
+
+    Both halves are required, and the second half is the one that was missing:
+    a month name NEXT TO a number does not make the number part of the date.
+    `5 Aug` is a day and `August 2026` is a year; `salary 45000 August` is what
+    the salary was for, and 45000 is a day of nothing.
+    """
+    if not raw.isdigit():
+        return False
+    if _MONTH_AFTER.match(text, end):
+        return 0 < int(raw) <= _LAST_DAY_OF_ANY_MONTH
+    if _MONTH_BEFORE.search(before):
+        return (
+            0 < int(raw) <= _LAST_DAY_OF_ANY_MONTH
+            or _EARLIEST_YEAR <= int(raw) <= _LATEST_YEAR
+        )
+    return False
+
+
+def _invoice_shaped(text: str) -> bool:
+    """Is this text laid out like a bill? Decided from the text, never the type.
+
+    A bare header line settles it alone. Everything else needs a second signal,
+    for the reason `_SIGNALS_FOR_AN_INVOICE` gives: one word can be a person
+    talking, and refusing on one word deletes this backend's job.
+    """
+    if _HEADER_LINE.search(text):
+        return True
+    signals = sum(1 for mark in _INVOICE_MARKS if mark.search(text))
+    if len(_LABEL_LINE.findall(text)) >= 2:
+        signals += 1
+    return signals >= _SIGNALS_FOR_AN_INVOICE
+
+
+def _not_an_amount(number: _Number) -> str:
+    """Why this number cannot be the amount, or "" when it could be.
+
+    Each check is separately named because each is separately wrong when it is
+    missing, and a check with no name cannot have a test that fails without it.
+
+    THE ORDER IS THE FIX, 2026-08-13. `money_marked` used to return "" third,
+    which made every check below it unreachable for any number written with a
+    currency word, a decimal point or a grouping comma - so `Rs. 9876543210`
+    was ₹98,76,543.21 and `9,876,543,210` was the same, both at full
+    confidence. A mobile number does not stop being one because somebody wrote
+    `Rs.` in front of it. The escape hatch is kept for the YEAR check alone,
+    which is the case it was built for: `Rs. 2000` is a rent.
+    """
+    if number.glued:
+        return (
+            f"'{number.raw}' is part of an identifier such as an invoice or "
+            "reference number, not an amount"
+        )
+    if number.labelled:
+        return (
+            f"'{number.raw}' follows '{number.labelled}', which names an "
+            "identifier rather than an amount"
+        )
+    if number.dated:
+        return f"'{number.raw}' is part of a date, not an amount"
+    if number.counted:
+        return f"'{number.raw}' is a quantity of something, not an amount"
+    if "." not in number.raw and number.digits >= _PHONE_DIGITS:
+        return (
+            f"'{number.raw}' is long enough to be a phone number rather than an amount"
+        )
+    if number.money_marked:
+        # Written as money by the person who typed it. `Rs. 2000` is rent.
+        return ""
+    plain = number.raw
+    if len(plain) == 4 and _EARLIEST_YEAR <= int(plain) <= _LATEST_YEAR:
+        return (
+            f"'{plain}' is a year, not an amount. Write it as money - Rs. 2000 "
+            "or 2000.00 - if it is one"
+        )
+    return ""
+
+
+def _amount(text: str) -> tuple[int | None, str]:
+    """The total in paise, or None and the sentence the person reads.
+
+    RULE 1 refuses invoice-shaped text outright rather than guessing at it.
+    RULE 2 allows exactly one CANDIDATE - a number nothing above disqualified.
+    RULE 3 - two candidates or more - refuses, because choosing among several
+    numbers is the guess that produced the twenty wrong totals.
+
+    RULE 3 COUNTS CANDIDATES AND NOT NUMBERS, 2026-08-13. It used to count
+    every number in the text, including the ones RULE 2 would have thrown out
+    on sight, and measured over ten ordinary sentences - which is this
+    backend's whole job - six refused: a date, a quantity or a reference number
+    became a rival to the price. A number that cannot be the total cannot make
+    the total ambiguous. Refusing is not a wrong figure, but a backend that
+    refuses the sentences it exists for has been deleted rather than fixed.
+    """
+    if _invoice_shaped(text):
+        return None, INVOICE_SHAPED
+    found = _numbers(text)
+    if not found:
+        return None, ""
+    candidates = [number for number in found if not _not_an_amount(number)]
+    if not candidates:
+        # Every number was disqualified. The first one's reason is the one a
+        # person can act on, and each sentence names the number it is about, so
+        # it stays true when the text held several.
+        return None, _not_an_amount(found[0])
+    if len(candidates) > 1:
+        return None, AMBIGUOUS_NUMBERS
+    return _to_paise(candidates[0].raw), ""
 
 
 def _media_type(mime: str) -> str:
@@ -203,9 +874,16 @@ class TypedTextExtractor:
 
         src: dict[str, str] = {}
 
-        amounts = _AMOUNT.findall(text)
-        total = _to_paise(amounts[0]) if amounts else None
-        src["total_paise"] = self.name if total is not None else NOT_FOUND
+        total, why = _amount(text)
+        # A refusal is a refusal: no value, and the sentence saying why on the
+        # row beside it. `ExtractedRecord` has no confidence column, and it
+        # needs none here - a field with no value cannot carry a score, which
+        # is exactly how `textlayer._field` already expresses 0.0. What must
+        # never happen is the third thing: a number with a low score on it.
+        if total is not None:
+            src["total_paise"] = self.name
+        else:
+            src["total_paise"] = f"{NOT_FOUND}: {why}" if why else NOT_FOUND
 
         tax = None
         m = _GST_PCT.search(text)
@@ -233,6 +911,27 @@ class TypedTextExtractor:
             raw_text=text,
             backend=self.name,
             per_field_source=src,
+            # EXACT, and this backend is entitled to it for the same reason
+            # `textlayer.py` is: there is no pixel here and no estimate. A
+            # person typed these characters and this class parses them or
+            # refuses - the one case where it could have guessed at a letter,
+            # a non-UTF-8 byte, is a refusal above and not a `errors="replace"`
+            # substitution, which is exactly the `party == "Caf"` defect.
+            #
+            # Stated only for the fields that came back with a value. A field
+            # that refused is unscored rather than scored zero: this backend has
+            # no scoring machinery, so "0.0" here would be a measurement it
+            # never made, and the sentence on `per_field_source` is the real
+            # answer for those.
+            per_field_confidence={
+                name: EXACT
+                for name, value in (
+                    ("party", party),
+                    ("total_paise", total),
+                    ("tax_paise", tax),
+                )
+                if value is not None
+            },
         )
 
 
@@ -260,11 +959,33 @@ class StubExtractor:
         party: str | None = None,
         total_paise: int | None = None,
         tax_paise: int | None = None,
+        net_paise: int | None = None,
+        line_items: tuple[LineItem, ...] = (),
     ) -> None:
         self.date = date
         self.party = party
         self.total_paise = total_paise
         self.tax_paise = tax_paise
+        #: The itemisation, HANDED IN. Defaults to `()`, which is "nobody read
+        #: any lines" and still blocks an invoice - see the note beside where it
+        #: is passed to the record below.
+        self.line_items = line_items
+        #: The pre-tax figure, HANDED IN and never worked out. It joined 2026-08-16
+        #: because this stub could not state a fact the real readers had been
+        #: stating since 2026-08-15, and the gap was not cosmetic: with no net
+        #: reaching it, `conservation.net_plus_tax_equals_gross` returns
+        #: INDETERMINATE, INDETERMINATE blocks, and every stub-backed case was
+        #: refused with "there is something on this bill I could not check at
+        #: all" no matter what it was handed.
+        #:
+        #: `total_paise - tax_paise` IS NOT WRITTEN HERE, deliberately, and
+        #: `gate.py:119` is the reason: both of those are already inputs to that
+        #: same law, so a net derived from them would be a number checked against
+        #: itself and the law would pass on every bill for ever while reporting
+        #: that it had checked something. A caller that does not state the net
+        #: leaves it None, and None still blocks - which is the correct answer
+        #: for a bill whose pre-tax figure was never established.
+        self.net_paise = net_paise
 
     def extract(self, data: bytes, _mime: str) -> ExtractedRecord:
         # Named fields rather than a dict, so each keeps its own type. A dict
@@ -275,6 +996,7 @@ class StubExtractor:
             "party": self.party,
             "total_paise": self.total_paise,
             "tax_paise": self.tax_paise,
+            "net_paise": self.net_paise,
         }
         # A bare `not_found` says nothing a person could act on. EXIT 2 asks for
         # every unread field to be explicit not_found WITH A REASON, and this
@@ -282,18 +1004,70 @@ class StubExtractor:
         # selected (owner decision Q4 = B). Without the reason, "we have no
         # reader" and "the reader looked and found nothing" are the same string
         # in the audit trail, and those are different facts about the document.
+        #
+        # `net_paise` IS STAMPED ONLY WHEN IT WAS SUPPLIED. Owner ruling
+        # 2026-08-17, decision 3. `ExtractedRecord.FIELDS` is exactly the four
+        # names the whole system agrees on, and `net_paise` is not one of them -
+        # no other backend of the seven states a source for it, and
+        # `ServiceExtractor` cannot state a net at all. Stamping a fifth key
+        # unconditionally made this stub the ONLY backend whose record had a
+        # different shape from every other, which is what
+        # `test_two_backends_given_the_same_facts_produce_the_same_record` is
+        # there to catch.
+        #
+        # Supplying a net is still supported and still explicit - it is what
+        # lets `conservation.net_plus_tax_equals_gross` evaluate at all. What
+        # changes is only the ABSENT case: a stub handed no net now looks exactly
+        # like every other backend that cannot state one, instead of announcing a
+        # field the contract does not have.
         src = {
             k: (self.name if v is not None else STUB_NOT_FOUND)
             for k, v in supplied.items()
+            if k in ExtractedRecord.FIELDS or v is not None
         }
         return ExtractedRecord(
             date=self.date,
             party=self.party,
             total_paise=self.total_paise,
             tax_paise=self.tax_paise,
+            net_paise=self.net_paise,
+            #: HANDED IN, never worked out, for the same reason `net_paise` is -
+            #: and it joined on 2026-08-17 for the same gap one law over. With no
+            #: lines reaching it, `conservation.lines_sum_to_total` returns
+            #: INDETERMINATE, INDETERMINATE blocks, and every stub-backed bill
+            #: was refused with "there is something on this bill I could not
+            #: check at all" no matter what else it was handed. `gate._line_paise`
+            #: says why an empty tuple cannot mean "no lines": no reader in this
+            #: repository fills `line_items`, so emptiness is an absence of
+            #: READING, not an absence of lines.
+            #:
+            #: A SPLIT OF `total_paise` IS NOT WRITTEN HERE, deliberately. The
+            #: total is already the other input to that law, so lines derived
+            #: from it would be a number checked against itself and the law would
+            #: pass on every bill for ever while reporting that it had checked
+            #: something. A caller that does not state its lines leaves this `()`
+            #: and still blocks - the correct answer for a bill whose itemisation
+            #: was never established.
+            line_items=self.line_items,
             raw_text=data.decode("utf-8", errors="replace"),
             backend=self.name,
             per_field_source=src,
+            # EXACT for a field it was HANDED, and nothing for a field it was
+            # not. This stub reads no document, so it estimates nothing: the
+            # value is verbatim the one its constructor was given, and a test
+            # that hands it `party="Sharma Traders"` is stating a fact about
+            # that draft rather than measuring a letterhead.
+            #
+            # It is the one place in this file where "certain" is written down
+            # next to a value nobody read off a page, so it is worth being
+            # explicit about what could go wrong: if this stub ever became a
+            # production backend, this line would be a lie. It cannot - the
+            # backend a real upload meets while no reader is chosen is
+            # `placeholder.PlaceholderReader`, which has no values at all and
+            # so states no scores, and `tests/test_no_reader.py` pins that.
+            per_field_confidence={
+                name: EXACT for name, value in supplied.items() if value is not None
+            },
         )
 
 

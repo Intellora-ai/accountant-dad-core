@@ -296,3 +296,126 @@ Two things about it that belong with the decisions rather than with the table:
   the id `H-03` separately names a different item in `ARCHITECTURE.md` §16.1.
   Both id sets are kept and cross-referenced. No third id was invented and
   nothing was renumbered. See `ARCHITECTURE.md` §16.5.
+
+---
+
+## 4. OPEN — expense-note posting — `OWNER_DECISION_REQUIRED`
+
+Recorded 2026-08-16 on the owner's instruction. **Nothing here is a decision.**
+It is the question, the evidence on both sides, and what the code does today
+while the question is open.
+
+### The question
+
+May a `NON_INVOICE_EXPENSE_NOTE` — a person typing
+`paid Sharma Traders 4200 for cement` — post on its own, or must it be held for
+a person to confirm?
+
+### Why it is open rather than answered
+
+Two owner statements exist and they do not settle each other.
+
+```
+2026-08-13  typed_text was added to AUTO_POST_ALLOWED_TIERS on the owner's
+            ruling. Rationale recorded in cage/decision.py: the one-entry
+            allowlist stopped the product posting anything, and
+            demo_safety_cage.py went from `posted 3` to `posted 0` because
+            every input in it is a typed sentence. That measurement is what
+            the ruling was made on. It is a ruling about READING TIERS.
+
+2026-08-16  Step 1, quoted verbatim in
+            artifacts/problem1_document_type_policy.md:
+              "If no separate expense-note posting policy exists, the safe
+               result is: NON_INVOICE_EXPENSE_NOTE -> REVIEW_REQUIRED or
+               BLOCKED. Never silently allow it into the invoice posting
+               path."
+            It is a ruling about DOCUMENT KINDS, and it is conditional on
+            whether a policy exists.
+```
+
+The 2026-08-16 document answered that condition itself — *"No separate
+expense-note posting policy exists today"* — so it did not treat the tier
+ruling as one. Two further places in the repository say the choice is still
+outstanding:
+
+- `docs/CAGE_FINDINGS.md`: *"Not done, and it is the owner's call ... I did not
+  choose. Choosing it by writing code would be setting a number the owner did
+  not give."*
+- `docs/CAGE_FINDINGS.md`: *"the choice between 'the tests are stale' and 'the
+  cage is too strict for a typed sentence' is still the owner's and has not
+  been made."*
+
+### What the code does today, measured
+
+```
+paid Sharma Traders 4200 for cement   ->  outcome = valid   (it posts)
+```
+
+This is the state after the cage work the owner accepted on 2026-08-16. That
+change removed two refusals that were not true of an expense note — a date it
+does not have, and a tier stamped by fields nobody read. It did not set out to
+answer this question, and the answer it produces has not been ruled on.
+
+**It is not silent.** The draft, its reasons and its operation id are written to
+the action log and shown on the page exactly as any other posting is. What is
+missing is an owner ruling, not an audit trail.
+
+### The two answers, and what each costs
+
+```
+HOLD FOR REVIEW   matches the 2026-08-16 wording. Costs: every typed entry
+                  needs a person, which is the workflow demo_safety_cage.py
+                  measured as `posted 0` and which the 2026-08-13 ruling was
+                  made to end.
+
+MAY POST          matches the 2026-08-13 ruling and what runs today. Costs: a
+                  typed sentence carries no document to check against, so the
+                  only guards on it are the person who typed it and the
+                  non-document laws.
+```
+
+### Not done, deliberately
+
+No production behaviour was changed to open or close this. Per the owner's
+instruction of 2026-08-16: where no explicit decision exists, mark it and leave
+the code alone.
+
+### ANSWERED 2026-08-16 — Option 3, the input source decides
+
+The owner ruled. The question above is closed.
+
+```
+a clearly typed one-line expense entry   may reach VALID after normal validation
+an expense note EXTRACTED FROM A DOCUMENT must be REVIEW_REQUIRED
+ambiguous, conflicting or unsafe evidence remains BLOCKED
+document-derived data keeps every safety check unweakened
+```
+
+WHAT THE RULING TURNS ON, stated because the two cases look identical on the
+page: not the shape of the sentence, but WHERE THE CHARACTERS CAME FROM. Both
+carry one amount, one party and no line items. What differs is whether a
+machine guessed. A person typing a sentence read nothing, so nothing could be
+misread; a reader lifting the same sentence off a page produces a field that
+could be wrong, and with no line items and no net there is no arithmetic left
+to catch it with. Confidence alone is not evidence enough to write somebody's
+books from.
+
+IMPLEMENTED as a split in `decision.DocumentType`:
+
+```
+TYPED_EXPENSE_NOTE        person typed it   -> may reach POST
+NON_INVOICE_EXPENSE_NOTE  read off a page   -> capped at ASK
+```
+
+`decision._needs_a_person` applies the cap, beside the repair ceiling and the
+tier ceiling and for the same reason: a ceiling can only lower POST to ASK and
+can never overturn a block. `pipeline.evaluate` chooses the kind from
+`per_field_source["total_paise"]`, which is the only place that knows whether a
+person or a reader produced the characters.
+
+MEASURED, AND IT IS NOT WHAT ANYONE EXPECTED. This ruling was believed to be
+what the 147 failing tests were waiting on. It is not. Full suite before the
+change: 147 failed / 5177 passed. After: 147 failed / 5182 passed - the same
+147 test identities, zero resolved, the five new passes being this ruling's own
+tests. The 147 have some other cause and the question above was never their
+blocker. That belief is corrected here rather than quietly dropped.

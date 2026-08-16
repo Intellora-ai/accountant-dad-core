@@ -79,7 +79,14 @@ def _unclear_draft() -> tuple[FakeTally, pipeline.Draft]:
         memory,
         today=TODAY,
     )
-    draft = pipeline.evaluate(draft, ACCOUNTS, t.read_vouchers(COMPANY), memory)
+    draft = pipeline.evaluate(
+        draft,
+        ACCOUNTS,
+        t.read_vouchers(COMPANY),
+        memory,
+        period_open=None,
+        pdf_repaired=None,
+    )
     assert draft.outcome is Outcome.UNCLEAR
     return t, draft
 
@@ -144,7 +151,14 @@ def test_re_evaluating_an_answered_draft_runs_the_whole_order_again() -> None:
 
     answered = pipeline.answer(draft, "Purchases")
     memory.record_correction(answered.voucher.party, "Purchases")
-    again = pipeline.evaluate(answered, ACCOUNTS, t.read_vouchers(COMPANY), memory)
+    again = pipeline.evaluate(
+        answered,
+        ACCOUNTS,
+        t.read_vouchers(COMPANY),
+        memory,
+        period_open=True,
+        pdf_repaired=None,
+    )
 
     assert again.decision is not None, "evaluate restores a live decision"
 
@@ -157,7 +171,14 @@ def test_re_evaluating_an_answered_draft_runs_the_whole_order_again() -> None:
     assert second is not None and second.problem_id == pipeline.FUNDING_PROBLEM
 
     paid = pipeline.answer(again, "Cash", problem_id=second.problem_id)
-    done = pipeline.evaluate(paid, ACCOUNTS, t.read_vouchers(COMPANY), memory)
+    done = pipeline.evaluate(
+        paid,
+        ACCOUNTS,
+        t.read_vouchers(COMPANY),
+        memory,
+        period_open=True,
+        pdf_repaired=None,
+    )
 
     assert done.outcome is Outcome.VALID
     assert done.voucher.debit_account == "Purchases"
@@ -189,7 +210,14 @@ def test_an_unclear_entry_always_has_a_question_to_show_the_person() -> None:
     # Answered, but deliberately NOT recorded in memory, so the very same
     # problem is found again on the next pass.
     answered = pipeline.answer(draft, "Purchases")
-    again = pipeline.evaluate(answered, ACCOUNTS, t.read_vouchers(COMPANY), memory)
+    again = pipeline.evaluate(
+        answered,
+        ACCOUNTS,
+        t.read_vouchers(COMPANY),
+        memory,
+        period_open=None,
+        pdf_repaired=None,
+    )
 
     if again.outcome is Outcome.UNCLEAR:
         assert pipeline.next_question(again) is not None, (
@@ -220,7 +248,14 @@ def test_the_decision_and_the_question_never_disagree_about_what_is_outstanding(
             f"UNCLEAR with no question after {len(draft.answers)} answers"
         )
         draft = pipeline.answer(draft, "Purchases", problem_id=question.problem_id)
-        draft = pipeline.evaluate(draft, ACCOUNTS, t.read_vouchers(COMPANY), memory)
+        draft = pipeline.evaluate(
+            draft,
+            ACCOUNTS,
+            t.read_vouchers(COMPANY),
+            memory,
+            period_open=None,
+            pdf_repaired=None,
+        )
 
 
 def test_an_answer_that_names_a_ledger_the_chart_does_not_have_still_cannot_post() -> (
@@ -235,7 +270,14 @@ def test_an_answer_that_names_a_ledger_the_chart_does_not_have_still_cannot_post
     before = t.trial_balance(COMPANY)
 
     answered = pipeline.answer(draft, "Not A Real Ledger")
-    again = pipeline.evaluate(answered, ACCOUNTS, t.read_vouchers(COMPANY), memory)
+    again = pipeline.evaluate(
+        answered,
+        ACCOUNTS,
+        t.read_vouchers(COMPANY),
+        memory,
+        period_open=None,
+        pdf_repaired=None,
+    )
 
     assert again.outcome is not Outcome.VALID
     with pytest.raises(ValueError, match="refusing to post"):

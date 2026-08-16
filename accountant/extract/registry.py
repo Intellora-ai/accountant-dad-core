@@ -108,11 +108,140 @@ from accountant.extract.placeholder import PlaceholderReader
 from accountant.extract.service import MALFORMED, reason_for
 
 #: The backend the application runs with. Change THIS to swap it.
-DEFAULT_BACKEND: Final = "typed_text"
+#:
+#: `ladder` SINCE 2026-08-13. It was `typed_text` until that day, and what that
+#: meant in the running product was measured rather than reasoned about, through
+#: `default_extractor()` — the call `accountant/web/app.py:1444` makes:
+#:
+#:     GT-0041.png   image/png          all four fields not_found
+#:     GT-0061.jpg   image/jpeg         all four fields not_found
+#:     GT-0021.pdf   application/pdf    all four fields not_found
+#:
+#: and through `build("ladder")`, the same three files:
+#:
+#:     GT-0021.pdf   date 2026-09-21, party BALFOUR BEATTY VINCI JV - HS2 (N2),
+#:                   total 58410 paise, tax 8910 paise
+#:
+#: `app.py:340` `UPLOAD_MEDIA_TYPES` has accepted `application/pdf`,
+#: `image/jpeg` and `image/png` since the upload routes landed. So the product
+#: ACCEPTED all three kinds and then handed them to a regex written for a
+#: sentence somebody typed. Registering a reader and not routing to it is a
+#: reader nobody has.
+#:
+#: `text/plain` DID NOT MOVE. `ladder` routes it to the same
+#: `TypedTextExtractor` object this line used to name, and
+#: `test_the_router_hands_typed_text_to_the_rung_that_already_read_it` asserts
+#: the two records equal field by field and source by source. The only route
+#: that changed is the route that was returning nothing.
+#:
+#: WHAT THIS COSTS, AND IT IS NOT NOTHING
+#: --------------------------------------
+#: `pypdf` and `Pillow` now parse bytes that arrived from outside, in the web
+#: process, on the upload route. `D-30` named that risk and accepted the two
+#: dependencies — but `D-30` approved MODULES, and this line is what puts them
+#: on a route. Both readers are built for it: `textlayer` refuses anything not
+#: beginning `%PDF-`, decrypts nothing and follows no action, and
+#: `freeocr._reading` turns every exception out of the page reader into one of
+#: seven plain sentences. Neither of those is evidence on its own, because a
+#: guard that exists is not a guard that fires, so the firing is measured:
+#: `tests/test_live_routing.py` drives malformed PDFs, pictures with no picture
+#: in them, empty bodies and a 60000x60000 decompression bomb through THIS
+#: constant and asserts a refusal with a sentence on it, bounded in time, and a
+#: 200 rather than a 503 over a real socket.
+#:
+#: WHAT IT DOES NOT BUY
+#: --------------------
+#: Accuracy. `docs/EXTRACTION_MEASURED.md` and the Ground-Truth Pack carry the
+#: numbers and the picture rung's are poor. RE-MEASURED 2026-08-13, because
+#: this line said "exactly twice" and the recorded run does not: on the twenty
+#: corpus PNGs the supplier is read exactly THREE times, MISREAD FIVE times and
+#: refused twelve. No date, no total and no tax is read off any photograph in
+#: the corpus, ever. The five misreadings are the number that matters and the
+#: old sentence did not mention them at all - `AQUANCED PROPULSION CENTRE UK
+#: LTO` for `ADVANCED PROPULSION CENTRE UK LTD` is what one looks like.
+#:
+#: A refusal from a reader that looked is still a better answer than a regex
+#: that invented one, and it is the only claim this line makes. It is not a
+#: claim that a photograph reads. `H-02` stays open and no real photographed
+#: bill has been through this.
+#:
+#: CORRECTED 2026-08-13. This said the container image installs no `tesseract`
+#: binary on purpose, so a photograph met `freeocr.ENGINE_MISSING` there. The
+#: owner reversed that the same day — the image installs `tesseract-ocr` and
+#: `tesseract-ocr-eng`, and `tests/test_deploy_artefacts.py` asserts it — so the
+#: engine is no longer what a deployed photograph is short of. Accuracy is, and
+#: the paragraph above is that number. On a machine WITHOUT the binary this
+#: still refuses in words rather than crashing, which is the property
+#: `freeocr._REFUSAL_FOR` exists for and is unchanged by any of this.
+DEFAULT_BACKEND: Final = "ladder"
 
 
 class UnknownBackend(LookupError):
     """A backend name nothing here can build. Never silently the default."""
+
+
+# ---- the two reader-backed factories, and why they import where they do -----
+#
+# THE IMPORT IS INSIDE THE FUNCTION, AND THAT IS A MEASUREMENT RATHER THAN A
+# STYLE. Written at the top of this file for 2026-08-13, because it is the one
+# thing about this registration that is not obvious from reading it.
+#
+# `textlayer.py` imports `pypdf`, so registering it with a module-level import
+# would put a third-party package on the import path of every module that
+# reaches this file — which is the web application, on startup, whether or not
+# it will ever be handed a PDF. `ci/readiness.py::clean_room_install` builds a
+# wheel and installs it `--no-index --no-deps` on the stated argument that "a
+# runtime dependency is a design change and not a packaging detail", and it is
+# right. MEASURED: with the imports at module level, that clean room failed
+#
+#     ModuleNotFoundError: No module named 'pypdf'
+#
+# on `import accountant.extract.registry`. The alarm was correct. Deferring the
+# import is not silencing it — the alarm now fires exactly when it should, on
+# the day `DEFAULT_BACKEND` names a backend that needs a library, because THAT
+# is the design change. Registering one costs nothing until it is chosen.
+#
+# `_READY` already asks for a zero-argument factory, so this fits the shape the
+# file already had rather than widening it.
+
+
+def _text_layer_reader() -> Extractor:
+    """The PDF text-layer rung. Imports `pypdf` only when actually built."""
+    from accountant.extract.textlayer import TextLayerReader
+
+    return TextLayerReader()
+
+
+def _ladder() -> Extractor:
+    """Every wired rung behind one backend. Same deferred import, same reason."""
+    from accountant.extract.ladder import Ladder
+
+    return Ladder()
+
+
+def _picture_reader() -> Extractor:
+    """The free reading engine, with the page reader it has always needed.
+
+    THE SECOND SEAM, FILLED 2026-08-13. `freeocr.FreeReader` takes a page reader
+    — something that says which words on a page are the total, the tax, the date
+    and the supplier — and until `accountant/extract/pagereader.py` landed
+    nothing in this repository answered that, which is why this name lived in
+    `_NEEDS_WIRING` and not here.
+
+    `page_reader` is called rather than passed a class, and the deadline is
+    passed EXPLICITLY although the constant has a home: `read_lines` takes it
+    with no default because an unbounded wait is a request that hangs, and a
+    caller that could forget it is a caller that eventually does.
+
+    Same deferred import as the two rungs above, for the same measured reason:
+    `pagereader.py` reaches `pytesseract` and `PIL`, and importing this file
+    must not put them on the path of a web application that will never be
+    handed a photograph.
+    """
+    from accountant.extract.freeocr import FreeReader
+    from accountant.extract.pagereader import READING_DEADLINE_SECONDS, page_reader
+
+    return FreeReader(page_reader(deadline_seconds=READING_DEADLINE_SECONDS))
 
 
 #: Backends that need nothing to be constructed.
@@ -124,8 +253,21 @@ class UnknownBackend(LookupError):
 #: NAME rather than a code change — `DEFAULT_BACKEND = "<vendor>"` once a
 #: vendor exists — and what stops "we have no reader" being expressed as a
 #: missing feature that each caller has to remember.
+#:
+#: `pdf_text_layer` and `ladder` JOINED 2026-08-13, the day `D-30` cleared the
+#: two reader modules. This is the three-edit swap described above happening
+#: for real, and it cost exactly the edits named there: a class satisfying
+#: `Extractor` inside this package, and one line each here. Nothing outside
+#: `accountant/extract/` changed, and `tests/test_adapter_contract.py` still
+#: measures the concrete-backend references outside this package as `{}`.
+#:
+#: `DEFAULT_BACKEND` was NOT moved to `ladder` at the same time, and the reason
+#: is written under it rather than here.
 _READY: Final[dict[str, Callable[[], Extractor]]] = {
     "typed_text": TypedTextExtractor,
+    "pdf_text_layer": _text_layer_reader,
+    "ladder": _ladder,
+    "free_ocr": _picture_reader,
     "stub": StubExtractor,
     "unavailable": UnavailableExtractor,
     "no_reader": PlaceholderReader,
@@ -134,6 +276,23 @@ _READY: Final[dict[str, Callable[[], Extractor]]] = {
 #: Backends that exist but cannot be built from a name alone, and the sentence
 #: saying what they still need. Separated from "unknown" because the two lead a
 #: person to completely different next actions.
+#:
+#: `free_ocr` WAS THE SECOND ENTRY HERE AND LEFT ON 2026-08-13. What it needed
+#: was a page reader — the thing that says which words on a page are the total,
+#: the tax, the date and the supplier — and the reason it was missing was that
+#: field detection cannot be checked without a pile of bills whose answers are
+#: already known. That pile turned out to exist: `artifacts/ground_truth/` holds
+#: eighty cases with expected fields, twenty of them pictures. So the reader was
+#: written against the field logic `textlayer.py` already uses and MEASURED
+#: against those answers rather than asserted about, and a table entry that
+#: exists to say "nobody has decided this" stopped being true of it.
+#:
+#: What is measured, and it is not flattering. RE-MEASURED 2026-08-13 - this
+#: said "4 of 80 ... 2 of those 4" and the run says otherwise. On the twenty
+#: corpus PNGs, 8 of 80 fields come back with a value, all eight of them the
+#: supplier: 3 exactly right, 5 WRONG, and 72 refused. That is a reading with a
+#: number on it, which is what this table was holding out for; it is not an
+#: accuracy claim about anybody's real bills, and `H-02` stays open for those.
 _NEEDS_WIRING: Final[dict[str, str]] = {
     "reader_service": (
         "it needs a transport; construct "

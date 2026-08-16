@@ -1,0 +1,1246 @@
+"""The free reading engine's half of the job that is not reading.
+
+WHY THIS FILE EXISTS
+--------------------
+The decision bands are written per field and auto-post needs 0.95 or better on
+every one of them. A paid model hands you that number. The free engine this
+product is built around does not: it reports a confidence per WORD, 0 to 100,
+and something has to turn a handful of word scores into one field score that a
+person can be shown and a gate can be run against.
+
+`accountant/cage/confidence.py::field_confidence` is that arithmetic and it
+already exists. What did not exist is the thing that FEEDS it: something that
+takes what the engine reported, throws out everything that is not a score,
+proves the text is the shape the field claims to be, checks the amounts against
+each other, and then either states a confidence or refuses in a sentence.
+
+That is this file. It is the reading engine's policy, not its plumbing.
+
+WHY TESSERACT IS THE ENGINE THIS IS SHAPED FOR
+----------------------------------------------
+Decided, and the reasons are testable rather than tasteful:
+
+    it is deterministic     the same bytes give byte-identical output. MEASURED
+                            on this machine, engine 5.5.3, 10 consecutive runs
+                            each of a clean synthetic invoice, the same page
+                            scaled down to a third, and the same page under
+                            heavy speckle: 1 distinct output in all three cases.
+                            The neural engines sample, and a reading that is not
+                            reproducible cannot be evidence about a document.
+
+    it reports per-word     `image_to_data` gives one row per word with a
+    confidence              confidence 0-100. That is the input `field_confidence`
+                            was written for. An engine that reports one number
+                            for the page cannot answer "how sure are you about
+                            the total", which is the only question being asked.
+
+    it is 30KB of wrapper   `pytesseract` is a subprocess wrapper. The
+                            alternatives bring a 2GB tensor runtime along, which
+                            is a supply chain, an install failure and a machine
+                            requirement, in exchange for accuracy nobody here
+                            has measured.
+
+THE ENGINE CALL IS HERE, AND IT IS HERE BY OWNER DECISION
+----------------------------------------------------------
+`read_words` below is the call. Until 2026-08-13 it could not have been:
+`tests/test_no_reader.py` forbade every third-party import in this package and
+required `pyproject.toml` to declare `dependencies = []`. `D-30` in
+`docs/DECISIONS.md` changed that, by name and by module - `freeocr.py` may
+import `pytesseract` and `PIL` and may name `subprocess`, and nothing else may.
+Widening that list is still an owner decision and still not a test change.
+
+Two seams, not one, and they are different jobs:
+
+    read_words      bytes -> every word on the page, with its confidence. This
+                    is the engine, and it is real.
+    PageReader      bytes -> a `Reading`, which says WHICH words make up the
+                    total, the tax, the date and the party. Injected.
+
+WHAT THE SECOND SEAM IS FOR, AND WHY IT IS STILL NOT FILLED HERE
+-----------------------------------------------------------------
+`accountant/extract/pagereader.py` fills it, as of 2026-08-13. This file still
+does not, and the split is the point rather than an accident of history.
+
+Field detection is the one part of reading a bill that cannot be checked
+without labelled data, and a heuristic written without it would be unmeasured,
+unfalsifiable and confident - the exact combination this cage exists to keep
+away from a customer's books. The engine's own confidence would not catch it
+either: `field_confidence` scores how legible a word was, not whether it was
+the right word to look at. So whatever fills the seam has to be MEASURED
+against known answers, separately from this file, and swappable without
+touching the engine call.
+
+What actually landed does not fill it with a heuristic at all. It runs the
+label logic `textlayer.py` already uses - `TOTAL`, `GRAND TOTAL`, `AMOUNT
+PAYABLE`, the same vocabulary in `labels.py` - over the words this file
+reports. An unlabelled number is still not a total, on a photograph exactly as
+in a PDF, and it is measured against `artifacts/ground_truth/`: 4 of 80 fields
+on the twenty corpus PNGs come back with a value and 2 of those are exactly
+right. `H-02` - real customer bills - is still open and that number is not a
+claim about them.
+
+WHAT IS ACTUALLY GUARDED HERE, SO THE INJECTION IS NOT AN EXCUSE
+-----------------------------------------------------------------
+    no user input reaches   this module builds no command and no string that a
+    a program               shell could see. The bytes go across as bytes, and
+                            the only other thing that crosses is a media type
+                            that has already been matched against the fixed
+                            tuple `READABLE_MEDIA` - so the value handed on is
+                            one of five constants written in this file, never
+                            whatever a caller typed into an HTTP header.
+
+    -1 is a marker, never   the engine writes -1 on every row that carries no
+    a score                 score, which is every structural row and every word
+                            it found no text in. MEASURED: 19 of 43 rows on the
+                            clean invoice. Read as a number it is a confidence
+                            below zero; averaged in it drags a field down; taken
+                            as 0-100 it is out of range. It is none of those. A
+                            field with a marker among its words has no score.
+
+    a missing engine and    both arrive here as an exception from the injected
+    a timeout are refusals  reader and leave as an all-`not_found` record with
+                            the sentence on every field. `extract` never raises,
+                            because `pipeline.build_draft` has no try around it
+                            and an exception there is an HTTP 503 telling a
+                            person the application broke when the truth is that
+                            a program is not installed.
+
+    confidence 0.0 means    ONE rule, so the record and the observation cannot
+    no value                disagree about what was read. A field is carried
+                            only when a confidence above zero can be stated for
+                            it. Everything else is `None`, 0.0, and a sentence.
+
+WHAT THIS FILE DOES NOT PROVE
+-----------------------------
+That anything was read. Nothing here reads. Handed a `PageReader` that invents
+its answer, this produces a confident record about an invented bill, and no
+arithmetic in this file could tell. `S2 = NOT_MEASURED` is untouched by it.
+
+That the engine is accurate. Determinism is not accuracy: an engine that
+misreads the same digit the same way ten times out of ten is exactly as wrong
+and perfectly reproducible. Accuracy needs the labelled corpus (`H-02`) that
+this repository does not have.
+
+That a high confidence means a right answer. Failure mode F-02 is the engine
+reporting 96 on a digit it got wrong, and no score computed from the engine's
+own opinion can see that. This is one input to the decision layer, which also
+requires every conservation law and an open period before anything is written.
+
+That handwriting works. It does not, it is not claimed, and `docs/OCR.md` says
+so in the same words.
+"""
+
+from __future__ import annotations
+
+import datetime
+import io
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+from types import MappingProxyType
+from typing import Final, cast
+
+# `D-30`, owner decision 2026-08-13, names this module and these two libraries.
+# Neither ships type stubs, so strict mode is told once, here, rather than at
+# every call site - and the run-time checks in `_complaint` are what actually
+# hold, because a stub would only have been a promise anyway.
+import pytesseract  # pyright: ignore[reportMissingTypeStubs]
+from PIL import Image, UnidentifiedImageError
+from pytesseract import Output  # pyright: ignore[reportMissingTypeStubs]
+
+from accountant.cage.confidence import field_confidence
+from accountant.cage.conservation import Verdict, net_plus_tax_equals_gross
+from accountant.cage.wall import Field, Observation
+
+# The two private names below are imported rather than copied, and pyright is
+# right to object: they are private and this is another module. It is the
+# lesser of two wrongs, and the greater one is measured. `_to_paise` is the
+# ONE rupees-to-paise rule on the reading side; `adapter.py` carries the case
+# where a second, more lenient conversion put `10.005` into the books as ten
+# rupees exactly, and a third copy here is how that happens again. `_media_type`
+# is the ONE answer to what `text/plain; charset=utf-8` means. Copying either to
+# satisfy the checker would trade a warning for a divergence.
+#
+# `tallyio.real.paise_from_rupees` is public and was considered instead. It is
+# the wrong rule HERE: it strips spaces, so two words the engine reported
+# separately - `5664` and `0.00` - would silently glue into one amount. On this
+# side of the system a space between digits is evidence, not noise.
+from accountant.extract.adapter import (
+    NOT_FOUND,
+    ExtractedRecord,
+    UnavailableExtractor,
+    _media_type,  # pyright: ignore[reportPrivateUsage]
+    _to_paise,  # pyright: ignore[reportPrivateUsage]
+)
+from accountant.extract.dates import DateLocale, read_date
+from accountant.extract.nearby import looks_like_an_invoice_number
+from accountant.labels import cut_at_the_next_label, paise_or_none
+
+#: The five media types this adapter will hand on to a reader, and the whole of
+#: the reason a caller's header never travels: the value passed across is one of
+#: these constants or the document is refused. PDF is deliberately absent - the
+#: engine does not take one, and a page-splitter is a second component nobody
+#: has chosen.
+READABLE_MEDIA: Final[tuple[str, ...]] = (
+    "image/png",
+    "image/jpeg",
+    "image/tiff",
+    "image/bmp",
+    "image/webp",
+)
+
+#: What the engine writes in the confidence column of a row that has no score.
+#: It is a MARKER. It is not a low confidence, it is not zero, and it is not on
+#: the 0-100 scale at all. `confidence.field_confidence` refuses it with a
+#: ValueError for exactly that reason; this module never lets one get that far,
+#: because a raised exception in the reading path is a 503 page.
+NO_SCORE_MARKER: Final = -1
+
+# ---- the sentences a person reads when nothing was read ---------------------
+#
+# Named, so a test can prove a scenario produced THIS refusal and not merely
+# some refusal. A message nobody can pin is a message that drifts into silence.
+
+ENGINE_MISSING: Final = "the text reading program is not installed on this machine"
+ENGINE_TIMED_OUT: Final = "the text reading program did not finish in time"
+ENGINE_NOT_ALLOWED: Final = "this machine will not let us run the text reading program"
+ENGINE_FAILED: Final = "the text reading program could not read this file"
+UNREADABLE_MEDIA: Final = "this file is not a kind of picture we can read"
+MALFORMED_READING: Final = (
+    "the text reading program answered with something we cannot use"
+)
+
+#: What is appended to a field's SOURCE when the reader stated a ceiling on it -
+#: see `Reading.at_most`. Plain words, because this string is not a code: it is
+#: printed on the page a person reads and written into the durable action log,
+#: beside a labelled read that says only `free_ocr`. Somebody scanning an audit
+#: line has to be able to tell the two apart without knowing what a ceiling is.
+#:
+#: NOT A REFUSAL AND MUST NEVER READ LIKE ONE. `cage/gate._was_read` treats any
+#: source beginning `NOT_FOUND` as an absence, so this is a SUFFIX on the
+#: backend's own name and never a prefix. The value really was read; what is
+#: uncertain is whether it is this field.
+A_GUESS: Final = "(guessed from where it sits on the page, not from a label)"
+
+#: What a person is told about a file that SAYS it is a picture and holds no
+#: picture. MEASURED 2026-08-13 on the twenty corpus JPEGs: every one of them is
+#: a JFIF header followed by comment segments, with no frame header and no scan
+#: - zero pixels in the file. `Image.open` raises `UnidentifiedImageError` and
+#: no reader can do better, because there is nothing in there to read.
+#:
+#: A SEPARATE SENTENCE FROM `ENGINE_FAILED`, and it earns the separation the way
+#: `EngineMissing` and `EngineTimedOut` earn theirs: the two lead a person to
+#: different next actions. "The reading program could not read this file" sends
+#: somebody to check their engine install for a problem the engine never saw.
+#: This one tells them the file is empty, which is the thing that is true.
+UNOPENABLE_PICTURE: Final = (
+    "this file says it is a picture but there is no picture inside it, so there "
+    "is nothing on it to read. Please send the original photograph or scan"
+)
+
+#: Every refusal above, so a test can prove they are distinct sentences and that
+#: none of them is empty.
+ALL_REFUSALS: Final[tuple[str, ...]] = (
+    ENGINE_MISSING,
+    ENGINE_TIMED_OUT,
+    ENGINE_NOT_ALLOWED,
+    ENGINE_FAILED,
+    UNREADABLE_MEDIA,
+    MALFORMED_READING,
+    UNOPENABLE_PICTURE,
+)
+
+
+class EngineMissing(Exception):
+    """The program is not installed, or not where we were told to look.
+
+    `read_words` raises this when the wrapper reports the binary absent. A
+    deployment that drives the engine some other way raises it too, and a
+    plain `FileNotFoundError` from a hand-rolled runner is mapped to the same
+    sentence below - a person with no engine installed should be told the same
+    thing however the call was made.
+    """
+
+
+class EngineTimedOut(Exception):
+    """The program was still going when the bounded wait ran out.
+
+    A separate class from `EngineMissing` because the two lead a person to
+    completely different next actions: install something, or try a smaller
+    picture. One sentence for both would be a sentence neither can act on.
+    """
+
+
+class EngineFailed(Exception):
+    """The program ran, and came back saying it could not do it.
+
+    Distinct from a timeout although the wrapper expresses both as a
+    `RuntimeError`: an engine that exited with an error code has a problem with
+    the file, and an engine that ran out of time has a problem with the size.
+    Telling the second person to try a smaller picture is useful; telling the
+    first person that is a wild goose chase.
+    """
+
+
+#: Exception -> sentence. ORDER MATTERS and the two OSError siblings below are
+#: why: a `FileNotFoundError` from a raw subprocess IS the missing binary, and a
+#: `PermissionError` is a binary that exists and will not run. Collapsed into
+#: one entry, a person with a permissions problem is told to install software
+#: they already have.
+_REFUSAL_FOR: Final[tuple[tuple[type[BaseException], str], ...]] = (
+    (EngineMissing, ENGINE_MISSING),
+    # BEFORE the two OSError siblings below, because `UnidentifiedImageError`
+    # subclasses `OSError` and a file with no picture in it is neither a missing
+    # program nor a permissions problem.
+    (UnidentifiedImageError, UNOPENABLE_PICTURE),
+    # `TesseractNotFoundError` subclasses `OSError` but NOT `FileNotFoundError`,
+    # so without this line it would fall through to the catch-all and a person
+    # with no engine installed would be told the engine could not read the file.
+    (pytesseract.TesseractNotFoundError, ENGINE_MISSING),
+    (EngineTimedOut, ENGINE_TIMED_OUT),
+    (EngineFailed, ENGINE_FAILED),
+    (TimeoutError, ENGINE_TIMED_OUT),
+    (FileNotFoundError, ENGINE_MISSING),
+    (PermissionError, ENGINE_NOT_ALLOWED),
+)
+
+
+def refusal_for(exc: BaseException) -> str:
+    """Plain words for one failure. Never empty, never a stack message.
+
+    `service.reason_for` is deliberately NOT reused. Its sentences all say "the
+    reading service", which is a machine somewhere else that a person can only
+    wait for. This engine is a program on their own computer that they can
+    install, and telling them to wait for it would be telling them to wait for
+    something that is never going to arrive.
+    """
+    for kind, refusal in _REFUSAL_FOR:
+        if isinstance(exc, kind):
+            return refusal
+    return f"{ENGINE_FAILED} ({type(exc).__name__})"
+
+
+@dataclass(frozen=True)
+class Word:
+    """One word the engine reported, and how sure it said it was.
+
+    Two columns of `image_to_data` and nothing else. Not the position, not the
+    size, not the block it sat in - this module decides nothing from where a
+    word was on the page, and carrying the geometry would be the first line of
+    something that did.
+    """
+
+    text: str
+    confidence: int
+
+
+@dataclass(frozen=True)
+class Reading:
+    """What the engine reported about one document, grouped by field.
+
+    The grouping is the READER's, not ours. Which words on a page make up the
+    total is field detection, it is the third-party's job by this package's
+    oldest rule, and doing it here would be writing the reader the guard exists
+    to keep out.
+
+    `net` is the odd one and it earns its place: it never reaches the record and
+    is never shown. It exists so that `net_plus_tax_equals_gross` has three
+    numbers to compare instead of two, which is the difference between a real
+    check and one that passes by construction. A bill that prints a net, a tax
+    and a total is the ordinary Indian GST bill, so the figure is usually there.
+    """
+
+    date: tuple[Word, ...] = ()
+    party: tuple[Word, ...] = ()
+    total: tuple[Word, ...] = ()
+    tax: tuple[Word, ...] = ()
+    net: tuple[Word, ...] = ()
+
+    #: The bill's own reference, ADDED 2026-08-15. It is a STRING field and
+    #: never money: `_read_invoice_number` refuses anything that reads as an
+    #: amount, so a total printed beside the label cannot become the number.
+    invoice_number: tuple[Word, ...] = ()
+
+    #: A CEILING on a field's score. Never a floor, and the name says so.
+    #:
+    #: ADDED 2026-08-15 for `pagereader`'s positional fallback, which points at
+    #: a number or a name because of WHERE IT SITS ON THE PAGE and not because
+    #: anything labelled it. That is a guess, and until this field existed there
+    #: was nowhere for the reader to say so: `_judge` computes every score from
+    #: the ENGINE'S OWN per-word confidence, which is 80 to 96 on a legible page
+    #: and is a statement about the CHARACTERS. A guessed total would have
+    #: arrived carrying the engine's certainty that those digits are those
+    #: digits, which says nothing whatever about whether that number is the
+    #: total.
+    #:
+    #: DOWNWARD ONLY, and that is the whole of the rule. `_judge` takes the
+    #: MINIMUM of the engine's score and whatever is stated here, so this can
+    #: refuse a field and can never rescue one. A ceiling that could also raise
+    #: would be a way for a reader to launder a bad read into a good score,
+    #: which is the one thing `field_confidence` already refuses by taking
+    #: `min(word_confidences)`.
+    #:
+    #: EMPTY BY DEFAULT, so every reader written before this line still says
+    #: exactly what it said: no ceiling, the engine's number stands. The keys
+    #: are the five group names above; anything else is a malformed reading and
+    #: `_complaint` says so rather than ignoring it.
+    #:
+    #: `MappingProxyType` and not a `dict`, for the reason every verdict in this
+    #: package is frozen: a claim about a document that can be edited after the
+    #: fact is not evidence about the document.
+    at_most: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({}))
+
+
+#: The names `Reading.at_most` may be keyed by - the five word groups and
+#: nothing else. A ceiling on a field that does not exist is a typo that would
+#: otherwise be silently ignored, and a silently ignored ceiling is a guess with
+#: its marking lost.
+CEILING_NAMES: Final = frozenset({"date", "party", "total", "tax", "net"})
+
+
+#: `(bytes, media type) -> Reading`. The media type is always one of
+#: `READABLE_MEDIA`, never a caller's string. The answer is checked rather than
+#: trusted: an annotation on a function somebody else wrote is a promise.
+PageReader = Callable[[bytes, str], object]
+
+#: `image_to_data` reports a hierarchy, and only one level of it is a word.
+#: Levels 1 to 4 are the page, the block, the paragraph and the line, and every
+#: one of them carries the marker in the confidence column. MEASURED: 19 of the
+#: 43 rows on a clean synthetic invoice, and 21 of 52 on
+#: `artifacts/ground_truth/documents/GT-0041.png`. Keeping only level 5 is what
+#: stops the marker being the majority of what a caller treats as a score.
+WORD_ROW: Final = 5
+
+#: What this module adds to the engine's argument list: NOTHING.
+#:
+#: Read off `pytesseract.run_tesseract` rather than assumed: it builds a python
+#: LIST and hands it to `subprocess.Popen` with no shell, and a `config` string
+#: is `shlex.split` into further list elements. An empty config is the
+#: strongest available form of "no caller input reaches the program" - there is
+#: no string for anything to be interpolated into, so the claim needs no
+#: escaping and no sanitising to be true.
+#:
+#: THE PAGE SEGMENTATION MODE IS NOW CHOSEN, AND MEASURED FIRST. This constant
+#: was `""` and said so deliberately: "choosing one would be a decision about
+#: how a page is read that nobody has made and nothing here has measured, so
+#: the engine's own default stands." That was the right rule and it named its
+#: own exit condition. The measurement now exists.
+#:
+#: MEASURED 2026-08-15 over all 106 JPEGs in `data/real_invoices_indian/`,
+#: tesseract 5.5.3, `-l eng`, one arm per column:
+#:
+#:     arm              median    mean   non-zero    amounts matched
+#:     psm 3 (default)   107.5   246.7    82/106           1
+#:     psm 6             238.5   619.7   105/106           1
+#:     psm 11            294.5   598.3   104/106           0
+#:
+#: `--psm 6` reads 2.5x the text and takes readable pages from 82 to 105 of 106,
+#: WITHOUT gaining or losing a single matched amount - so it adds evidence and
+#: adds no wrong answers. `--psm 11` reads more raw characters and LOSES the one
+#: real match, which is the trade this repository never makes.
+#:
+#: MORE CHARACTERS IS NOT THE POINT AND WAS NOT THE TEST. The 24 pages that read
+#: nothing at psm 3 come back as noise at psm 6 - one of them reads
+#: `OU 1G I Ce Otte Lo) - Wa re TOUS`. The question asked was whether that noise
+#: produces FALSE AMOUNTS, because a wrong figure is worse than a missing one.
+#: Measured across those 24 pages against every label in `TOTAL_LABELS`,
+#: `NET_LABELS`, `TAX_WHOLE` and `TAX_PARTS`: **zero amounts matched.** The
+#: noise is illegible to the matcher as well as to a person, which is why it is
+#: safe to let through.
+#:
+#: AND IT WAS REVERTED THE SAME DAY, BY A GUARD I HAD NOT RUN. The measurement
+#: above is real and still stands. What it did not cover is
+#: `tests/test_chaos_corpus.py`, whose
+#: `test_no_image_in_the_corpus_ever_produces_an_amount` is a SECOND WALL,
+#: deliberately independent of the cage: no picture may yield a figure, ever.
+#:
+#: Under `--psm 6`, `a_png_declaring_more_rows_than_it_carries` - a deliberately
+#: CORRUPT png - produced `total_paise = 420600`, ₹4,206.00, at confidence 0.64
+#: sourced `free_ocr`. The cage blocked it, being under `ASK_FLOOR`. The guard
+#: still went red, and it is right to: an invented rupee figure out of a broken
+#: file is the defect that guard was built for, and "the cage caught it" is
+#: exactly the reasoning a second wall exists to refuse.
+#:
+#: Keeping the flag would have meant editing that guard to make my own change
+#: pass. `ARCHITECTURE.md:671` forbids it and so does common sense. So the
+#: engine's default stands again, and the trade is written down instead of
+#: taken quietly:
+#:
+#:     with --psm 6      105/106 images readable, and one corrupt png invents
+#:                       ₹4,206.00 which the cage then blocks
+#:     with the default   82/106 images readable, and no picture in the chaos
+#:                       corpus produces a figure at all
+#:
+#: A missing amount is a question for a person. A wrong one is money. The owner
+#: can reverse this in one word; nobody else should.
+ENGINE_ARGUMENTS: Final = ""
+
+
+def _whatever_the_engine_returned(page: object, deadline_seconds: float) -> object:
+    """`image_to_data`, typed as what we actually know about it: nothing.
+
+    `pytesseract` ships no type stubs, so strict mode reads its answer as
+    Unknown and is right to. Declaring `object` here is what makes
+    `_words_from` the ONE place the answer's shape is asserted, instead of the
+    shape being half-assumed at the call site and half-checked afterwards. It
+    is the move `registry._whatever_it_returned` already makes, for the same
+    reason: an annotation on somebody else's function is a promise, not a fact.
+
+    The `timeout` suppression is not a shrug either. The wrapper annotates that
+    parameter `int` and then hands it straight to
+    `subprocess.Popen.communicate(timeout=...)`, which takes a float. MEASURED:
+    a deadline of 0.000001 raises the wrapper's own timeout rather than being
+    truncated to 0 - and 0 is what the wrapper reads as "no bound at all", so
+    obeying the wrong annotation here would silently unbound the wait.
+    """
+    call = cast(
+        "Callable[..., object]",
+        pytesseract.image_to_data,  # pyright: ignore[reportUnknownMemberType]
+    )
+    return call(
+        page,
+        output_type=Output.DICT,
+        config=ENGINE_ARGUMENTS,
+        timeout=deadline_seconds,
+    )
+
+
+def _reported(data: bytes, deadline_seconds: float) -> object:
+    """The engine's whole answer about one page, or one of this file's failures.
+
+    ONE call site for the engine and one place that maps its failures, shared by
+    `read_words` and `read_lines`. A second copy of the four `except` clauses
+    below is how one of them ends up without the `TesseractError`-before-
+    `RuntimeError` ordering, and a person with a broken file is then told to try
+    a smaller picture.
+    """
+    # `type(...) in` and not `isinstance`, so a `bool` is refused: `True` is an
+    # int in Python and would become a one-second deadline that looks deliberate.
+    if type(deadline_seconds) not in (int, float) or deadline_seconds <= 0:
+        raise ValueError(
+            f"a reading deadline must be a positive number of seconds, not "
+            f"{deadline_seconds!r}. An unbounded wait is a request that hangs, "
+            "and this system refuses rather than hangs."
+        )
+    page = Image.open(io.BytesIO(data))
+    try:
+        return _whatever_the_engine_returned(page, deadline_seconds)
+    except pytesseract.TesseractNotFoundError as exc:
+        raise EngineMissing(str(exc)) from exc
+    except pytesseract.TesseractError as exc:
+        # BEFORE the RuntimeError clause, and the order is the whole of it:
+        # `TesseractError` subclasses `RuntimeError`, so reversed, an engine
+        # that exited with an error code would be reported as a timeout and a
+        # person would be told to try a smaller picture for a problem that has
+        # nothing to do with size.
+        raise EngineFailed(str(exc)) from exc
+    except RuntimeError as exc:
+        # The only bare `RuntimeError` the wrapper raises is from its own
+        # `timeout_manager`, which has already killed the process. Read off its
+        # source rather than matched on the message: matching on a third
+        # party's wording is a test that passes until they fix a typo.
+        raise EngineTimedOut(str(exc)) from exc
+
+
+def read_lines(data: bytes, *, deadline_seconds: float) -> tuple[tuple[Word, ...], ...]:
+    """The same words as `read_words`, in the LINES the engine reported them on.
+
+    WHY A SECOND SHAPE OF THE SAME ANSWER EXISTS. Everything that says which
+    words on a page are the total works on lines: `TOTAL   1,020.70` is one
+    line, and `TOTAL` on its own means nothing. Flattened to a single sequence
+    the page reads as one enormous line, `SUBTOTAL` and `TOTAL` sit beside each
+    other, and a reader anchored to the start of a line has no line to anchor
+    to. So a caller that needs to locate a field needs this and `read_words`
+    cannot give it.
+
+    THE GROUPING IS THE ENGINE'S OWN AND NOT GEOMETRY. `image_to_data` numbers
+    every row by block, paragraph and line, which is the same hierarchy
+    `WORD_ROW` already reads. No coordinate is touched here and `Word` still
+    carries none: what a line IS was decided by the engine, exactly as what a
+    word is was.
+
+    FAITHFUL, INCLUDING THE ROWS THAT CARRY NO CHARACTERS. MEASURED: on
+    `artifacts/ground_truth/documents/GT-0041.png` the engine reports a level-5
+    row whose text is empty and whose confidence is 95. It is not dropped here,
+    because dropping it would be this function editing the engine's answer.
+    Deciding whether a row with no characters belongs in a line's TEXT is the
+    job of whoever builds that text, and it is made once, in the page reader.
+    """
+    return _lines_from(_reported(data, deadline_seconds))
+
+
+def read_words(data: bytes, *, deadline_seconds: float) -> tuple[Word, ...]:
+    """Every word the engine found on this page, with its own confidence.
+
+    THIS IS THE ENGINE CALL. `image_to_data` and not `image_to_string`, because
+    the string form throws the confidence column away and the confidence is the
+    entire reason this engine was chosen.
+
+    `output_type=DICT` and not the default text, and it is not a style
+    preference. MEASURED: the text form prints the confidence as `92.372406`
+    and the DICT form floors it to the integer `92`. `field_confidence` refuses
+    anything that is not an `int`, so a caller using the text form would meet a
+    refusal it could not act on. Flooring is also the safe direction - rounding
+    a confidence up is inventing certainty.
+
+    `deadline_seconds` HAS NO DEFAULT, on purpose. A bounded wait is required
+    and the bound is a number nobody has set: it belongs to the deployment,
+    which knows its own page sizes and its own patience. Picking one here would
+    be this module inventing a production setting.
+
+    Raises rather than returning a refusal, because it is one step below the
+    `Extractor` seam. `FreeReader.extract` is where an exception stops.
+    """
+    return _words_from(_reported(data, deadline_seconds))
+
+
+def _lines_from(reported: object) -> tuple[tuple[Word, ...], ...]:
+    """The word rows of an `image_to_data` answer, split where the engine did.
+
+    A `dict` keyed on the engine's own three numbers, and not a comparison
+    against the previous row: the rows arrive in reading order today, and a
+    grouping that assumed so would silently produce one line per word the day
+    that stopped being true. Insertion order is what keeps the page in order,
+    which `dict` has guaranteed since 3.7.
+    """
+    columns = cast("dict[str, list[object]]", reported)
+    levels = columns["level"]
+    texts = columns["text"]
+    scores = columns["conf"]
+    blocks = columns["block_num"]
+    paragraphs = columns["par_num"]
+    rows = columns["line_num"]
+    lines: dict[tuple[object, object, object], list[Word]] = {}
+    for i in range(len(levels)):
+        if levels[i] != WORD_ROW:
+            continue
+        where = (blocks[i], paragraphs[i], rows[i])
+        word = Word(text=cast("str", texts[i]), confidence=cast("int", scores[i]))
+        lines.setdefault(where, []).append(word)
+    return tuple(tuple(words) for words in lines.values())
+
+
+def _words_from(reported: object) -> tuple[Word, ...]:
+    """The word rows of an `image_to_data` answer, unchecked and uncoerced.
+
+    `cast` and not `int(...)`. Coercing the confidence column here would turn
+    the engine's float form into a plausible integer with nobody the wiser, and
+    would hide exactly the difference the docstring above measures. `_complaint`
+    is the one place that checks a word, and it refuses a float by name.
+    """
+    columns = cast("dict[str, list[object]]", reported)
+    levels = columns["level"]
+    texts = columns["text"]
+    scores = columns["conf"]
+    return tuple(
+        Word(text=cast("str", texts[i]), confidence=cast("int", scores[i]))
+        for i in range(len(levels))
+        if levels[i] == WORD_ROW
+    )
+
+
+def _every_group(reading: Reading) -> tuple[tuple[str, object], ...]:
+    """Every word group in the reading, named, typed as what we actually know.
+
+    `object` and not `tuple[Word, ...]`, for the reason `registry.
+    _whatever_it_returned` gives: pyright narrows to the annotation and then
+    calls the run-time check provably dead code, and strict mode is right to
+    reject dead code. The check is not dead - this object was built by a
+    function written outside this repository, and an annotation is a promise
+    rather than a fact.
+
+    `net` is included although it is never carried, because a wrong type in it
+    would reach the conservation law.
+    """
+    return (
+        ("date", reading.date),
+        ("party", reading.party),
+        ("total", reading.total),
+        ("tax", reading.tax),
+        ("net", reading.net),
+    )
+
+
+def _complaint(reading: Reading) -> str:
+    """The sentence saying why this reading cannot be used, or "" when it can.
+
+    Types are checked at run time although they are annotated, for the reason
+    `wall.py` gives about `amount_paise` and `vouchers.py` gives about the same
+    hazard: annotations are not enforced, and this object arrives from a
+    function written outside this repository.
+    """
+    for name, words in _every_group(reading):
+        if not isinstance(words, tuple):
+            return (
+                f"{MALFORMED_READING}: the {name} words arrived as "
+                f"{type(words).__name__} instead of a tuple"
+            )
+        # `isinstance` against a bare `tuple` leaves the parameters Unknown and
+        # strict mode is right to object. The cast states what a tuple of
+        # anything is; the `Word` check below is what narrows it.
+        for word in cast("tuple[object, ...]", words):
+            if not isinstance(word, Word):
+                return (
+                    f"{MALFORMED_READING}: a {name} word arrived as "
+                    f"{type(word).__name__}"
+                )
+            # `type(...) is not int` rather than isinstance, and the reason is
+            # the one this repository writes down everywhere money is checked:
+            # `isinstance(True, int)` is True, so a flag passed where a
+            # confidence belonged would read as a confidence of 1 out of 100 -
+            # a plausible-looking terrible score rather than an obvious error.
+            if type(word.confidence) is not int:
+                return (
+                    f"{MALFORMED_READING}: a {name} word carries a confidence "
+                    f"of type {type(word.confidence).__name__}, and a "
+                    "confidence is a whole number from 0 to 100"
+                )
+            # `type(...) is not str` and not `isinstance`, same reason as the
+            # confidence check above and the one `wall.py` writes down: pyright
+            # calls the isinstance form redundant against the annotation, and
+            # the annotation is exactly what is not being trusted here.
+            if type(word.text) is not str:
+                return (
+                    f"{MALFORMED_READING}: a {name} word carries text of type "
+                    f"{type(word.text).__name__}"
+                )
+            if word.confidence == NO_SCORE_MARKER:
+                continue
+            if not 0 <= word.confidence <= 100:
+                return (
+                    f"{MALFORMED_READING}: a {name} word carries a confidence "
+                    f"of {word.confidence}, which is on no scale we know. "
+                    f"{NO_SCORE_MARKER} is the marker for a row with no score; "
+                    "anything else outside 0 to 100 would have to be guessed at"
+                )
+            if not word.text.strip():
+                return (
+                    f"{MALFORMED_READING}: a {name} word has no text and yet "
+                    f"carries a confidence of {word.confidence}. A confident "
+                    "blank is a contradiction, not a reading"
+                )
+    return _complaint_about_ceilings(reading)
+
+
+def _complaint_about_ceilings(reading: Reading) -> str:
+    """Why `at_most` cannot be used, or "" when it can.
+
+    CHECKED FOR THE SAME REASON THE WORDS ARE, and the reason is stronger here.
+    A malformed word makes a field unreadable; a malformed ceiling goes straight
+    into `min(...)` and comes out the other side as a CONFIDENCE. A stated
+    `-5.0` would become a negative score, a stated `True` would become 1.0 - the
+    text layer's own number - and neither is a shape any check downstream is
+    looking for, because nothing downstream knows a ceiling exists.
+    """
+    stated = cast("object", reading.at_most)
+    if not isinstance(stated, Mapping):
+        return (
+            f"{MALFORMED_READING}: the ceilings arrived as "
+            f"{type(stated).__name__} instead of a mapping"
+        )
+    for name, ceiling in cast("Mapping[object, object]", stated).items():
+        if name not in CEILING_NAMES:
+            return (
+                f"{MALFORMED_READING}: a ceiling was stated for {name!r}, which "
+                f"is not one of {', '.join(sorted(CEILING_NAMES))}"
+            )
+        # `type(...) is not float` and not `isinstance`, the reason this file
+        # already gives about `word.confidence`: `isinstance(True, int)` is
+        # True, and a flag passed where a ceiling belonged would read as 1.0 -
+        # `confidence.EXACT`, the one score a photograph may never claim.
+        if type(ceiling) is not float:
+            return (
+                f"{MALFORMED_READING}: the ceiling on {name} is a "
+                f"{type(ceiling).__name__}, and a confidence is a number "
+                "between 0.0 and 1.0"
+            )
+        if not 0.0 <= ceiling <= 1.0:
+            return (
+                f"{MALFORMED_READING}: the ceiling on {name} is {ceiling}, "
+                "which is on no confidence scale we know"
+            )
+    return ""
+
+
+def _scores(words: tuple[Word, ...]) -> tuple[int, ...] | None:
+    """The word confidences, or None when these words carry no usable score.
+
+    None in two cases that are one fact: there are no words, or one of them
+    carries the marker. A marker is not dropped and the rest averaged, because
+    dropping it would silently discard a word the engine actually reported and
+    then report a confidence about the words that are left as though it were
+    about the field.
+    """
+    if not words:
+        return None
+    if any(word.confidence == NO_SCORE_MARKER for word in words):
+        return None
+    return tuple(word.confidence for word in words)
+
+
+def _joined(words: tuple[Word, ...]) -> str:
+    """The field's text: the engine's words, in order, single-spaced.
+
+    Joined rather than carried as a second string, so the text and the scores
+    cannot come apart. A separate `text` field on `Reading` would be one more
+    thing that can disagree with the words it is supposed to describe.
+    """
+    return " ".join(word.text for word in words)
+
+
+def _money(words: tuple[Word, ...]) -> tuple[int | None, str]:
+    """Whole paise, or the sentence saying why what was read is not that.
+
+    `adapter._to_paise` and not a second conversion. Two places that turn
+    rupees into paise is how one of them rounds: that module carries the
+    measured case where `round(float(...) * 100)` put "10.005" into the books
+    as ten rupees exactly. `confidence.looks_like_paise` is the wrong check
+    here - it refuses a decimal point, and every printed bill has one, because
+    what is printed is rupees.
+    """
+    text = _joined(words).strip()
+    paise = _to_paise(text)
+    if paise is None:
+        return None, (
+            f"{text!r} is not an amount that can be held exactly in whole paise"
+        )
+    if paise < 0:
+        return None, (
+            f"{text!r} is a negative amount. A minus sign on a bill is a misread "
+            "character or a credit note, and this system does corrections by "
+            "reversal and never by sign"
+        )
+    return paise, ""
+
+
+def _read_date(words: tuple[Word, ...]) -> tuple[datetime.date | None, str]:
+    """A real calendar date, or the sentence saying why this is not one.
+
+    `extract.dates.read_date` IS THE CHECK AS OF 2026-08-15, replacing
+    `confidence.looks_like_a_date`. The old check was `date.fromisoformat` -
+    ISO ONLY - and its refusal sentence said a date was "ambiguous" when what it
+    meant was "not ISO". Those are different rules and only one of them is true.
+
+    MEASURED, the defect on a real corpus document: the page prints
+    `16-11-2023`, the engine read those characters at confidence 95 with the
+    label matched, and the reader answered "not a real date written the way this
+    system reads dates". Every Indian bill date was refused categorically -
+    55 of 62 documents in the ground-truth corpus.
+
+    `DateLocale.UNKNOWN` IS PASSED DELIBERATELY, AND IT IS THE WHOLE SAFETY
+    ARGUMENT. `INDIAN` would settle `11/08/2026` as the 11th of August by
+    convention. `UNKNOWN` refuses it, because 11/08 is a real day under BOTH
+    orders and choosing one is inventing the evidence rather than reading it.
+    `16-11-2023` still reads, and needs no convention to do it: 16 is not a
+    month, so ARITHMETIC settles the order and nothing was assumed.
+
+    MEASURED, both ways, on the 62-document ground-truth corpus:
+
+        INDIAN    33 dates correct, 11 of them resting on the convention
+        UNKNOWN   22 dates correct, 0 resting on anything but arithmetic
+
+    The 11 are not lost, they are REFUSED - they become a question for a person
+    instead of a value nobody checked. A miss costs a question; a silently
+    chosen date is a wrong number in the books. The 22 are every date the
+    corpus prints in a shape arithmetic can settle.
+
+    THIS ALSO KEEPS AN EXISTING SAFETY TEST TRUE rather than rewriting it to fit
+    the change: `test_a_date_in_a_form_this_system_does_not_read_is_refused_not_
+    guessed` asserts `11/08/2026` is refused, and its docstring says why -
+    "Picking one would be inventing the evidence". A test that says that is not
+    a stale fixture, and making it pass by widening the reader would be the
+    change marking its own homework.
+
+    If a locale is ever wanted it belongs where the company is known, passed in
+    from the tenant's settings - not hard-coded at the one place in the codebase
+    that cannot see whose bill it is holding.
+
+    An impossible date is still refused and still says why: `31 February 2026`
+    comes back naming the impossibility rather than rounding to a day that
+    exists.
+    """
+    text = _joined(words).strip()
+    reading = read_date(text, locale=DateLocale.UNKNOWN)
+    if reading.value is None:
+        return None, reading.why
+    return reading.value, ""
+
+
+def _read_party(words: tuple[Word, ...]) -> tuple[str | None, str]:
+    """A supplier name, or the sentence saying why there is not one.
+
+    A blank becomes None and then an explicit not_found. A party field holding
+    "   " is a silent blank, which is the single thing `ExtractedRecord` exists
+    to make impossible.
+    """
+    text = _joined(words).strip()
+    if not text:
+        return None, "no name was read here"
+    return text, ""
+
+
+def _read_invoice_number(words: tuple[Word, ...]) -> tuple[str | None, str]:
+    """The bill's own reference, or the sentence saying why there is not one.
+
+    IT MUST NOT BE A SUM OF MONEY, AND THAT IS THE ONLY JUDGEMENT HERE.
+    `nearby.looks_like_an_invoice_number` is the existing detector and is reused
+    rather than rewritten - letters mixed with digits, or a `#` anywhere. A
+    second answer to "what does a reference look like" in a second file is the
+    drift this module's vocabulary move exists to prevent.
+
+    WHY A BARE RUN OF DIGITS IS REFUSED. `1,234.56` sitting to the right of a
+    label the engine half-read is indistinguishable from a reference made only
+    of digits, and the two mistakes are not symmetrical: a refused number costs
+    a question, and a total read as the invoice number puts a figure into the
+    reference field where nobody checks it against anything.
+    """
+    text = cut_at_the_next_label(_joined(words).strip())
+    if not text:
+        return None, "no number was read here"
+    if paise_or_none(text) is not None:
+        return None, f"{text!r} is an amount of money, not a reference"
+    if not looks_like_an_invoice_number(text, "invoice no"):
+        return None, f"{text!r} is not shaped like an invoice number"
+    return text, ""
+
+
+def _judge(
+    words: tuple[Word, ...],
+    *,
+    read: bool,
+    problem: str,
+    agrees: bool,
+    disagreement: str,
+    backend: str,
+    at_most: float | None = None,
+) -> tuple[float, str]:
+    """One field's confidence, and the sentence saying where it came from.
+
+    `field_confidence` is called with the real booleans rather than with True.
+    Passing `format_valid=True` because we already checked the format would
+    make the multiplier decorative, and the next person to change the check
+    would not find out that the score stopped depending on it.
+
+    `at_most` IS A CEILING AND IS APPLIED WITH `min`. It is how a reader says
+    "these are the right characters and I am guessing that they are this field"
+    - see `Reading.at_most`. Two things come out of it and both are deliberate:
+    the SCORE drops to the ceiling, which is what `cage/decision.py` reads; and
+    the SOURCE stops being the bare backend name, which is what a person reads
+    on the page and in the durable log. One guard would have been the score
+    alone, and a threshold is a number somebody can move in one line.
+    """
+    scores = _scores(words)
+    if scores is None:
+        return 0.0, (
+            f"{NOT_FOUND}: {backend} reported no word here that carries a "
+            f"confidence. {NO_SCORE_MARKER} is its marker for a row with no "
+            "score, and a marker is not a low score"
+        )
+    confidence = field_confidence(scores, format_valid=read, consistent=agrees)
+    if at_most is not None:
+        confidence = min(confidence, at_most)
+    if confidence > 0.0:
+        return confidence, (backend if at_most is None else f"{backend} {A_GUESS}")
+    if not read:
+        return 0.0, f"{NOT_FOUND}: {problem}"
+    if not agrees:
+        return 0.0, f"{NOT_FOUND}: {disagreement}"
+    return 0.0, (
+        f"{NOT_FOUND}: {backend} read something here and then said it was not "
+        "sure of a single character of it"
+    )
+
+
+@dataclass(frozen=True)
+class _Answer:
+    """The four named fields, their scores and their sources - or a refusal.
+
+    One shape for both outcomes, so `extract` and `observe` cannot end up
+    saying different things about the same document. `reason` being non-empty
+    is the refusal, and in that case every value is None and every score is 0.0
+    by construction rather than by the caller remembering.
+    """
+
+    date: datetime.date | None
+    party: str | None
+    total_paise: int | None
+    tax_paise: int | None
+
+    #: The pre-tax figure, ADDED 2026-08-15, and it was computed here and
+    #: dropped on this very line until then. `_scored` has read it since the
+    #: file was written - `net, _ = _money(reading.net)` - and used it once, to
+    #: decide whether the three amounts contradict each other. Then it left.
+    #:
+    #: `conservation.net_plus_tax_equals_gross` needs a net that was READ, and
+    #: `gate.py:119` forbids deriving one from total minus tax because that
+    #: would be a number checked against itself. So with no net arriving, that
+    #: law answered INDETERMINATE on every bill, and INDETERMINATE blocks.
+    net_paise: int | None
+
+    #: The bill's own reference, ADDED 2026-08-15. `None` where the page
+    #: printed no label this reader knows, or where what it printed was an
+    #: amount rather than a reference. NO DEFAULT, and it sits with the other
+    #: values rather than after them: a defaulted field here would let a
+    #: construction site forget it and still typecheck, and `_Answer` exists
+    #: so that `extract` and `observe` cannot say different things.
+    invoice_number: str | None
+
+    confidences: dict[str, float]
+    sources: dict[str, str]
+    reason: str
+
+    @classmethod
+    def refused(cls, reason: str) -> _Answer:
+        # `ExtractedRecord.FIELDS` is the four the record PROMISES a source for,
+        # and `net_paise` is deliberately not among them - a fifth name there
+        # would raise on every construction site older than 2026-08-15. So the
+        # net is named here explicitly rather than swept in by the `fromkeys`,
+        # and a refusal states a source for it like any other unread figure.
+        scored = dict.fromkeys(ExtractedRecord.FIELDS, 0.0) | {
+            "net_paise": 0.0,
+            "invoice_number": 0.0,
+        }
+        said = f"{NOT_FOUND}: {reason}"
+        return cls(
+            date=None,
+            party=None,
+            total_paise=None,
+            tax_paise=None,
+            net_paise=None,
+            invoice_number=None,
+            confidences=scored,
+            sources=dict.fromkeys(ExtractedRecord.FIELDS, said) | {"net_paise": said},
+            reason=reason,
+        )
+
+
+def _scored(reading: Reading, backend: str) -> _Answer:
+    """Every field judged, with the amounts checked against one another first."""
+    # The reader's ceilings, read once. `.get` returns None for a field nothing
+    # was stated about, and None is exactly what `_judge` treats as "no ceiling"
+    # - so a reader that states nothing is judged the way it always was.
+    ceiling = reading.at_most
+    total, total_problem = _money(reading.total)
+    tax, tax_problem = _money(reading.tax)
+    net, net_problem = _money(reading.net)
+
+    # The law, not a comparison written out here again. A FAIL is a real
+    # contradiction between three numbers on the page; an INDETERMINATE means
+    # the bill did not print a net and so nothing has been contradicted. The
+    # second is not a reason to zero a field - `conservation.py` says calling
+    # it a failure "makes the product useless" - and blocking on it belongs to
+    # the decision layer, which already treats it as blocking.
+    law = net_plus_tax_equals_gross(net, tax, total)
+    agrees = law.verdict is not Verdict.FAIL
+
+    date_value, date_problem = _read_date(reading.date)
+    party_value, party_problem = _read_party(reading.party)
+
+    # Date and party are outside the arithmetic, so a contradiction between the
+    # amounts leaves them alone. A smudged letterhead does not become more or
+    # less legible because the tax line does not add up.
+    date_score, date_source = _judge(
+        reading.date,
+        read=date_value is not None,
+        problem=date_problem,
+        agrees=True,
+        disagreement="",
+        backend=backend,
+        at_most=ceiling.get("date"),
+    )
+    number_value, number_problem = _read_invoice_number(reading.invoice_number)
+    number_score, number_source = _judge(
+        reading.invoice_number,
+        read=number_value is not None,
+        problem=number_problem,
+        agrees=True,
+        disagreement="",
+        backend=backend,
+        at_most=ceiling.get("invoice_number"),
+    )
+    party_score, party_source = _judge(
+        reading.party,
+        read=party_value is not None,
+        problem=party_problem,
+        agrees=True,
+        disagreement="",
+        backend=backend,
+        at_most=ceiling.get("party"),
+    )
+    total_score, total_source = _judge(
+        reading.total,
+        read=total is not None,
+        problem=total_problem,
+        agrees=agrees,
+        disagreement=law.said,
+        backend=backend,
+        at_most=ceiling.get("total"),
+    )
+    tax_score, tax_source = _judge(
+        reading.tax,
+        read=tax is not None,
+        problem=tax_problem,
+        agrees=agrees,
+        disagreement=law.said,
+        backend=backend,
+        at_most=ceiling.get("tax"),
+    )
+    # THE NET IS JUDGED LIKE THE OTHER TWO AMOUNTS, and by the same law. It
+    # shares `agrees`, so if the three figures contradict each other the net is
+    # zeroed exactly as the total and the tax are - a net that survived a
+    # disagreement its neighbours did not would be the one number in the record
+    # nobody had argued with.
+    net_score, net_source = _judge(
+        reading.net,
+        read=net is not None,
+        problem=net_problem,
+        agrees=agrees,
+        disagreement=law.said,
+        backend=backend,
+        at_most=ceiling.get("net"),
+    )
+
+    # ONE rule, applied here and nowhere else: a value survives only where a
+    # confidence above zero was stated for it. It is what makes the record and
+    # the observation agree by construction, and it is what stops a number this
+    # system does not trust appearing on a screen next to an invisible 0.0 for
+    # a person to read off and type into Tally by hand.
+    return _Answer(
+        date=date_value if date_score > 0.0 else None,
+        party=party_value if party_score > 0.0 else None,
+        total_paise=total if total_score > 0.0 else None,
+        tax_paise=tax if tax_score > 0.0 else None,
+        net_paise=net if net_score > 0.0 else None,
+        invoice_number=number_value if number_score > 0.0 else None,
+        confidences={
+            "date": date_score,
+            "party": party_score,
+            "total_paise": total_score,
+            "tax_paise": tax_score,
+            "net_paise": net_score,
+            "invoice_number": number_score,
+        },
+        sources={
+            "date": date_source,
+            "party": party_source,
+            "total_paise": total_source,
+            "tax_paise": tax_source,
+            "net_paise": net_source,
+            "invoice_number": number_source,
+        },
+        reason="",
+    )
+
+
+class FreeReader:
+    """The free engine's answer, turned into a record and an observation.
+
+    `extract` satisfies the `Extractor` Protocol unchanged, so this plugs into
+    the same seam every other backend uses and nothing outside the package
+    changes. `observe` is the addition: it carries the per-field confidences,
+    which `ExtractedRecord` has nowhere to put and the decision bands need.
+    """
+
+    name = "free_ocr"
+
+    def __init__(self, read_page: PageReader, *, name: str = "free_ocr") -> None:
+        self._read_page = read_page
+        self.name = name
+
+    def extract(self, data: bytes, mime: str) -> ExtractedRecord:
+        answer = self._reading(data, mime)
+        if answer.reason:
+            return self.outage(answer.reason)
+        return ExtractedRecord(
+            date=answer.date,
+            party=answer.party,
+            total_paise=answer.total_paise,
+            tax_paise=answer.tax_paise,
+            # CARRIED, 2026-08-15. This line is the whole of the fix: the net was
+            # read at pagereader.py:306, parsed at _scored, judged beside the
+            # total and the tax, and then not written down.
+            net_paise=answer.net_paise,
+            # Empty, deliberately, and this is `placeholder.py`'s argument
+            # rather than a new one: `pipeline.build_draft` copies `raw_text`
+            # into `Voucher.narration`, which reaches the page, the durable
+            # action log and - on a VALID entry - Tally itself. A backend that
+            # carried what it read would put somebody's whole scanned bill in
+            # all three.
+            raw_text="",
+            backend=self.name,
+            per_field_source=dict(answer.sources),
+            # THE SCORES, CARRIED, 2026-08-13. `observe` below has reported
+            # these since the rung was written and `extract` - built from the
+            # same `_Answer`, three lines away - threw them away, because
+            # `ExtractedRecord` had nowhere to put them. So the pipeline path
+            # got the party this engine read at 0.08 with no 0.08 attached, and
+            # `pipeline.build_draft` made it a vendor identity. The cage saw the
+            # number and refused; the shipped path could not see it.
+            per_field_confidence=dict(answer.confidences),
+        )
+
+    def observe(self, data: bytes, mime: str) -> Observation:
+        """The same reading, with the confidences the decision bands are about.
+
+        No branch on failure. `_Answer.refused` already sets every value None
+        and every score 0.0, which is exactly what `wall.Field` demands of a
+        field with no value, so the refusal path and the read path build the
+        same way.
+        """
+        answer = self._reading(data, mime)
+        return Observation(
+            date=Field(answer.date, answer.confidences["date"], answer.sources["date"]),
+            party=Field(
+                answer.party, answer.confidences["party"], answer.sources["party"]
+            ),
+            total_paise=Field(
+                answer.total_paise,
+                answer.confidences["total_paise"],
+                answer.sources["total_paise"],
+            ),
+            tax_paise=Field(
+                answer.tax_paise,
+                answer.confidences["tax_paise"],
+                answer.sources["tax_paise"],
+            ),
+        )
+
+    def outage(self, reason: str) -> ExtractedRecord:
+        """The all-not_found record, built by the one class that builds it.
+
+        `UnavailableExtractor`, not a second shape that resembles it - the
+        argument `registry.GuardedExtractor.outage` and
+        `adapter.TypedTextExtractor._refuse` already make. Two places that build
+        this record is how one of them ends up without a reason on it, which is
+        a silent blank wearing a label.
+        """
+        return UnavailableExtractor(reason, name=self.name).extract(b"", "")
+
+    def _reading(self, data: bytes, mime: str) -> _Answer:
+        declared = _media_type(mime)
+        if declared not in READABLE_MEDIA:
+            return _Answer.refused(
+                f"{UNREADABLE_MEDIA}: it says it is "
+                f"{declared or 'nothing in particular'}, and we read "
+                + ", ".join(READABLE_MEDIA)
+            )
+        try:
+            # `declared` and not `mime`. It has just been matched against
+            # `READABLE_MEDIA`, so what crosses this line is one of five
+            # constants written above - never a string a caller chose. Whatever
+            # the reader does with it, no input of theirs is in it.
+            answer = self._read_page(data, declared)
+        except Exception as exc:
+            # `Exception` and not `BaseException`, for the reason
+            # `service.ServiceExtractor` gives: a KeyboardInterrupt or a
+            # SystemExit is somebody stopping the process, and answering that
+            # with a tidy record would fight them.
+            return _Answer.refused(refusal_for(exc))
+        if not isinstance(answer, Reading):
+            return _Answer.refused(
+                f"{MALFORMED_READING}: it answered with a "
+                f"{type(answer).__name__} instead of a reading"
+            )
+        complaint = _complaint(answer)
+        if complaint:
+            return _Answer.refused(complaint)
+        return _scored(answer, self.name)

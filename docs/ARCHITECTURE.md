@@ -103,7 +103,7 @@ lives in `pyproject.toml`; version history and CI evidence live in
 | Choice | Architectural consequence |
 |---|---|
 | **Python** | the whole product; pinned to **3.14** via `.python-version` |
-| **Runtime dependencies: `[]`** | the app installs and runs with a stdlib Python and nothing else. No supply chain at runtime. `pyproject.toml` declares `dependencies = []` and names **no web framework**. |
+| **Runtime dependencies: exactly three, and only for reading a document** | `pypdf`, `pytesseract`, `Pillow` — cleared by the owner as **`D-30`, 2026-08-13**. `pyproject.toml` read `dependencies = []` until that date and the "stdlib and nothing else" claim was literally true; it is now "stdlib plus the three the reader needs", the set is **asserted exactly** by `test_the_project_declares_exactly_the_dependencies_the_owner_approved`, and a fourth entry fails a test. Still **no web framework**, and nothing on the posting path imports any of the three. |
 | **`accountant/web/app.py` — stdlib `http.server`** | **no framework is present.** No npm, no build step, no bundler. Introducing a framework is **not part of this architecture** unless separately approved. |
 | **TallyPrime / Tally.ERP 9 over HTTP/XML, host and port configurable** | Tally is Windows-only and exposes no public or cloud API. This forces the app to run on a machine that can reach the Tally host. |
 | **Windows VM on macOS (UTM)** | the development and first-slice environment. **`localhost` on the host and `localhost` in the VM are different machines** — the guest is reached over the VM's private bridge network, not over loopback. `TallyConfig` therefore takes a **host and a port** and does not assume `localhost:9000`. `TallyConfig.is_loopback` exists so a caller or a test can assert the tighter rule where it does apply. Plain HTTP with no authentication must stay on a private, trusted network. |
@@ -151,6 +151,112 @@ ActionLog     frozen           ts, action, voucher_id, detail
 Hallucinate definition measurable: **a field with no source is a hallucination by
 definition.**
 
+### 4.1b The safety cage — `accountant/cage/` · **present**
+
+| File | Existence | Implementation |
+|---|---|---|
+| `conservation.py` | **present** | four laws that need no labels: debits=credits, lines=total, net+tax=gross, balance delta=entry. Three verdicts, and `INDETERMINATE` blocks. **May talk to `money`, and nothing else** — see [`docs/interfaces/conservation.md`](./interfaces/conservation.md#dependencies) for why that one import does not cost the purity the rule protects, and what would make it unsafe |
+| `wall.py` | **present** | `Observation` (what we think) and `LedgerEntry` (what we write). `LedgerEntry` is constructible only by the decision layer, enforced at run time AND by an AST scan |
+| `confidence.py` | **present** | `min(word_conf)/100 × format_valid × consistency` — the proxy that turns per-word OCR scores into a per-field number |
+| `classify.py` | **present** | magic bytes over declared MIME, always. Never raises, never unzips, never executes |
+| `decision.py` | **present** | the only module allowed to build a `LedgerEntry`. Weighs bands and hard rules into POST / ASK / BLOCK |
+| `gate.py` | **present** | the one door from a `Draft` into the cage. Carries facts across, decides nothing itself |
+| `state.py` | **present** | seven states and thirteen events, so a proposal can be asked where it is and proved not to have skipped a stage |
+| `lying.py` | **present** | a model that lies on command, so a guard can be tested against a known lie instead of whatever a real model happened to do that day |
+
+Landed 2026-08-12/13. Six of the nine files have a page in
+[`docs/interfaces/`](./interfaces/): `classify`, `confidence`, `conservation`,
+`decision`, `gate`, `wall`. `state.py`, `lying.py` and `__init__.py` do not.
+
+**ON THE LIVE PATH SINCE 2026-08-15, commit `6629b51`.** Until that commit the
+whole folder was finished, tested, and imported by nothing that ships — the same
+shape as defect J1, one level up. Verified by reading the file:
+`accountant/pipeline.py:25` imports the gate, `pipeline.py:156` is
+`narrowed_by_the_cage`, and `pipeline.py:795` is the call inside `evaluate`.
+The cage may only **narrow** an outcome and never widen one; see
+[`PROJECT_STATE.md`](./PROJECT_STATE.md) §52 for what wiring it found.
+
+**The conservation rung was comparing the wrong two numbers, corrected
+2026-08-15.** Line items on an Indian GST bill are **pre-tax**. `lines_sum_to_
+total` was adding them up and comparing the sum against the **gross**, so a bill
+whose arithmetic was perfect failed by exactly its own tax. The comparand is now
+chosen by `_lines_add_up_to` at `accountant/cage/gate.py:332-377`: the net when a
+net was read, the gross only when the tax was read as a literal zero, and
+otherwise `None` — which is INDETERMINATE, which blocks. The net is never
+computed as gross minus tax; that number would be checked against its own inputs
+and would pass for ever.
+
+**Why the cage exists.** Before it, one type carried a field from the moment it
+was guessed to the moment it was written into a customer's books. That single
+fact is the root cause of six of the sixteen recorded failure modes — a misread
+amount, a wrong party, a flipped sign, a nonsense entry, a photo of a cat and a
+wrong voucher type all reach the books by the same route, because nothing in the
+type system says which of them has been checked.
+
+```
+  any file, <= 100 MB
+        |
+   [ CLASSIFIER ]        magic bytes; unsupported -> a sentence, never a crash
+        v
+   [ READER ]         -> Observation   every field: value | None + confidence
+        |                              NOTHING here can be posted
+        v
+   [ CONSERVATION ]      pure arithmetic. no labels, no model, no network
+        v
+   [ VALIDATION ]        the 8 existing checks + party known + period open
+        v
+   [ DECISION ]          bands + hard rules -> post | ask | block
+        v
+   [ GATE ]           -> LedgerEntry   constructible ONLY inside decision.py
+        v
+   [ WRITE DOOR ]        unchanged, existing
+```
+
+**The cage only adds.** Per the replacement rule at §19.4, no existing check is
+weakened, removed, or made conditional on a confidence score. A high score never
+unlocks a failed conservation check, and a test asserts exactly that.
+
+**Known limitation — the `period open` check in the VALIDATION rung is drawn
+above but is not on the live path. Owner ruling, 2026-08-13, in the owner's
+words:**
+
+> "Period check is currently off the live path because Tally open/closed bounds
+> are not read. This is a known limitation for this MVP. A future task will read
+> SVFROMDATE/SVTODATE from Tally and enable this gate on the live pipeline."
+
+The diagram shows the design. **`period_open` HAS a source as of 2026-08-13**:
+`accountant/tallyio/period.py` reads the company's `BOOKSFROM` and
+`STARTINGFROM` over the gateway, and `accountant/period.py::is_period_open`
+turns them into the boolean the gate takes, logged on every call. Both
+`pipeline.evaluate` call sites in `accountant/web/app.py` pass it, asked about
+the date on the BILL rather than about today.
+
+It fails closed in one direction only: a timeout, an unreachable Tally, a
+company that is not open or a field this build did not answer all return
+`False`, which blocks. `False` here means *we could not verify it is open*, not
+*it is closed* — the same action, different facts, and the direction that must
+never be reached by accident is `True`.
+
+The upper bound is DERIVED, and the log says so on every line: no member on the
+measured build states the financial year end, and `ENDINGAT` tracks the last
+voucher date rather than the period. The measurement and the disconfirming
+evidence sit in [`OWNER_WORK.md`](./OWNER_WORK.md) under *`period_open` has no
+source*.
+
+**Two guards, not one, and the reason is defect J1.** *A unit test of a guard
+proves the guard works and says nothing about whether the guard is installed.*
+So every runtime guard in the cage has a paired AST guard proving the call site
+exists. When `wall.py` was first written this caught a real defect: `decided()`
+built its result with `cls(...)`, invisible to a scan looking for
+`LedgerEntry(`, so the scan was asserting over an **empty set** and would have
+kept passing after the wall was deleted.
+
+**Three things the cage does not claim.** It cannot see a bill misread
+*consistently* — every figure scaled by ten still sums (F-02). It cannot see a
+*confidently* misread digit — OCR reporting 96 on a character it got wrong.
+It cannot tell whether a file is a bill at all; a photo of a cat is a valid JPEG.
+Each module's docstring says so in its own words.
+
 ### 4.2 Tally connector — `accountant/tallyio/` · **present**
 
 | File | Existence | Implementation |
@@ -158,6 +264,28 @@ definition.**
 | `client.py` | **present** | `TallyClient` Protocol, 9 methods; `new_operation_id`, `marker_for`, `stamp`, `operation_id_in`; `DuplicateOperation`, `CompanyNotBackedUp`; `WriteResult` |
 | `fake.py` | **present** | in-memory Tally implementing all 9 methods |
 | `real.py` | **present** | `RealTally`, all 9 methods. XML over HTTP, host and port configurable via `TallyConfig`. Stdlib only. |
+| `errors.py` | **present** | Tally's complaints turned into codes and sentences. `classify`, `describe`, `ERROR_ELEMENTS`. |
+| `writedoor.py` | **present** | the **runtime** write allow-list. `Permit`, `ALLOWED_WRITES`, `allow_write`, `posting_enabled`, `safe_mode`. |
+| `audit.py` | **present** | one JSON line plus request and response XML per operation, written **before** the result is reported |
+| `masters.py` | **present** | ledgers: exists, `create_ledger`, `ensure_ledger` |
+| `vouchers.py` | **present** | the direct write path for **six** voucher types: Purchase, Sales, Payment, Receipt, Journal, Contra. One builder, one balance check, one post path. `purchase_xml`, `validate_purchase`, `Vouchers.create_*_voucher`. |
+| `reports.py` | **present** | reading the books back: `ledger_vouchers`, `day_book`. Amounts as integer paise, `Decimal` never `float`. |
+
+The last six landed 2026-08-12 with the first write to a licensed TallyPrime —
+[`PROJECT_STATE.md` §47](./PROJECT_STATE.md#47-the-first-write-into-a-real-licensed-tallyprime).
+
+**Every write takes a required `operation_id`, and that is not a convenience.**
+Before building an envelope, `Vouchers` asks TallyPrime whether a voucher
+already carries that id (`client.stamp` writes it into the narration,
+`client.operation_id_in` reads it back). If one is there, nothing is sent and
+the result says `already_posted=True`. Measured 2026-08-12: three calls with two
+distinct ids sent **one** Import for the repeated id.
+
+The check **fails closed**. If the probe cannot be answered — gateway down,
+response unreadable — nothing is posted and the failure says so. Returning "not
+found" on an unreadable probe would rebuild the exact defect this guards: a
+retry that cannot tell itself apart from a first attempt. This repository has
+already put ₹2,000 into a real company for one ₹1,000 bill that way.
 
 **The interface — the single most important contract in the system:**
 
@@ -204,6 +332,77 @@ network: plain HTTP, no auth, never routable.
 memory, detectors and the web app, and the connector cannot be stubbed. With it,
 the entire system is testable against `FakeTally`, and `real.py` drops in with no
 change anywhere else.
+
+#### There are TWO write paths, and they are not the same door
+
+This is the thing a reader gets wrong, so it is stated before anything else
+about either one. **`vouchers.py` is not a second copy of `pipeline.post`, and
+it does not pretend to be.**
+
+| | `pipeline.post` | `accountant/tallyio/vouchers.py` |
+|---|---|---|
+| **For** | a voucher **the product decided** to post | a caller who **already knows** what it wants posted — a CSV row, a script, an operator |
+| **Valid-outcome gate** | yes | no such thing — there is no extraction to judge |
+| **Decision / operation-id binding** | yes | no — no decision exists to bind |
+| **Write-ahead audit row** | yes | yes, via `audit.py`, request and response XML retained |
+| **Read-back** | field by field | the voucher only — found again, or not |
+| **Register check** | yes | no |
+| **Asks `writedoor.allow_write` first** | not applicable — it *is* the door | **yes**, before any bytes leave |
+
+The difference is real and the two are not interchangeable. `pipeline.post`
+exists because an amount that came out of a document has to be *judged* before
+it reaches a customer's books: the gate, the binding and the register check are
+all about a number nobody typed. `vouchers.py` has no such problem and so has no
+such machinery — a person who typed `1000` has already made that judgement.
+
+What `vouchers.py` does have is the two checks that apply either way: **ask
+permission before sending**, and **read the voucher back before reporting
+success**. `STATUS 1` from the gateway is not `posted`; this repository has
+already measured a write TallyPrime accepted and did not keep.
+
+The case that made this worth writing down is the one recorded at
+`ci/educational_slice.py:51-52`: on 2026-08-11 that file constructed a
+`RealTally` and called `write_voucher` on it directly, at what was then line
+233, so none of `pipeline.post`'s gates applied. It has been fixed, and the
+measurement is kept in the file beside the code it explains. A path that skips
+those gates is not automatically wrong — `vouchers.py` skips them on purpose —
+but a path that skips them *without saying so* is.
+
+#### The runtime door and the static scanner are different things
+
+Two files have similar names and do opposite jobs. Both are needed.
+
+```
+accountant/tallyio/writedoor.py   RUN time   refuses or permits this write
+tests/test_write_door.py          TEST time  proves nobody built a third path
+```
+
+- **`writedoor.py` is an allow-list of sentences, not a boolean.**
+  `POSTING_ENABLED=True` answers "may anything be written". The question worth
+  asking is "may **this** be written, to **this** company, and who decided" —
+  so each `Permit` carries a paragraph a reviewer reads in the diff. The company
+  is matched exactly, because TallyPrime's gateway serves whichever company is
+  open on screen, and a permit that does not name one authorises writing into
+  somebody else's books.
+- **`tests/test_write_door.py` walks the AST** and asserts no module outside the
+  allow-list calls `write_voucher` or `reverse_by_operation_id`, and that no
+  module outside `accountant/tallyio/` builds a `<TALLYREQUEST>Import` envelope.
+
+**Why the runtime guard cannot live in `tests/`:** `tests/` is not part of the
+installed distribution. Shipped code importing from it would fail on any machine
+that installed the package rather than cloning the repository. That is the whole
+reason `writedoor.py` exists as its own module rather than as a fixture.
+
+**Why the static scanner is still needed:** a runtime guard is skipped by any
+new module that simply does not call it. A static guard alone cannot stop a
+write already happening in front of a customer's books. Neither one covers the
+other's failure.
+
+One consequence, stated plainly because it reads as a gap otherwise: the static
+scanner **excludes** `accountant/tallyio/` from its import-envelope check, since
+building that envelope is what this package is for. So the scanner does not
+constrain `vouchers.py` at all. What constrains `vouchers.py` is
+`writedoor.allow_write`, and that is the only thing that does.
 
 #### What Tally's wire format forces on this package
 
@@ -450,6 +649,33 @@ the connector needs localhost access to Tally.
 
 **Forbidden:** mobile, styling beyond legibility.
 
+**Known limitation — uploads are read fully into memory. Owner ruling,
+2026-08-13, in the owner's words:**
+
+> "Uploads up to 100 MB are currently read fully into memory per request. This
+> is acceptable for a single local user. Before multi-tenant hosting, this must
+> be changed to streaming with concurrency limits."
+
+**This is MANDATORY before any multi-tenant hosting or public deployment. It is
+not optional, and it is not a nice-to-have — it is deferred past this MVP and
+nothing more.** One person on their own machine sending one 100 MB body is fine;
+the same design under many tenants is a memory figure multiplied by however many
+requests arrive at once, and nothing today caps that number.
+
+Two things have to change together when it is done:
+
+1. **Stream into the multipart parser** (`accountant/web/multipart.py`) instead
+   of handing it one whole body. Streaming alone is not enough — it lowers the
+   per-request cost without bounding the total.
+2. **Cap concurrency** — a limit on how many uploads may be in flight at once,
+   so the worst case is a number somebody chose rather than a number the
+   internet chooses.
+
+**No code change now.** The 100 MB ceiling, the `413` on the declared length
+before the body is read, and the media-type allow-list all stay exactly as they
+are; this note records what that design costs and when the cost stops being
+acceptable.
+
 > **AMENDED 2026-08-11 BY THE OWNER, IN WORDS, AND RECORDED RATHER THAN APPLIED
 > SILENTLY.** This line read *"Forbidden: multi-user, login, accounts, cloud
 > hosting, mobile, styling beyond legibility"* until the owner directed a
@@ -463,10 +689,15 @@ the connector needs localhost access to Tally.
 >
 > What actually shipped under the amendment is narrower than the permission
 > given: multi-user, login and accounts are built (`docs/AUTH.md`); cloud
-> hosting has artefacts but no host (`docs/DEPLOY.md`); and **no runtime
-> dependency was added at all** — every task landed on the standard library, so
-> `pyproject.toml`'s `dependencies = []` still holds and the "zero runtime
-> dependency" claim two paragraphs above is still true.
+> hosting has artefacts but no host (`docs/DEPLOY.md`).
+>
+> **The runtime-dependency half of this note said "no runtime dependency was
+> added at all" and was true until 2026-08-13.** It is not any more. `D-30`
+> cleared exactly three — `pypdf`, `pytesseract`, `Pillow` — and none of them
+> arrived under this cloud amendment. They arrived to read a document, they are
+> imported only from `accountant/extract/`, and the posting path imports none of
+> them. See §3, *Technology choices that affect the design*, and
+> `pyproject.toml`, which states the reasoning beside the list.
 >
 > The local, single-user path is unchanged and still supported:
 > `LOCAL_DEV_MODE=1` skips authentication entirely and prints a loud warning on
@@ -1618,6 +1849,11 @@ This is the distinction that keeps an environment limitation from being reported
 as a product failure, and it runs the other way too: no amount of adapter or
 detector work turns into live evidence without the two human actions.
 
+**Updated 2026-08-12 — it is one action now, not two.** `B-02` is **satisfied**:
+the machine runs a licensed TallyPrime on a free trial (§20.3, `PROJECT_STATE.md`
+§48). `B-01` remains, and it is two minutes of clicking in the Tally window.
+The line above still holds — what is left blocks `LICENSED_REALTALLY` only.
+
 ---
 
 ## 18. Phase 8 scope — frozen, and what it means for the design
@@ -1964,7 +2200,25 @@ Recorded at `accountant/tallyio/real.py:1181` and `ci/educational_slice.py:35`.
 **What it unblocks.** The live-evidence track — every guarantee currently
 proven only against a simulator (see [`TESTING.md`](./TESTING.md) §3).
 
-### 20.3 `B-02` — a non-Educational licence
+### 20.3 `B-02` — a non-Educational licence · **SATISFIED 2026-08-12**
+
+> **This blocker is closed.** The machine runs a **licensed TallyPrime on a free
+> trial**, not Educational. Full record in
+> [`PROJECT_STATE.md` §48](./PROJECT_STATE.md#48-the-licence-stopped-being-a-blocker).
+>
+> **It is measured, not merely attested.** The §47 voucher is dated the **12th**
+> of the month. Educational mode accepts only the 1st, 2nd and 31st — measured
+> against this gateway, not assumed. A voucher that posted on the 12th cannot
+> have come from an Educational instance. This does not read the licence mode
+> (§15 stands: that read is `UNKNOWN` by design and probing for it wedged a live
+> Tally); it establishes the narrower and sufficient fact that **whatever this
+> is, it is not Educational**.
+>
+> **No expiry date is recorded anywhere.** A trial ends. Every statement here
+> carries the unstated condition that it is still live on the day it is read.
+
+The original entry, left standing because it was true from 2026-08-08 to
+2026-08-11:
 
 **Dependency.** TallyPrime must not be running in Educational mode.
 
@@ -1976,6 +2230,16 @@ the fixture measures. Buying a licence is a commercial act.
 
 **What it unblocks.** With `B-01`, the `LICENSED_REALTALLY` evidence class,
 which is empty today. **Neither blocks code, tests, or merges.**
+
+**What actually changed, and what did not.** The `2026-08-07` fixture **can now
+run unmodified** — the date restriction that refused it is gone. It **has not
+been run**, and it is **still never edited**: the licence removes the reason it
+could not run, not the reason it was frozen. `B-01` is untouched and is now a
+permanent scope boundary rather than a gap
+(`RUNBOOK_PHASE5_ACCEPTANCE.md` §A.0.1). `ci/acceptance_cli.py` still refuses to
+apply the `LICENSED_REALTALLY` label without a MEASURED `licence_mode ==
+licensed`, and **that refusal is not loosened to match this note** — it exists
+precisely so this question cannot be closed by whoever writes the report.
 
 ### 20.4 `H-01` and `N-1` — one decision in two halves
 

@@ -63,7 +63,8 @@ from dataclasses import replace
 import pytest
 
 from accountant import pipeline
-from accountant.extract import registry
+from accountant.cage.confidence import EXACT
+from accountant.extract import ladder, registry
 from accountant.extract.adapter import (
     NOT_FOUND,
     ExtractedRecord,
@@ -72,6 +73,8 @@ from accountant.extract.adapter import (
     TypedTextExtractor,
     UnavailableExtractor,
 )
+from accountant.extract.freeocr import FreeReader
+from accountant.extract.ladder import Ladder
 from accountant.extract.placeholder import PlaceholderReader
 from accountant.extract.service import (
     ALL_REASONS,
@@ -81,12 +84,14 @@ from accountant.extract.service import (
     ServiceExtractor,
     document_key,
 )
+from accountant.extract.textlayer import TextLayerReader
 from accountant.memory.bootstrap import bootstrap
 from accountant.memory.company import CompanyMemory
 from accountant.memory.store import MemoryStore
 from accountant.schema import Outcome, Voucher
 from accountant.tallyio.fake import FakeTally
 from accountant.web import app
+from tests.test_period_handoff import open_books_for
 from tests.test_web import post_for_status
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -179,8 +184,16 @@ def service_for(data: bytes, **fields: object) -> ServiceExtractor:
 #: sourced, no silent blank, its own name on the row, no exception on bytes
 #: that are not text — is what stops "we have no reader" being expressed as a
 #: blank, and a backend exempt from those checks could express it as one.
+#:
+#: `TextLayerReader` and `Ladder` joined 2026-08-13 with their registration.
+#: They are the first two entries here that can actually READ something, which
+#: makes the record contract matter more rather than less: a rung that returns
+#: a value has somewhere new to leave a silent blank, and the router has a whole
+#: new way to lose one — by handing back a rung's record without checking it.
 CONFIGURATION_FREE: tuple[Callable[[], Extractor], ...] = (
     TypedTextExtractor,
+    TextLayerReader,
+    Ladder,
     StubExtractor,
     UnavailableExtractor,
     PlaceholderReader,
@@ -468,13 +481,28 @@ def test_every_extractor_the_package_defines_returns_the_same_type() -> None:
 
 
 def test_the_registry_builds_every_backend_it_says_is_available() -> None:
+    """CORRECTED 2026-08-13 TWICE: four names became six, then six became seven.
+
+    `pdf_text_layer` and `ladder` joined `_READY` the day `D-30` cleared the two
+    reader modules; `free_ocr` joined it the day `pagereader.py` gave
+    `FreeReader` the page reader it had always been missing. The tuple was not
+    weakened to a subset either time and is not going to be: this is still an
+    EXACT equality, because the thing it guards is that a backend cannot appear
+    in the registry without somebody writing its name down here — and a reader
+    arriving unannounced is precisely the event this repository spends
+    `tests/test_no_reader.py` on.
+    """
     built = {name: registry.build(name) for name in registry.available()}
 
-    # `no_reader` joined 2026-08-11 with the upload routes. Still an EXACT
-    # equality and still four names spelled out: the assertion is not loosened
-    # to a subset, because the thing it is guarding is that a backend cannot
-    # appear in the registry without somebody writing its name down here.
-    assert registry.available() == ("no_reader", "stub", "typed_text", "unavailable")
+    assert registry.available() == (
+        "free_ocr",
+        "ladder",
+        "no_reader",
+        "pdf_text_layer",
+        "stub",
+        "typed_text",
+        "unavailable",
+    )
     assert all(isinstance(b, Extractor) for b in built.values())
 
 
@@ -482,11 +510,27 @@ def test_the_registry_refuses_an_unknown_name_rather_than_returning_the_default(
     None
 ):
     """A typo that silently returns the default is a machine reading bills with
-    something other than what the deployment asked for."""
+    something other than what the deployment asked for.
+
+    THE SECOND ASSERTION PINS THE DEFAULT'S IDENTITY, and it was corrected on
+    2026-08-13 rather than deleted. It read `TypedTextExtractor` and the default
+    became `ladder` that day, because `typed_text` reads a sentence somebody
+    typed and refuses everything else — so the product accepted a PDF and a
+    photograph on `/upload` and then handed both to a regex that could not read
+    either. Measured before the change, through the call `app.py:1444` makes: a
+    corpus PDF, PNG and JPG all came back four `not_found`s; through the ladder,
+    the same PDF came back with its date, supplier, total and tax.
+
+    Kept rather than removed because a test that pins WHICH backend a bare
+    `build()` returns is the only thing standing between "the default changed
+    for a reason" and "the default changed because somebody edited a dict".
+    Pointed at the new one, it still fails the day it moves again.
+    """
     with pytest.raises(registry.UnknownBackend, match="no extraction backend named"):
         registry.build("typo_text")
 
-    assert isinstance(registry.build(), TypedTextExtractor)
+    assert isinstance(registry.build(), Ladder)
+    assert not isinstance(registry.build(), TypedTextExtractor)
 
 
 def test_the_registry_says_what_a_backend_still_needs_instead_of_unknown() -> None:
@@ -495,6 +539,108 @@ def test_the_registry_says_what_a_backend_still_needs_instead_of_unknown() -> No
 
     assert "reader_service" not in registry.available()
     assert "ServiceExtractor" in str(caught.value)
+
+
+def test_the_picture_reader_builds_from_its_name_now_that_it_has_a_page_reader() -> (
+    None
+):
+    """CORRECTED 2026-08-13. `free_ocr` used to be the second `_NEEDS_WIRING`
+    entry, because `FreeReader` takes a page reader — the thing that says which
+    words on a page are the total, the tax, the date and the supplier — and
+    nothing here answered it. `accountant/extract/pagereader.py` does, so the
+    name builds and the table entry would now be a lie.
+
+    The distinction `_NEEDS_WIRING` draws is not weakened by one name leaving
+    it: `reader_service` still demonstrates it in the test above, and the
+    assertion that `free_ocr` is no longer in it is what stops a backend being
+    listed as both buildable and blocked.
+    """
+    built = registry.build("free_ocr")
+
+    assert isinstance(built, FreeReader)
+    assert built.name == "free_ocr"
+    assert "free_ocr" in registry.available()
+    assert "free_ocr" not in registry._NEEDS_WIRING  # pyright: ignore[reportPrivateUsage]
+
+
+def test_the_router_hands_typed_text_to_the_rung_that_already_read_it() -> None:
+    """The safety argument for `DEFAULT_BACKEND = "ladder"`, in its testable
+    form: on the media type the product runs on today, the router is not a
+    change. Same rung, same record, same number."""
+    routed = Ladder().extract(BILL, "text/plain")
+    direct = TypedTextExtractor().extract(BILL, "text/plain")
+
+    assert routed.backend == "typed_text"
+    assert field_values(routed) == field_values(direct)
+    assert routed.per_field_source == direct.per_field_source
+
+
+def test_the_router_hands_a_pdf_to_the_text_layer_rung_and_names_it() -> None:
+    """Routing is provable without a real PDF: these bytes reach the PDF rung
+    and are refused BY IT, in its words, under its name. A router that had
+    swallowed the document would answer under its own."""
+    record = Ladder().extract(b"not a pdf at all", "application/pdf")
+
+    assert record.backend == "pdf_text_layer"
+    assert not_found_fields(record) == set(ExtractedRecord.FIELDS)
+    assert "do not begin with %PDF-" in record.per_field_source["total_paise"]
+
+
+@pytest.mark.parametrize(
+    ("label", "mime"),
+    [
+        ("a Word file", "application/vnd.openxmlformats-officedocument"),
+        ("a spreadsheet", "text/csv"),
+        ("nothing declared", ""),
+    ],
+)
+def test_the_router_refuses_what_no_rung_reads_and_says_what_to_do_instead(
+    label: str, mime: str
+) -> None:
+    """A refusal that says "unsupported" tells a person to wait for a feature.
+    This one tells them what to do now.
+
+    THE TWO IMAGE CASES LEFT THIS LIST ON 2026-08-13 and became the test below,
+    because they stopped being refusals: the picture rung is wired. The old
+    sentence asked the person to type the bill in instead, which would now be
+    asking them to retype a bill this system can read."""
+    record = Ladder().extract(b"\xff\xd8\xff\xe0", mime)
+
+    assert record.backend == "ladder", label
+    assert not_found_fields(record) == set(ExtractedRecord.FIELDS)
+    assert all(
+        ladder.NOT_A_KIND_WE_READ in source
+        for source in record.per_field_source.values()
+    )
+
+
+@pytest.mark.parametrize("mime", ["image/png", "image/jpeg"])
+def test_a_picture_reaches_the_reading_engine_rather_than_a_refusal(mime: str) -> None:
+    """The wiring, at the router. These bytes are not a picture, so what comes
+    back is still every field unread — but it is the READING ENGINE'S refusal,
+    under the engine's name, which is what proves the document got there. A
+    router that had swallowed it would answer under `ladder`."""
+    record = Ladder().extract(b"\xff\xd8\xff\xe0", mime)
+
+    assert record.backend == "free_ocr"
+    assert not_found_fields(record) == set(ExtractedRecord.FIELDS)
+    assert ladder.NOT_A_KIND_WE_READ not in record.per_field_source["total_paise"]
+
+
+def test_the_router_reads_only_what_it_says_it_reads() -> None:
+    """The list is asserted rather than described, so a rung cannot arrive
+    without the count moving. The five picture types are `freeocr.READABLE_MEDIA`
+    and are not written twice — the router claiming to read a kind the rung
+    refuses is the drift this equality catches."""
+    assert Ladder().reads() == (
+        "application/pdf",
+        "image/bmp",
+        "image/jpeg",
+        "image/png",
+        "image/tiff",
+        "image/webp",
+        "text/plain",
+    )
 
 
 def test_the_default_backend_is_one_the_registry_can_actually_build() -> None:
@@ -522,10 +668,89 @@ def stub_backend() -> StubExtractor:
 
 
 def service_backend() -> ServiceExtractor:
-    return service_for(BILL, party=PARTY, total_paise=TOTAL)
+    """The same facts as `stub_backend`, INCLUDING how sure it says it is.
+
+    `confidence` joined the answer on 2026-08-13, when `ExtractedRecord` grew a
+    per-field score. It is stated here because "the same facts" has to mean the
+    same facts: a service that says nothing about its own certainty is not
+    telling us what the stub tells us, and the drafts below would then differ
+    for a real reason rather than because a backend was swapped.
+
+    Which is itself the new rule, and it is asserted separately in
+    `test_a_backend_that_states_no_confidence_does_not_name_the_supplier`
+    below rather than being folded in here: a party name that was estimated -
+    or whose certainty nobody stated - is never used as a supplier's identity.
+
+    SINCE 2026-08-13 THE SAME IS TRUE OF THIS ONE EVEN THOUGH IT SPEAKS. Owner
+    decision 3 took `reader_service` off `adapter.ENTITLED_TO_EXACT`, so the
+    `EXACT` stated here is carried, readable and weighed - and is no longer read
+    as the claim that nothing was estimated. It is still stated here for the
+    original reason: a backend that says nothing about its own certainty is not
+    telling us what the stub tells us.
+    """
+    return service_for(
+        BILL,
+        party=PARTY,
+        total_paise=TOTAL,
+        confidence={"party": EXACT, "total_paise": EXACT},
+    )
 
 
 SWAPPABLE: tuple[Callable[[], Extractor], ...] = (stub_backend, service_backend)
+
+#: Whether each swappable backend's stated `EXACT` is read as EXACTNESS.
+#:
+#: NOT A FACT ABOUT THE BILL AND NOT A FACT ABOUT THE SEAM. Both backends state
+#: the same values, the same 1.0 and their own source name. What differs is
+#: whether `adapter.ENTITLED_TO_EXACT` believes the TIER when it claims nothing
+#: was estimated. `stub` is believed: `StubExtractor` hands back the values its
+#: constructor was given and reads nothing at all. `reader_service` was removed
+#: from that list on 2026-08-13, owner decision 3 - a remote API is posted
+#: whatever was uploaded, and that may be a photograph.
+#:
+#: SO THE SWAP IS NO LONGER FREE, AND THIS IS WHERE THE PRICE IS WRITTEN DOWN.
+#: Everything the seam carries is still identical across the two: the record, the
+#: values, the sources, the amount, the date, the reader's own score. What is not
+#: identical is one flag with one consumer - `pipeline.py:320`, where a read name
+#: becomes a vendor identity. The four tests below used to assert plain equality
+#: and now assert equality everywhere except there. That is the change the owner
+#: asked for, not a weakening of them: each still pins BOTH backends, and a
+#: backend that stopped working would fail its own half.
+BELIEVED: dict[str, bool] = {"stub_backend": True, "service_backend": False}
+
+#: BEING BELIEVED IS NOT PERMISSION TO POST. Owner ruling 2026-08-17.
+#:
+#: `BELIEVED` above is about `adapter.ENTITLED_TO_EXACT`: whether a tier's
+#: claim of EXACT is read as exactness, and therefore whether a name it read
+#: may become a supplier's IDENTITY. `decision.AUTO_POST_ALLOWED_TIERS` is a
+#: SECOND, INDEPENDENT rule about whether a bill may reach Tally with nobody
+#: looking, and it is `{pdf_text_layer, typed_text}`.
+#:
+#: NEITHER SWAPPABLE BACKEND IS ON IT. `stub` is not, and must never be added -
+#: a test double that could buy auto-post by handing in tidy numbers would make
+#: every refusal asserted in this file rewritable into a post. `reader_service`
+#: is not either, for the reason recorded above: a remote API is posted
+#: whatever was uploaded, and that may be a photograph.
+#:
+#: SO THE THREE TESTS BELOW NO LONGER ASK "WHICH ONE POSTED". Neither does.
+#: They ask the question the seam is actually about - what does the swap change
+#: about the entry that was built - and then assert, separately and in three
+#: ways each, that nothing was written by either. The claim that VALID is
+#: reachable at all lives with a TRUSTED tier, in
+#: `test_a_connector_refusal_cannot_happen_after_the_application_said_valid`,
+#: direction 2: `TypedTextExtractor`, same company, same bill bytes, and it
+#: posts. Without that test somewhere in this file these three would be
+#: satisfied by a pipeline that had stopped working entirely.
+#:
+#: THE THREE WERE RENAMED, NOT WEAKENED. Their old names said "only a believed
+#: backend posts", and that sentence is now false: neither does. A test name
+#: that lies is worse than one that is long, so each says what it now measures,
+#: and each carries the assertion its old name promised - the exact voucher,
+#: the exact paise, and the party question - moved one layer up, onto the entry
+#: that was built rather than the voucher that was not written.
+
+#: The two ways a run can end without a voucher.
+SAFE = frozenset({Outcome.UNCLEAR, Outcome.NOT_VALID})
 
 
 def test_two_backends_given_the_same_facts_produce_the_same_record() -> None:
@@ -562,68 +787,278 @@ def test_two_backends_given_the_same_facts_differ_only_in_who_they_say_they_are(
     )
 
 
+def identity_from(backend: Extractor, t: FakeTally) -> tuple[str, str]:
+    """The party and the debit account this backend's reading actually becomes.
+
+    Both, because they are two different failures with the same cause: the name
+    must not be written on the voucher, and it must not be looked up to propose
+    an account either.
+    """
+    draft = pipeline.build_draft(
+        COMPANY, BILL, "text/plain", backend, memory_for(t), today=TODAY
+    )
+    return draft.voucher.party, draft.voucher.debit_account
+
+
+def test_a_backend_that_states_no_confidence_does_not_name_the_supplier() -> None:
+    """The price of silence, asserted rather than assumed. F-03.
+
+    A service that reports no per-field confidence is not a service that read
+    the bill exactly - it is one that never said. Absent is not certain, so its
+    party name is not handed to `propose_account` and does not land on the
+    voucher; the person is asked who it was instead.
+
+    The reading is NOT thrown away: the record still carries the name, the
+    source and the fact that no score was stated. Only the identity is withheld.
+
+    THE CONTROL WAS RE-AIMED, 2026-08-13, OWNER DECISION 3. It used to be the
+    same service SPEAKING: a `reader_service` stating `EXACT` did name the
+    supplier, and this test asserted that on purpose. It no longer does - "No
+    reader that works off pixels (local OCR or remote API) is allowed to be
+    treated as 'exact' in the sense of bypassing safety checks." So the speaking
+    service is pinned here too, and pinned on both halves: its 1.0 is still
+    stated, still carried and still readable, and it names nobody. The control
+    that stops this passing on a change that refuses EVERYTHING moved to
+    `typed_text` - an entitled tier, the same bytes, the same name, still an
+    identity.
+    """
+    silent = service_for(BILL, party=PARTY, total_paise=TOTAL)
+    record = silent.extract(BILL, "text/plain")
+    speaking = service_backend().extract(BILL, "text/plain")
+    t = tally(past(PARTY, "Purchases", n=40))
+
+    assert (record.party, record.confidence_of("party")) == (PARTY, None)
+    assert not record.read_exactly("party")
+    assert identity_from(silent, t) == ("", "")
+
+    assert (speaking.party, speaking.confidence_of("party")) == (PARTY, EXACT)
+    assert not speaking.read_exactly("party")
+    assert identity_from(service_backend(), t) == ("", "")
+
+    assert identity_from(TypedTextExtractor(), t) == (PARTY, "Purchases")
+
+
 @pytest.mark.parametrize("make", SWAPPABLE, ids=lambda m: m.__name__)
-def test_two_backends_given_the_same_facts_produce_the_same_draft(
+def test_two_backends_given_the_same_facts_produce_the_same_draft_but_the_identity(
     make: Callable[[], Extractor],
 ) -> None:
+    """CORRECTED 2026-08-13, owner decision 3. It was
+    `test_two_backends_given_the_same_facts_produce_the_same_draft`, and the
+    equality it asserted is now false in exactly one place: a reader working off
+    pixels does not name a supplier. Every other figure still has to match, and
+    the RECORD still has to carry the name - a reading that had lost it would be
+    a different defect wearing this test's pass.
+
+    THE AMOUNT MOVED TO THE SAME SHAPE 2026-08-15, and until then this test was
+    half-updated: `party` was guarded by belief and `amount_paise` was still
+    asserted flat at `TOTAL`. `build_draft` now applies `read_exactly` to the
+    TOTAL as well as to the name, so an unbelieved tier's figure is not money
+    either and the voucher carries the unread amount, which is 0. The RECORD
+    still states 420000 with its own source, and the assertion below says so -
+    a reading that had lost the figure would be a different defect wearing this
+    test's pass, exactly as for the name.
+    """
     t = tally(past(PARTY, "Purchases", n=40))
     draft = pipeline.build_draft(
         COMPANY, BILL, "text/plain", make(), memory_for(t), today=TODAY
     )
+    believed = BELIEVED[make.__name__]
 
-    assert draft.voucher.party == PARTY
-    assert draft.voucher.amount_paise == TOTAL
-    assert draft.voucher.debit_account == "Purchases"
+    assert draft.record.party == PARTY
+    assert draft.record.total_paise == TOTAL
+    assert draft.voucher.amount_paise == (TOTAL if believed else 0)
     assert draft.voucher.gst_paise is None
     assert draft.voucher.date == TODAY
+    assert draft.voucher.party == (PARTY if believed else "")
+    assert draft.voucher.debit_account == ("Purchases" if believed else "")
 
 
 @pytest.mark.parametrize("make", SWAPPABLE, ids=lambda m: m.__name__)
-def test_two_backends_given_the_same_facts_produce_the_same_decision(
+def test_neither_backend_posts_and_only_the_believed_one_names_the_supplier(
     make: Callable[[], Extractor],
 ) -> None:
-    t = tally(past(PARTY, "Purchases", n=40))
-    d = pipeline.run(COMPANY, BILL, "text/plain", make(), t, memory_for(t), today=TODAY)
+    """The swap changes WHO THE ENTRY SAYS IT IS FROM, and changes nothing else.
 
-    assert d.outcome is Outcome.VALID
-    assert d.reason == "nothing unclear and nothing surprising"
+    CORRECTED 2026-08-13, owner decision 3, when it was
+    `test_two_backends_given_the_same_facts_produce_the_same_decision`.
+    CORRECTED AGAIN 2026-08-17, owner ruling on `AUTO_POST_ALLOWED_TIERS`,
+    when it was `..._either_post_or_ask_who_it_was`.
+
+    WHAT CHANGED AND WHY THE CLAIM DID NOT. This test asserted that the
+    believed tier POSTS. Neither swappable tier is on
+    `decision.AUTO_POST_ALLOWED_TIERS`, so neither may, and `stub` must never
+    be added to it - a fixture that could buy a voucher by stating tidy numbers
+    would make every refusal in this file rewritable into a post.
+
+    The thing being measured was never the voucher. It is the ONE difference a
+    backend swap is allowed to make: an unbelieved tier's reading of a name is
+    not an identity. That difference is fully visible before anything is
+    written - the unbelieved reading arrives with no party, no account and the
+    party question raised; the believed one arrives with the supplier named and
+    its account already proposed from history - so it is asserted there.
+
+    The unbelieved half is unchanged: `unclear` with `party_is_named` is an
+    existing path reached, not a new one invented.
+
+    THE REASON STRING IS STILL NOT PINNED, for the reason recorded 2026-08-15.
+    An unbelieved tier fails several checks at once and which of them sorts
+    first is not this test's business. `SAFE` and the problem ids are.
+    """
+    t = tally(past(PARTY, "Purchases", n=40))
+    d = pipeline.run(
+        COMPANY,
+        BILL,
+        "text/plain",
+        make(),
+        t,
+        memory_for(t),
+        today=TODAY,
+        period_reader=open_books_for(COMPANY),
+    )
+    asked = [p.id for p in d.problems]
+
+    # Both halves, first: no tier here may post, whatever it was believed about.
+    assert d.outcome in SAFE, d.reason
+    assert d.outcome is not Outcome.VALID
+    assert d.posted_tally_id is None
+    assert t.list_our_vouchers(COMPANY) == ()
+
+    if not BELIEVED[make.__name__]:
+        assert d.outcome is Outcome.UNCLEAR
+        assert "party_is_named" in asked, d.reason
+        assert d.voucher.party == ""
+        assert d.voucher.debit_account == ""
+        return
+
+    # The believed half, and the half that stops this passing by refusing
+    # everything: the supplier IS named, its account IS proposed from the forty
+    # prior vouchers, and nobody is asked who this was.
+    assert "party_is_named" not in asked, d.reason
+    assert d.voucher.party == PARTY
+    assert d.voucher.debit_account == "Purchases"
 
 
 @pytest.mark.parametrize("make", SWAPPABLE, ids=lambda m: m.__name__)
-def test_two_backends_given_the_same_facts_post_the_same_voucher(
+def test_neither_backend_writes_and_only_the_believed_one_builds_the_voucher(
     make: Callable[[], Extractor],
 ) -> None:
-    t = tally(past(PARTY, "Purchases", n=40))
-    d = pipeline.run(COMPANY, BILL, "text/plain", make(), t, memory_for(t), today=TODAY)
-    back = t.read_by_operation_id(COMPANY, d.operation_id)
+    """Not one paise of the entry moves when the backend is swapped.
 
-    assert d.posted_tally_id is not None
-    assert back is not None
-    assert (back.party, back.amount_paise, back.debit_account, back.credit_account) == (
-        PARTY,
-        TOTAL,
-        "Purchases",
-        "Cash",
+    CORRECTED 2026-08-13, owner decision 3, when it was
+    `test_two_backends_given_the_same_facts_post_the_same_voucher`.
+    CORRECTED AGAIN 2026-08-17, owner ruling on `AUTO_POST_ALLOWED_TIERS`,
+    when it was `test_only_a_believed_backend_posts_and_the_other_writes_
+    nothing`.
+
+    THE EXACT FOUR-FIELD TUPLE IS STILL HERE, and it is still the half that has
+    to hold exactly. It has moved from the voucher READ BACK OUT OF TALLY to
+    the voucher the pipeline BUILT, because neither swappable tier is on
+    `decision.AUTO_POST_ALLOWED_TIERS` and so neither reaches Tally at all. The
+    party, the paise, the expense leg and the funding leg are all asserted
+    unchanged; what is no longer asserted is a write that the system correctly
+    refuses to perform.
+
+    NOTHING WRITTEN IS ASSERTED THREE WAYS, for both backends, not one. "It
+    refused" without "and wrote nothing" is exactly the assertion that lets a
+    silent write through: `read_by_operation_id` misses nothing only if the id
+    is right, `list_our_vouchers` misses a write carrying no marker, and
+    `posted_tally_id` is only what the draft believes about itself.
+    """
+    t = tally(past(PARTY, "Purchases", n=40))
+    d = pipeline.run(
+        COMPANY,
+        BILL,
+        "text/plain",
+        make(),
+        t,
+        memory_for(t),
+        today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
 
+    assert d.posted_tally_id is None
+    assert t.read_by_operation_id(COMPANY, d.operation_id) is None
+    assert t.list_our_vouchers(COMPANY) == ()
+    assert pipeline.reverse(d, t) is False, "there is nothing of ours to undo"
 
-def test_two_backends_move_the_trial_balance_by_the_same_paise() -> None:
-    moves: list[dict[str, int]] = []
+    if not BELIEVED[make.__name__]:
+        # An unbelieved reading does not even assemble an entry: no supplier,
+        # no money, no legs. Asserted rather than skipped, because "wrote
+        # nothing" is also true of a backend that was never run.
+        assert (
+            d.voucher.party,
+            d.voucher.amount_paise,
+            d.voucher.debit_account,
+            d.voucher.credit_account,
+        ) == ("", 0, "", "")
+        return
+
+    assert (
+        d.voucher.party,
+        d.voucher.amount_paise,
+        d.voucher.debit_account,
+        d.voucher.credit_account,
+    ) == (PARTY, TOTAL, "Purchases", "Cash")
+
+
+def test_neither_backend_moves_the_trial_balance_and_the_run_still_happened() -> None:
+    """No ledger moves either way, and the two ledgers that WOULD have moved
+    are still named to the paise.
+
+    CORRECTED 2026-08-13, owner decision 3, when it was
+    `test_two_backends_move_the_trial_balance_by_the_same_paise`.
+    CORRECTED AGAIN 2026-08-17, owner ruling on `AUTO_POST_ALLOWED_TIERS`,
+    when it was `test_only_a_believed_backend_moves_the_trial_balance`.
+
+    THE OLD DOCSTRING NAMED THE TRAP THIS VERSION HAD TO SOLVE: "posted
+    nothing" and "was never run" look identical in a test that only checks a
+    trial balance. That was survivable while one backend still moved two
+    ledgers. Neither does now - neither swappable tier is on
+    `AUTO_POST_ALLOWED_TIERS` - so an empty map on both sides would be passed
+    by a pipeline that had been deleted.
+
+    So the paise stayed in the test and moved to where they still exist: the
+    ENTRY the believed backend built, whose expense leg is `Purchases` for
+    exactly `TOTAL` and whose funding leg is `Cash` for the same. That is the
+    delta this run would have made, asserted as the same two ledgers and the
+    same amount the old assertion named, beside the fact that neither ledger
+    actually moved.
+    """
+    moves: dict[str, dict[str, int]] = {}
+    built: dict[str, tuple[str, int, str]] = {}
     for make in SWAPPABLE:
         t = tally(past(PARTY, "Purchases", n=40))
         before = t.trial_balance(COMPANY)
-        pipeline.run(COMPANY, BILL, "text/plain", make(), t, memory_for(t), today=TODAY)
+        d = pipeline.run(
+            COMPANY,
+            BILL,
+            "text/plain",
+            make(),
+            t,
+            memory_for(t),
+            today=TODAY,
+            period_reader=open_books_for(COMPANY),
+        )
         after = t.trial_balance(COMPANY)
-        moves.append(
-            {
-                ledger: after.get(ledger, 0) - before.get(ledger, 0)
-                for ledger in set(before) | set(after)
-                if after.get(ledger, 0) != before.get(ledger, 0)
-            }
+        moves[make.__name__] = {
+            ledger: after.get(ledger, 0) - before.get(ledger, 0)
+            for ledger in set(before) | set(after)
+            if after.get(ledger, 0) != before.get(ledger, 0)
+        }
+        built[make.__name__] = (
+            d.voucher.debit_account,
+            d.voucher.amount_paise,
+            d.voucher.credit_account,
         )
 
-    assert moves[0] == {"Purchases": TOTAL, "Cash": -TOTAL}
-    assert moves[0] == moves[1]
+    # Not one ledger moved, for either backend.
+    assert moves == {"stub_backend": {}, "service_backend": {}}
+
+    # And the run happened: the believed backend assembled the entry that would
+    # have moved exactly `Purchases` and `Cash` by exactly `TOTAL`, while the
+    # unbelieved one assembled nothing at all.
+    assert built["stub_backend"] == ("Purchases", TOTAL, "Cash")
+    assert built["service_backend"] == ("", 0, "")
 
 
 def test_a_backend_that_finds_nothing_still_leaves_the_posting_gate_shut() -> None:
@@ -638,6 +1073,7 @@ def test_a_backend_that_finds_nothing_still_leaves_the_posting_gate_shut() -> No
         t,
         memory_for(t),
         today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
 
     assert d.outcome is not Outcome.VALID
@@ -1041,7 +1477,16 @@ def test_nothing_from_a_malformed_answer_reaches_the_draft() -> None:
     t = tally(past(PARTY, "Purchases", n=40))
     before = t.trial_balance(COMPANY)
     broken = service_for(BILL, party=PARTY, total_paise="4200.00")
-    d = pipeline.run(COMPANY, BILL, "text/plain", broken, t, memory_for(t), today=TODAY)
+    d = pipeline.run(
+        COMPANY,
+        BILL,
+        "text/plain",
+        broken,
+        t,
+        memory_for(t),
+        today=TODAY,
+        period_reader=open_books_for(COMPANY),
+    )
 
     assert d.voucher.party == ""
     assert d.voucher.amount_paise == 0
@@ -1117,7 +1562,12 @@ def gst_draft(t: FakeTally) -> pipeline.Draft:
         COMPANY, GST_BILL, "text/plain", TypedTextExtractor(), memory, today=TODAY
     )
     return pipeline.evaluate(
-        draft, t.read_accounts(COMPANY), t.read_vouchers(COMPANY), memory
+        draft,
+        t.read_accounts(COMPANY),
+        t.read_vouchers(COMPANY),
+        memory,
+        period_open=None,
+        pdf_repaired=None,
     )
 
 
@@ -1190,6 +1640,7 @@ def test_a_gst_bill_writes_nothing_and_moves_the_trial_balance_by_zero_paise() -
         t,
         memory_for(t),
         today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
 
     assert draft.outcome is not Outcome.VALID
@@ -1275,6 +1726,7 @@ def test_a_connector_refusal_cannot_happen_after_the_application_said_valid() ->
         today=TODAY,
         log=store,
         run_id="phase7-gst",
+        period_reader=open_books_for(COMPANY),
     )
 
     assert refused.voucher.gst_paise == GST_PAISE, "the fixture stopped carrying tax"
@@ -1287,7 +1739,14 @@ def test_a_connector_refusal_cannot_happen_after_the_application_said_valid() ->
     # Direction 2: the same company, a bill with no tax on it. VALID has to be
     # worth something, or direction 1 is satisfied by refusing everything.
     posted = pipeline.run(
-        COMPANY, BILL, "text/plain", TypedTextExtractor(), t, memory, today=TODAY
+        COMPANY,
+        BILL,
+        "text/plain",
+        TypedTextExtractor(),
+        t,
+        memory,
+        today=TODAY,
+        period_reader=open_books_for(COMPANY),
     )
 
     assert posted.voucher.gst_paise is None
@@ -1508,3 +1967,413 @@ def test_a_field_the_stub_was_handed_still_names_the_stub_and_not_a_refusal():
     assert record.per_field_source["date"] == "stub"
     assert not record.per_field_source["date"].startswith(NOT_FOUND)
     assert record.per_field_source["party"].startswith(NOT_FOUND)
+
+
+# =============================================================================
+# THE FIRST NUMBER IS NOT THE AMOUNT
+# =============================================================================
+#
+# `_AMOUNT.findall(text)[0]` took the FIRST number in the document. On a
+# sentence a person typed that is the amount; on an invoice layout it is the
+# invoice number. Measured on the committed corpus before this section existed,
+# `.venv/bin/python scripts/run_ground_truth.py`:
+#
+#     20 of 20 text/plain cases returned a WRONG total_paise, sourced
+#     "typed_text", with no confidence anywhere on the record.
+#     GT-0001: TOTAL 147.50 on the bill, total_paise = 100, from "GT/0001".
+#
+# The media type could never have caught it. `text/plain` is `text/plain`
+# whether a person typed one line or pasted a whole bill, and that conflation
+# IS the defect - so what follows tests the SHAPE of the text and never the
+# type it arrived as.
+
+#: Every `text/plain` case in the committed pack. A `.txt` in that directory IS
+#: a `text/plain` case - `build_ground_truth.py` writes one extension per input
+#: type - so this cannot silently shrink to the cases that happen to pass.
+CORPUS_TEXT_CASES = sorted(
+    (REPO / "artifacts" / "ground_truth" / "documents").glob("GT-*.txt")
+)
+
+#: One corpus bill, verbatim. Six invoice signals: TAX INVOICE, INVOICE NO,
+#: HSN/SAC, PLACE OF SUPPLY, a TOTAL line, and five label:value lines.
+INVOICE_TEXT = (
+    REPO / "artifacts" / "ground_truth" / "documents" / "GT-0001.txt"
+).read_bytes()
+
+
+def test_an_invoice_shaped_text_refuses_the_amount_in_the_owners_words() -> None:
+    """GT-0001. It used to answer 100 paise for a bill of 14750."""
+    record = TypedTextExtractor().extract(INVOICE_TEXT, "text/plain")
+
+    assert record.total_paise is None
+    assert record.per_field_source["total_paise"] == (
+        f"{NOT_FOUND}: This document looks like an invoice, but the amount "
+        "could not be reliably read. Please upload a clearer image or a "
+        "proper PDF."
+    )
+
+
+@pytest.mark.parametrize("path", CORPUS_TEXT_CASES, ids=lambda p: p.stem)
+def test_every_text_plain_corpus_case_refuses_instead_of_returning_a_number(
+    path: pathlib.Path,
+) -> None:
+    """The measurement, pinned. 20 wrong extractions become 20 refusals.
+
+    A value here is not a near miss to be tuned away later - it is a number
+    with `typed_text` on it reaching the ledger, which this repository counts
+    as worse than reading nothing.
+    """
+    assert len(CORPUS_TEXT_CASES) == 20, "the pack holds twenty text/plain cases"
+    record = TypedTextExtractor().extract(path.read_bytes(), "text/plain")
+
+    assert record.total_paise is None, path.stem
+    assert record.tax_paise is None, path.stem
+    assert record.per_field_source["total_paise"].startswith(f"{NOT_FOUND}: ")
+    assert "looks like an invoice" in record.per_field_source["total_paise"]
+
+
+def test_the_control_a_typed_sentence_is_not_invoice_shaped_and_still_reads() -> None:
+    """THE CONTROL ON THE WHOLE SECTION. A refusal that refuses everything is
+    not a fix, it is a deletion, and it would pass every test above."""
+    record = TypedTextExtractor().extract(BILL, "text/plain")
+
+    assert record.total_paise == 420000
+    assert record.per_field_source["total_paise"] == "typed_text"
+
+
+def test_a_total_line_on_its_own_is_one_signal_and_one_signal_is_not_a_layout() -> None:
+    """THE THRESHOLD, pinned. `TOTAL 4200` fires exactly one invoice signal -
+    the total line - and nothing else. A person typing that into the box is
+    stating an amount, so one signal must not be enough to refuse.
+
+    Written after the mutant `_SIGNALS_FOR_AN_INVOICE = 1` survived every other
+    test in this section: the control below used `TOTAL` mid-sentence, which
+    fires ZERO signals, so it never reached the threshold at all. Both sides of
+    the boundary are here, so moving it either way goes red.
+    """
+    one = TypedTextExtractor().extract(b"TOTAL 4200", "text/plain")
+    two = TypedTextExtractor().extract(b"TOTAL 4200\nHSN/SAC: 9954", "text/plain")
+
+    assert one.total_paise == 420000
+    assert two.total_paise is None
+    assert "looks like an invoice" in two.per_field_source["total_paise"]
+
+
+def test_the_word_total_inside_a_sentence_is_not_a_total_line_at_all() -> None:
+    """The anchor, separately. A figure in a column begins its line; the same
+    word in the middle of something somebody typed is a person talking."""
+    record = TypedTextExtractor().extract(b"paid for the lot, TOTAL 4200", "text/plain")
+
+    assert record.total_paise == 420000
+
+
+def test_two_numbers_in_a_note_refuse_rather_than_taking_the_first() -> None:
+    """Not invoice-shaped, so rule 1 does not fire - and picking the first of
+    two is the same guess that produced the 20."""
+    record = TypedTextExtractor().extract(
+        b"paid Sharma Traders 1180 for cement plus 180 GST", "text/plain"
+    )
+
+    assert record.total_paise is None
+    assert record.per_field_source["total_paise"] == (
+        f"{NOT_FOUND}: Multiple numbers were found and the amount could not be "
+        "determined. Please specify the amount explicitly or upload a clearer "
+        "document."
+    )
+
+
+def test_the_control_a_rate_is_not_counted_as_a_second_number() -> None:
+    """`18%` is a rate, not an amount. Counting it would refuse every GST
+    sentence the product is built around, which is a fix that refuses
+    everything wearing the right sentence."""
+    record = TypedTextExtractor().extract(GST_BILL, "text/plain")
+
+    assert record.total_paise == 420000
+    assert record.tax_paise == 64068
+
+
+def test_a_four_digit_year_alone_is_not_read_as_an_amount() -> None:
+    """SANITY CHECK 1. One number in the text, and it is a year."""
+    record = TypedTextExtractor().extract(b"software renewal 2026", "text/plain")
+
+    assert record.total_paise is None
+    assert "a year" in record.per_field_source["total_paise"]
+
+
+def test_the_control_a_year_sized_amount_written_as_money_still_reads() -> None:
+    """The escape hatch, and the disconfirming case for the year check: ₹2,000
+    is an ordinary rent. Written as money it is money."""
+    record = TypedTextExtractor().extract(b"paid Landlord Rs. 2000 rent", "text/plain")
+
+    assert record.total_paise == 200000
+
+
+def test_something_phone_shaped_is_not_read_as_an_amount() -> None:
+    """SANITY CHECK 2. Ten bare digits is an Indian mobile number, and
+    ₹98,76,543.21 is what reading it as money would post."""
+    record = TypedTextExtractor().extract(b"call Sharma on 9876543210", "text/plain")
+
+    assert record.total_paise is None
+    assert "phone number" in record.per_field_source["total_paise"]
+
+
+def test_something_id_shaped_is_not_read_as_an_amount() -> None:
+    """SANITY CHECK 3. `GT/0001` is the string that produced the original 100
+    paise, and it is still not an amount when it is the only number there."""
+    record = TypedTextExtractor().extract(b"our reference GT/0001", "text/plain")
+
+    assert record.total_paise is None
+    assert "identifier" in record.per_field_source["total_paise"]
+
+
+def test_a_refused_amount_is_never_a_guess_carrying_a_low_score() -> None:
+    """The shape of every refusal above: no value, and a sentence saying why.
+
+    `ExtractedRecord` has no confidence field, so 'confidence 0.0' is expressed
+    the way `textlayer._field` already expresses it - a `None` value cannot
+    carry a score, and the source string is where the reason lives.
+    """
+    for data in (INVOICE_TEXT, b"paid X 1180 plus 180", b"renewal 2026"):
+        record = TypedTextExtractor().extract(data, "text/plain")
+
+        assert record.total_paise is None, data[:30]
+        assert record.per_field_source["total_paise"].startswith(f"{NOT_FOUND}: ")
+        assert record.per_field_source["total_paise"].strip() != NOT_FOUND
+
+
+# =============================================================================
+# WHERE THE DETECTOR WAS WALKED AROUND, MEASURED 2026-08-13
+# =============================================================================
+#
+# Everything above this line held. What did not hold is the sentence "it
+# refuses invoice-shaped text", because "invoice-shaped" was not a property of
+# the text - it was the name of one function's specific holes. Measured on the
+# committed detector at dd96a26, through `pipeline.build_draft` +
+# `pipeline.evaluate` + `app.render_decision`:
+#
+#     TAX INVOICE / Invoice 2451 / paid Sharma Traders as per order /
+#     Amount: Rupees Four Thousand Two Hundred Only
+#         -> outcome VALID, amount_paise 245100, provenance "typed_text"
+#
+# The bill says four thousand two hundred rupees, in words, the way a cash memo
+# is written. 2451 is the invoice number. That is the same defect the section
+# above closes, on a document whose FIRST LINE SAYS TAX INVOICE, and it posted.
+#
+# Three holes let it through, and each has its own test below:
+#
+#     a bare header line was worth one signal, and one is not enough
+#     the invoice-number mark only matched "invoice no", never "Invoice 2451"
+#     an identifier was only spotted when a separator GLUED it to a word
+
+#: Four texts a person would call a bill on sight. Each returned the invoice,
+#: bill or challan NUMBER as the amount, at the gate's full confidence.
+WALKED_AROUND_THE_DETECTOR = (
+    b"TAX INVOICE\nInvoice 2451\npaid Sharma Traders as per order\n"
+    b"Amount: Rupees Four Thousand Two Hundred Only\n",
+    b"TAX INVOICE\nInvoice 7788\nSharma Traders\n",
+    b"SHARMA TRADERS\nTax Invoice\nBill 3097\n",
+    b"DELIVERY CHALLAN\nChallan 6612\nSharma Traders\ngoods delivered\n",
+)
+
+
+@pytest.mark.parametrize("data", WALKED_AROUND_THE_DETECTOR)
+def test_a_document_whose_own_first_line_calls_it_a_bill_is_a_layout(
+    data: bytes,
+) -> None:
+    """A line that says nothing but INVOICE / BILL / CHALLAN is not somebody
+    talking. Nobody types that line into a one-line box, and no sentence
+    contains it, so on its own it settles the question the two-signal rule was
+    invented to hedge."""
+    record = TypedTextExtractor().extract(data, "text/plain")
+
+    assert record.total_paise is None, data[:24]
+    assert "looks like an invoice" in record.per_field_source["total_paise"]
+
+
+def test_the_control_a_total_a_person_typed_is_not_a_header_line() -> None:
+    """THE CONTROL ON THE HEADER RULE, and the one it must not break. `TOTAL
+    4200` carries a word AND a figure, so it is not a bare header, and a rule
+    that scored it as one would delete this backend's whole job."""
+    typed = TypedTextExtractor().extract(b"TOTAL 4200", "text/plain")
+    bulleted = TypedTextExtractor().extract(b"- total 4200", "text/plain")
+
+    assert typed.total_paise == 420000
+    assert bulleted.total_paise == 420000
+
+
+def test_the_invoice_number_form_a_supplier_actually_prints_is_a_signal() -> None:
+    """`invoice\\s*(?:no|number|#)` never matched `Invoice 2451`, which is the
+    commonest form there is. Two signals here, neither of them a header line,
+    so this goes red if the mark alone is dropped."""
+    record = TypedTextExtractor().extract(
+        b"Invoice 2451\nPLACE OF SUPPLY: GUJARAT\nAmount 4200\n", "text/plain"
+    )
+
+    assert record.total_paise is None
+    assert "looks like an invoice" in record.per_field_source["total_paise"]
+
+
+def test_a_total_line_is_a_total_line_behind_whatever_the_printer_put_first() -> None:
+    """`^[ \\t|]*` scored zero on a leader or a rule character in front of the
+    word. The decoration a supplier prints is not evidence about the line."""
+    record = TypedTextExtractor().extract(
+        b"..... TOTAL 4200\nGSTIN: 24ABCDE1234F1Z5\n", "text/plain"
+    )
+
+    assert record.total_paise is None
+    assert "looks like an invoice" in record.per_field_source["total_paise"]
+
+
+#: A number that follows one of these words is that identifier. No separator
+#: glues any of them, so the positional check saw an ordinary amount.
+LABELLED_IDENTIFIERS = (
+    (b"HSN 998311 for Sharma Traders", b"HSN"),
+    (b"Order 45231 from Sharma Traders", b"Order"),
+    (b"cheque 887654 to Sharma Traders", b"cheque"),
+    (b"invoice 4471 for repair charges", b"invoice"),
+    (b"batch 0001 from Sharma", b"batch"),
+)
+
+
+@pytest.mark.parametrize(("data", "word"), LABELLED_IDENTIFIERS)
+def test_the_word_in_front_of_a_number_says_it_is_not_an_amount(
+    data: bytes, word: bytes
+) -> None:
+    """SANITY CHECK 3, semantic rather than positional. `GT/0001` was caught
+    because of the slash; `HSN 998311` was ₹9,98,311 because of the space."""
+    record = TypedTextExtractor().extract(data, "text/plain")
+
+    assert record.total_paise is None, data
+    assert word.decode() in record.per_field_source["total_paise"]
+
+
+def test_the_control_a_currency_symbol_beats_the_identifier_words() -> None:
+    """THE CONTROL ON THE IDENTIFIER RULE. Nobody writes a reference number
+    with rupees in front of it, so `bill Rs 1200` is the bill's amount and
+    refusing it would be the fix refusing the case it exists to serve."""
+    record = TypedTextExtractor().extract(b"phone bill Rs 1200", "text/plain")
+
+    assert record.total_paise == 120000
+
+
+def test_ten_digits_is_a_phone_number_even_with_rupees_in_front_of_it() -> None:
+    """SANITY CHECK 2, unreachable until now. `money_marked` short-circuited
+    every check below it, so `Rs.` in front of a mobile number bought it
+    ₹98,76,543.21 and a comma did the same on its own."""
+    for data in (b"paid on Rs. 9876543210", b"transfer 9,876,543,210"):
+        record = TypedTextExtractor().extract(data, "text/plain")
+
+        assert record.total_paise is None, data
+        assert "phone number" in record.per_field_source["total_paise"]
+
+
+def test_the_control_the_year_check_still_lets_rent_written_as_money_through() -> None:
+    """THE CONTROL ON THAT ORDER. The escape hatch was moved, not deleted:
+    `Rs. 2000` is a rent and must not be read as a year."""
+    record = TypedTextExtractor().extract(b"paid Landlord Rs. 2000 rent", "text/plain")
+
+    assert record.total_paise == 200000
+
+
+#: Ten ordinary sentences, which is this backend's entire job. Six of them
+#: refused at dd96a26 because a date, a quantity or a reference counted as a
+#: second number and RULE 3 fired. A refusal is not a wrong total, but a
+#: backend that refuses the sentences it exists for has been deleted, not fixed.
+ORDINARY_SENTENCES = (
+    (b"paid Sharma Traders Rs 4200 on 12/08/2026", 420000),
+    (b"bought 50 bags of cement from Sharma Traders for Rs 4200", 420000),
+    (b"paid rent 15000 for August 2026", 1500000),
+    (b"diesel 3500 for the truck on 5 Aug", 350000),
+    (b"repair charges Rs. 900 invoice 4471", 90000),
+    (b"paid Sharma Traders 4200 for cement", 420000),
+)
+
+
+@pytest.mark.parametrize(("data", "paise"), ORDINARY_SENTENCES)
+def test_a_number_that_cannot_be_an_amount_is_not_a_rival_to_the_one_that_can(
+    data: bytes, paise: int
+) -> None:
+    """RULE 3 counted every number, including the ones RULE 2 would have thrown
+    out on sight. A date component and a reference number are not candidates
+    for the total, so they cannot make the total ambiguous."""
+    record = TypedTextExtractor().extract(data, "text/plain")
+
+    assert record.total_paise == paise, record.per_field_source["total_paise"]
+    assert record.per_field_source["total_paise"] == "typed_text"
+
+
+def test_the_control_two_real_amounts_are_still_ambiguous() -> None:
+    """THE CONTROL ON THAT WIDENING, and the one that keeps RULE 3 alive. Two
+    numbers that could each be the total is the guess that produced the 20."""
+    record = TypedTextExtractor().extract(
+        b"paid Sharma Traders 1180 for cement plus 180 GST", "text/plain"
+    )
+
+    assert record.total_paise is None
+    assert "Multiple numbers were found" in record.per_field_source["total_paise"]
+
+
+def test_a_month_name_beside_a_number_too_big_to_be_a_day_is_not_a_date() -> None:
+    """MEASURED after the date rule landed, and a refusal it caused.
+
+    `salary 45000 August` is a salary for a month, not a date - 45000 is not a
+    day of any month. The rule that lets `diesel 3500 on 5 Aug` read was
+    excluding both of them, so a number is only part of a date when it is
+    SHAPED like one: a day beside the month, or a year after it."""
+    record = TypedTextExtractor().extract(b"salary 45000 August", "text/plain")
+
+    assert record.total_paise == 4500000
+    assert (
+        TypedTextExtractor().extract(b"August 4200", "text/plain").total_paise == 420000
+    )
+
+
+def test_the_control_a_real_date_beside_a_month_name_is_still_a_date() -> None:
+    """THE CONTROL. Narrowing the rule to day-shaped and year-shaped numbers
+    must not put the price back in competition with the date."""
+    day = TypedTextExtractor().extract(
+        b"diesel 3500 for the truck on 5 Aug", "text/plain"
+    )
+    year = TypedTextExtractor().extract(
+        b"paid rent 15000 for August 2026", "text/plain"
+    )
+
+    assert day.total_paise == 350000
+    assert year.total_paise == 1500000
+
+
+def test_a_confidence_outside_zero_to_one_is_refused_when_the_record_is_built() -> None:
+    """`ExtractedRecord.__post_init__` states this invariant and nothing ran it.
+
+    The reason it matters is in the comment beside it: a score above 1.0 clears
+    `AUTO_POST_FLOOR` by accident, and this record reaches callers that never
+    build a `wall.Field` and so never meet that class's identical check. A
+    backend computing `confidence / 10` instead of `/ 100` is the shape of the
+    mistake, and it should fail where it is made rather than three layers away
+    at the moment it authorises a post."""
+    with pytest.raises(ValueError, match=r"between 0\.0 and 1\.0"):
+        ExtractedRecord(
+            date=None,
+            party="SHARMA TRADERS",
+            total_paise=None,
+            tax_paise=None,
+            per_field_source=dict.fromkeys(ExtractedRecord.FIELDS, "stub"),
+            per_field_confidence={"party": 1.4},
+        )
+
+
+def test_the_control_a_confidence_at_each_end_of_the_range_is_accepted() -> None:
+    """THE CONTROL. A check written `0.0 < score < 1.0` would pass the test
+    above and would then refuse every field the text layer read exactly, and
+    every field a reader looked at and read nothing in."""
+    record = ExtractedRecord(
+        date=None,
+        party="SHARMA TRADERS",
+        total_paise=None,
+        tax_paise=None,
+        per_field_source=dict.fromkeys(ExtractedRecord.FIELDS, "stub"),
+        per_field_confidence={"party": 1.0, "date": 0.0},
+    )
+
+    assert record.confidence_of("party") == 1.0
+    assert record.confidence_of("date") == 0.0

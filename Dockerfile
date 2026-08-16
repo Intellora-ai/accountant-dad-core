@@ -26,13 +26,64 @@
 # digest has to be READ from a registry, and inventing one in a file whose
 # whole job is to be exact would be a fabricated fact. docs/DEPLOY.md names the
 # single command that produces the real one.
-FROM python:3.14.6-slim
+#
+# TWO STAGES, AND ONLY THE SECOND ONE SHIPS
+# -----------------------------------------
+# The first stage exists to turn uv.lock into installed wheels. uv itself,
+# pyproject.toml and the lockfile stay behind in it; what crosses into the
+# image is the virtualenv and nothing else. Both stages are the SAME pinned
+# base, so the interpreter the wheels were installed against and the one that
+# runs them are the same interpreter.
+FROM python:3.14.6-slim AS dependencies
 
-# NOTHING IS INSTALLED, AND THAT IS THE MEASUREMENT, NOT A SHORTCUT.
-# `dependencies = []` in pyproject.toml, kept that way deliberately. With no
-# runtime dependency there is no resolver step, no build backend, no network
-# during the build, and no third-party wheel in the image to audit. The package
-# is copied and run.
+# WHY ANYTHING IS INSTALLED AT ALL. 2026-08-13.
+# This block used to read "NOTHING IS INSTALLED, AND THAT IS THE MEASUREMENT",
+# and it was true: `dependencies = []` in pyproject.toml meant no resolver, no
+# build backend and no third-party wheel to audit. D-30 ended that on
+# 2026-08-13 - pypdf, pytesseract and Pillow. accountant/extract/textlayer.py
+# imports pypdf at module level and freeocr.py imports pytesseract and PIL, so
+# from that commit an image installing nothing carried code that could not
+# import. Nothing here was edited to break it. That is exactly why the property
+# now lives in tests/test_deploy_artefacts.py, which reads these instructions,
+# rather than in a comment that went on sounding correct while being false.
+
+# uv, pinned, and present in THIS STAGE ONLY. 0.12.2 is the version measured on
+# the machine these files were written on. It is not resolved from uv.lock and
+# cannot be: uv is the tool that reads the lock, so it is not in it.
+RUN pip install --no-cache-dir uv==0.12.2
+
+# The interpreter is this image's, never one uv fetched. Without this, uv is
+# free to download its own Python when it dislikes the system one, and the
+# virtualenv copied out below would point at a binary that does not exist in
+# the final stage - an ImportError at run time, from a decision taken at build
+# time, on the exact question this file's header spends fifteen lines settling.
+ENV UV_PYTHON_DOWNLOADS=never
+
+# Only the two files the resolver reads. The source is deliberately not here:
+# `--no-install-project` below means the package itself is NOT installed. It is
+# copied and run, exactly as before, and PYTHONPATH is what finds it.
+COPY pyproject.toml uv.lock /app/
+WORKDIR /app
+
+# `--locked` IS THE PIN. uv installs the exact versions uv.lock names, and
+# refuses outright when uv.lock and pyproject.toml have drifted apart, so this
+# image cannot contain a version no test ever ran against. CI runs
+# `uv sync --extra dev --locked` against the same lockfile; the difference is
+# the extra, because a container needs the three runtime wheels and not pytest,
+# ruff, pyright and eleven other tools.
+#
+# `--no-dev` IS REDUNDANT TODAY AND STAYS ANYWAY. `dev` is an extra here
+# (`provides-extras = ["dev"]` in uv.lock), so uv leaves it out unless asked
+# for it by name. The day somebody moves it to a dependency group, uv's default
+# flips to INSTALLING it, and this flag is the only line that would stop a test
+# runner and a linter shipping into production.
+RUN uv sync --locked --no-dev --no-install-project
+
+
+# --------------------------------------------------------------------------
+# The image that ships.
+# --------------------------------------------------------------------------
+FROM python:3.14.6-slim
 
 # Unbuffered on purpose. serve() prints the resolved configuration and, when
 # Tally cannot be reached, the refusal - and then exits. Python block-buffers
@@ -99,6 +150,79 @@ RUN groupadd --system --gid 10001 accountant \
  && useradd --system --uid 10001 --gid 10001 --home-dir /app --no-create-home accountant
 
 WORKDIR /app
+
+# The wheels, and nothing else from the stage that built them - no uv, no
+# lockfile, no pyproject.toml. Copied to the SAME ABSOLUTE PATH they were
+# installed at, because a virtualenv records its own location and one moved to
+# a different directory stops finding the interpreter it was built against.
+COPY --from=dependencies --chown=10001:10001 /app/.venv /app/.venv
+
+# So that `python` means the interpreter which can see those wheels. The CMD
+# and the HEALTHCHECK below both say `python` and both resolve it through PATH,
+# so this single line is what lets `python -m accountant.web` import pypdf.
+ENV PATH="/app/.venv/bin:$PATH"
+
+# TESSERACT IS INSTALLED. OWNER DECISION, 2026-08-13.
+#
+# This block used to read "TESSERACT IS NOT INSTALLED, AND THAT IS A DECISION",
+# and its first reason was that the engine would have no caller. That reason
+# expired the same day: `pagereader.py` supplied the page reader
+# `registry._NEEDS_WIRING` was waiting for, `DEFAULT_BACKEND` became `ladder`,
+# and `app.py` hands every uploaded image to it. The engine has a caller on the
+# live path.
+#
+# THE MEASUREMENT THAT DECIDED IT. With `PATH=/usr/bin:/bin` - no `tesseract`
+# binary, which is what this image was - `registry.default_extractor()` on a
+# corpus PNG returns all four fields unread, each of them saying
+#
+#     not_found: the text reading program is not installed on this machine
+#
+# A photograph read ZERO of four fields in this image, always. PDFs read either
+# way, through pypdf, and typed entry never touched an engine.
+#
+# The owner, in words: "This is required because the MVP requirement is: a user
+# can upload a photo and get fields read. A Docker image where photos are dead
+# by design does not satisfy that requirement."
+#
+# WHAT IT COSTS, WRITTEN DOWN RATHER THAN DISCOVERED LATER.
+# The image is larger and slower to build. docs/DEPLOY.md carries the owner's
+# sentence accepting exactly that.
+#
+# AND APT PINS NOTHING, which is the cost that has not gone away. `uv sync
+# --locked` above installs the exact wheel versions the suite ran against;
+# these two packages are whatever Debian's index serves on the morning of the
+# build. No version is written here because none has been READ from an index -
+# inventing one in a file whose job is to be exact would be a fabricated fact,
+# the same rule the header applies to the base image digest. What contains the
+# damage is that the list is SHORT and asserted: tests/test_deploy_artefacts.py
+# fails on a third package, on any language pack but English, on a missing
+# --no-install-recommends, and on package lists left in the layer.
+#
+# ENGLISH ONLY. `tesseract-ocr-eng` is a hard dependency of `tesseract-ocr` on
+# Debian and is named anyway: which languages this image can read is a decision,
+# and one that rests on somebody else's dependency list is invisible here.
+# `tesseract-ocr-all` is the shape to never write - every language there is,
+# tens of megabytes each, for bills no corpus in this repository contains.
+#
+# ONE RUN, on purpose. `apt-get update` downloads tens of megabytes of package
+# lists, and a layer is immutable: deleting them in a later RUN leaves the bytes
+# in the image under a whiteout while the file reads as though it had cleaned
+# up. Update, install and delete are one instruction or the delete is theatre.
+#
+# NOTHING HERE IS BUILT OR MEASURED. docs/DEPLOY.md's evidence class stays
+# `NOT MEASURED`: no `docker build` has been run, so what is proved is that this
+# file INSTRUCTS the install, not that a photograph was read inside a container.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      tesseract-ocr \
+      tesseract-ocr-eng \
+ && rm -rf /var/lib/apt/lists/*
+
+# CI ASKS FOR THE SAME BINARY FOR A DIFFERENT REASON, and both are still true.
+# docs/CI_OCR_INSTALL.md installs it in the two jobs that run the whole suite,
+# because a suite without it SKIPS the OCR tests and a skipped test measures
+# nothing. Here it is installed because a container without it refuses every
+# photograph. Same package, two questions, and now the same answer.
 
 # Only the package. Not the tests, not ci/, not docs/, not scripts/ - none of
 # them run in production, and every file that ships is a file somebody has to

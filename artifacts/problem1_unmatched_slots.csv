@@ -1,0 +1,301 @@
+document,field,category,why,legible_rows
+gst-portal-and-govt-004.jpg,total,LABEL_NORMALIZATION_FAILURE,page contains 'TOTAL' and the matcher refused it,95
+gst-portal-and-govt-004.jpg,tax,LABEL_NORMALIZATION_FAILURE,page contains 'GST' and the matcher refused it,95
+gst-portal-and-govt-004.jpg,net,UNKNOWN_LABEL,"page says 'SUB TOTAL', not in the vocabulary",95
+gst-portal-and-govt-004.jpg,party,WRONG_FIELD_FAMILY,only total labels are on this page,95
+gst-portal-and-govt-004.jpg,date,PARSER_PATH_FAILURE,"1 located, field still empty",95
+open-datasets-and-photos-001.jpg,total,UNKNOWN_LABEL,"page says 'SUM', not in the vocabulary",173
+open-datasets-and-photos-001.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,173
+open-datasets-and-photos-001.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,173
+open-datasets-and-photos-001.jpg,party,UNKNOWN_LABEL,"page says 'FROM', not in the vocabulary",173
+open-datasets-and-photos-001.jpg,date,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,173
+open-datasets-and-photos-002.jpg,total,IMAGE_QUALITY_FAILURE,only 2 word rows carry characters,2
+open-datasets-and-photos-002.jpg,tax,IMAGE_QUALITY_FAILURE,only 2 word rows carry characters,2
+open-datasets-and-photos-002.jpg,net,IMAGE_QUALITY_FAILURE,only 2 word rows carry characters,2
+open-datasets-and-photos-002.jpg,party,IMAGE_QUALITY_FAILURE,only 2 word rows carry characters,2
+open-datasets-and-photos-002.jpg,date,IMAGE_QUALITY_FAILURE,only 2 word rows carry characters,2
+open-datasets-and-photos-003.jpg,total,UNKNOWN_LABEL,"page says 'SUM', not in the vocabulary",84
+open-datasets-and-photos-003.jpg,tax,WRONG_FIELD_FAMILY,only net labels are on this page,84
+open-datasets-and-photos-003.jpg,net,LABEL_NORMALIZATION_FAILURE,page contains 'NET' and the matcher refused it,84
+open-datasets-and-photos-003.jpg,party,WRONG_FIELD_FAMILY,only net labels are on this page,84
+open-datasets-and-photos-003.jpg,date,LABEL_NORMALIZATION_FAILURE,page contains 'DATE' and the matcher refused it,84
+open-datasets-and-photos-004.jpg,total,LABEL_NORMALIZATION_FAILURE,page contains 'AMOUNT' and the matcher refused it,151
+open-datasets-and-photos-004.jpg,tax,WRONG_FIELD_FAMILY,only total labels are on this page,151
+open-datasets-and-photos-004.jpg,net,WRONG_FIELD_FAMILY,only total labels are on this page,151
+open-datasets-and-photos-004.jpg,party,WRONG_FIELD_FAMILY,only total labels are on this page,151
+open-datasets-and-photos-004.jpg,date,LABEL_NORMALIZATION_FAILURE,page contains 'DATE' and the matcher refused it,151
+open-datasets-and-photos-005.jpg,total,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,93
+open-datasets-and-photos-005.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,93
+open-datasets-and-photos-005.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,93
+open-datasets-and-photos-005.jpg,party,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,93
+open-datasets-and-photos-005.jpg,date,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,93
+open-datasets-and-photos-006.jpg,total,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-006.jpg,tax,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-006.jpg,net,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-006.jpg,party,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-006.jpg,date,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-007.jpg,total,IMAGE_QUALITY_FAILURE,only 4 word rows carry characters,4
+open-datasets-and-photos-007.jpg,tax,IMAGE_QUALITY_FAILURE,only 4 word rows carry characters,4
+open-datasets-and-photos-007.jpg,net,IMAGE_QUALITY_FAILURE,only 4 word rows carry characters,4
+open-datasets-and-photos-007.jpg,party,IMAGE_QUALITY_FAILURE,only 4 word rows carry characters,4
+open-datasets-and-photos-007.jpg,date,IMAGE_QUALITY_FAILURE,only 4 word rows carry characters,4
+open-datasets-and-photos-008.jpg,total,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,40
+open-datasets-and-photos-008.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,40
+open-datasets-and-photos-008.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,40
+open-datasets-and-photos-008.jpg,party,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,40
+open-datasets-and-photos-008.jpg,date,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,40
+open-datasets-and-photos-009.jpg,total,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,23
+open-datasets-and-photos-009.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,23
+open-datasets-and-photos-009.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,23
+open-datasets-and-photos-009.jpg,party,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,23
+open-datasets-and-photos-009.jpg,date,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,23
+open-datasets-and-photos-010.jpg,total,WRONG_FIELD_FAMILY,only date labels are on this page,252
+open-datasets-and-photos-010.jpg,tax,WRONG_FIELD_FAMILY,only date labels are on this page,252
+open-datasets-and-photos-010.jpg,net,WRONG_FIELD_FAMILY,only date labels are on this page,252
+open-datasets-and-photos-010.jpg,party,UNKNOWN_LABEL,"page says 'FROM', not in the vocabulary",252
+open-datasets-and-photos-010.jpg,date,LABEL_NORMALIZATION_FAILURE,page contains 'DATE' and the matcher refused it,252
+open-datasets-and-photos-011.jpg,total,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-011.jpg,tax,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-011.jpg,net,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-011.jpg,party,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-011.jpg,date,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-012.png,total,WRONG_FIELD_FAMILY,only date labels are on this page,83
+open-datasets-and-photos-012.png,tax,WRONG_FIELD_FAMILY,only date labels are on this page,83
+open-datasets-and-photos-012.png,net,WRONG_FIELD_FAMILY,only date labels are on this page,83
+open-datasets-and-photos-012.png,party,WRONG_FIELD_FAMILY,only date labels are on this page,83
+open-datasets-and-photos-012.png,date,LABEL_NORMALIZATION_FAILURE,page contains 'DATE' and the matcher refused it,83
+open-datasets-and-photos-013.jpg,total,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,54
+open-datasets-and-photos-013.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,54
+open-datasets-and-photos-013.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,54
+open-datasets-and-photos-013.jpg,party,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,54
+open-datasets-and-photos-013.jpg,date,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,54
+open-datasets-and-photos-014.jpg,total,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-014.jpg,tax,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-014.jpg,net,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-014.jpg,party,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-014.jpg,date,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-015.jpg,total,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-015.jpg,tax,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-015.jpg,net,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-015.jpg,party,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-015.jpg,date,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-016.jpg,total,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-016.jpg,tax,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-016.jpg,net,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-016.jpg,party,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-016.jpg,date,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-017.jpg,total,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,6
+open-datasets-and-photos-017.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,6
+open-datasets-and-photos-017.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,6
+open-datasets-and-photos-017.jpg,party,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,6
+open-datasets-and-photos-017.jpg,date,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,6
+open-datasets-and-photos-018.jpg,total,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,28
+open-datasets-and-photos-018.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,28
+open-datasets-and-photos-018.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,28
+open-datasets-and-photos-018.jpg,party,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,28
+open-datasets-and-photos-018.jpg,date,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,28
+open-datasets-and-photos-019.jpg,total,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,27
+open-datasets-and-photos-019.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,27
+open-datasets-and-photos-019.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,27
+open-datasets-and-photos-019.jpg,party,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,27
+open-datasets-and-photos-019.jpg,date,OCR_LABEL_CORRUPTION,closest word/label pair 'ATE~DATE',27
+open-datasets-and-photos-020.jpg,total,IMAGE_QUALITY_FAILURE,only 2 word rows carry characters,2
+open-datasets-and-photos-020.jpg,tax,IMAGE_QUALITY_FAILURE,only 2 word rows carry characters,2
+open-datasets-and-photos-020.jpg,net,IMAGE_QUALITY_FAILURE,only 2 word rows carry characters,2
+open-datasets-and-photos-020.jpg,party,IMAGE_QUALITY_FAILURE,only 2 word rows carry characters,2
+open-datasets-and-photos-020.jpg,date,IMAGE_QUALITY_FAILURE,only 2 word rows carry characters,2
+open-datasets-and-photos-021.jpg,total,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,25
+open-datasets-and-photos-021.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,25
+open-datasets-and-photos-021.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,25
+open-datasets-and-photos-021.jpg,party,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,25
+open-datasets-and-photos-021.jpg,date,OCR_LABEL_CORRUPTION,closest word/label pair 'ATE~DATE',25
+open-datasets-and-photos-022.jpg,total,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,45
+open-datasets-and-photos-022.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,45
+open-datasets-and-photos-022.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,45
+open-datasets-and-photos-022.jpg,party,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,45
+open-datasets-and-photos-022.jpg,date,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,45
+open-datasets-and-photos-023.jpg,total,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,43
+open-datasets-and-photos-023.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,43
+open-datasets-and-photos-023.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,43
+open-datasets-and-photos-023.jpg,party,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,43
+open-datasets-and-photos-023.jpg,date,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,43
+open-datasets-and-photos-024.jpg,total,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,31
+open-datasets-and-photos-024.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,31
+open-datasets-and-photos-024.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,31
+open-datasets-and-photos-024.jpg,party,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,31
+open-datasets-and-photos-024.jpg,date,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,31
+open-datasets-and-photos-025.jpg,total,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,30
+open-datasets-and-photos-025.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,30
+open-datasets-and-photos-025.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,30
+open-datasets-and-photos-025.jpg,party,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,30
+open-datasets-and-photos-025.jpg,date,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,30
+open-datasets-and-photos-026.jpg,total,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,48
+open-datasets-and-photos-026.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,48
+open-datasets-and-photos-026.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,48
+open-datasets-and-photos-026.jpg,party,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,48
+open-datasets-and-photos-026.jpg,date,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,48
+open-datasets-and-photos-027.jpg,total,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-027.jpg,tax,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-027.jpg,net,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-027.jpg,party,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-027.jpg,date,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-028.jpg,total,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,32
+open-datasets-and-photos-028.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,32
+open-datasets-and-photos-028.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,32
+open-datasets-and-photos-028.jpg,party,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,32
+open-datasets-and-photos-028.jpg,date,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,32
+open-datasets-and-photos-029.jpg,total,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-029.jpg,tax,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-029.jpg,net,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-029.jpg,party,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-029.jpg,date,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-030.jpg,total,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-030.jpg,tax,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-030.jpg,net,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-030.jpg,party,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-030.jpg,date,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-031.jpg,total,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-031.jpg,tax,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-031.jpg,net,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-031.jpg,party,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-031.jpg,date,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-032.jpg,total,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,36
+open-datasets-and-photos-032.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,36
+open-datasets-and-photos-032.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,36
+open-datasets-and-photos-032.jpg,party,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,36
+open-datasets-and-photos-032.jpg,date,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,36
+open-datasets-and-photos-033.jpg,total,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,14
+open-datasets-and-photos-033.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,14
+open-datasets-and-photos-033.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,14
+open-datasets-and-photos-033.jpg,party,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,14
+open-datasets-and-photos-033.jpg,date,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,14
+open-datasets-and-photos-034.jpg,total,IMAGE_QUALITY_FAILURE,only 2 word rows carry characters,2
+open-datasets-and-photos-034.jpg,tax,IMAGE_QUALITY_FAILURE,only 2 word rows carry characters,2
+open-datasets-and-photos-034.jpg,net,IMAGE_QUALITY_FAILURE,only 2 word rows carry characters,2
+open-datasets-and-photos-034.jpg,party,IMAGE_QUALITY_FAILURE,only 2 word rows carry characters,2
+open-datasets-and-photos-034.jpg,date,IMAGE_QUALITY_FAILURE,only 2 word rows carry characters,2
+open-datasets-and-photos-035.jpg,total,IMAGE_QUALITY_FAILURE,only 3 word rows carry characters,3
+open-datasets-and-photos-035.jpg,tax,IMAGE_QUALITY_FAILURE,only 3 word rows carry characters,3
+open-datasets-and-photos-035.jpg,net,IMAGE_QUALITY_FAILURE,only 3 word rows carry characters,3
+open-datasets-and-photos-035.jpg,party,IMAGE_QUALITY_FAILURE,only 3 word rows carry characters,3
+open-datasets-and-photos-035.jpg,date,IMAGE_QUALITY_FAILURE,only 3 word rows carry characters,3
+open-datasets-and-photos-036.jpg,total,WRONG_FIELD_FAMILY,only date labels are on this page,68
+open-datasets-and-photos-036.jpg,tax,WRONG_FIELD_FAMILY,only date labels are on this page,68
+open-datasets-and-photos-036.jpg,net,WRONG_FIELD_FAMILY,only date labels are on this page,68
+open-datasets-and-photos-036.jpg,party,WRONG_FIELD_FAMILY,only date labels are on this page,68
+open-datasets-and-photos-036.jpg,date,PARSER_PATH_FAILURE,"1 located, field still empty",68
+open-datasets-and-photos-037.jpg,total,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-037.jpg,tax,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-037.jpg,net,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-037.jpg,party,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-037.jpg,date,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-038.jpg,total,LABEL_NORMALIZATION_FAILURE,page contains 'TOTAL' and the matcher refused it,42
+open-datasets-and-photos-038.jpg,tax,WRONG_FIELD_FAMILY,only total labels are on this page,42
+open-datasets-and-photos-038.jpg,net,WRONG_FIELD_FAMILY,only total labels are on this page,42
+open-datasets-and-photos-038.jpg,party,WRONG_FIELD_FAMILY,only total labels are on this page,42
+open-datasets-and-photos-038.jpg,date,WRONG_FIELD_FAMILY,only total labels are on this page,42
+open-datasets-and-photos-039.jpg,total,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-039.jpg,tax,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-039.jpg,net,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-039.jpg,party,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-039.jpg,date,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-040.jpg,total,LABEL_NORMALIZATION_FAILURE,page contains 'TOTAL' and the matcher refused it,81
+open-datasets-and-photos-040.jpg,tax,UNKNOWN_LABEL,"page says 'VAT', not in the vocabulary",81
+open-datasets-and-photos-040.jpg,net,WRONG_FIELD_FAMILY,only total labels are on this page,81
+open-datasets-and-photos-040.jpg,party,WRONG_FIELD_FAMILY,only total labels are on this page,81
+open-datasets-and-photos-040.jpg,date,WRONG_FIELD_FAMILY,only total labels are on this page,81
+open-datasets-and-photos-041.jpg,total,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,54
+open-datasets-and-photos-041.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,54
+open-datasets-and-photos-041.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,54
+open-datasets-and-photos-041.jpg,party,UNKNOWN_LABEL,"page says 'FROM', not in the vocabulary",54
+open-datasets-and-photos-041.jpg,date,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,54
+open-datasets-and-photos-042.jpg,total,OCR_LABEL_CORRUPTION,closest word/label pair 'AUNT~AMOUNT',101
+open-datasets-and-photos-042.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,101
+open-datasets-and-photos-042.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,101
+open-datasets-and-photos-042.jpg,party,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,101
+open-datasets-and-photos-042.jpg,date,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,101
+open-datasets-and-photos-043.jpg,total,LABEL_NORMALIZATION_FAILURE,page contains 'TOTAL' and the matcher refused it,7
+open-datasets-and-photos-043.jpg,tax,WRONG_FIELD_FAMILY,only total labels are on this page,7
+open-datasets-and-photos-043.jpg,net,WRONG_FIELD_FAMILY,only total labels are on this page,7
+open-datasets-and-photos-043.jpg,party,WRONG_FIELD_FAMILY,only total labels are on this page,7
+open-datasets-and-photos-043.jpg,date,WRONG_FIELD_FAMILY,only total labels are on this page,7
+open-datasets-and-photos-044.jpg,total,LABEL_NORMALIZATION_FAILURE,page contains 'TOTAL' and the matcher refused it,82
+open-datasets-and-photos-044.jpg,tax,WRONG_FIELD_FAMILY,only total labels are on this page,82
+open-datasets-and-photos-044.jpg,net,WRONG_FIELD_FAMILY,only total labels are on this page,82
+open-datasets-and-photos-044.jpg,party,WRONG_FIELD_FAMILY,only total labels are on this page,82
+open-datasets-and-photos-044.jpg,date,WRONG_FIELD_FAMILY,only total labels are on this page,82
+open-datasets-and-photos-045.jpg,total,LABEL_NORMALIZATION_FAILURE,page contains 'TOTAL' and the matcher refused it,68
+open-datasets-and-photos-045.jpg,tax,WRONG_FIELD_FAMILY,only total labels are on this page,68
+open-datasets-and-photos-045.jpg,net,WRONG_FIELD_FAMILY,only total labels are on this page,68
+open-datasets-and-photos-045.jpg,party,WRONG_FIELD_FAMILY,only total labels are on this page,68
+open-datasets-and-photos-045.jpg,date,WRONG_FIELD_FAMILY,only total labels are on this page,68
+open-datasets-and-photos-046.jpg,total,IMAGE_QUALITY_FAILURE,only 1 word rows carry characters,1
+open-datasets-and-photos-046.jpg,tax,IMAGE_QUALITY_FAILURE,only 1 word rows carry characters,1
+open-datasets-and-photos-046.jpg,net,IMAGE_QUALITY_FAILURE,only 1 word rows carry characters,1
+open-datasets-and-photos-046.jpg,party,IMAGE_QUALITY_FAILURE,only 1 word rows carry characters,1
+open-datasets-and-photos-046.jpg,date,IMAGE_QUALITY_FAILURE,only 1 word rows carry characters,1
+open-datasets-and-photos-047.jpg,total,IMAGE_QUALITY_FAILURE,only 4 word rows carry characters,4
+open-datasets-and-photos-047.jpg,tax,IMAGE_QUALITY_FAILURE,only 4 word rows carry characters,4
+open-datasets-and-photos-047.jpg,net,IMAGE_QUALITY_FAILURE,only 4 word rows carry characters,4
+open-datasets-and-photos-047.jpg,party,IMAGE_QUALITY_FAILURE,only 4 word rows carry characters,4
+open-datasets-and-photos-047.jpg,date,IMAGE_QUALITY_FAILURE,only 4 word rows carry characters,4
+open-datasets-and-photos-048.jpg,total,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-048.jpg,tax,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-048.jpg,net,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-048.jpg,party,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-048.jpg,date,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-049.jpg,total,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,52
+open-datasets-and-photos-049.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,52
+open-datasets-and-photos-049.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,52
+open-datasets-and-photos-049.jpg,party,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,52
+open-datasets-and-photos-049.jpg,date,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,52
+open-datasets-and-photos-050.jpg,total,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,46
+open-datasets-and-photos-050.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,46
+open-datasets-and-photos-050.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,46
+open-datasets-and-photos-050.jpg,party,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,46
+open-datasets-and-photos-050.jpg,date,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,46
+open-datasets-and-photos-051.jpg,total,LABEL_NORMALIZATION_FAILURE,page contains 'TOTAL' and the matcher refused it,73
+open-datasets-and-photos-051.jpg,tax,WRONG_FIELD_FAMILY,only total labels are on this page,73
+open-datasets-and-photos-051.jpg,net,WRONG_FIELD_FAMILY,only total labels are on this page,73
+open-datasets-and-photos-051.jpg,party,WRONG_FIELD_FAMILY,only total labels are on this page,73
+open-datasets-and-photos-051.jpg,date,WRONG_FIELD_FAMILY,only total labels are on this page,73
+open-datasets-and-photos-052.jpg,total,LABEL_NORMALIZATION_FAILURE,page contains 'TOTAL' and the matcher refused it,80
+open-datasets-and-photos-052.jpg,tax,UNKNOWN_LABEL,"page says 'VAT', not in the vocabulary",80
+open-datasets-and-photos-052.jpg,net,LABEL_NORMALIZATION_FAILURE,page contains 'NET' and the matcher refused it,80
+open-datasets-and-photos-052.jpg,party,WRONG_FIELD_FAMILY,only total labels are on this page,80
+open-datasets-and-photos-052.jpg,date,WRONG_FIELD_FAMILY,only total labels are on this page,80
+open-datasets-and-photos-053.jpg,total,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,27
+open-datasets-and-photos-053.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,27
+open-datasets-and-photos-053.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,27
+open-datasets-and-photos-053.jpg,party,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,27
+open-datasets-and-photos-053.jpg,date,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,27
+open-datasets-and-photos-054.jpg,total,IMAGE_QUALITY_FAILURE,only 3 word rows carry characters,3
+open-datasets-and-photos-054.jpg,tax,IMAGE_QUALITY_FAILURE,only 3 word rows carry characters,3
+open-datasets-and-photos-054.jpg,net,IMAGE_QUALITY_FAILURE,only 3 word rows carry characters,3
+open-datasets-and-photos-054.jpg,party,IMAGE_QUALITY_FAILURE,only 3 word rows carry characters,3
+open-datasets-and-photos-054.jpg,date,IMAGE_QUALITY_FAILURE,only 3 word rows carry characters,3
+open-datasets-and-photos-055.jpg,total,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-055.jpg,tax,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-055.jpg,net,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-055.jpg,party,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-055.jpg,date,IMAGE_QUALITY_FAILURE,only 0 word rows carry characters,0
+open-datasets-and-photos-056.jpg,total,WRONG_FIELD_FAMILY,only date labels are on this page,106
+open-datasets-and-photos-056.jpg,tax,WRONG_FIELD_FAMILY,only date labels are on this page,106
+open-datasets-and-photos-056.jpg,net,WRONG_FIELD_FAMILY,only date labels are on this page,106
+open-datasets-and-photos-056.jpg,party,UNKNOWN_LABEL,"page says 'FROM', not in the vocabulary",106
+open-datasets-and-photos-056.jpg,date,LABEL_NORMALIZATION_FAILURE,page contains 'DATE' and the matcher refused it,106
+open-datasets-and-photos-057.jpg,total,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,22
+open-datasets-and-photos-057.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,22
+open-datasets-and-photos-057.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,22
+open-datasets-and-photos-057.jpg,party,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,22
+open-datasets-and-photos-057.jpg,date,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,22
+open-datasets-and-photos-058.jpg,total,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,11
+open-datasets-and-photos-058.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,11
+open-datasets-and-photos-058.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,11
+open-datasets-and-photos-058.jpg,party,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,11
+open-datasets-and-photos-058.jpg,date,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,11
+open-datasets-and-photos-059.jpg,total,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,13
+open-datasets-and-photos-059.jpg,tax,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,13
+open-datasets-and-photos-059.jpg,net,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,13
+open-datasets-and-photos-059.jpg,party,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,13
+open-datasets-and-photos-059.jpg,date,NO_LABEL_ON_PAGE,no label and no synonym for this field anywhere,13

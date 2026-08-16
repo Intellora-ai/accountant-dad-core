@@ -252,6 +252,16 @@ from xml.etree import ElementTree  # nosec B405
 from xml.parsers import expat
 
 from accountant.schema import Voucher
+
+# `chart` holds the ledger-placement rule and imports nothing from this file,
+# so there is no cycle. `masters` does import this file, which is why `Masters`
+# is imported inside the one method that needs it and not here.
+#
+# `errors` is the OTHER exception tree - the one `masters` raises. It is
+# imported under a name of its own because `errors` is already a field name and
+# a local variable in this module (`ImportResult.errors`, `parse_function_answer`).
+from accountant.tallyio import chart as ledger_chart
+from accountant.tallyio import errors as master_errors
 from accountant.tallyio.client import (
     CompanyNotBackedUp,
     DuplicateOperation,
@@ -1249,6 +1259,31 @@ def parse_ledger_names(
     )
 
 
+def parse_ledger_chart(
+    payload: str, limit: int = DEFAULT_MAX_RESPONSE_BYTES
+) -> tuple[ledger_chart.Placement, ...]:
+    """The same response as `parse_ledger_names`, keeping the group as well.
+
+    NO NEW REQUEST SHAPE. `build_ledger_list_request` has always asked for
+    ("Name", "Parent") - `parse_ledger_names` simply threw the parent away.
+    That matters more than it looks: a TDL report request wedged a live
+    TallyPrime on 2026-08-09, so a second request family for data already on
+    the wire is not a cost worth paying.
+
+    A build that sends no `<PARENT>` leaves `parent` empty, which
+    `chart.derive_group` reads as "this company's chart cannot say" and refuses
+    on. Empty is never treated as a group.
+    """
+    root = parse_read_response(payload, limit)
+    return tuple(
+        ledger_chart.Placement(
+            name=name, parent=(_child_text(node, "PARENT") or "").strip()
+        )
+        for node in root.iter("LEDGER")
+        if (name := _name_of(node)) is not None
+    )
+
+
 def _signed_balance_paise(text: str) -> int:
     """A closing balance, in our debit-positive convention.
 
@@ -2104,6 +2139,92 @@ def _locators_text(item: ExportedVoucher) -> str:
     return ", ".join(f"{key}={value}" for key, value in item.locators.items())
 
 
+@dataclass(frozen=True)
+class ChartBook:
+    """`chart.LedgerBook` over the live gateway: read the chart, create a ledger.
+
+    An adapter rather than two more methods on `RealTally`, because the two
+    things it does are the whole of what the placement rule is allowed to ask a
+    backend for. Widening that interface is how a rule starts consulting things
+    it should not.
+
+    It takes a `Transport` rather than a `RealTally` for the same reason
+    `Masters` does: the thing that opens the socket is INJECTED, so a test can
+    prove that nothing was sent, and "nothing was sent" is the only assertion
+    that tells a refusal apart from a failed write.
+    """
+
+    transport: Transport
+    company: str
+    limit: int = DEFAULT_MAX_RESPONSE_BYTES
+
+    def chart(self) -> tuple[ledger_chart.Placement, ...]:
+        """The company's ledgers WITH their groups.
+
+        The same request `read_accounts` makes - `build_ledger_list_request`
+        already fetches Parent - so this is not an extra round trip.
+
+        A transport failure is NOT caught here, exactly as `read_accounts` does
+        not catch one. "The chart could not be read" and "the chart says this
+        ledger does not belong anywhere" are different facts, and turning the
+        first into the second would report an unreachable Tally as an empty
+        company - the thing `factory.py` exists to forbid.
+        """
+        return parse_ledger_chart(
+            self.transport.send(build_ledger_list_request(self.company), retry=True),
+            self.limit,
+        )
+
+    def create(self, name: str, group: str) -> str:
+        """Create one ledger, or say why it was not created. Never raises.
+
+        `ensure_ledger` is idempotent and reads the master BACK after writing.
+        Three separate things have to be true before this reports success, and
+        collapsing any of them is how a write Tally accepted and did not keep
+        gets reported as a ledger that exists:
+
+            no exception          the gateway answered at all
+            result.success        Tally did not complain
+            result.confirmed      the ledger was FOUND afterwards, by name
+
+        `masters.MasterResult` keeps `success` and `confirmed` apart for
+        exactly this reason (`masters.py:117-131`), and an unconfirmed create
+        is returned here as a failure.
+
+        The audit log already holds the request and response XML for the
+        attempt: `Masters.create_ledger` writes them through
+        `audit.JsonLineAuditLogger` before it reports anything.
+        """
+        # FUNCTION-LOCAL ON PURPOSE. `masters` imports this module at module
+        # level (`masters.py:64`), so importing it up top is an import cycle.
+        # The seam cannot move into `masters` either - `write_voucher` is here.
+        from accountant.tallyio.masters import Masters
+
+        try:
+            made = Masters(self.company, transport=self.transport).ensure_ledger(
+                name, group
+            )
+        except master_errors.TallyError as refused:
+            # Includes the write door: `writedoor.WriteNotAllowedError` is a
+            # `TallyPolicyError`. A door refusal is reported the same way as a
+            # dead gateway - as a sentence, with nothing written - because the
+            # caller's next move is identical and `FakeTally` has no door to
+            # raise a different class from.
+            return f"{refused.code}: {refused.message}"
+
+        if not made.success:
+            return made.summary or (
+                "Tally refused the ledger and said nothing this code can read"
+            )
+        if not made.confirmed:
+            return (
+                "Tally reported no complaint and the read-back afterwards could "
+                "not find it, so the ledger is NOT confirmed. A write Tally "
+                "accepts and does not keep is a failure, never a success"
+            )
+        return ""
+
+
 class RealTally:
     """TallyClient over XML/HTTP. See the module docstring before trusting it.
 
@@ -2287,27 +2408,53 @@ class RealTally:
     def _check_ledgers_exist(
         self, company: str, voucher: Voucher, operation_id: str
     ) -> None:
-        """A10's fourth condition, and the second first-integration trap.
+        """A10's fourth condition. It now CREATES the ledger instead of refusing.
 
-        Tally does not create an accounting master on the fly for an imported
-        voucher: a ledger that does not exist makes the import fail, and it can
-        fail silently. Names are compared exactly, so a case difference is a
-        refusal rather than a guess.
+        WHAT THIS USED TO SAY, AND THE FACT THAT CONTRADICTED IT
+        ---------------------------------------------------------
+        This docstring said "Tally does not create an accounting master on the
+        fly for an imported voucher: a ledger that does not exist makes the
+        import fail". `fake.py:153` said the opposite in as many words - Tally
+        "creates one silently if you send it a name it does not have, so
+        'purchases' against a chart holding 'Purchases' makes a second ledger
+        next to the real one". Both were written down as fact. Neither has been
+        measured against a licensed TallyPrime, and they cannot both be true.
+
+        THE CODE DOES NOT HAVE TO CHOOSE, because pre-creating the ledger under
+        a group derived from the company's own chart is the better move under
+        EITHER of them:
+
+          * if Tally does NOT auto-create, pre-creating turns an import that
+            fails - possibly silently - into one that works;
+          * if Tally DOES auto-create, pre-creating means WE choose the parent
+            instead of Tally choosing it, which is the whole difference between
+            a supplier under Sundry Creditors and the same name filed wherever
+            the import defaults to.
+
+        The one thing that must not happen under either reading is a ledger
+        appearing whose group nobody decided. `chart.derive_group` reads the
+        group out of this company's own ledgers and parents, and refuses when
+        the chart cannot answer - an EMPTY company (the measured `TANVEER
+        SIDHU` case, `masters.py:5-9`) has nothing to learn from, and a wrong
+        group is wrong in the books permanently. `RUNBOOK_PHASE5_ACCEPTANCE.md`
+        :180-186 spells that out and records that the trial-balance comparison
+        does not catch it.
+
+        Names are still compared EXACTLY: a ledger differing only in case is a
+        refusal, never a second ledger created beside the first.
+
+        The rule and the wording both live in `chart.place_ledgers`, which
+        `FakeTally.write_voucher` calls too. Restating either here is how the
+        two halves drifted before (`schema.py:115-132`).
         """
-        accounts = self.read_accounts(company)
-        missing = tuple(
-            name
-            for name in (voucher.debit_account, voucher.credit_account)
-            if name not in accounts
+        refusal = ledger_chart.place_ledgers(
+            ChartBook(self._transport, company, self._limit),
+            company,
+            voucher,
+            operation_id,
         )
-        if missing:
-            raise TallyDataError(
-                f"refusing to write operation {operation_id!r} to {company!r}: "
-                f"the ledger(s) {', '.join(repr(name) for name in missing)} do "
-                "not exist there. Tally will not create them for us, so the "
-                "import would be rejected or silently ignored. Create them in "
-                "Tally first."
-            )
+        if refusal:
+            raise TallyDataError(refusal)
 
     def _prove_it_is_ours(
         self,

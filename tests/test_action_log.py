@@ -47,6 +47,7 @@ from accountant.memory.store import MemoryStore
 from accountant.schema import Outcome, Voucher
 from accountant.tallyio.fake import FakeTally
 from accountant.web import app
+from tests.test_period_handoff import open_books_for
 
 # Imported and touched deliberately: `pipeline.record_decision` is the function
 # the web app calls, so if that name ever moves this file stops importing rather
@@ -95,6 +96,7 @@ def _run(t: FakeTally, store: MemoryStore, text: str) -> pipeline.Draft:
         today=TODAY,
         log=store,
         run_id=RUN,
+        period_reader=open_books_for(COMPANY),
     )
 
 

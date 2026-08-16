@@ -74,3 +74,51 @@ WORKFLOW_HEADER_CHANGED:.github/workflows/full.yml:header:1e28c333e269
 STEP_RUN_CHANGED:.github/workflows/pr-fast.yml:pr-fast:sync dependencies from the lockfile:779447263fe4
 WORKFLOW_HEADER_CHANGED:.github/workflows/pr-fast.yml:header:bae3af9003be
 STEP_ADDED:.github/workflows/watchdog.yml:ruleset-drift:measure bypass_actors:759881b8b312
+# ---------------------------------------------------------------------------
+# `failure-diagnostics` in pr-fast. Owner-authorised 2026-08-17, in writing, as
+# the ONE minimal visibility change: a reporting step that reads the junit.xml
+# `changed-tests` already writes and restates it as annotations and a job
+# summary. It judges nothing.
+#
+# WHY IT WAS NEEDED. Measured on run 31958210449: the pull-request page carried
+# `Process completed with exit code 1.` on a path of `.github` - a literal
+# string, not a file - and check-run output_title and output_summary were both
+# null. The log held all 75 tracebacks with file and line, and the failure LIST
+# sat 10,210 lines into the step behind a 5,261-line warnings block. Nothing was
+# truncated; nothing was surfaced either.
+#
+# WHAT IT IS NOT: it adds no gate, no threshold, no job. It touches no trigger,
+# no permission, no SHA pin, and no test command. ci/gates.toml stays at 20
+# gates and ci/gate_names.lock is untouched, because gate binding is JOB-level
+# and this is a step. `if: ${{ failure() }}` runs it only after a gate has
+# already failed, and ci/explain_failure.py exits 0 on every path it controls,
+# so it can never replace a real failure with its own.
+#
+# Measured with --tree/--trusted-tree against origin/main: exactly one finding,
+# [CHANGE] STEP_ADDED, and PASS once this line is present. actionlint clean,
+# zizmor --persona=pedantic "No findings to report".
+STEP_ADDED:.github/workflows/pr-fast.yml:pr-fast:failure-diagnostics:2a140c695ad3
+# ---------------------------------------------------------------------------
+# `set -euo pipefail` in full.yml's `runtime statistics`. Owner-authorised
+# 2026-08-17. ONE ADDED LINE, no deletion, no step, no job, no gate, no
+# threshold.
+#
+# WHY. The step ran `ci/report_runtimes.py | tee -a "$GITHUB_STEP_SUMMARY"` with
+# no pipefail, so `$?` was TEE's status and not the script's. A crash in
+# report_runtimes.py left the step green. Measured across all four workflows:
+# this was the only unguarded pipeline, and there is no `shell:` key anywhere,
+# so every `run:` gets GitHub's default `bash -e {0}` - `-e` on, pipefail OFF.
+#
+# `watchdog.yml:117` already does exactly this, one file over, in front of an
+# otherwise identical `| tee -a "$GITHUB_STEP_SUMMARY"`. This makes the two
+# agree rather than inventing anything.
+#
+# NOT A GATE CHANGE. `nightly-report` is in ci/gates.toml `non_gate_jobs`; it
+# reports a failure as an issue and judges nothing. The gate count stays 20 and
+# ci/gate_names.lock is untouched. A step that could not fail can now fail,
+# which moves the count of things that can catch a problem UP, never down.
+#
+# Measured with --tree/--trusted-tree against origin/main: exactly one finding,
+# [CHANGE] STEP_RUN_CHANGED, PASS once this line is present. actionlint clean,
+# zizmor --persona=pedantic "No findings to report", check_stubs PASS.
+STEP_RUN_CHANGED:.github/workflows/full.yml:nightly-report:runtime statistics:6606283ec13b
