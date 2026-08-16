@@ -334,9 +334,29 @@ class DocumentType(StrEnum):
     `UNSUPPORTED` blocks, and `UNKNOWN_DOCUMENT_TYPE` is its reason. An
     unclassified document has not been shown to be safe, and the absence of a
     classification is not permission.
+
+    TWO KINDS OF EXPENSE NOTE, SPLIT ON THE OWNER'S RULING OF 2026-08-16, and
+    the thing they are split on is WHERE THE CHARACTERS CAME FROM:
+
+        TYPED_EXPENSE_NOTE        a person typed the sentence. Nobody read
+                                  anything, so nothing was misread. It may
+                                  reach VALID once the ordinary checks pass.
+        NON_INVOICE_EXPENSE_NOTE  the same shape of thing, but LIFTED OFF A
+                                  DOCUMENT by a reader. Every character is a
+                                  reading that could be wrong, so it is capped
+                                  at a question and a person confirms it.
+
+    THE DISTINCTION IS THE INPUT SOURCE, NOT THE SHAPE OF THE SENTENCE. Both
+    kinds carry one amount, one party and no line items; judged on shape alone
+    they are identical. What differs is whether a machine guessed. That is the
+    same line `AUTO_POST_ALLOWED_TIERS` draws one layer down - a person stating
+    a fact and a model guessing at pixels are not the same evidence - and it is
+    drawn again here rather than inferred, because a caller that cannot tell
+    the two apart must not be able to pick the permissive one by accident.
     """
 
     INVOICE = "invoice"
+    TYPED_EXPENSE_NOTE = "typed_expense_note"
     NON_INVOICE_EXPENSE_NOTE = "non_invoice_expense_note"
     CREDIT_NOTE = "credit_note"
     UNSUPPORTED = "unsupported"
@@ -344,7 +364,10 @@ class DocumentType(StrEnum):
 
 #: The kinds whose ARITHMETIC the invoice conservation laws describe. A credit
 #: note is an invoice with the sign turned round, so its lines still have to sum
-#: to its total. An expense note has no lines at all.
+#: to its total. NEITHER kind of expense note has lines at all - typed or read
+#: off a page, there is no table to add up - so neither is a member. The typed
+#: / document distinction decides REVIEW, not arithmetic; see
+#: `_needs_a_person`.
 _KINDS_WITH_INVOICE_ARITHMETIC: Final[frozenset[DocumentType]] = frozenset(
     {DocumentType.INVOICE, DocumentType.CREDIT_NOTE}
 )
@@ -649,6 +672,36 @@ def _date_applies(situation: Situation) -> bool:
     drop the amount, so the wrong answer would be one string away.
     """
     return situation.document_type in _KINDS_WITH_INVOICE_ARITHMETIC
+
+
+#: The kinds a person must confirm before anything is written, however well
+#: they scored. OWNER RULING, 2026-08-16.
+#:
+#: A `NON_INVOICE_EXPENSE_NOTE` was LIFTED OFF A DOCUMENT by a reader, so every
+#: field on it is a reading that could be wrong - and unlike an invoice it
+#: carries no line items and no net, so the conservation laws cannot catch a
+#: misreading by arithmetic. Confidence is the only signal left, and the owner
+#: ruled confidence alone is not enough evidence to write somebody's books
+#: from. `TYPED_EXPENSE_NOTE` is deliberately absent: a person typed those
+#: characters, nothing was read, and there is nothing to misread.
+#:
+#: A CEILING, NOT A HARD RULE, exactly like `_WAS_REPAIRED` and
+#: `_TIER_NOT_CLEARED_TO_POST` beside it. It can only ever lower the best
+#: outcome from post to ask; it can never overturn a block.
+_KINDS_A_PERSON_MUST_CONFIRM: Final[frozenset[DocumentType]] = frozenset(
+    {DocumentType.NON_INVOICE_EXPENSE_NOTE}
+)
+
+_READ_OFF_A_PAGE: Final = (
+    "This one was read off a document rather than typed, and it has no line "
+    "items to check the total against, so I need you to confirm it before "
+    "anything is saved."
+)
+
+
+def _needs_a_person(situation: Situation) -> bool:
+    """Must a person confirm this KIND of document, however sure we are?"""
+    return situation.document_type in _KINDS_A_PERSON_MUST_CONFIRM
 
 
 def _tax_applies(situation: Situation) -> bool:
@@ -1303,6 +1356,13 @@ def _asking(situation: Situation, seen: Observation) -> tuple[str, ...]:
         # band: a person reading two sentences reads the same two in the same
         # order on every run.
         reasons.append(_TIER_NOT_CLEARED_TO_POST)
+    if _needs_a_person(situation):
+        # OWNER RULING, 2026-08-16. Third ceiling, same shape as the two above
+        # and here for the same reason: written as an early return it would
+        # OVERTURN a block on a document-derived note that was also wrong about
+        # something else. Written as one more reason to ask it can only lower
+        # post to ask, and `_blocking` has already had the last word.
+        reasons.append(_READ_OFF_A_PAGE)
     if situation.ambiguous_fields:
         count = len(situation.ambiguous_fields)
         thing = "thing" if count == 1 else "things"

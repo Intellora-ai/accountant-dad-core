@@ -341,7 +341,14 @@ def test_a_date_that_does_not_apply_is_excused_by_the_post_band_too() -> None:
     decided = decide(
         a_situation(
             observation=no_date,
-            document_type=DocumentType.NON_INVOICE_EXPENSE_NOTE,
+            # `TYPED_EXPENSE_NOTE` SINCE THE OWNER'S RULING OF 2026-08-16, and
+            # it was `NON_INVOICE_EXPENSE_NOTE` until then. The point of this
+            # test is the DATE BAND - that a date which does not apply is
+            # excused by both bands, not just one - and after the ruling the
+            # document-derived kind is held for a person whatever the bands
+            # say, which would have hidden the thing under test behind a
+            # different refusal. The kind moved; the assertion did not.
+            document_type=DocumentType.TYPED_EXPENSE_NOTE,
         )
     )
 
@@ -1666,3 +1673,84 @@ def test_a_decision_whose_sentence_is_only_whitespace_cannot_be_constructed() ->
     cannot act on, and it would have shipped."""
     with pytest.raises(ValueError, match="sentence"):
         Decided(action=Action.BLOCK, said="   ", reasons=("no",))
+
+
+# ---- the owner's ruling on where the characters came from --------------------
+#
+# 2026-08-16. Two things shaped alike are judged differently because one was
+# TYPED by a person and the other was READ off a page by a machine. Nothing
+# about the sentence differs; the evidence behind it does.
+
+
+def test_a_typed_expense_note_may_post_once_the_ordinary_checks_pass() -> None:
+    """A person typed the characters. Nothing was read, so nothing was
+    misread, and there is no reading left to confirm."""
+    typed = an_observation(date=None)
+
+    decided = decide(
+        a_situation(observation=typed, document_type=DocumentType.TYPED_EXPENSE_NOTE)
+    )
+
+    assert decided.action is Action.POST
+
+
+def test_the_same_note_read_off_a_document_is_held_for_a_person() -> None:
+    """THE RULING, AS ONE ASSERTION. Identical bill, identical scores; the only
+    difference is that a reader produced it rather than a person."""
+    read_off_a_page = an_observation(date=None)
+
+    decided = decide(
+        a_situation(
+            observation=read_off_a_page,
+            document_type=DocumentType.NON_INVOICE_EXPENSE_NOTE,
+        )
+    )
+
+    assert decided.action is Action.ASK
+    assert decided.entry is None
+
+
+def test_the_two_kinds_differ_only_in_where_the_characters_came_from() -> None:
+    """The control that makes the pair meaningful: one observation, two kinds,
+    two outcomes. If this ever returns the same action twice, the ruling has
+    stopped being implemented."""
+    seen = an_observation(date=None)
+
+    typed = decide(
+        a_situation(observation=seen, document_type=DocumentType.TYPED_EXPENSE_NOTE)
+    )
+    read = decide(
+        a_situation(
+            observation=seen, document_type=DocumentType.NON_INVOICE_EXPENSE_NOTE
+        )
+    )
+
+    assert typed.action is Action.POST
+    assert read.action is Action.ASK
+
+
+def test_a_document_note_that_is_also_unsure_is_blocked_not_merely_asked() -> None:
+    """The ceiling never overturns a block. Read off a page AND too unsure to
+    ask about is still a refusal, not a question."""
+    barely = an_observation(date=None, confidence=ASK_FLOOR - 0.01)
+
+    decided = decide(
+        a_situation(
+            observation=barely, document_type=DocumentType.NON_INVOICE_EXPENSE_NOTE
+        )
+    )
+
+    assert decided.action is Action.BLOCK
+
+
+def test_conflicting_arithmetic_blocks_a_typed_note_too() -> None:
+    """Typed is not a licence. A law that FAILED still refuses, whoever typed
+    the characters."""
+    decided = decide(
+        a_situation(
+            conservation=one_law(Verdict.FAIL),
+            document_type=DocumentType.TYPED_EXPENSE_NOTE,
+        )
+    )
+
+    assert decided.action is Action.BLOCK

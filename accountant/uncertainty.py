@@ -371,7 +371,8 @@ _PLAIN_FIELD: Final[dict[str, str]] = {
 _PLAIN_KIND: Final[dict[str, str]] = {
     "invoice": "A bill from a supplier",
     "credit_note": "A refund note from a supplier",
-    "non_invoice_expense_note": "A payment you typed in",
+    "typed_expense_note": "A payment you typed in",
+    "non_invoice_expense_note": "A payment read off a document",
     "unsupported": "Something I could not recognise",
 }
 

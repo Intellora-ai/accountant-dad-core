@@ -837,8 +837,16 @@ def evaluate(
             #
             # MEASURED: this is what refused `paid Sharma Traders 4200 for
             # cement` with three reasons, none of which were true of it.
+            # OWNER RULING, 2026-08-16: the kind turns on WHERE THE CHARACTERS
+            # CAME FROM. `typed_text` means a person typed the sentence, so
+            # nothing was read and nothing could be misread - that is
+            # `TYPED_EXPENSE_NOTE`, and it may reach VALID on the ordinary
+            # checks. Anything else was lifted off a document by a reader and
+            # is judged as an invoice here; a reader that some day reports an
+            # expense note off a PAGE passes `NON_INVOICE_EXPENSE_NOTE`, which
+            # `decision._needs_a_person` caps at a question.
             document_type=(
-                DocumentType.NON_INVOICE_EXPENSE_NOTE
+                DocumentType.TYPED_EXPENSE_NOTE
                 if draft.record.per_field_source.get("total_paise", "").startswith(
                     "typed_text"
                 )

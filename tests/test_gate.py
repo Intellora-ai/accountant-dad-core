@@ -450,9 +450,7 @@ def test_a_field_this_bill_does_not_have_does_not_cap_it_at_ask() -> None:
     """
     no_date = a_record(date=None)
 
-    decided = asked(
-        a_draft(no_date), document_type=DocumentType.NON_INVOICE_EXPENSE_NOTE
-    )
+    decided = asked(a_draft(no_date), document_type=DocumentType.TYPED_EXPENSE_NOTE)
 
     assert decided.action is Action.POST
 
@@ -479,7 +477,7 @@ def test_the_control_a_field_read_badly_still_states_the_rung_that_read_it() -> 
     guessed_party = a_record(date=None, sources={"party": READ_BY_PICTURE})
 
     decided = asked(
-        a_draft(guessed_party), document_type=DocumentType.NON_INVOICE_EXPENSE_NOTE
+        a_draft(guessed_party), document_type=DocumentType.TYPED_EXPENSE_NOTE
     )
 
     assert decided.action is Action.ASK

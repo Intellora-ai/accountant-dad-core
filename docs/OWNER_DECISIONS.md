@@ -379,3 +379,43 @@ MAY POST          matches the 2026-08-13 ruling and what runs today. Costs: a
 No production behaviour was changed to open or close this. Per the owner's
 instruction of 2026-08-16: where no explicit decision exists, mark it and leave
 the code alone.
+
+### ANSWERED 2026-08-16 — Option 3, the input source decides
+
+The owner ruled. The question above is closed.
+
+```
+a clearly typed one-line expense entry   may reach VALID after normal validation
+an expense note EXTRACTED FROM A DOCUMENT must be REVIEW_REQUIRED
+ambiguous, conflicting or unsafe evidence remains BLOCKED
+document-derived data keeps every safety check unweakened
+```
+
+WHAT THE RULING TURNS ON, stated because the two cases look identical on the
+page: not the shape of the sentence, but WHERE THE CHARACTERS CAME FROM. Both
+carry one amount, one party and no line items. What differs is whether a
+machine guessed. A person typing a sentence read nothing, so nothing could be
+misread; a reader lifting the same sentence off a page produces a field that
+could be wrong, and with no line items and no net there is no arithmetic left
+to catch it with. Confidence alone is not evidence enough to write somebody's
+books from.
+
+IMPLEMENTED as a split in `decision.DocumentType`:
+
+```
+TYPED_EXPENSE_NOTE        person typed it   -> may reach POST
+NON_INVOICE_EXPENSE_NOTE  read off a page   -> capped at ASK
+```
+
+`decision._needs_a_person` applies the cap, beside the repair ceiling and the
+tier ceiling and for the same reason: a ceiling can only lower POST to ASK and
+can never overturn a block. `pipeline.evaluate` chooses the kind from
+`per_field_source["total_paise"]`, which is the only place that knows whether a
+person or a reader produced the characters.
+
+MEASURED, AND IT IS NOT WHAT ANYONE EXPECTED. This ruling was believed to be
+what the 147 failing tests were waiting on. It is not. Full suite before the
+change: 147 failed / 5177 passed. After: 147 failed / 5182 passed - the same
+147 test identities, zero resolved, the five new passes being this ruling's own
+tests. The 147 have some other cause and the question above was never their
+blocker. That belief is corrected here rather than quietly dropped.
