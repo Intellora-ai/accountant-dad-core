@@ -215,11 +215,27 @@ def test_a_record_from_this_backend_states_a_source_for_every_named_field() -> N
 
     So the expected set is written out here rather than the assertion being
     loosened to `>=`. A subset check would pass on the day a source went missing,
-    which is the one thing this test exists to catch."""
+    which is the one thing this test exists to catch.
+
+    `invoice_number` JOINED ON THE SAME TERMS, later the same day. The photo
+    path could not read a bill's own reference at all - no vocabulary in
+    `labels.py`, no field on `Reading`, `read_page` never looked and `_scored`
+    never produced one, four absences at once and no single one of them the
+    cause. It reads 20 of 55 on the ground-truth corpus now.
+
+    It is out of `ExtractedRecord.FIELDS` for the reason `net_paise` is: that
+    tuple is the promise `__post_init__` enforces, and a name added there raises
+    on every construction site older than the day it was added. So it is named
+    here instead, and this exact-set assertion is what makes that naming a
+    contract rather than a comment."""
     record = FreeReader(reader_saying(a_clean_bill())).extract(AMOUNT_PNG, PNG)
 
     assert record.complete is True
-    assert set(record.per_field_source) == {*ExtractedRecord.FIELDS, "net_paise"}
+    assert set(record.per_field_source) == {
+        *ExtractedRecord.FIELDS,
+        "net_paise",
+        "invoice_number",
+    }
 
 
 def test_the_net_that_was_read_is_carried_and_not_dropped() -> None:
@@ -728,13 +744,29 @@ def test_a_date_that_is_not_a_real_date_is_not_a_low_confidence_date() -> None:
 
 def test_a_date_in_a_form_this_system_does_not_read_is_refused_not_guessed() -> None:
     """`11/08/2026` is the 11th of August in India and the 8th of November in
-    America. Picking one would be inventing the evidence."""
+    America. Picking one would be inventing the evidence.
+
+    THE BEHAVIOUR THIS GUARDS IS UNCHANGED AND IS THE POINT: the date is
+    REFUSED. What changed on 2026-08-15 is only the sentence that says so.
+    `_read_date` used to call `looks_like_a_date`, which read ISO and nothing
+    else, and told every non-ISO date it was "not year-month-day" - true of a
+    date it could have read as easily as one it could not. It now calls
+    `extract.dates.read_date`, which reads twelve written forms and refuses
+    THIS one for the real reason: both orders name a day that exists.
+
+    So the assertion moved from the old wording to the two things the new
+    refusal must contain - BOTH readings, so the question put to a person shows
+    them the actual choice rather than asking them to re-derive it.
+    """
     reading = Reading(date=spoken("11/08/2026", 97))
 
     record = FreeReader(reader_saying(reading)).extract(AMOUNT_PNG, PNG)
 
     assert record.date is None
-    assert "year-month-day" in record.per_field_source["date"]
+    why = record.per_field_source["date"]
+    assert "ambiguous" in why
+    assert "11 August" in why
+    assert "8 November" in why
 
 
 def test_a_party_of_nothing_but_spaces_becomes_not_found_and_not_a_blank() -> None:

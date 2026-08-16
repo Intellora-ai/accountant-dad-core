@@ -86,6 +86,7 @@ from accountant.tallyio.factory import BackendIdentity, new_run_id
 from accountant.tallyio.fake import FakeTally
 from accountant.web import app
 from tests.test_first_detector import GONE
+from tests.test_period_handoff import open_books_for
 from tests.test_web import get, post
 
 PACKAGE = pathlib.Path(app.__file__).resolve().parent.parent
@@ -172,7 +173,19 @@ def running(tally: FakeTally, store_path: pathlib.Path | None = None) -> Generat
 
     def serve() -> None:
         where = str(store_path) if store_path is not None else ":memory:"
-        app.configure(tally, identity, store=MemoryStore(where))
+        # No reader means `Runtime.period_open` is `None` - "nobody looked" - and
+        # every posting is refused with "I could not tell whether the books for
+        # this date are still open", so a clean book can never reach the posted
+        # state this file measures the ABSENCE of a flag against. The company must
+        # be `app.COMPANY`, the same string `identity` above carries, because
+        # `parse_company_periods` matches on the name and any other name is NO
+        # MATCH -> UNVERIFIED -> blocked, silently unchanged.
+        app.configure(
+            tally,
+            identity,
+            store=MemoryStore(where),
+            period_reader=open_books_for(app.COMPANY),
+        )
         ready.set()
         httpd.serve_forever()
 

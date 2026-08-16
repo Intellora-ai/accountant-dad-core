@@ -186,7 +186,7 @@ that gap rather than papering over it.
 from __future__ import annotations
 
 import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Final, cast
 
@@ -371,6 +371,51 @@ class DocumentType(StrEnum):
 _KINDS_WITH_INVOICE_ARITHMETIC: Final[frozenset[DocumentType]] = frozenset(
     {DocumentType.INVOICE, DocumentType.CREDIT_NOTE}
 )
+
+
+def applicable_to(
+    results: tuple[ConservationResult, ...], kind: DocumentType
+) -> tuple[ConservationResult, ...]:
+    """Restate each law's verdict for the kind of document actually in hand.
+
+    THE ONE PLACE APPLICABILITY IS DECIDED. `_KINDS_WITH_INVOICE_ARITHMETIC`
+    above is the whole allowlist and this is its only reader, so "which laws
+    apply to what" is one set and one function rather than a condition repeated
+    at each site that happens to care.
+
+    IT MARKS, IT DOES NOT DROP. Until 2026-08-16 the inapplicable laws were
+    filtered out of the blocking list and kept their INDETERMINATE verdict, so
+    downstream - a log line, an audit row, a person reading a refusal - could
+    not tell "this question does not arise" from "nobody could answer it". Now
+    the verdict itself says which, and `Verdict.NOT_APPLICABLE` is a member of
+    its own that no branch in this package treats as `PASS`.
+
+    WHAT IT WILL NOT DO, and this is the safeguard that matters: it only ever
+    restates `INDETERMINATE`. A law that was evaluated and came back `FAIL` is
+    returned untouched, whatever kind the document is - so an invoice cannot be
+    reclassified into silence, and `_failed_laws_block` still refuses it. A law
+    that PASSED is likewise untouched, because a kind that does not need a law
+    is not a reason to discard a real result.
+
+    A KIND IS NEVER GUESSED HERE. `kind` arrives on the `Situation`, which has
+    no default for it; an input nobody classified is `UNSUPPORTED`, which is not
+    in the allowlist and so keeps every law applicable - the strict direction.
+    """
+    if kind in _KINDS_WITH_INVOICE_ARITHMETIC:
+        return results
+    return tuple(
+        replace(
+            one,
+            verdict=Verdict.NOT_APPLICABLE,
+            said=(
+                f"{one.law} does not apply to a {kind.value.replace('_', ' ')}, "
+                "so there was nothing here to check."
+            ),
+        )
+        if one.law in DOCUMENT_LAWS and one.verdict is Verdict.INDETERMINATE
+        else one
+        for one in results
+    )
 
 
 class Moment(StrEnum):
@@ -1028,21 +1073,10 @@ def _conservation_blocks(
     """
     if not _checks_are_intact(results):
         return [_CHECKS_DID_NOT_RUN]
-    checked = cast(tuple[ConservationResult, ...], results)
+    checked = applicable_to(cast(tuple[ConservationResult, ...], results), kind)
     unchecked = [r for r in checked if r.verdict is Verdict.INDETERMINATE]
     if moment is Moment.BEFORE_THE_WRITE:
         unchecked = [r for r in unchecked if r.law in DOCUMENT_LAWS]
-    # NOT_APPLICABLE IS A THIRD ANSWER AND IT IS NOT `PASS`. On a kind of
-    # document that has no line items, `lines_sum_to_total` is not a check that
-    # could not be run - it is a question that does not arise. Dropping these
-    # from `unchecked` says the question does not arise; it does not mark any
-    # law as having passed, and a law that FAILS is still caught by
-    # `_failed_laws_block` on the very next line of `_blocking`.
-    #
-    # Added 2026-08-16. See `DocumentType` for the measurement: 47 drafts were
-    # refused for not adding up when there was nothing on them to add.
-    if kind not in _KINDS_WITH_INVOICE_ARITHMETIC:
-        unchecked = [r for r in unchecked if r.law not in DOCUMENT_LAWS]
     if unchecked:
         return [_COULD_NOT_CHECK]
     return []

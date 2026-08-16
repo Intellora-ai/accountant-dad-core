@@ -71,7 +71,11 @@ from enum import StrEnum
 from typing import Final
 
 from accountant.cage.confidence import field_confidence
-from accountant.extract.labels import (
+from accountant.invoice.fields import Method, ReadField, Where, read_as, unread
+from accountant.labels import (
+    INVOICE_NUMBER_LABELS as _INVOICE_NUMBER_LABELS,
+)
+from accountant.labels import (
     Amount,
     Found,
     Printing,
@@ -80,7 +84,6 @@ from accountant.extract.labels import (
     the_one,
     values_for,
 )
-from accountant.invoice.fields import Method, ReadField, Where, read_as, unread
 from accountant.rules.hsn_sac import Code, normalise
 from accountant.rules.place_of_supply import gstin_state_code
 
@@ -300,14 +303,12 @@ def _where(located: Found | Amount) -> Where:
 #: vocabulary here, so the vocabulary is what changed. A bill that prints only
 #: `Bill No:` has its number UNREAD and a person is asked, which is the price
 #: and it is the cheaper one.
-INVOICE_NUMBER_LABELS: Final[tuple[str, ...]] = (
-    "TAX INVOICE NO",
-    "INVOICE NUMBER",
-    "INVOICE NO",
-    "DOCUMENT NO",
-    "INVOICE #",
-    "INV NO",
-)
+#: RE-EXPORTED, NOT DEFINED. The vocabulary moved to `labels.py` on
+#: 2026-08-15 so the photograph reader and this one share one list. The name
+#: stays bound here because `invoice/bridge.py` reads `parse.INVOICE_NUMBER_
+#: LABELS` and a test asserts on it, and renaming a working caller to advertise
+#: a move is a change with no reader on the other end.
+INVOICE_NUMBER_LABELS: Final[tuple[str, ...]] = _INVOICE_NUMBER_LABELS
 
 PO_NUMBER_LABELS: Final[tuple[str, ...]] = (
     "PURCHASE ORDER NO",
@@ -366,7 +367,7 @@ TOTAL_TAX_LABELS: Final[tuple[str, ...]] = ("TOTAL TAX", "TAX AMOUNT", "TOTAL GS
 # THE PARTY HEADINGS, AND THE MEASUREMENT THAT KEEPS THEM OUT OF `labels.py`
 # -----------------------------------------------------------------------------
 #
-# READ THIS BEFORE MOVING ANY SPELLING BELOW INTO `accountant/extract/labels.py`.
+# READ THIS BEFORE MOVING ANY SPELLING BELOW INTO `accountant/labels.py`.
 # `labels.py` is the ONE vocabulary the shipping reader consults, and its own
 # docstring says why there must only be one. These two tuples are the second
 # vocabulary. They are allowed to exist for a reason that is about REACH and not

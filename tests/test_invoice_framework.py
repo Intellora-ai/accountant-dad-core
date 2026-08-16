@@ -23,7 +23,6 @@ import tomllib
 import pytest
 
 from accountant.cage.state import State
-from accountant.extract.labels import Printing
 from accountant.invoice import batch
 from accountant.invoice.bridge import DEFAULT_THRESHOLDS, Thresholds, describe
 from accountant.invoice.fields import Where
@@ -37,6 +36,7 @@ from accountant.invoice.status import (
     DocumentStatus,
 )
 from accountant.invoice.validate import MANDATORY
+from accountant.labels import Printing
 from tests.invoice_documents import (
     INTER_STATE,
     INTRA_STATE,
@@ -190,7 +190,11 @@ def test_the_control_the_reachability_walk_visited_a_real_graph() -> None:
     reachable = everything_reachable()
     assert len(reachable) > 15
     assert "accountant.cage.conservation" in reachable
-    assert "accountant.extract.labels" in reachable
+    assert "accountant.labels" in reachable
+    # The walk has to cross INTO `accountant/extract/` or the equality below is
+    # satisfied by a walk that never got there. `labels.py` was this line until
+    # 2026-08-17, when it moved out of the package to `accountant/labels.py`.
+    assert "accountant.extract.adapter" in reachable
 
 
 # ---------------------------------------------------------------------------
@@ -246,10 +250,31 @@ def test_this_package_imports_no_reader() -> None:
     )
 
 
-def test_the_only_extract_modules_reachable_are_the_two_pure_string_ones() -> None:
-    """`labels.py` matches labels in strings and `invoicelike.py` counts signals
-    in strings. Neither reads anything. Stated as an EQUALITY so a third one
-    appearing is a failure rather than a shrug."""
+def test_the_only_extract_modules_reachable_are_the_ones_that_read_nothing() -> None:
+    """`adapter.py` is the record contract and `dates.py` parses a date out of a
+    string. NEITHER OF THEM OPENS ANYTHING — `dates.py` imports `__future__`,
+    `dataclasses`, `datetime`, `enum`, `re` and `typing` and nothing else — so
+    the invariant this guards, that this package stays downstream of reading,
+    holds for both names below.
+
+    THE SET SHRANK ON 2026-08-17 AND THAT IS THE DIRECTION IT IS ALLOWED TO
+    MOVE. It read `labels`, `invoicelike`, `adapter`, `dates`. `labels.py`
+    matches labels in strings and `invoicelike.py` counts signals in strings;
+    neither ever touched a reader, so neither belonged inside a package whose
+    boundary exists to keep readers in. They are now `accountant/labels.py` and
+    `accountant/invoicelike.py`, which this package imports directly, and what
+    remains here is the extraction contract and the date parser it reaches.
+
+    `dates.py` had joined the set the same day, through the function-local
+    `from accountant.extract.dates import DateLocale, read_date` in
+    `accountant/extract/adapter.py`, and the test name said "the two pure string
+    ones" while the set listed three. A count in a test name is a number that
+    goes stale; what is actually being claimed is that none of these reads, and
+    `test_this_package_imports_no_reader` above is the other half of it.
+
+    Stated as an EQUALITY so a new one appearing is a failure rather than a
+    shrug — anything added here has to be justified the way `dates.py` was.
+    """
     reachable = everything_reachable()
     from_extract = {
         name
@@ -257,9 +282,8 @@ def test_the_only_extract_modules_reachable_are_the_two_pure_string_ones() -> No
         if name.startswith("accountant.extract.") and _accountant_module(name)
     }
     assert from_extract == {
-        "accountant.extract.labels",
-        "accountant.extract.invoicelike",
         "accountant.extract.adapter",
+        "accountant.extract.dates",
     }
 
 

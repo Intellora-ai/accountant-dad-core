@@ -2,7 +2,7 @@
 
 WHY THIS FILE EXISTS
 --------------------
-`accountant/extract/invoicelike.py` was written because 407 of 413 real
+`accountant/invoicelike.py` was written because 407 of 413 real
 documents read no field and nobody could tell, from the record alone, whether
 that was the reader failing or the document not being a bill. Both produced the
 same blank.
@@ -27,7 +27,7 @@ import pathlib
 
 import pytest
 
-from accountant.extract.invoicelike import (
+from accountant.invoicelike import (
     ENOUGH_SIGNALS,
     SIGNALS,
     looks_like_a_bill,
@@ -108,7 +108,7 @@ def test_it_reads_nothing_and_starts_nothing() -> None:
     """No file, no program, no network - so no timeout and no failure mode of
     its own. `conservation.py` holds the same property for the same reason: a
     judgement that can fail is a judgement nobody can rely on."""
-    source = (REPO / "accountant" / "extract" / "invoicelike.py").read_text()
+    source = (REPO / "accountant" / "invoicelike.py").read_text()
 
     for forbidden in ("open(", "subprocess", "requests", "urllib", "socket", "Path("):
         assert forbidden not in source, forbidden

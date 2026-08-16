@@ -162,7 +162,7 @@ from accountant.extract.adapter import (
 #
 # `paise_or_none` is re-exported rather than re-implemented: it was already the
 # ONE rule about sub-paise on this side of the system and callers name it here.
-from accountant.extract.labels import (
+from accountant.labels import (
     CURRENCY,
     DATE_LABEL,
     NET_LABELS,

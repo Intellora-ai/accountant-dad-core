@@ -549,7 +549,12 @@ def test_replaying_the_answer_that_posted_an_entry_writes_no_second_voucher(
     d = draft_id(asked)
     submit(server, "/answer", draft=d, value="Purchases", problem=PURPOSE)
     code, done = submit(server, "/answer", draft=d, value="Cash", problem=FUNDING)
-    assert code == 200 and "posted" in done.lower()
+    # THE BADGE, NOT THE BARE WORD. `render_decision` draws "not posted" for
+    # NOT_VALID, so `"posted" in done` is satisfied by a refusal - and a refusal
+    # here would leave nothing posted for the replay below to be refused AGAINST,
+    # which is the whole subject. The negated form of this exact string is
+    # already asserted five lines down and at tests/test_error_responses.py:1115.
+    assert code == 200 and 'class="badge b-valid">posted<' in done
 
     ours = tally.list_our_vouchers(app.COMPANY)
     balance = tally.trial_balance(app.COMPANY)
@@ -1058,7 +1063,20 @@ def test_evaluating_a_draft_repeatedly_never_mints_a_second_identity() -> None:
 
     for _ in range(5):
         draft = pipeline.evaluate(
-            draft, accounts, history, memory, period_open=None, pdf_repaired=None
+            # `period_open=True`, and it was `None` until today. `None` means
+            # NOBODY LOOKED, which the cage refuses - so this loop re-evaluated a
+            # draft `W.valid_draft` had just asserted VALID while telling the cage
+            # the books might be shut, then asserted VALID again on line 1067.
+            # A re-evaluation that contradicts the fixture it re-evaluates is not
+            # measuring idempotency, it is measuring the contradiction. The
+            # subject here is that the operation id is minted once and never
+            # again, so this says the books are open and lets it reach that.
+            draft,
+            accounts,
+            history,
+            memory,
+            period_open=True,
+            pdf_repaired=None,
         )
         assert draft.operation_id == minted
         assert draft.decision is not None

@@ -38,7 +38,6 @@ from __future__ import annotations
 
 import pytest
 
-from accountant.extract.labels import NET_LABELS, TOTAL_LABELS, paise_or_none
 from accountant.extract.nearby import (
     A_DATE,
     A_MALFORMED_AMOUNT,
@@ -49,7 +48,7 @@ from accountant.extract.nearby import (
     AN_HSN_OR_SAC_CODE,
     AN_INVOICE_NUMBER,
     BELOW,
-    CLEARLY_CLOSER_PIXELS,
+    CLEARLY_CLOSER_GAP,
     MODIFIERS_BEFORE,
     NEXT_LINE,
     PREVIOUS_LINE,
@@ -72,6 +71,7 @@ from accountant.extract.nearby import (
     looks_like_an_invoice_number,
     review_needed,
 )
+from accountant.labels import NET_LABELS, TOTAL_LABELS, paise_or_none
 
 DEFAULT = Limits()
 
@@ -271,7 +271,7 @@ def test_a_figure_on_the_label_s_own_line_is_found_first() -> None:
     assert found.line_distance == 0
     # 100..180 for the label, 220 for the figure: a 40px horizontal gap and no
     # vertical gap at all, which is the Manhattan distance this module reports.
-    assert found.pixel_distance == 40
+    assert found.gap == 40
 
 
 def test_a_figure_on_the_line_above_is_found() -> None:
@@ -311,7 +311,7 @@ def test_a_figure_in_the_box_to_the_right_is_found_by_geometry() -> None:
     )
     assert found.method == RIGHT_OF
     assert found.line_distance == 7
-    assert found.pixel_distance == 120
+    assert found.gap == 120
     assert found.rejected == ""
     assert paise_or_none(found.value_text) == 750000
 
@@ -337,7 +337,7 @@ def test_a_figure_in_the_box_below_is_found_by_geometry() -> None:
         )
     )
     assert found.method == BELOW
-    assert found.pixel_distance == 180
+    assert found.gap == 180
 
 
 def test_a_figure_that_shares_no_band_is_not_reached_by_geometry() -> None:
@@ -454,7 +454,7 @@ def test_a_figure_exactly_at_the_pixel_limit_is_taken() -> None:
             (label, edge), field="total", labels=TOTAL_LABELS, limits=DEFAULT
         )
     )
-    assert found.pixel_distance == DEFAULT.max_pixel_distance == 400
+    assert found.gap == DEFAULT.max_gap == 400
 
 
 def test_a_figure_two_lines_away_is_not_taken_at_the_default_limit() -> None:
@@ -497,7 +497,7 @@ def test_geometry_overrules_the_numbering_only_when_it_contradicts_it() -> None:
     )
     assert found.method == BELOW
     assert found.line_distance == 9
-    assert found.pixel_distance == 90
+    assert found.gap == 90
 
 
 def test_widening_the_line_limit_reaches_it_and_still_calls_it_next_line() -> None:
@@ -505,7 +505,7 @@ def test_widening_the_line_limit_reaches_it_and_still_calls_it_next_line() -> No
         word("TOTAL", 0, left=100),
         word("1,234.56", 2, left=100),
     )
-    wider = Limits(max_line_distance=2, max_pixel_distance=400)
+    wider = Limits(max_line_distance=2, max_gap=400)
     found = only(
         candidates_for(words, field="total", labels=TOTAL_LABELS, limits=wider)
     )
@@ -525,7 +525,7 @@ def test_a_word_with_no_box_still_reaches_the_line_methods() -> None:
         candidates_for(words, field="total", labels=TOTAL_LABELS, limits=DEFAULT)
     )
     assert found.box is None
-    assert found.pixel_distance is None
+    assert found.gap is None
     assert found.method == NEXT_LINE
     assert found.rejected == ""
 
@@ -810,7 +810,7 @@ def test_two_equally_close_figures_are_both_kept_and_ranked() -> None:
 
 
 def test_two_equally_close_figures_require_review_in_plain_words() -> None:
-    """Their gaps differ by less than `CLEARLY_CLOSER_PIXELS`, so neither is a
+    """Their gaps differ by less than `CLEARLY_CLOSER_GAP`, so neither is a
     better reason than the other and this module refuses to choose."""
     words = (
         word("TOTAL", 0, left=100),
@@ -819,9 +819,9 @@ def test_two_equally_close_figures_require_review_in_plain_words() -> None:
     )
     found = candidates_for(words, field="total", labels=TOTAL_LABELS, limits=DEFAULT)
     winner, runner_up = found[0], found[1]
-    assert winner.pixel_distance is not None
-    assert runner_up.pixel_distance is not None
-    assert runner_up.pixel_distance - winner.pixel_distance < CLEARLY_CLOSER_PIXELS
+    assert winner.gap is not None
+    assert runner_up.gap is not None
+    assert runner_up.gap - winner.gap < CLEARLY_CLOSER_GAP
     assert review_needed(found) == (
         "two different figures sit equally close to 'TOTAL' and nothing on this "
         "page says which one is the total: '1,234.56' and '2,000.00'. "
@@ -831,7 +831,7 @@ def test_two_equally_close_figures_require_review_in_plain_words() -> None:
 
 def test_a_clearly_closer_figure_needs_no_review() -> None:
     """Same line, same method, and a gap smaller by more than
-    `CLEARLY_CLOSER_PIXELS` - which is a better reason and not merely a
+    `CLEARLY_CLOSER_GAP` - which is a better reason and not merely a
     different one."""
     words = (
         word("TOTAL", 0, left=100),

@@ -94,7 +94,7 @@ class Where:
     """Which characters, on which line of the text that was handed in.
 
     `[start, end)`, half-open, indexing the line - the same convention
-    `extract/labels.py::Found` uses, deliberately, so a caller holding one can
+    `labels.py::Found` uses, deliberately, so a caller holding one can
     read the other without converting anything.
     """
 

@@ -75,6 +75,7 @@ from accountant.tallyio.factory import real_tally as connect_real_tally
 from accountant.tallyio.fake import FakeTally
 from accountant.web import app
 from tests import test_real_tally as sim_module
+from tests.test_period_handoff import open_books_for
 
 COMPANY = "Demo Co"
 ACCOUNTS = ("Purchases", "Repairs & Maintenance", "Cash")
@@ -194,6 +195,11 @@ def _run(client: RecordingTally, store: MemoryStore, text: str) -> pipeline.Draf
         today=TODAY,
         log=store,
         run_id=RUN_ID,
+        # Without a reader `period_open` is `None` - nobody looked - and the
+        # cage blocks every draft that reaches it. That refusal is correct and
+        # is pinned in `tests/test_period_handoff.py`; it is not what any test
+        # in THIS file is about, so the books are read and they are open.
+        period_reader=open_books_for(COMPANY),
     )
 
 
@@ -962,6 +968,10 @@ def _app_serving(client: RecordingTally) -> Generator[str]:
                 licence_detail="constructed by this test; nothing was measured",
             ),
             store=MemoryStore(":memory:"),
+            # `configure` builds no reader of its own - see the Runtime field
+            # assertions above - so without this the served app blocks on
+            # "nobody looked whether the books are open".
+            period_reader=open_books_for(app.COMPANY),
         )
         ready.set()
         httpd.serve_forever()
@@ -1144,6 +1154,7 @@ def test_a_bootstrap_that_failed_part_way_through_posts_nothing() -> None:
         today=TODAY,
         log=store,
         run_id=RUN_ID,
+        period_reader=open_books_for(COMPANY),
     )
     assert again.outcome is Outcome.VALID
     assert len(client.writes) == 1
@@ -1206,7 +1217,11 @@ def test_an_empty_source_company_may_be_asked_but_proposes_and_writes_nothing() 
         accounts,
         client.read_vouchers(COMPANY),
         memory,
-        period_open=None,
+        # This half of D2a is about the ANSWER creating a mapping, so the one
+        # fact the answer cannot supply is read rather than left at "nobody
+        # looked" - which blocks, and would make the post below unreachable for
+        # a reason that has nothing to do with D2a.
+        period_open=True,
         pdf_repaired=None,
     )
 
@@ -1220,7 +1235,7 @@ def test_an_empty_source_company_may_be_asked_but_proposes_and_writes_nothing() 
         accounts,
         client.read_vouchers(COMPANY),
         memory,
-        period_open=None,
+        period_open=True,
         pdf_repaired=None,
     )
 
@@ -1383,7 +1398,10 @@ def test_a_failed_read_back_is_never_recorded_as_a_posted_entry() -> None:
         accounts,
         client.read_vouchers(COMPANY),
         memory,
-        period_open=None,
+        # This test is about the READ-BACK, so the draft has to get past the
+        # Valid gate on its own merits; "nobody looked at the period" would
+        # stop it one step earlier and prove nothing about the read-back.
+        period_open=True,
         pdf_repaired=None,
     )
     assert draft.outcome is Outcome.VALID, "the Valid gate is not what stops this"

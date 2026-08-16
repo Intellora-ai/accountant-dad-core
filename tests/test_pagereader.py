@@ -405,16 +405,50 @@ def test_a_date_split_across_words_comes_back_whole() -> None:
     assert texts(reading.date) == ["15", "Aug", "2026"]
 
 
-def test_a_date_that_is_not_iso_is_found_and_then_refused_as_a_value() -> None:
-    """The two non-ISO shapes can be FOUND and can never become a value:
-    `freeocr._read_date` is `date.fromisoformat` and nothing else. Normalising
-    them here would be this file writing characters into evidence that the page
-    does not carry, which is the rule its own docstring sets."""
+def test_a_non_iso_date_reads_when_arithmetic_settles_its_order() -> None:
+    """REQUIREMENT CHANGED 2026-08-15, by owner ruling, and this test with it.
+
+    It used to assert that `13/05/2026` is FOUND and then REFUSED, and gave as
+    its reason that "`freeocr._read_date` is `date.fromisoformat` and nothing
+    else". That was an accurate description of the code and a bad rule: it
+    refused every Indian bill date on the grounds that it was not American
+    ISO. The owner's requirement is `16-11-2023` reads as `2023-11-16`.
+
+    NOTHING IS NORMALISED HERE, which is the part of the old docstring that was
+    right and still is. `read_page` does not rewrite `13/05/2026`; it hands the
+    characters to `extract.dates.read_date`, which reads them because 13 IS NOT
+    A MONTH. Arithmetic settles the order. No convention was applied and none
+    was needed - see `_read_date`, which passes `DateLocale.UNKNOWN` precisely
+    so that a date only two orders could read stays refused.
+
+    THE EVIDENCE SAYS SOMETHING DIFFERENT ON EACH PATH, and the first draft of
+    this test got it wrong. On a REFUSAL the source quotes the characters,
+    because the refusal reason is about them. On a READ the source names HOW
+    the field was found. Here that is `guessed from where it sits on the page,
+    not from a label` - this fake page prints no DATE label, so the positional
+    fallback found it, and the ceiling holds the score at 0.5, below
+    `ASK_FLOOR`. A date read this way cannot post and cannot even spend a
+    question, which is the cage doing its job on a widened reader.
+    """
     scored = _scored(read_page((said("SUNIL TRADING"), said("13/05/2026"))), "free_ocr")
 
+    assert scored.date == datetime.date(2026, 5, 13)
+    assert scored.confidences["date"] == 0.5
+    assert "not from a label" in scored.sources["date"]
+
+
+def test_a_date_both_orders_could_read_is_still_refused_not_picked() -> None:
+    """THE HALF OF THE OLD TEST THAT MUST SURVIVE THE WIDENING.
+
+    `11/08/2026` is the 11th of August and the 8th of November, both real days.
+    Widening which SHAPES are read must not widen how sure the reader has to
+    be, and this is the assertion that says so. It fails the moment someone
+    passes a locale into `_read_date` to lift the corpus number.
+    """
+    scored = _scored(read_page((said("SUNIL TRADING"), said("11/08/2026"))), "free_ocr")
+
     assert scored.date is None
-    assert scored.confidences["date"] == 0.0
-    assert "13/05/2026" in scored.sources["date"]
+    assert "11/08/2026" in scored.sources["date"]
 
 
 def test_a_stated_ceiling_can_lower_a_score_and_can_never_raise_one() -> None:

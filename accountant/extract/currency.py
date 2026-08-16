@@ -248,7 +248,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Final
 
-from accountant.extract import labels
+from accountant import labels
 from accountant.extract.adapter import NOT_FOUND
 
 # =============================================================================

@@ -2,7 +2,7 @@
 
 WHY THIS FILE EXISTS
 --------------------
-`accountant/extract/labels.py` holds the one label vocabulary this repository
+`accountant/labels.py` holds the one label vocabulary this repository
 has, and until 2026-08-13 it matched `SUPPLIER:` and nothing else. That was
 correct for the tier it was written for and wrong for the tier that joined it.
 
@@ -65,7 +65,9 @@ import pytest
 from accountant.cage.confidence import EXACT
 from accountant.extract.adapter import NOT_FOUND, ExtractedRecord
 from accountant.extract.freeocr import FreeReader
-from accountant.extract.labels import (
+from accountant.extract.pagereader import page_reader
+from accountant.extract.registry import build
+from accountant.labels import (
     DATE_LABEL,
     NET_LABELS,
     PARTY_LABELS,
@@ -75,8 +77,6 @@ from accountant.extract.labels import (
     amounts_for,
     values_for,
 )
-from accountant.extract.pagereader import page_reader
-from accountant.extract.registry import build
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 DOCUMENTS = REPO / "artifacts" / "ground_truth" / "documents"

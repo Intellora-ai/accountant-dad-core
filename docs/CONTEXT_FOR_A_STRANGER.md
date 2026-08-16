@@ -525,7 +525,7 @@ itself, so that is one unreached module importing another.
   marked voucher, read it back by operation id, reject a duplicate operation id,
   delete it, and see the trial balance return to its exact prior value in paise.
 - Reversal, idempotency, memory, redaction, auth, the web app, the rules corpus.
-- **New, 2026-08-15, commit `84ea572`:** `accountant/extract/invoicelike.py` —
+- **New, 2026-08-15, commit `84ea572`:** `accountant/invoicelike.py` —
   a score for "does this document look like a bill at all". It exists precisely
   because of §7: it turns a blank read into a *reason*, so "nothing was read and
   this does not look like a bill" (a corpus problem) stops being the same
@@ -639,7 +639,7 @@ Restricting to `data/real_invoices` (77 PDFs) reproduces the brief exactly:
 
 (Including the 3 PDFs in `data/real_invoices_indian` makes it 80: 16 / 37 / 15 / 12.)
 
-The label set is `TOTAL_LABELS` at `accountant/extract/labels.py:274` —
+The label set is `TOTAL_LABELS` at `accountant/labels.py:274` —
 `GRAND TOTAL`, `TOTAL DUE`, `AMOUNT PAYABLE`, `AMOUNT DUE`, `TOTAL`.
 
 ### The 14 the matcher could have got are ALL foreign — confirmed
@@ -957,5 +957,5 @@ gh repo view --json visibility
 
 # PDF text-layer diagnostic
 #   accountant.extract.textlayer.read(bytes).text
-#   search it for accountant.extract.labels.TOTAL_LABELS
+#   search it for accountant.labels.TOTAL_LABELS
 ```

@@ -87,8 +87,12 @@ def draft_for(t: FakeTally, memory: CompanyMemory, text: str):
         memory,
         today=TODAY,
     )
+    # The books are open. `period_open=None` means NOBODY LOOKED, which the cage
+    # blocks on its own - correctly, and pinned in `tests/test_period_handoff.py`.
+    # This file is about the FUNDING LEG, so the period is answered here rather
+    # than left to refuse every draft before the leg is ever examined.
     return pipeline.evaluate(
-        d, chart, t.read_vouchers(COMPANY), memory, period_open=None, pdf_repaired=None
+        d, chart, t.read_vouchers(COMPANY), memory, period_open=True, pdf_repaired=None
     )
 
 

@@ -66,6 +66,7 @@ from accountant.schema import Voucher
 from accountant.tallyio.factory import BackendIdentity, new_run_id
 from accountant.tallyio.fake import FakeTally
 from accountant.web import app
+from tests.test_period_handoff import open_books_for
 
 #: A company that is NOT `app.COMPANY`. Every assertion below is about this one.
 OTHER = "Nanda Hardware Stores"
@@ -136,7 +137,18 @@ def other_company_server() -> Iterator[tuple[str, FakeTally]]:
     ready = threading.Event()
 
     def serve() -> None:
-        app.configure(tally, identity_for(OTHER), store=MemoryStore(":memory:"))
+        # The books must be OPEN for OTHER, and said so by a real reader. With no
+        # `period_reader` the runtime answers `period_open=None` - nobody looked -
+        # which the cage blocks, so every test below reached the entry box and
+        # then posted nothing. The company is a PARAMETER because
+        # `parse_company_periods` matches on the name: a canned response naming
+        # the wrong company is NO MATCH, which fails closed and changes nothing.
+        app.configure(
+            tally,
+            identity_for(OTHER),
+            store=MemoryStore(":memory:"),
+            period_reader=open_books_for(OTHER),
+        )
         ready.set()
         httpd.serve_forever()
 

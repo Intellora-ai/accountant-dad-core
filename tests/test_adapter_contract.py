@@ -718,6 +718,40 @@ SWAPPABLE: tuple[Callable[[], Extractor], ...] = (stub_backend, service_backend)
 #: backend that stopped working would fail its own half.
 BELIEVED: dict[str, bool] = {"stub_backend": True, "service_backend": False}
 
+#: BEING BELIEVED IS NOT PERMISSION TO POST. Owner ruling 2026-08-17.
+#:
+#: `BELIEVED` above is about `adapter.ENTITLED_TO_EXACT`: whether a tier's
+#: claim of EXACT is read as exactness, and therefore whether a name it read
+#: may become a supplier's IDENTITY. `decision.AUTO_POST_ALLOWED_TIERS` is a
+#: SECOND, INDEPENDENT rule about whether a bill may reach Tally with nobody
+#: looking, and it is `{pdf_text_layer, typed_text}`.
+#:
+#: NEITHER SWAPPABLE BACKEND IS ON IT. `stub` is not, and must never be added -
+#: a test double that could buy auto-post by handing in tidy numbers would make
+#: every refusal asserted in this file rewritable into a post. `reader_service`
+#: is not either, for the reason recorded above: a remote API is posted
+#: whatever was uploaded, and that may be a photograph.
+#:
+#: SO THE THREE TESTS BELOW NO LONGER ASK "WHICH ONE POSTED". Neither does.
+#: They ask the question the seam is actually about - what does the swap change
+#: about the entry that was built - and then assert, separately and in three
+#: ways each, that nothing was written by either. The claim that VALID is
+#: reachable at all lives with a TRUSTED tier, in
+#: `test_a_connector_refusal_cannot_happen_after_the_application_said_valid`,
+#: direction 2: `TypedTextExtractor`, same company, same bill bytes, and it
+#: posts. Without that test somewhere in this file these three would be
+#: satisfied by a pipeline that had stopped working entirely.
+#:
+#: THE THREE WERE RENAMED, NOT WEAKENED. Their old names said "only a believed
+#: backend posts", and that sentence is now false: neither does. A test name
+#: that lies is worse than one that is long, so each says what it now measures,
+#: and each carries the assertion its old name promised - the exact voucher,
+#: the exact paise, and the party question - moved one layer up, onto the entry
+#: that was built rather than the voucher that was not written.
+
+#: The two ways a run can end without a voucher.
+SAFE = frozenset({Outcome.UNCLEAR, Outcome.NOT_VALID})
+
 
 def test_two_backends_given_the_same_facts_produce_the_same_record() -> None:
     a = stub_backend().extract(BILL, "text/plain")
@@ -840,25 +874,35 @@ def test_two_backends_given_the_same_facts_produce_the_same_draft_but_the_identi
 
 
 @pytest.mark.parametrize("make", SWAPPABLE, ids=lambda m: m.__name__)
-def test_two_backends_given_the_same_facts_either_post_or_ask_who_it_was(
+def test_neither_backend_posts_and_only_the_believed_one_names_the_supplier(
     make: Callable[[], Extractor],
 ) -> None:
-    """CORRECTED 2026-08-13, owner decision 3. It was
+    """The swap changes WHO THE ENTRY SAYS IT IS FROM, and changes nothing else.
+
+    CORRECTED 2026-08-13, owner decision 3, when it was
     `test_two_backends_given_the_same_facts_produce_the_same_decision`.
+    CORRECTED AGAIN 2026-08-17, owner ruling on `AUTO_POST_ALLOWED_TIERS`,
+    when it was `..._either_post_or_ask_who_it_was`.
 
-    The believed tier still posts on "nothing unclear and nothing surprising".
-    The unbelieved one neither refuses nor guesses: it reaches the answer the
-    product already had for "I do not know who this is" and ASKS. `unclear` with
-    `no party name` is an existing path reached, not a new one invented.
+    WHAT CHANGED AND WHY THE CLAIM DID NOT. This test asserted that the
+    believed tier POSTS. Neither swappable tier is on
+    `decision.AUTO_POST_ALLOWED_TIERS`, so neither may, and `stub` must never
+    be added to it - a fixture that could buy a voucher by stating tidy numbers
+    would make every refusal in this file rewritable into a post.
 
-    THE REASON STRING IS NO LONGER PINNED, CHANGED 2026-08-15. The amount guard
-    landed that day, so an unbelieved tier now fails TWO checks rather than one
-    - its total is not money either - and `amount_is_positive` sits ahead of
-    `party_is_named` in `ALL_CHECKS`, so `reason` became "amount is 0 paise".
-    Both are the same event: a tier that guesses is asked about instead of
-    believed. What this test is for is the ASKING, so it pins the outcome and
-    the presence of the party question, and stops pinning which of several
-    correct refusals happens to sort first.
+    The thing being measured was never the voucher. It is the ONE difference a
+    backend swap is allowed to make: an unbelieved tier's reading of a name is
+    not an identity. That difference is fully visible before anything is
+    written - the unbelieved reading arrives with no party, no account and the
+    party question raised; the believed one arrives with the supplier named and
+    its account already proposed from history - so it is asserted there.
+
+    The unbelieved half is unchanged: `unclear` with `party_is_named` is an
+    existing path reached, not a new one invented.
+
+    THE REASON STRING IS STILL NOT PINNED, for the reason recorded 2026-08-15.
+    An unbelieved tier fails several checks at once and which of them sorts
+    first is not this test's business. `SAFE` and the problem ids are.
     """
     t = tally(past(PARTY, "Purchases", n=40))
     d = pipeline.run(
@@ -871,26 +915,54 @@ def test_two_backends_given_the_same_facts_either_post_or_ask_who_it_was(
         today=TODAY,
         period_reader=open_books_for(COMPANY),
     )
+    asked = [p.id for p in d.problems]
+
+    # Both halves, first: no tier here may post, whatever it was believed about.
+    assert d.outcome in SAFE, d.reason
+    assert d.outcome is not Outcome.VALID
+    assert d.posted_tally_id is None
+    assert t.list_our_vouchers(COMPANY) == ()
 
     if not BELIEVED[make.__name__]:
         assert d.outcome is Outcome.UNCLEAR
-        assert "party_is_named" in [p.id for p in d.problems], d.reason
+        assert "party_is_named" in asked, d.reason
+        assert d.voucher.party == ""
+        assert d.voucher.debit_account == ""
         return
-    assert d.outcome is Outcome.VALID
-    assert d.reason == "nothing unclear and nothing surprising"
+
+    # The believed half, and the half that stops this passing by refusing
+    # everything: the supplier IS named, its account IS proposed from the forty
+    # prior vouchers, and nobody is asked who this was.
+    assert "party_is_named" not in asked, d.reason
+    assert d.voucher.party == PARTY
+    assert d.voucher.debit_account == "Purchases"
 
 
 @pytest.mark.parametrize("make", SWAPPABLE, ids=lambda m: m.__name__)
-def test_only_a_believed_backend_posts_and_the_other_writes_nothing(
+def test_neither_backend_writes_and_only_the_believed_one_builds_the_voucher(
     make: Callable[[], Extractor],
 ) -> None:
-    """CORRECTED 2026-08-13, owner decision 3. It was
-    `test_two_backends_given_the_same_facts_post_the_same_voucher`.
+    """Not one paise of the entry moves when the backend is swapped.
 
-    The posted voucher is unchanged where one is posted at all, and that is the
-    half that still has to hold exactly: the swap may not move a single paise of
-    what lands in Tally. What it now changes is WHETHER, in the safe direction -
-    a reading whose supplier is a guess writes nothing and asks.
+    CORRECTED 2026-08-13, owner decision 3, when it was
+    `test_two_backends_given_the_same_facts_post_the_same_voucher`.
+    CORRECTED AGAIN 2026-08-17, owner ruling on `AUTO_POST_ALLOWED_TIERS`,
+    when it was `test_only_a_believed_backend_posts_and_the_other_writes_
+    nothing`.
+
+    THE EXACT FOUR-FIELD TUPLE IS STILL HERE, and it is still the half that has
+    to hold exactly. It has moved from the voucher READ BACK OUT OF TALLY to
+    the voucher the pipeline BUILT, because neither swappable tier is on
+    `decision.AUTO_POST_ALLOWED_TIERS` and so neither reaches Tally at all. The
+    party, the paise, the expense leg and the funding leg are all asserted
+    unchanged; what is no longer asserted is a write that the system correctly
+    refuses to perform.
+
+    NOTHING WRITTEN IS ASSERTED THREE WAYS, for both backends, not one. "It
+    refused" without "and wrote nothing" is exactly the assertion that lets a
+    silent write through: `read_by_operation_id` misses nothing only if the id
+    is right, `list_our_vouchers` misses a write carrying no marker, and
+    `posted_tally_id` is only what the draft believes about itself.
     """
     t = tally(past(PARTY, "Purchases", n=40))
     d = pipeline.run(
@@ -903,36 +975,61 @@ def test_only_a_believed_backend_posts_and_the_other_writes_nothing(
         today=TODAY,
         period_reader=open_books_for(COMPANY),
     )
-    back = t.read_by_operation_id(COMPANY, d.operation_id)
+
+    assert d.posted_tally_id is None
+    assert t.read_by_operation_id(COMPANY, d.operation_id) is None
+    assert t.list_our_vouchers(COMPANY) == ()
+    assert pipeline.reverse(d, t) is False, "there is nothing of ours to undo"
 
     if not BELIEVED[make.__name__]:
-        assert (d.posted_tally_id, back) == (None, None)
+        # An unbelieved reading does not even assemble an entry: no supplier,
+        # no money, no legs. Asserted rather than skipped, because "wrote
+        # nothing" is also true of a backend that was never run.
+        assert (
+            d.voucher.party,
+            d.voucher.amount_paise,
+            d.voucher.debit_account,
+            d.voucher.credit_account,
+        ) == ("", 0, "", "")
         return
-    assert d.posted_tally_id is not None
-    assert back is not None
-    assert (back.party, back.amount_paise, back.debit_account, back.credit_account) == (
-        PARTY,
-        TOTAL,
-        "Purchases",
-        "Cash",
-    )
+
+    assert (
+        d.voucher.party,
+        d.voucher.amount_paise,
+        d.voucher.debit_account,
+        d.voucher.credit_account,
+    ) == (PARTY, TOTAL, "Purchases", "Cash")
 
 
-def test_only_a_believed_backend_moves_the_trial_balance() -> None:
-    """CORRECTED 2026-08-13, owner decision 3. It was
+def test_neither_backend_moves_the_trial_balance_and_the_run_still_happened() -> None:
+    """No ledger moves either way, and the two ledgers that WOULD have moved
+    are still named to the paise.
+
+    CORRECTED 2026-08-13, owner decision 3, when it was
     `test_two_backends_move_the_trial_balance_by_the_same_paise`.
+    CORRECTED AGAIN 2026-08-17, owner ruling on `AUTO_POST_ALLOWED_TIERS`,
+    when it was `test_only_a_believed_backend_moves_the_trial_balance`.
 
-    The paise are still the point and they have not moved: the believed backend
-    shifts exactly the two ledgers it always did, by exactly the amount it always
-    did. The other shifts nothing, asserted as an empty map rather than left out
-    - "posted nothing" and "was never run" look identical in a test that only
-    checks the first backend.
+    THE OLD DOCSTRING NAMED THE TRAP THIS VERSION HAD TO SOLVE: "posted
+    nothing" and "was never run" look identical in a test that only checks a
+    trial balance. That was survivable while one backend still moved two
+    ledgers. Neither does now - neither swappable tier is on
+    `AUTO_POST_ALLOWED_TIERS` - so an empty map on both sides would be passed
+    by a pipeline that had been deleted.
+
+    So the paise stayed in the test and moved to where they still exist: the
+    ENTRY the believed backend built, whose expense leg is `Purchases` for
+    exactly `TOTAL` and whose funding leg is `Cash` for the same. That is the
+    delta this run would have made, asserted as the same two ledgers and the
+    same amount the old assertion named, beside the fact that neither ledger
+    actually moved.
     """
     moves: dict[str, dict[str, int]] = {}
+    built: dict[str, tuple[str, int, str]] = {}
     for make in SWAPPABLE:
         t = tally(past(PARTY, "Purchases", n=40))
         before = t.trial_balance(COMPANY)
-        pipeline.run(
+        d = pipeline.run(
             COMPANY,
             BILL,
             "text/plain",
@@ -948,9 +1045,20 @@ def test_only_a_believed_backend_moves_the_trial_balance() -> None:
             for ledger in set(before) | set(after)
             if after.get(ledger, 0) != before.get(ledger, 0)
         }
+        built[make.__name__] = (
+            d.voucher.debit_account,
+            d.voucher.amount_paise,
+            d.voucher.credit_account,
+        )
 
-    assert moves["stub_backend"] == {"Purchases": TOTAL, "Cash": -TOTAL}
-    assert moves["service_backend"] == {}
+    # Not one ledger moved, for either backend.
+    assert moves == {"stub_backend": {}, "service_backend": {}}
+
+    # And the run happened: the believed backend assembled the entry that would
+    # have moved exactly `Purchases` and `Cash` by exactly `TOTAL`, while the
+    # unbelieved one assembled nothing at all.
+    assert built["stub_backend"] == ("Purchases", TOTAL, "Cash")
+    assert built["service_backend"] == ("", 0, "")
 
 
 def test_a_backend_that_finds_nothing_still_leaves_the_posting_gate_shut() -> None:

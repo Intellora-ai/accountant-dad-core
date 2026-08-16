@@ -41,7 +41,6 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from accountant.extract.labels import Printing
 from accountant.invoice.bridge import (
     DEFAULT_THRESHOLDS,
     Thresholds,
@@ -53,6 +52,7 @@ from accountant.invoice.parse import Reading
 from accountant.invoice.result import ENGINE_NOT_STATED, ExtractionResult
 from accountant.invoice.status import DocumentStatus
 from accountant.invoice.validate import EXACTLY, Tolerance
+from accountant.labels import Printing
 
 
 @dataclass(frozen=True)

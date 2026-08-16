@@ -57,8 +57,6 @@ from typing import Final
 
 from accountant.cage.conservation import Verdict
 from accountant.cage.decision import ASK_FLOOR
-from accountant.extract.invoicelike import looks_like_a_bill
-from accountant.extract.labels import NET_LABELS, TOTAL_LABELS, Printing
 from accountant.invoice import parse
 from accountant.invoice.fields import Method, ReadField, Where, read_as, unread
 from accountant.invoice.parse import Column, Reading, Side
@@ -75,6 +73,8 @@ from accountant.invoice.result import (
 from accountant.invoice.status import SAID, DocumentStatus
 from accountant.invoice.validate import EXACTLY, Figures, Finding, Law, Tolerance
 from accountant.invoice.validate import run as run_laws
+from accountant.invoicelike import looks_like_a_bill
+from accountant.labels import NET_LABELS, TOTAL_LABELS, Printing
 from accountant.rules.place_of_supply import gstin_state_code
 
 #: Labels a supplier prints an address under. Deliberately short: an address
@@ -84,7 +84,7 @@ from accountant.rules.place_of_supply import gstin_state_code
 ADDRESS_LABELS: Final[tuple[str, ...]] = ("ADDRESS",)
 
 #: What a bill calls the figure before its tax lines. Only the two spellings
-#: `extract/labels.NET_LABELS` does not already carry as one word.
+#: `labels.NET_LABELS` does not already carry as one word.
 SUBTOTAL_LABELS: Final[tuple[str, ...]] = ("SUB TOTAL", "SUBTOTAL")
 
 #: The labels a bill prints its date under. `DATE` is last, because
@@ -568,7 +568,7 @@ def describe(
     """One document, read as far as it can be read, with a status on it.
 
     `printing` IS KEYWORD-ONLY AND HAS NO DEFAULT, following
-    `extract/labels.py::values_for`. A positional argument would be one `True`
+    `labels.py::values_for`. A positional argument would be one `True`
     away from turning a PDF into a photograph at a call site nobody re-reads,
     and a default would mean a caller who never thought about the question
     still got an answer to it.

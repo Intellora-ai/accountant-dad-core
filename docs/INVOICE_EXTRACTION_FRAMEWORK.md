@@ -26,7 +26,7 @@ predicted:
 | --- | --- | --- |
 | JPGs that return non-empty text | 82 of 106 | `tesseract` 5.5.3, by raw binary and again through `accountant/extract/freeocr.py` |
 | Median characters returned per JPG | 107.5 | same run |
-| Documents in `data/` that are not invoices | 333 of 413 | hand classification, recorded in `accountant/extract/invoicelike.py` |
+| Documents in `data/` that are not invoices | 333 of 413 | hand classification, recorded in `accountant/invoicelike.py` |
 | Files anywhere in `data/` carrying a GSTIN | **1** | and it is a GST appeal tribunal order, not a bill |
 
 The reader reaches the pixels. What happens after that is where the loss is:
@@ -203,7 +203,7 @@ It did not change the verdict — one signal is not two — but the **signal lis
 person is shown named a currency that is not on the page**, and the signal list
 is the evidence behind a refusal.
 
-`accountant/extract/invoicelike.py` is not this package's file to edit. The fix
+`accountant/invoicelike.py` is not this package's file to edit. The fix
 is a word boundary on that one alternative. Recorded here and in
 `tests/invoice_documents.py`, where the fixture is worded around it.
 

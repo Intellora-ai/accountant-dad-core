@@ -41,7 +41,8 @@ import re
 
 import pytest
 
-from accountant.extract import currency, labels
+from accountant import labels
+from accountant.extract import currency
 from accountant.extract.currency import (
     CURRENCY_ALIASES,
     MINOR_DIGITS,

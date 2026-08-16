@@ -18,7 +18,7 @@ import datetime
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Final, Protocol, runtime_checkable
 
 from accountant import checks, problems
 from accountant import questions as Q
@@ -29,6 +29,7 @@ from accountant.detect import detectors
 from accountant.extract.adapter import NOT_FOUND, ExtractedRecord, Extractor
 from accountant.memory.company import (
     FROM_HUMAN_ANSWER,
+    CompanyMatchStatus,
     CompanyMemory,
     LiveDisagreement,
     disagrees_with_live_history,
@@ -622,6 +623,55 @@ def tax_for(draft: Draft, accounts: Sequence[str]) -> TaxDecision:
     )
 
 
+#: Which KIND of document each extraction backend produces, by the provenance
+#: string it stamps on `total_paise`. THE ONE TABLE, and a backend that is not
+#: in it is not classified - see `_document_type` for what that costs.
+#:
+#: Keyed on the backend's own `name`, which the reader writes into
+#: `per_field_source`, so the classification follows the EVIDENCE rather than a
+#: flag any caller could set. There is deliberately no parameter anywhere that
+#: lets a caller ask for a particular kind: a caller who could pick would pick
+#: the permissive one by accident, which is the failure this table exists to
+#: prevent.
+_KIND_BY_SOURCE: Final[dict[str, DocumentType]] = {
+    # A person typed the sentence. Nothing was read, so nothing was misread.
+    "typed_text": DocumentType.TYPED_EXPENSE_NOTE,
+    # A test double standing in for a bill. It is judged as one, arithmetic and
+    # all, so a fixture cannot buy a weaker law set by choosing this backend.
+    "stub": DocumentType.INVOICE,
+}
+
+
+def _document_type(record: ExtractedRecord) -> DocumentType:
+    """Which kind of document this is, decided from provenance and nothing else.
+
+    THE `if typed_text ... else INVOICE` THIS REPLACED WAS TWO DEFECTS IN ONE
+    LINE, and the second was the dangerous one. The first is that it read a
+    single prefix, so `typed_text` was the only kind that could ever be
+    recognised. The second is where it landed everything else: `else INVOICE`
+    meant an input nobody had classified was ASSUMED to be a bill. That is a
+    guess, and the guess pointed at a kind whose laws it could not satisfy.
+
+    THE DEFAULT IS NOW `UNSUPPORTED`, WHICH BLOCKS. An unclassified input has
+    not been shown to be anything, and `DocumentType` already states the rule
+    this follows: the absence of a classification is not permission. A new
+    backend therefore arrives blocked and has to be named in `_KIND_BY_SOURCE`
+    on purpose, rather than inheriting a bill's law set by omission.
+
+    PROVENANCE, NOT SHAPE. The kind comes from WHO produced the value, not from
+    what the value looks like, because the shapes are identical: a typed note
+    and a note lifted off a page both carry one amount, one party and no lines.
+    Only the source says whether a machine guessed.
+
+    An unread `total_paise` carries a `not_found:` source rather than a
+    backend's name, so it matches nothing here and blocks - which is correct,
+    since a document whose amount was never read has not been identified at all.
+    """
+    return _KIND_BY_SOURCE.get(
+        record.per_field_source.get("total_paise", ""), DocumentType.UNSUPPORTED
+    )
+
+
 def evaluate(
     draft: Draft,
     accounts: tuple[str, ...],
@@ -845,16 +895,49 @@ def evaluate(
             # is judged as an invoice here; a reader that some day reports an
             # expense note off a PAGE passes `NON_INVOICE_EXPENSE_NOTE`, which
             # `decision._needs_a_person` caps at a question.
-            document_type=(
-                DocumentType.TYPED_EXPENSE_NOTE
-                if draft.record.per_field_source.get("total_paise", "").startswith(
-                    "typed_text"
-                )
-                else DocumentType.INVOICE
-            ),
+            document_type=_document_type(draft.record),
+            # THE SAME NAME IS THE SAME VENDOR, decided the way the rest of the
+            # product decides it. This read `party in accounts or any(one.party
+            # == party ...)` - raw string equality, and the ONLY identity check
+            # in this system that did not go through `normalise_vendor`. The
+            # memory index, the lookup, the correction store and every account
+            # proposal already normalise; this one line did not, so a person who
+            # typed `M/s Sharma Traders` was refused as a stranger by books that
+            # hold forty postings under `Sharma Traders`.
+            #
+            # IT OPENS NOTHING. Measured on the real normaliser: the four
+            # spellings of a vendor the books DO hold now match, while
+            # `M/s Sharma Traders Pvt Ltd` stays unmatched - owner ruling D-05,
+            # a different legal entity is a different vendor - and a name the
+            # books have never seen, `Gupta Hardware`, stays unmatched too. The
+            # refusal at tests/test_reversal_guard.py:205 and tests/test_gate.py
+            # :302 is unchanged, which is the direction that must never move.
+            #
+            # MEMORY IS THE THIRD PLACE A VENDOR CAN BE KNOWN FROM, added on the
+            # owner's ruling of 2026-08-17. The chart of accounts and the live
+            # ledger were the only two, so a vendor the PERSON had explicitly
+            # confirmed - `memory.record_correction(...)`, a measured mapping
+            # they typed themselves - was still a stranger to the cage. Rule D2a
+            # says the opposite: once their answer HAS created a mapping, the
+            # same entry posts. The two rules contradicted each other and the
+            # cage won, so answering the question changed nothing and the person
+            # was asked again for ever.
+            #
+            # ONLY `MATCH` COUNTS, and that is what keeps this from being a hole.
+            # `NO_MATCH` is a vendor nobody has answered about - still refused.
+            # `CONFLICTED` is a vendor whose history disagrees with itself -
+            # still refused, and it must be, because a conflict is a question and
+            # not an approval. `MEMORY_NOT_READY` means we have not read the
+            # person's books at all, and it is the least postable state there is.
+            # Only an explicit, recorded, unambiguous mapping opens this door.
             party_known=(
-                draft.voucher.party in accounts
-                or any(one.party == draft.voucher.party for one in history)
+                normalise_vendor(draft.voucher.party)
+                in {normalise_vendor(one) for one in accounts}
+                or any(
+                    normalise_vendor(one.party) == normalise_vendor(draft.voucher.party)
+                    for one in history
+                )
+                or memory.lookup(draft.voucher.party).status is CompanyMatchStatus.MATCH
             ),
             carries_gst=draft.voucher.needs_tax_lines,
             questions_asked=len(draft.answers),

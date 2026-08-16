@@ -82,14 +82,32 @@ def seeded(account: str) -> tuple[Voucher, ...]:
     )
 
 
-def two_companies() -> FakeTally:
-    """One Tally, two companies, one supplier name, two different practices."""
+def two_companies(*, also_ledgers: tuple[str, ...] = ()) -> FakeTally:
+    """One Tally, two companies, one supplier name, two different practices.
+
+    `also_ledgers` adds names to BOTH charts of accounts, deliberately. A ledger
+    head is not memory: it says the supplier exists in the books, and says
+    nothing about which expense account that company puts them in. Giving it to
+    both keeps the company key the only thing separating the two, which is the
+    whole premise of this file.
+
+    It exists because `cage/decision.py::_world_blocks` refuses a party found in
+    neither the chart nor the history - "I will never add a new name to your
+    books on my own" - and these fixtures predate that check, so they never
+    stated the fact either way. Default empty; nothing gains a ledger silently.
+    """
     t = FakeTally()
     t.add_company(
-        COMPANY_A, accounts=ACCOUNTS, vouchers=seeded(A_ACCOUNT), backed_up=True
+        COMPANY_A,
+        accounts=ACCOUNTS + also_ledgers,
+        vouchers=seeded(A_ACCOUNT),
+        backed_up=True,
     )
     t.add_company(
-        COMPANY_B, accounts=ACCOUNTS, vouchers=seeded(B_ACCOUNT), backed_up=True
+        COMPANY_B,
+        accounts=ACCOUNTS + also_ledgers,
+        vouchers=seeded(B_ACCOUNT),
+        backed_up=True,
     )
     return t
 
@@ -244,7 +262,13 @@ def test_running_one_companys_entry_with_anothers_memory_posts_nothing():
 
 def test_a_correction_recorded_on_one_company_leaves_the_other_unchanged():
     """The person answered for THEIR books. Nobody else's books learned anything."""
-    t = two_companies()
+    # Verma Cement's LEDGER exists in both companies and neither company's
+    # HISTORY has ever used it. That is what makes the correction the only
+    # difference between them: A was told which expense account, B was not.
+    # Without the ledger the cage refuses both for a reason that has nothing to
+    # do with memory - an unknown party - and the file would stop proving what
+    # it is named for. B's half below is unchanged and still asks.
+    t = two_companies(also_ledgers=("Verma Cement",))
     _, mem_a, mem_b = both(t)
 
     mem_a.record_correction("Verma Cement", "Sundry Expenses")

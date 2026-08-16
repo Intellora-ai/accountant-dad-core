@@ -43,6 +43,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import json
+import os
 import re
 import socket
 import subprocess
@@ -674,12 +675,34 @@ def test_the_readme_tells_a_person_to_run_a_module_that_python_can_find() -> Non
 def test_running_the_readme_command_reaches_the_apps_own_entry_point() -> None:
     """Resolving is not running. This runs it, exactly as written.
 
-    With no Tally on the default port the command must refuse in the terminal —
-    which is a working command doing its job, not a broken one. The failure this
-    catches is the opposite: a command that dies before it reaches any code of
-    ours.
+    With no Tally on the port it is aimed at, the command must refuse in the
+    terminal — which is a working command doing its job, not a broken one. The
+    failure this catches is the opposite: a command that dies before it reaches
+    any code of ours.
+
+    THE PORT IS STATED NOW RATHER THAN ASSUMED. Added 2026-08-17. This ran with
+    no environment of its own, so it inherited the default of 9000 and the
+    docstring's "no Tally on the default port" was a fact about the developer's
+    machine that nothing in the test established. MEASURED here the day it broke:
+    VirtualBox holds a port-forward open on 127.0.0.1:9000 for the Tally VM, so
+    the socket CONNECTS and then nothing ever answers it. `TallyConfig` waits
+    `timeout_seconds=30` and retries three times, so the command sat silent for
+    90 seconds while `HARD_TIMEOUT` is 15 — the test reported "still running and
+    never printed the banner", which was true and had nothing to do with this
+    repository.
+
+    `ACCOUNTANT_TALLY_PORT` is the variable a deployment uses to move Tally, so
+    pointing it at a bound-then-released port is the same mechanism rather than a
+    special case, and `_free_ports` is the helper the rest of this file already
+    uses for "nothing is listening here". NOTHING IS WEAKENED BY IT: the command
+    is still the one the README prints, run in a clean interpreter from the
+    repository root, and it must still reach our own refusal and exit non-zero.
+    What changes is that the refusal is now caused by a fact this test states
+    instead of by whatever happens to hold port 9000.
     """
     argv = [sys.executable, "-m", "accountant.web.app"]
+    (nothing_listening,) = _free_ports(1)
+    environment = os.environ | {app.ENV_PORT: str(nothing_listening)}
     try:
         finished = subprocess.run(  # noqa: S603
             argv,
@@ -688,6 +711,7 @@ def test_running_the_readme_command_reaches_the_apps_own_entry_point() -> None:
             timeout=HARD_TIMEOUT,
             check=False,
             cwd=REPO,
+            env=environment,
         )
     except subprocess.TimeoutExpired as still_running:
         # Still running means it is SERVING. That is only legitimate if it

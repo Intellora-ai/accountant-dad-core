@@ -64,6 +64,7 @@ from accountant.tallyio.client import stamp
 from accountant.tallyio.factory import BackendIdentity, new_run_id
 from accountant.tallyio.fake import FakeTally
 from accountant.web import app
+from tests.test_period_handoff import open_books_for
 
 #: The company this session is bound to. Not `app.COMPANY`, deliberately.
 OURS = "Pathak Cement Works"
@@ -251,7 +252,16 @@ def bench() -> Iterator[Bench]:
             backend="FakeTally",
         )
     )
-    app.configure(tally, identity_for(OURS), store=store)
+    # `period_reader` is not optional dressing here. Left out, `Runtime.period_open`
+    # is `None` - "nobody looked" - and the cage refuses every posting with "I
+    # could not tell whether the books for this date are still open", so the
+    # bulk-reversal tests below have nothing to reverse. `open_books_for` must be
+    # handed OURS: `parse_company_periods` matches on the company name, so a
+    # response naming anyone else is NO MATCH, which is UNVERIFIED, which blocks
+    # exactly as before while looking fixed.
+    app.configure(
+        tally, identity_for(OURS), store=store, period_reader=open_books_for(OURS)
+    )
 
     httpd = HTTPServer(("127.0.0.1", 0), app.Handler)
     httpd.timeout = 5

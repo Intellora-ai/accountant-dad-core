@@ -19,7 +19,7 @@ import re
 from dataclasses import dataclass, field
 from dataclasses import replace as _replace
 from decimal import Decimal, InvalidOperation
-from typing import Final, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 # The one name for "nothing was estimated", taken rather than written as a bare
 # 1.0. Same exception, same reasoning as `wall.py` importing `money`:
@@ -29,6 +29,12 @@ from typing import Final, Protocol, runtime_checkable
 # second definition of exactness in the codebase, and two definitions of a
 # constant is how one of them stops meaning what the other does.
 from accountant.cage.confidence import EXACT
+
+# `HUMAN_ANSWER` is the same exception again, and a smaller one: `schema.py`
+# imports `datetime`, `collections.abc`, `dataclasses` and `enum`, and nothing
+# from this package. It is where the words two components have to agree on
+# already live, next to `NOT_RECORDED`.
+from accountant.schema import HUMAN_ANSWER
 
 NOT_FOUND = "not_found"
 
@@ -99,13 +105,6 @@ NOT_FOUND = "not_found"
 #: `tests/test_remote_reader_not_exact.py` holds both halves - the refusal, and
 #: the number surviving the refusal.
 ENTITLED_TO_EXACT: frozenset[str] = frozenset({"pdf_text_layer", "typed_text", "stub"})
-
-#: What `ExtractedRecord.with_answer` stamps when a PERSON supplied the value.
-#: Named rather than typed inline so the string cannot drift between the place
-#: that writes it and any place that reads it. It is deliberately NOT in
-#: `ENTITLED_TO_EXACT`: that list grants the right to become a vendor identity
-#: with no question asked, and a person's typed answer has not earned it.
-HUMAN_ANSWER: Final[str] = "human_answer"
 
 #: The one media type a sentence a person typed arrives as.
 #:
@@ -313,7 +312,7 @@ class ExtractedRecord:
         this returns.
         """
         from accountant.extract.dates import DateLocale, read_date
-        from accountant.extract.labels import paise_or_none
+        from accountant.labels import paise_or_none
 
         said = text.strip()
         if not said:
@@ -960,11 +959,33 @@ class StubExtractor:
         party: str | None = None,
         total_paise: int | None = None,
         tax_paise: int | None = None,
+        net_paise: int | None = None,
+        line_items: tuple[LineItem, ...] = (),
     ) -> None:
         self.date = date
         self.party = party
         self.total_paise = total_paise
         self.tax_paise = tax_paise
+        #: The itemisation, HANDED IN. Defaults to `()`, which is "nobody read
+        #: any lines" and still blocks an invoice - see the note beside where it
+        #: is passed to the record below.
+        self.line_items = line_items
+        #: The pre-tax figure, HANDED IN and never worked out. It joined 2026-08-16
+        #: because this stub could not state a fact the real readers had been
+        #: stating since 2026-08-15, and the gap was not cosmetic: with no net
+        #: reaching it, `conservation.net_plus_tax_equals_gross` returns
+        #: INDETERMINATE, INDETERMINATE blocks, and every stub-backed case was
+        #: refused with "there is something on this bill I could not check at
+        #: all" no matter what it was handed.
+        #:
+        #: `total_paise - tax_paise` IS NOT WRITTEN HERE, deliberately, and
+        #: `gate.py:119` is the reason: both of those are already inputs to that
+        #: same law, so a net derived from them would be a number checked against
+        #: itself and the law would pass on every bill for ever while reporting
+        #: that it had checked something. A caller that does not state the net
+        #: leaves it None, and None still blocks - which is the correct answer
+        #: for a bill whose pre-tax figure was never established.
+        self.net_paise = net_paise
 
     def extract(self, data: bytes, _mime: str) -> ExtractedRecord:
         # Named fields rather than a dict, so each keeps its own type. A dict
@@ -975,6 +996,7 @@ class StubExtractor:
             "party": self.party,
             "total_paise": self.total_paise,
             "tax_paise": self.tax_paise,
+            "net_paise": self.net_paise,
         }
         # A bare `not_found` says nothing a person could act on. EXIT 2 asks for
         # every unread field to be explicit not_found WITH A REASON, and this
@@ -982,15 +1004,51 @@ class StubExtractor:
         # selected (owner decision Q4 = B). Without the reason, "we have no
         # reader" and "the reader looked and found nothing" are the same string
         # in the audit trail, and those are different facts about the document.
+        #
+        # `net_paise` IS STAMPED ONLY WHEN IT WAS SUPPLIED. Owner ruling
+        # 2026-08-17, decision 3. `ExtractedRecord.FIELDS` is exactly the four
+        # names the whole system agrees on, and `net_paise` is not one of them -
+        # no other backend of the seven states a source for it, and
+        # `ServiceExtractor` cannot state a net at all. Stamping a fifth key
+        # unconditionally made this stub the ONLY backend whose record had a
+        # different shape from every other, which is what
+        # `test_two_backends_given_the_same_facts_produce_the_same_record` is
+        # there to catch.
+        #
+        # Supplying a net is still supported and still explicit - it is what
+        # lets `conservation.net_plus_tax_equals_gross` evaluate at all. What
+        # changes is only the ABSENT case: a stub handed no net now looks exactly
+        # like every other backend that cannot state one, instead of announcing a
+        # field the contract does not have.
         src = {
             k: (self.name if v is not None else STUB_NOT_FOUND)
             for k, v in supplied.items()
+            if k in ExtractedRecord.FIELDS or v is not None
         }
         return ExtractedRecord(
             date=self.date,
             party=self.party,
             total_paise=self.total_paise,
             tax_paise=self.tax_paise,
+            net_paise=self.net_paise,
+            #: HANDED IN, never worked out, for the same reason `net_paise` is -
+            #: and it joined on 2026-08-17 for the same gap one law over. With no
+            #: lines reaching it, `conservation.lines_sum_to_total` returns
+            #: INDETERMINATE, INDETERMINATE blocks, and every stub-backed bill
+            #: was refused with "there is something on this bill I could not
+            #: check at all" no matter what else it was handed. `gate._line_paise`
+            #: says why an empty tuple cannot mean "no lines": no reader in this
+            #: repository fills `line_items`, so emptiness is an absence of
+            #: READING, not an absence of lines.
+            #:
+            #: A SPLIT OF `total_paise` IS NOT WRITTEN HERE, deliberately. The
+            #: total is already the other input to that law, so lines derived
+            #: from it would be a number checked against itself and the law would
+            #: pass on every bill for ever while reporting that it had checked
+            #: something. A caller that does not state its lines leaves this `()`
+            #: and still blocks - the correct answer for a bill whose itemisation
+            #: was never established.
+            line_items=self.line_items,
             raw_text=data.decode("utf-8", errors="replace"),
             backend=self.name,
             per_field_source=src,

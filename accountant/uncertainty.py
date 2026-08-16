@@ -59,7 +59,8 @@ from typing import Final
 
 from accountant import questions as Q
 from accountant.cage.decision import AUTO_POST_FLOOR
-from accountant.extract.adapter import HUMAN_ANSWER, NOT_FOUND, ExtractedRecord
+from accountant.extract.adapter import NOT_FOUND, ExtractedRecord
+from accountant.schema import HUMAN_ANSWER
 
 #: What the person clicked, when what they clicked is not a value.
 NOT_SURE: Final = "__not_sure__"

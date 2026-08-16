@@ -136,12 +136,6 @@ from accountant.extract.adapter import (
     _media_type,  # pyright: ignore[reportPrivateUsage]
 )
 from accountant.extract.freeocr import READABLE_MEDIA, FreeReader
-from accountant.extract.labels import (
-    DATE_LABEL,
-    TAX_PARTS,
-    TAX_WHOLE,
-    TOTAL_LABELS,
-)
 from accountant.extract.pagereader import READING_DEADLINE_SECONDS, page_reader
 from accountant.extract.textlayer import (
     PDF_MIME,
@@ -151,6 +145,12 @@ from accountant.extract.textlayer import (
     picture_of,
     read,
     record_of,
+)
+from accountant.labels import (
+    DATE_LABEL,
+    TAX_PARTS,
+    TAX_WHOLE,
+    TOTAL_LABELS,
 )
 from accountant.observability import log
 

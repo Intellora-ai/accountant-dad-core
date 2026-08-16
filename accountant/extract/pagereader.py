@@ -90,6 +90,40 @@ MEASURED on the twenty corpus PNGs: it never happened, because the corpus
 prints one field per line. It is a real limitation on a bill that does not, and
 the honest fix is geometry, which is a change to what a `Word` is.
 
+IT HAPPENS NOW. THE SENTENCE ABOVE WAS TRUE OF TWENTY PNGs AND IS FALSE OF THE
+62-DOCUMENT GROUND-TRUTH CORPUS, where it fires on 13 of them - every Voxel51
+bill, which prints the two parties in two columns. `real-voxel51-05` reaches
+this file as
+
+    line 2   'Seller: Client:'
+    line 3   'Padilla, Webb and Pearson Marsh-Kennedy'
+
+Two labels on one line, two company names on the next, and no gap left to tell
+them apart: the engine reports no geometry, so the column boundary that a person
+sees is not in the data at all.
+
+WHAT IT COSTS, MEASURED 2026-08-15. `SELLER` was added to `PARTY_LABELS` on the
+strength of those 13 pages and REVERTED the same hour. The corpus went
+
+    party correct    0 -> 0
+    party INCORRECT  0 -> 1
+
+and the one value it produced was the characters `Client:` - the neighbouring
+column's LABEL read as this column's value. Widening the vocabulary cannot help
+here and can only hurt, because the defect is upstream of which words this
+reader knows.
+
+A guard was tried too: `_is_a_label` learning that any line ending in a colon is
+a label whatever the word is. It is a sound rule and it did not move the number,
+because this failure is on the SAME line rather than the next one. It was
+reverted with the label - an unmeasured guard kept on the argument that it feels
+right is exactly the habit this file's other measurements exist to prevent.
+
+So the fix really is geometry, and geometry is a closed owner decision against
+(no geometry on `freeocr.Word`). Until that decision changes, a two-column bill
+has NO readable party on the photograph path, and the honest outcome is the one
+it produces today: unread, and a person is asked.
+
 WHAT THIS FILE DOES NOT PROVE
 ------------------------------
 That anything it points at was read CORRECTLY. It mostly is not. MEASURED on
@@ -205,8 +239,9 @@ from typing import Final
 
 from accountant.extract import artifacts, nearby
 from accountant.extract.freeocr import PageReader, Reading, Word, read_lines
-from accountant.extract.labels import (
+from accountant.labels import (
     DATE_LABEL,
+    INVOICE_NUMBER_LABELS,
     NET_LABELS,
     PARTY_LABELS,
     TAX_PARTS,
@@ -473,8 +508,23 @@ def read_page(lines: tuple[tuple[Word, ...], ...]) -> Reading:
     page = _page_of(lines)
     labelled_date = values_for(page.lines, DATE_LABEL, printing=_PRINTING)
     labelled_party = values_for(page.lines, PARTY_LABELS, printing=_PRINTING)
+    labelled_number = values_for(page.lines, INVOICE_NUMBER_LABELS, printing=_PRINTING)
     date = _words_for(page, labelled_date)
     party = _words_for(page, labelled_party)
+    # THE BILL'S OWN REFERENCE, ADDED 2026-08-15, AND LABEL-ONLY BY DESIGN.
+    # There is no positional fallback for it and there must not be: a
+    # reference has no arithmetic anyone can check it against, so a guessed
+    # one is a wrong value with nothing downstream able to notice. A total
+    # at least meets `net_plus_tax_equals_gross`.
+    #
+    # MEASURED before it was built, by
+    # `scripts/diagnose_invoice_number_reach.py` over the 55 documents that
+    # state a number: 37 print the value on the SAME LINE as a label, 2 on
+    # the next line, 5 elsewhere, 5 print no label, 4 gave the engine no
+    # words and 2 do not carry the value in their text at all. A ceiling of
+    # 39 is what justified writing this at all - the party step the same
+    # hour measured a ceiling of zero and the vocabulary change was reverted.
+    invoice_number = _words_for(page, labelled_number)
 
     # FALLBACK, NEVER AN OVERRIDE. Each of the three runs only where the label
     # search came back with nothing, so no labelled read can be replaced by a
@@ -645,6 +695,7 @@ def read_page(lines: tuple[tuple[Word, ...], ...]) -> Reading:
         total=total,
         tax=tax,
         net=net,
+        invoice_number=invoice_number,
         at_most=MappingProxyType(ceilings),
     )
 
@@ -826,6 +877,7 @@ def _is_a_label(line: str) -> bool:
 
     has a next line under `SUB TOTAL` that is not a figure at all. Without this,
     the words `GRAND TOTAL` come back as the subtotal's value.
+
     """
     printed = line.strip().upper()
     if not printed:

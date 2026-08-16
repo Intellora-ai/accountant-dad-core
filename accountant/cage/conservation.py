@@ -102,6 +102,23 @@ class Verdict(StrEnum):
     PASS = "pass"  # noqa: S105  # nosec B105
     FAIL = "fail"
     INDETERMINATE = "indeterminate"
+    #: The law does not apply to this kind of document at all. ADDED 2026-08-16.
+    #:
+    #: NOT A FOURTH WAY OF SAYING PASS, and the distinction is the whole reason
+    #: it is a separate member rather than a flag on the result. `PASS` means the
+    #: law was applicable, was evaluated, and held. This means the question never
+    #: arose: `lines_sum_to_total` on a one-line expense note is not a sum that
+    #: came out right, it is a table that does not exist.
+    #:
+    #: NOR IS IT A SOFTER `INDETERMINATE`. Those are the two that get confused,
+    #: because both end in "no arithmetic was verified". The difference is
+    #: whether evidence is MISSING or IRRELEVANT, and only the first is a reason
+    #: to stop: an invoice whose line items failed to parse is INDETERMINATE and
+    #: must block, and it must not become NOT_APPLICABLE because the parse
+    #: failed. Which one a law gets is decided by the document's KIND, from
+    #: provenance, before any value is read - never by whether a value happened
+    #: to arrive.
+    NOT_APPLICABLE = "not_applicable"
 
 
 @dataclass(frozen=True)

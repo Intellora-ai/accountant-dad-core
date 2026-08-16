@@ -401,6 +401,36 @@ def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
     `tax_paise` are still ZERO wrong, from every rung, as they have been since
     Phase 8 Decision 1.
 
+    CORRECTED A SIXTH TIME 2026-08-17, and this one goes the SAFE way for the
+    first time on this list. `party` wrong went 8 -> 4 and `party` exact did NOT
+    move, so four documents that used to answer with something untrue now answer
+    "I read nothing" and no correct reading was traded for it. Two production
+    changes had already landed and this file had never been re-measured against
+    them, so it was pinning a number the product stopped producing.
+
+    WHICH FOUR, AND WHICH CHANGE TOOK EACH. Named rather than counted, because a
+    count going down could equally be a reader that broke:
+
+        commit 64b6bce, `pagereader.py:594` - the POSITIONAL PARTY FALLBACK is no
+        longer consulted. It is the correction directly above this one, reversed
+        by the owner on its own measurement, and it takes with it exactly the
+        three answers that correction added: GT-0042 `TNoIte Noe eTvan42`,
+        GT-0043 `TNoIte Noe eTvonas` and GT-0060 `Nolte Noe eTan6o`. All three
+        carried `guessed from where it sits on the page` in their own source
+        string, which is how they can be told apart from a labelled read here.
+
+        commit e163e5b, `pagereader.py:646` - `artifacts.ceiling_for` puts a
+        ceiling of 0.0 on characters that were never part of a name. It takes
+        GT-0055, `UK HEALTH SECURITY AGENCY <UKHSAD`, and says why:
+        `carries page furniture (<) rather than only the characters a name is
+        printed with`. Verified by calling `artifacts.ceiling_for` on that exact
+        string, not inferred from the count.
+
+    THE FOUR THAT REMAIN ARE THE ENGINE MISREADING INK ON THE 5x7 BITMAP FONT and
+    saying so - GT-0041, GT-0046, GT-0050 and GT-0056, every one of them `party`
+    on a PNG at `free_ocr`. **No amount and no date has ever come back wrong from
+    any rung, and that has not changed.**
+
     **The PDF numbers did not move, and that is the control.** `date` 14,
     `party` 20, `total_paise` 20, `tax_paise` 20, ZERO wrong, pinned per input
     type below. The tolerance is scoped by a `Printing` the caller states and
@@ -456,32 +486,30 @@ def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
     # source is what the cage is for, and this is the line that would go red.
     assert section.facts["exit1_wrong_per_field"] == {
         "date": 0,
-        "party": 8,
+        "party": 4,
         "total_paise": 0,
         "tax_paise": 0,
     }
-    # PINNED BY NAME AND NOT COUNTED. A count going from 2 to 5 says a number
-    # moved; these five say WHICH bill, WHICH field and WHICH backend, which is
+    # PINNED BY NAME AND NOT COUNTED. A count going from 8 to 4 says a number
+    # moved; these four say WHICH bill, WHICH field and WHICH backend, which is
     # the difference between noticing a regression and being able to act on it.
     # Every one is the engine misreading a letter and stating that it did, and
     # every one is `party` on a PNG - no amount and no date has ever come back
     # wrong from any rung, which is the line that would go red.
-    # THE THREE ADDED 2026-08-15 ARE THE POSITIONAL ONES AND THEY SAY SO IN
-    # THEIR OWN SOURCE STRING. That is the marking working exactly as designed:
-    # a person reading this list can tell which answers came off a LABEL and
-    # which came off a POSITION without knowing anything about the change.
+    #
+    # THE FOUR REMOVED 2026-08-17 WERE REMOVED BY PRODUCTION, NOT BY THIS LIST,
+    # and the docstring above names the commit that took each. Three carried
+    # `guessed from where it sits on the page` and went when the positional
+    # fallback was switched off; the fourth carried a `<` and went when
+    # `artifacts.ceiling_for` started refusing page furniture. Pinning them by
+    # NAME is what makes that statement checkable: had a reader simply got worse,
+    # the four that vanished would not have been the four those two changes
+    # target, and this list would say so.
     assert section.facts["exit1_wrong_examples"] == [
         "GT-0041 PNG party: 'AQUANCED PROPULSION CENTRE UK LTO' sourced 'free_ocr'",
-        "GT-0042 PNG party: 'TNoIte Noe eTvan42' sourced 'free_ocr (guessed from "
-        "where it sits on the page, not from a label)'",
-        "GT-0043 PNG party: 'TNoIte Noe eTvonas' sourced 'free_ocr (guessed from "
-        "where it sits on the page, not from a label)'",
         "GT-0046 PNG party: '“GUPTA HARONARE STORES' sourced 'free_ocr'",
         "GT-0050 PNG party: 'GECCAN LOGISTICS PUT LTO' sourced 'free_ocr'",
-        "GT-0055 PNG party: 'UK HEALTH SECURITY AGENCY <UKHSAD' sourced 'free_ocr'",
         "GT-0056 PNG party: '\"NARHAGR PACKAGING CO' sourced 'free_ocr'",
-        "GT-0060 PNG party: 'Nolte Noe eTan6o' sourced 'free_ocr (guessed from "
-        "where it sits on the page, not from a label)'",
     ]
 
     # The tier split, so one number cannot hide four different stories.
@@ -494,10 +522,15 @@ def test_the_extraction_section_scores_exit_one_and_exit_two_separately():
     # The picture rung, answering for all forty images: twenty PNGs it can see
     # and twenty JPEGs that hold no picture at all. The twenty still counted
     # under `ladder` are the DOCX and the empty media type, which reach no rung.
+    # `refused` 9 -> 13 AND `wrong` 8 -> 4 ON THE SAME DAY, with `exact` fixed at
+    # 3. The two numbers moving by the same four is the whole check: four
+    # documents changed their answer from something untrue to "I read nothing",
+    # and none of them came out of the `exact` column to do it. Had a reader
+    # regressed instead, `exact` would have paid for part of it.
     assert section.facts["s2_by_input_type"]["PNG"]["party"] == {
         "exact": 3,
-        "refused": 9,
-        "wrong": 8,
+        "refused": 13,
+        "wrong": 4,
     }
     assert section.facts["s2_by_input_type"]["JPG"]["party"] == {
         "exact": 0,
@@ -593,18 +626,40 @@ def test_a_refusal_that_states_a_reason_is_still_a_refusal():
     engine destroys - `TOTAL` comes back as `For.` and `DATE:` as `Dares`.
     Nothing here mends a word.
 
+    CORRECTED A FIFTH TIME 2026-08-17: `party` 31 -> 27. FOUR FEWER FIELDS ARE
+    SPOKEN TO, and this is the drop being the GOOD direction for once, which is
+    exactly why this number is never read on its own. Read it beside
+    `exit1_wrong_per_field` in the test above, which fell 8 -> 4 in the same run
+    while `exit1_exact_per_field` held at 23: every one of the four answers that
+    stopped being given was WRONG, and not one correct reading was given up to
+    lose them.
+
+    THE TWO COMMITS THAT TOOK THEM are named in that test's docstring - 64b6bce
+    switching off the positional party fallback, which accounts for three, and
+    e163e5b putting `artifacts.ceiling_for` on characters that were never in a
+    name, which accounts for GT-0055. Both landed before this file was
+    re-measured, so it had been pinning a number the product no longer produces.
+
+    THE OTHER THREE FIELDS DID NOT MOVE BY ONE, and that is the control. Both
+    changes are `party`-only by construction: the fallback was only ever wired to
+    the party, and the ceiling is applied at `pagereader.py:646` to the party
+    alone because a name is the one field where any characters at all are
+    syntactically acceptable. A `date` or an amount moving here would mean
+    something else happened.
+
     THIS TEST REQUIRES THE `tesseract` BINARY AND FAILS, NOT SKIPS, WITHOUT IT,
     for the same reason as the test above: these two are the only CI coverage of
     the `s2_extraction` benchmark, so a `skipif` guard would silently remove the
     benchmark from CI rather than report that the engine is absent.
 
-    `party` 31 is therefore a claim about this machine as well as this backend.
+    `party` 27 is therefore a claim about this machine as well as this backend.
     With no engine on PATH it collapses to 20 — measured 2026-08-13,
     `PATH=/usr/bin:/bin`, `{'party': 20} != {'party': 28}` — and 20 is the
     measured signature of a missing binary, not of a backend that stopped
-    answering. It was 28 until 2026-08-15; the positional party fallback added
-    the other three. The three other fields are unchanged by the engine's absence,
-    which is how the two causes are told apart. Installing it in CI is
+    answering. It was 28 until 2026-08-15, 31 while the positional party fallback
+    was wired, and 27 since that fallback was switched off and the artifact
+    ceiling was added. The three other fields are unchanged by the engine's
+    absence, which is how the two causes are told apart. Installing it in CI is
     `docs/CI_OCR_INSTALL.md`.
     """
     section = runner.Section(name="s2_extraction")
@@ -612,7 +667,7 @@ def test_a_refusal_that_states_a_reason_is_still_a_refusal():
 
     assert section.facts["s2_per_field"] == {
         "date": 14,
-        "party": 31,
+        "party": 27,
         "total_paise": 20,
         "tax_paise": 20,
     }

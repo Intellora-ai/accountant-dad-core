@@ -103,7 +103,7 @@ import re
 from dataclasses import dataclass, replace
 from typing import Final
 
-from accountant.extract.labels import CURRENCY, paise_or_none, the_one
+from accountant.labels import CURRENCY, paise_or_none, the_one
 
 # =============================================================================
 # the geometry, which is the caller's to fill in
@@ -173,10 +173,10 @@ class Limits:
     can work rather than a fitted number. Raising it widens `next_line` and
     `previous_line` together, and is a decision that needs evidence attached.
 
-    `max_pixel_distance = 400` IS NOT MEASURED AND THE UNIT IS THE PROBLEM. See
-    the module docstring: 400 pixels is a third of an A4 width at 150 DPI and a
-    sixth of it at 300 DPI, so the same number is two different search radii
-    depending on how the caller rendered the page. The caller owns that control.
+    `max_gap = 400` IS NOT MEASURED AND THE UNIT IS THE PROBLEM. See the module
+    docstring: 400 pixels is a third of an A4 width at 150 DPI and a sixth of it
+    at 300 DPI, so the same number is two different search radii depending on
+    how the caller rendered the page. The caller owns that control.
 
     IT IS APPLIED ONLY WHERE BOTH BOXES ARE KNOWN. A caller supplying no
     geometry gets the line limit and nothing else, which is weaker - and saying
@@ -184,7 +184,7 @@ class Limits:
     """
 
     max_line_distance: int = 1
-    max_pixel_distance: int = 400
+    max_gap: int = 400
 
 
 #: How much closer the winner must be than the runner-up before this module
@@ -199,7 +199,7 @@ class Limits:
 #: WIDER MEANS MORE REVIEW, NOT MORE RISK. Every value this number moves is a
 #: value that either goes to a person or gets picked by a margin nobody
 #: measured. If it is ever tuned, it is tuned upward.
-CLEARLY_CLOSER_PIXELS: Final = 40
+CLEARLY_CLOSER_GAP: Final = 40
 
 
 # =============================================================================
@@ -652,7 +652,7 @@ class Candidate:
     #: each clamped at zero where the boxes overlap on that axis. It is an
     #: integer with no square root in it, which keeps this module's arithmetic
     #: whole - the same reason money here is paise and never a float.
-    pixel_distance: int | None
+    gap: int | None
 
     #: Which of `SEARCH_ORDER` found it.
     method: str
@@ -948,7 +948,7 @@ def _placed(
     if site.box is None or span.box is None:
         return method, distance, None
     gap = _gap(site.box, span.box)
-    if gap > limits.max_pixel_distance:
+    if gap > limits.max_gap:
         return None
     return method, distance, gap
 
@@ -961,7 +961,7 @@ def _order(candidate: Candidate) -> tuple[int, int, int, int, int, int, int, str
         1. accepted before refused
         2. earlier method in `SEARCH_ORDER` first
         3. fewer lines away first
-        4. a known pixel distance before an unknown one, then the smaller gap
+        4. a known gap before an unknown one, then the smaller gap
         5. further left, then further up
         6. the printed characters, so equal geometry still has one answer
 
@@ -973,8 +973,8 @@ def _order(candidate: Candidate) -> tuple[int, int, int, int, int, int, int, str
         1 if candidate.rejected else 0,
         SEARCH_ORDER.index(candidate.method),
         candidate.line_distance,
-        0 if candidate.pixel_distance is not None else 1,
-        candidate.pixel_distance if candidate.pixel_distance is not None else 0,
+        0 if candidate.gap is not None else 1,
+        candidate.gap if candidate.gap is not None else 0,
         candidate.box.left if candidate.box is not None else 0,
         candidate.box.top if candidate.box is not None else 0,
         candidate.value_text,
@@ -1077,7 +1077,7 @@ def candidates_for(
                         value_text=span.text,
                         box=span.box,
                         line_distance=line_distance,
-                        pixel_distance=gap,
+                        gap=gap,
                         method=method,
                         rejected=_why_refused(span.text, context),
                         rank=0,
@@ -1096,7 +1096,7 @@ def _clearly_stronger(winner: Candidate, runner_up: Candidate) -> bool:
 
     Three ways, in the order the ranking already argues: a stronger method beats
     a weaker one, a nearer line beats a further one, and at the same method and
-    the same line a gap must be smaller by at least `CLEARLY_CLOSER_PIXELS`.
+    the same line a gap must be smaller by at least `CLEARLY_CLOSER_GAP`.
 
     UNKNOWN GEOMETRY IS NEVER CLEARLY STRONGER. Two candidates the same number
     of lines away with no boxes are indistinguishable, and naming one of them
@@ -1107,10 +1107,10 @@ def _clearly_stronger(winner: Candidate, runner_up: Candidate) -> bool:
         return True
     if winner.line_distance < runner_up.line_distance:
         return True
-    if winner.pixel_distance is None or runner_up.pixel_distance is None:
+    if winner.gap is None or runner_up.gap is None:
         return False
-    closer = runner_up.pixel_distance - winner.pixel_distance
-    return closer >= CLEARLY_CLOSER_PIXELS
+    closer = runner_up.gap - winner.gap
+    return closer >= CLEARLY_CLOSER_GAP
 
 
 def review_needed(candidates: tuple[Candidate, ...]) -> str:
@@ -1130,7 +1130,7 @@ def review_needed(candidates: tuple[Candidate, ...]) -> str:
                                    ordinary. The check IS that function, called,
                                    and not a second copy of its reasoning.
         one is clearly stronger    a better method, a nearer line, or a gap
-                                   smaller by `CLEARLY_CLOSER_PIXELS`
+                                   smaller by `CLEARLY_CLOSER_GAP`
 
     Anything else comes back as words. The caller is expected to show them, and
     a caller that ignores them is choosing between two figures on its own

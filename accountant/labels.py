@@ -99,6 +99,14 @@ _HUNDRED: Final = Decimal(100)
 _DECORATION: Final[tuple[str, ...]] = (
     "\u20b9",
     "\u00a3",
+    #: `$` ADDED 2026-08-16 BY OWNER APPROVAL, one entry, no other change.
+    #: MEASURED: `real-voxel51-03.jpg` is a USD document and its page prints
+    #: `$ 7,14`. Every symbol above was stripped and this one was not, so
+    #: `paise_or_none("$ 7,14")` returned None and a correctly-read amount
+    #: scored INCORRECT. Stripping a symbol says nothing about what the money
+    #: MEANS - no rate is applied, no currency is converted, and the docstring
+    #: above still holds: `£606.00` on an Indian bill is a fact about the bill.
+    "$",
     "\u00a0",
     "RS.",
     "RS",
@@ -367,6 +375,33 @@ PARTY_LABELS: Final[tuple[str, ...]] = (
     "SOLD BY",
 )
 
+#: What a bill calls its own number. MOVED HERE FROM `invoice/parse.py` on
+#: 2026-08-15 so there is ONE answer, for the reason this module's docstring
+#: gives about totals: two vocabularies drift, and the day one learns a label
+#: and the other does not is the day the same bill reads differently depending
+#: on whether it arrived as a PDF or as a photograph. `parse.py` binds this name
+#: and `invoice/bridge.py` keeps reading `parse.INVOICE_NUMBER_LABELS`, so the
+#: move is invisible to its callers and to the test that asserts on it.
+#:
+#: `BILL NO` AND `BILL NUMBER` ARE DELIBERATELY ABSENT AND MUST STAY ABSENT.
+#: `E-Way Bill No:` contains `Bill No` after a space, so with those labels on
+#: the list every Indian e-invoice's number read as the e-way bill's number
+#: instead - measured, and `test_the_bill_no_label_is_not_in_the_invoice_number_
+#: vocabulary` is the assertion that keeps it out.
+#:
+#: THAT COSTS FIVE DOCUMENTS AND IS STILL RIGHT. The 62-document ground-truth
+#: corpus prints `BILL NO` on 5 pages, measured by
+#: `scripts/diagnose_invoice_number_reach.py`, and they are given up rather than
+#: break every e-invoice. `INVOICE NO` carries 32 of them on its own.
+INVOICE_NUMBER_LABELS: Final[tuple[str, ...]] = (
+    "TAX INVOICE NO",
+    "INVOICE NUMBER",
+    "INVOICE NO",
+    "DOCUMENT NO",
+    "INVOICE #",
+    "INV NO",
+)
+
 #: The label a bill prints its date under.
 DATE_LABEL: Final[tuple[str, ...]] = (
     "DATE",
@@ -381,6 +416,12 @@ DATE_LABEL: Final[tuple[str, ...]] = (
 #: conservation law `net_plus_tax_equals_gross` needs to be a real check rather
 #: than one that passes by construction.
 NET_LABELS: Final[tuple[str, ...]] = (
+    #: ADDED 2026-08-16. A real Sleek Bill invoice prints `TOTAL BEFORE TAX
+    #: 25,700.00` and stated its pre-tax figure in words this list did not hold,
+    #: so `net_plus_tax_equals_gross` had nothing to compare and went
+    #: INDETERMINATE on a bill that prints all three numbers plainly. Longest
+    #: first, so it is reported as itself rather than as `TAX`.
+    "TOTAL BEFORE TAX",
     "SUBTOTAL",
     "NET AMOUNT",
     "NET",
@@ -662,3 +703,37 @@ def the_one[T](values: tuple[T, ...], what: str) -> tuple[T | None, str]:
             "nothing is read from it"
         )
     return distinct[0], ""
+
+
+#: Where a value ends because the next FIELD begins. `values_for` hands back
+#: everything after a label to the end of its line, which is right when a line
+#: carries one field and wrong when it carries two.
+#:
+#: MEASURED, 2026-08-15, the exact failure this fixes. Five synthetic bills print
+#: their number and their date on one line, and the invoice number came back as
+#:
+#:     'IYE/2025/1003 Date: 20/08/2025'
+#:
+#: - the reference, then the next label, then the next value. Five wrong invoice
+#: numbers out of fifteen read, every one of them a correct reference with a
+#: whole other field stapled to it.
+#:
+#: IT CUTS, IT NEVER REWRITES. Characters after the next label are dropped
+#: because they belong to a different field; nothing before it is touched, no
+#: spelling is mended and no shape is normalised.
+_A_FOLLOWING_LABEL: Final = re.compile(
+    r"\s+(?:"
+    + "|".join(
+        _spaced(label)
+        for family in (DATE_LABEL, TOTAL_LABELS, NET_LABELS, PARTY_LABELS)
+        for label in family
+    )
+    + r")\s*[:.]",
+    re.IGNORECASE,
+)
+
+
+def cut_at_the_next_label(text: str) -> str:
+    """The characters up to where the next field's label starts."""
+    found = _A_FOLLOWING_LABEL.search(text)
+    return text[: found.start()].strip() if found else text

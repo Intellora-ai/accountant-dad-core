@@ -24,7 +24,6 @@ import datetime
 import pytest
 
 from accountant.cage.conservation import Verdict
-from accountant.extract.labels import Printing
 from accountant.invoice import parse
 from accountant.invoice.bridge import describe
 from accountant.invoice.fields import Checked, Method, ReadField, Where, read_as, unread
@@ -44,6 +43,7 @@ from accountant.invoice.validate import (
     taxable_plus_tax_is_grand_total,
 )
 from accountant.invoice.validate import run as run_laws
+from accountant.labels import Printing
 from tests.invoice_documents import (
     A_DELIVERY_NOTE,
     BARELY_READABLE,

@@ -187,7 +187,7 @@ nothing to inject and sat in `registry._NEEDS_WIRING` saying so.
 
 `accountant/extract/pagereader.py` is that function now. It is not a heuristic:
 it runs the **same label vocabulary the PDF rung uses**
-(`accountant/extract/labels.py`) over the lines the engine reports. The 40
+(`accountant/labels.py`) over the lines the engine reports. The 40
 `free_ocr` cases are the 20 PNGs and the 20 JPEGs; the JPEGs are refused inside
 the rung, because there are no pixels in them to read.
 

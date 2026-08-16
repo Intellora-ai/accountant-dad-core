@@ -470,7 +470,14 @@ def test_an_answer_is_stored_under_the_vendor_key_not_the_typed_spelling(server:
     answer_purpose_and_funding(server, asked, "Purchases")
 
     again = post(server, "/entry", text="paid M/s GUPTA HARDWARE. 1600 for tools")
-    assert "posted" in again.lower()
+    # THE BADGE, NOT THE BARE WORD. `render_decision` draws "not posted" for
+    # NOT_VALID, so `"posted" in body` is satisfied by the exact refusal these
+    # tests exist to rule out - green for the wrong reason, and silently so.
+    # `class="badge b-valid">posted<` is drawn only for Outcome.VALID; the
+    # NOT_VALID badge is `b-notvalid">not posted<` and cannot match it. The
+    # negated form of this assertion is already in use at
+    # tests/test_error_responses.py:1115. Repeated at :507, :578 and :599 below.
+    assert 'class="badge b-valid">posted<' in again
     written = app.runtime().client.list_our_vouchers(app.COMPANY)[-1]
     assert written.debit_account == "Purchases"
     assert written.amount_paise == 160000
@@ -504,7 +511,9 @@ def test_an_answer_for_the_bare_name_does_not_post_for_the_private_limited(
 
 def test_a_known_vendor_posts_without_asking(server: str):
     body = post(server, "/entry", text="paid Sharma Traders 4200 for cement")
-    assert "posted" in body.lower()
+    # The VALID badge, because "not posted" contains "posted". See the comment
+    # on the first of these, above.
+    assert 'class="badge b-valid">posted<' in body
     assert len(app.runtime().client.list_our_vouchers(app.COMPANY)) == 1
 
 
@@ -575,7 +584,9 @@ def answer_purpose_and_funding(server: str, asked: str, account: str) -> str:
 def test_answering_the_question_posts_the_entry(server: str):
     asked = post(server, "/entry", text="paid Gupta Hardware 1500 for tools")
     done = answer_purpose_and_funding(server, asked, "Purchases")
-    assert "posted" in done.lower()
+    # The VALID badge, because "not posted" contains "posted". See the comment
+    # on the first of these, above.
+    assert 'class="badge b-valid">posted<' in done
     assert len(app.runtime().client.list_our_vouchers(app.COMPANY)) == 1
 
 
@@ -596,7 +607,9 @@ def test_an_answer_is_remembered_so_the_same_vendor_is_not_asked_twice(server: s
     asked = post(server, "/entry", text="paid Gupta Hardware 1500 for tools")
     answer_purpose_and_funding(server, asked, "Purchases")
     again = post(server, "/entry", text="paid Gupta Hardware 1600 for tools")
-    assert "posted" in again.lower()
+    # The VALID badge, because "not posted" contains "posted". See the comment
+    # on the first of these, above.
+    assert 'class="badge b-valid">posted<' in again
 
 
 def test_answering_an_expired_draft_says_so_and_posts_nothing(server: str):

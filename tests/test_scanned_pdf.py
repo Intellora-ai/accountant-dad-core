@@ -59,7 +59,6 @@ from accountant.cage.decision import AUTO_POST_ALLOWED_TIERS
 from accountant.cage.gate import _tiers  # pyright: ignore[reportPrivateUsage]
 from accountant.extract.adapter import NOT_FOUND, ExtractedRecord
 from accountant.extract.freeocr import FreeReader
-from accountant.extract.labels import DATE_LABEL
 from accountant.extract.ladder import (
     BILL_LABELS,
     FELL_THROUGH_EVENT,
@@ -77,6 +76,7 @@ from accountant.extract.textlayer import (
     picture_of,
     read,
 )
+from accountant.labels import DATE_LABEL
 from accountant.observability import install_logging
 from tests.test_textlayer import BILL, pdf_bytes
 

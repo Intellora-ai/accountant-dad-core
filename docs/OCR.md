@@ -242,7 +242,7 @@ and evaluates no code.
 words grouped into the lines the engine reported them on. `Reading` says which
 words make up each field. The function between them runs the **same label logic
 the PDF rung already uses** — `TOTAL`, `GRAND TOTAL`, `AMOUNT PAYABLE`, the
-vocabulary now shared in `accountant/extract/labels.py` — over those lines. A
+vocabulary now shared in `accountant/labels.py` — over those lines. A
 number with no label on it is not a total on a photograph any more than it is
 in a PDF, which is the defect `adapter.TYPED_TEXT_MIME` records twenty times.
 

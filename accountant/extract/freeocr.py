@@ -147,7 +147,7 @@ import pytesseract  # pyright: ignore[reportMissingTypeStubs]
 from PIL import Image, UnidentifiedImageError
 from pytesseract import Output  # pyright: ignore[reportMissingTypeStubs]
 
-from accountant.cage.confidence import field_confidence, looks_like_a_date
+from accountant.cage.confidence import field_confidence
 from accountant.cage.conservation import Verdict, net_plus_tax_equals_gross
 from accountant.cage.wall import Field, Observation
 
@@ -171,6 +171,9 @@ from accountant.extract.adapter import (
     _media_type,  # pyright: ignore[reportPrivateUsage]
     _to_paise,  # pyright: ignore[reportPrivateUsage]
 )
+from accountant.extract.dates import DateLocale, read_date
+from accountant.extract.nearby import looks_like_an_invoice_number
+from accountant.labels import cut_at_the_next_label, paise_or_none
 
 #: The five media types this adapter will hand on to a reader, and the whole of
 #: the reason a caller's header never travels: the value passed across is one of
@@ -351,6 +354,11 @@ class Reading:
     total: tuple[Word, ...] = ()
     tax: tuple[Word, ...] = ()
     net: tuple[Word, ...] = ()
+
+    #: The bill's own reference, ADDED 2026-08-15. It is a STRING field and
+    #: never money: `_read_invoice_number` refuses anything that reads as an
+    #: amount, so a total printed beside the label cannot become the number.
+    invoice_number: tuple[Word, ...] = ()
 
     #: A CEILING on a field's score. Never a floor, and the name says so.
     #:
@@ -807,17 +815,54 @@ def _money(words: tuple[Word, ...]) -> tuple[int | None, str]:
 def _read_date(words: tuple[Word, ...]) -> tuple[datetime.date | None, str]:
     """A real calendar date, or the sentence saying why this is not one.
 
-    `confidence.looks_like_a_date` is the check, unchanged: the 34th of a month
-    is a misread 04th, and an impossible date is one of the few forgery signals
-    this product actually claims.
+    `extract.dates.read_date` IS THE CHECK AS OF 2026-08-15, replacing
+    `confidence.looks_like_a_date`. The old check was `date.fromisoformat` -
+    ISO ONLY - and its refusal sentence said a date was "ambiguous" when what it
+    meant was "not ISO". Those are different rules and only one of them is true.
+
+    MEASURED, the defect on a real corpus document: the page prints
+    `16-11-2023`, the engine read those characters at confidence 95 with the
+    label matched, and the reader answered "not a real date written the way this
+    system reads dates". Every Indian bill date was refused categorically -
+    55 of 62 documents in the ground-truth corpus.
+
+    `DateLocale.UNKNOWN` IS PASSED DELIBERATELY, AND IT IS THE WHOLE SAFETY
+    ARGUMENT. `INDIAN` would settle `11/08/2026` as the 11th of August by
+    convention. `UNKNOWN` refuses it, because 11/08 is a real day under BOTH
+    orders and choosing one is inventing the evidence rather than reading it.
+    `16-11-2023` still reads, and needs no convention to do it: 16 is not a
+    month, so ARITHMETIC settles the order and nothing was assumed.
+
+    MEASURED, both ways, on the 62-document ground-truth corpus:
+
+        INDIAN    33 dates correct, 11 of them resting on the convention
+        UNKNOWN   22 dates correct, 0 resting on anything but arithmetic
+
+    The 11 are not lost, they are REFUSED - they become a question for a person
+    instead of a value nobody checked. A miss costs a question; a silently
+    chosen date is a wrong number in the books. The 22 are every date the
+    corpus prints in a shape arithmetic can settle.
+
+    THIS ALSO KEEPS AN EXISTING SAFETY TEST TRUE rather than rewriting it to fit
+    the change: `test_a_date_in_a_form_this_system_does_not_read_is_refused_not_
+    guessed` asserts `11/08/2026` is refused, and its docstring says why -
+    "Picking one would be inventing the evidence". A test that says that is not
+    a stale fixture, and making it pass by widening the reader would be the
+    change marking its own homework.
+
+    If a locale is ever wanted it belongs where the company is known, passed in
+    from the tenant's settings - not hard-coded at the one place in the codebase
+    that cannot see whose bill it is holding.
+
+    An impossible date is still refused and still says why: `31 February 2026`
+    comes back naming the impossibility rather than rounding to a day that
+    exists.
     """
     text = _joined(words).strip()
-    if not looks_like_a_date(text):
-        return None, (
-            f"{text!r} is not a real date written the way this system reads "
-            "dates, which is year-month-day"
-        )
-    return datetime.date.fromisoformat(text), ""
+    reading = read_date(text, locale=DateLocale.UNKNOWN)
+    if reading.value is None:
+        return None, reading.why
+    return reading.value, ""
 
 
 def _read_party(words: tuple[Word, ...]) -> tuple[str | None, str]:
@@ -830,6 +875,31 @@ def _read_party(words: tuple[Word, ...]) -> tuple[str | None, str]:
     text = _joined(words).strip()
     if not text:
         return None, "no name was read here"
+    return text, ""
+
+
+def _read_invoice_number(words: tuple[Word, ...]) -> tuple[str | None, str]:
+    """The bill's own reference, or the sentence saying why there is not one.
+
+    IT MUST NOT BE A SUM OF MONEY, AND THAT IS THE ONLY JUDGEMENT HERE.
+    `nearby.looks_like_an_invoice_number` is the existing detector and is reused
+    rather than rewritten - letters mixed with digits, or a `#` anywhere. A
+    second answer to "what does a reference look like" in a second file is the
+    drift this module's vocabulary move exists to prevent.
+
+    WHY A BARE RUN OF DIGITS IS REFUSED. `1,234.56` sitting to the right of a
+    label the engine half-read is indistinguishable from a reference made only
+    of digits, and the two mistakes are not symmetrical: a refused number costs
+    a question, and a total read as the invoice number puts a figure into the
+    reference field where nobody checks it against anything.
+    """
+    text = cut_at_the_next_label(_joined(words).strip())
+    if not text:
+        return None, "no number was read here"
+    if paise_or_none(text) is not None:
+        return None, f"{text!r} is an amount of money, not a reference"
+    if not looks_like_an_invoice_number(text, "invoice no"):
+        return None, f"{text!r} is not shaped like an invoice number"
     return text, ""
 
 
@@ -905,6 +975,15 @@ class _Answer:
     #: would be a number checked against itself. So with no net arriving, that
     #: law answered INDETERMINATE on every bill, and INDETERMINATE blocks.
     net_paise: int | None
+
+    #: The bill's own reference, ADDED 2026-08-15. `None` where the page
+    #: printed no label this reader knows, or where what it printed was an
+    #: amount rather than a reference. NO DEFAULT, and it sits with the other
+    #: values rather than after them: a defaulted field here would let a
+    #: construction site forget it and still typecheck, and `_Answer` exists
+    #: so that `extract` and `observe` cannot say different things.
+    invoice_number: str | None
+
     confidences: dict[str, float]
     sources: dict[str, str]
     reason: str
@@ -916,7 +995,10 @@ class _Answer:
         # would raise on every construction site older than 2026-08-15. So the
         # net is named here explicitly rather than swept in by the `fromkeys`,
         # and a refusal states a source for it like any other unread figure.
-        scored = dict.fromkeys(ExtractedRecord.FIELDS, 0.0) | {"net_paise": 0.0}
+        scored = dict.fromkeys(ExtractedRecord.FIELDS, 0.0) | {
+            "net_paise": 0.0,
+            "invoice_number": 0.0,
+        }
         said = f"{NOT_FOUND}: {reason}"
         return cls(
             date=None,
@@ -924,6 +1006,7 @@ class _Answer:
             total_paise=None,
             tax_paise=None,
             net_paise=None,
+            invoice_number=None,
             confidences=scored,
             sources=dict.fromkeys(ExtractedRecord.FIELDS, said) | {"net_paise": said},
             reason=reason,
@@ -963,6 +1046,16 @@ def _scored(reading: Reading, backend: str) -> _Answer:
         disagreement="",
         backend=backend,
         at_most=ceiling.get("date"),
+    )
+    number_value, number_problem = _read_invoice_number(reading.invoice_number)
+    number_score, number_source = _judge(
+        reading.invoice_number,
+        read=number_value is not None,
+        problem=number_problem,
+        agrees=True,
+        disagreement="",
+        backend=backend,
+        at_most=ceiling.get("invoice_number"),
     )
     party_score, party_source = _judge(
         reading.party,
@@ -1017,12 +1110,14 @@ def _scored(reading: Reading, backend: str) -> _Answer:
         total_paise=total if total_score > 0.0 else None,
         tax_paise=tax if tax_score > 0.0 else None,
         net_paise=net if net_score > 0.0 else None,
+        invoice_number=number_value if number_score > 0.0 else None,
         confidences={
             "date": date_score,
             "party": party_score,
             "total_paise": total_score,
             "tax_paise": tax_score,
             "net_paise": net_score,
+            "invoice_number": number_score,
         },
         sources={
             "date": date_source,
@@ -1030,6 +1125,7 @@ def _scored(reading: Reading, backend: str) -> _Answer:
             "total_paise": total_source,
             "tax_paise": tax_source,
             "net_paise": net_source,
+            "invoice_number": number_source,
         },
         reason="",
     )

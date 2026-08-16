@@ -28,6 +28,16 @@ the recorded backend identity, the `ActionLog` row if one exists, the sentence
 the person is shown, the cleanup result, and the run id. A test that checks
 only the verdict passes happily while a voucher is being written behind it.
 
+NOTHING IN THIS FILE POSTS, AND THAT IS THE RULE - OWNER RULING 2026-08-17
+--------------------------------------------------------------------------
+Every bill here is read by `StubExtractor`, tier `stub`, and `stub` is not on
+`decision.AUTO_POST_ALLOWED_TIERS`. A test double may never buy auto-post by
+handing in tidy numbers. So the positive controls that used to end in a
+voucher now end one layer earlier, at the account memory proposed - the same
+place a wrong match would show - and each then asserts the refusal in its own
+right. See `UNTRUSTED_TIER_REASON` below for why identity is still fully
+measurable there, and `_entry` for why this file cannot use a trusted backend.
+
 ONE TEST HERE STILL PINS A DEFECT RATHER THAN AN INTENTION
 -----------------------------------------------------------
 It is named `..._today_...` and carries a DEFECT block naming the file, the
@@ -61,7 +71,8 @@ import unicodedata
 import pytest
 
 from accountant import pipeline
-from accountant.extract.adapter import StubExtractor
+from accountant.cage.decision import AUTO_POST_ALLOWED_TIERS
+from accountant.extract.adapter import LineItem, StubExtractor
 from accountant.memory.bootstrap import bootstrap, resume
 from accountant.memory.company import (
     CompanyMatchStatus,
@@ -89,6 +100,37 @@ SEEDED = 40
 # An operation id nothing in this file ever writes. Reversing it must always
 # come back False: that is the cleanup assertion on a path that wrote nothing.
 NEVER_WRITTEN_OP = "op-never-written-adversarial-identity"
+
+#: The two ways a run can end without a voucher. Named as a set because "it was
+#: refused" is the claim, and WHICH refusal is a separate question each test
+#: answers for itself through `reason`.
+SAFE = frozenset({Outcome.UNCLEAR, Outcome.NOT_VALID})
+
+#: WHY NO TEST IN THIS FILE EXPECTS A POST ANY MORE. Owner ruling 2026-08-17.
+#:
+#: Every bill here is read by `StubExtractor`, whose tier name is `stub`, and
+#: `decision.AUTO_POST_ALLOWED_TIERS` is `{pdf_text_layer, typed_text}`. `stub`
+#: is deliberately absent, so a test double may never buy auto-post by handing
+#: in tidy numbers - if it could, every refusal asserted in this file could be
+#: rewritten into a post and the file would prove nothing.
+#:
+#: THIS FILE CANNOT SWITCH TO A TRUSTED BACKEND. `TypedTextExtractor`'s party
+#: regex is anchored on `[A-Z]`, so it silently drops every non-ASCII name this
+#: file exists to test - see `_entry`. The trusted half of the split lives in
+#: `tests/test_gst_safety_sweep.py::test_a_bill_with_no_tax_on_it_still_reaches
+#: _valid_and_posts`, which proves auto-post works at all; what is proved HERE
+#: is the identity question, measured one layer earlier than the post.
+#:
+#: SO WHERE IS IDENTITY MEASURED NOW? At the layer that does not need a
+#: voucher: `normalise_vendor`, `memory.lookup`, `propose_account`, the
+#: account the draft CARRIES in `voucher.debit_account`, its provenance, and
+#: the `blocked` row's `detail`, which records the proposed account in the
+#: durable trail. A wrong match is just as visible there as it would be in a
+#: posted voucher, and nothing has to be written to see it.
+UNTRUSTED_TIER_REASON = (
+    "Bills read this way are not posted on their own yet, "
+    "so I need to check with you first."
+)
 
 
 # ---- fixtures, built by hand so each test states its own world -------------
@@ -127,8 +169,34 @@ def _entry(party: str, amount_paise: int = AMOUNT_PAISE) -> StubExtractor:
     `TypedTextExtractor` cannot be used here: its party regex is anchored on
     `[A-Z]`, so it silently drops every non-ASCII name this file exists to
     test, and the test would then be measuring that regex instead of the index.
+
+    IT STATES THE WHOLE ARITHMETIC, SINCE 2026-08-17, AND THAT IS THE POINT.
+    A net, a tax of exactly zero, a total the two add up to, and one line item
+    that sums to the same total. Every conservation law it is possible to
+    satisfy is satisfied. Before this, `net_paise` and `line_items` were left
+    unstated, `net_plus_tax_equals_gross` came back INDETERMINATE, and every
+    run in this file was refused with "there is something on this bill I could
+    not check at all" - a refusal that has nothing to do with identity and
+    would have hidden a wrong match rather than exposed one.
+
+    A bare supplier name encoded to bytes carries no tax line, so `tax_paise=0`
+    is the true reading of it: READ, AND IT IS ZERO. `None` would mean nobody
+    looked, which is a different fact and still blocks.
+
+    Stating all of it does NOT make these bills postable, and must not. The
+    tier is still `stub`, which is not on `AUTO_POST_ALLOWED_TIERS`. What it
+    buys is that the ONLY thing left standing between these drafts and a
+    voucher is the tier - so every refusal below is about the rule under test
+    and never about a fact the fixture forgot to state.
     """
-    return StubExtractor(date=TODAY, party=party, total_paise=amount_paise)
+    return StubExtractor(
+        date=TODAY,
+        party=party,
+        total_paise=amount_paise,
+        tax_paise=0,
+        net_paise=amount_paise,
+        line_items=(LineItem(description="the whole bill", amount_paise=amount_paise),),
+    )
 
 
 def _run(
@@ -176,28 +244,59 @@ def _assert_nothing_was_written(
     assert [r for r in _rows(store, company) if r.action == "posted"] == []
 
 
-def _assert_one_posted_row(
+def _assert_one_identified_but_unposted_row(
     store: MemoryStore,
     draft: pipeline.Draft,
     *,
     company: str = COMPANY,
     detail: str,
+    rows_before: int = 0,
 ) -> None:
-    # TWO rows per write since 2026-08-09, not one: `post` records
-    # `write_attempted` BEFORE the socket opens, so a write whose outcome is
-    # never learned still leaves its operation id somewhere findable. Both
-    # rows are checked, because "exactly one posted row" is the claim here and
-    # a second posted row hiding behind a loose count is the failure it guards.
-    log = _rows(store, company)
-    assert [r.action for r in log] == [pipeline.WRITE_ATTEMPTED, "posted"]
-    assert {r.operation_id for r in log} == {draft.operation_id}
+    """The trail names the account memory proposed, and no voucher exists.
+
+    THE INVARIANT: a vendor memory recognises gets its own account carried all
+    the way to the durable trail - `detail` is the proposed account and the
+    amount, exactly as it would have read on a posted row - and the entry
+    STILL does not post, because `stub` is not on `AUTO_POST_ALLOWED_TIERS`.
+
+    Both halves are asserted here on purpose. `detail` alone would pass if the
+    system posted, and the outcome alone would pass if identity had silently
+    resolved to the wrong ledger. Together they say: right account, no write.
+
+    NO `write_attempted` ROW. `post` is never reached, so there is no write in
+    flight to be uncertain about - and its absence is asserted rather than
+    assumed, because a write-ahead row is the durable signature of a voucher
+    that may exist.
+    """
+    log = _rows(store, company)[rows_before:]
+    assert [r.action for r in log] == ["blocked"]
+    assert pipeline.WRITE_ATTEMPTED not in [r.action for r in _rows(store, company)]
     assert {r.backend for r in log} == {"FakeTally"}
     assert {r.run_id for r in log} == {RUN_ID}
 
-    posted = log[-1]
-    assert posted.outcome == Outcome.VALID.value
-    assert posted.detail == detail
-    assert posted.reason == "nothing unclear and nothing surprising"
+    blocked = log[-1]
+    assert blocked.outcome == Outcome.UNCLEAR.value
+    assert blocked.detail == detail
+    assert blocked.reason == UNTRUSTED_TIER_REASON
+    assert blocked.voucher_id == ""
+    assert draft.posted_tally_id is None
+
+
+def _assert_the_tier_is_the_only_thing_stopping_it(draft: pipeline.Draft) -> None:
+    """Held for the reading tier, and for nothing else. Owner ruling 2026-08-17.
+
+    The invariant: a bill whose arithmetic is complete and whose vendor memory
+    knows is stopped by ONE thing - `stub` is not on
+    `AUTO_POST_ALLOWED_TIERS`. `problems == []` is what makes that exact: an
+    unanswered question would mean something ELSE was also wrong, and this
+    assertion is how a second cause is prevented from hiding behind the tier.
+    """
+    assert draft.outcome in SAFE
+    assert draft.outcome is not Outcome.VALID
+    assert draft.reason == UNTRUSTED_TIER_REASON
+    assert draft.problems == [], "the tier is a hold, not a question"
+    assert pipeline.next_question(draft) is None
+    assert "stub" not in AUTO_POST_ALLOWED_TIERS
 
 
 # ============================================================================
@@ -215,8 +314,17 @@ def test_a_cyrillic_homoglyph_vendor_never_inherits_the_latin_vendors_account() 
 
     The failure being hunted: the lookalike arrives, memory answers with the
     real supplier's account, and a voucher lands in the wrong ledger with no
-    question asked. The Latin half runs first and is asserted to POST, so this
-    test cannot pass by refusing everything.
+    question asked. The Latin half runs first and is asserted to be RECOGNISED
+    - matched, proposed and carried onto the draft - so this test cannot pass
+    by refusing everything.
+
+    THE CONTROL NO LONGER POSTS, AND THAT IS THE RULE, NOT A REGRESSION.
+    Owner ruling 2026-08-17: `stub` is not on `AUTO_POST_ALLOWED_TIERS`, so
+    the Latin supplier is recognised and still held. The two halves are told
+    apart by WHAT MEMORY SAID, not by whether a voucher appeared: the real
+    supplier gets MATCH and "Purchases", the lookalike gets NO_MATCH and two
+    questions. That distinction is the whole claim, and it survives intact one
+    layer above the write.
 
     Passed on the first run. The system already handles this; `\\w` is Unicode
     aware, so a Cyrillic letter survives normalisation as itself.
@@ -227,16 +335,25 @@ def test_a_cyrillic_homoglyph_vendor_never_inherits_the_latin_vendors_account() 
     preference list. The order is asserted, not just the membership: the
     purpose is the one the person can read off the bill in their hand.
     """
-    # the control: the real supplier posts straight through
+    # the control: the real supplier is recognised and its account is proposed
     t_ok = _tally(_history(LATIN_SHARMA, "Purchases"))
     store_ok = MemoryStore(":memory:")
     mem_ok = bootstrap(t_ok, COMPANY, store_ok)
     good = _run(t_ok, store_ok, mem_ok, LATIN_SHARMA)
 
     assert mem_ok.report.status is BootstrapStatus.READY
-    assert good.outcome is Outcome.VALID
+    assert mem_ok.lookup(LATIN_SHARMA).status is CompanyMatchStatus.MATCH
+    assert propose_account(mem_ok, LATIN_SHARMA) == "Purchases"
     assert good.voucher.debit_account == "Purchases"
-    assert len(t_ok.list_our_vouchers(COMPANY)) == 1
+    assert good.voucher.provenance is not None
+    assert good.voucher.provenance["debit_account"] == "company_history"
+
+    # ...and it STILL does not post, because of the tier and nothing else
+    _assert_the_tier_is_the_only_thing_stopping_it(good)
+    _assert_nothing_was_written(t_ok, store_ok)
+    _assert_one_identified_but_unposted_row(
+        store_ok, good, detail=f"Purchases {AMOUNT_PAISE} paise"
+    )
 
     # the attack: the same books, a name that only LOOKS like the supplier
     t = _tally(_history(LATIN_SHARMA, "Purchases"))
@@ -551,7 +668,16 @@ def test_an_accented_vendor_name_decides_one_way_in_nfc_and_nfd() -> None:
 
     # The positive control, and the half that proves this is ONE SHARED KEY
     # rather than two refusals: books seeded under the PRECOMPOSED spelling
-    # answer a DECOMPOSED invoice, and it posts.
+    # answer a DECOMPOSED invoice with the precomposed vendor's own account.
+    #
+    # It does not post, and the shared key is not measured by whether it does.
+    # `stub` is not on `AUTO_POST_ALLOWED_TIERS` (owner ruling 2026-08-17), so
+    # the evidence that the two encodings are ONE VENDOR is that memory says
+    # MATCH to a spelling it has never been shown, hands back the account it
+    # learned under the other spelling, and the draft carries that account
+    # sourced `company_history`. A key that had NOT folded would fail every one
+    # of those - it would come back NO_MATCH with an empty account and two
+    # questions, exactly like the unaccented stranger asserted just below.
     t_ok = _tally(_history(ACCENTED_NFC, "Sundry Expenses"))
     store_ok = MemoryStore(":memory:")
     mem_ok = bootstrap(t_ok, COMPANY, store_ok)
@@ -561,22 +687,23 @@ def test_an_accented_vendor_name_decides_one_way_in_nfc_and_nfd() -> None:
     assert mem_ok.lookup(ACCENTED_NFD).accounts == ("Sundry Expenses",)
     assert propose_account(mem_ok, ACCENTED_NFD) == "Sundry Expenses"
 
-    posted = _run(t_ok, store_ok, mem_ok, ACCENTED_NFD)
+    recognised = _run(t_ok, store_ok, mem_ok, ACCENTED_NFD)
 
-    assert posted.outcome is Outcome.VALID
-    assert posted.voucher.debit_account == "Sundry Expenses"
-    assert posted.problems == []
-    assert posted.posted_tally_id == "TALLY-1"
-    assert len(t_ok.list_our_vouchers(COMPANY)) == 1
-    _assert_one_posted_row(
-        store_ok, posted, detail=f"Sundry Expenses {AMOUNT_PAISE} paise"
+    assert recognised.voucher.debit_account == "Sundry Expenses"
+    assert recognised.voucher.provenance is not None
+    assert recognised.voucher.provenance["debit_account"] == "company_history"
+    _assert_the_tier_is_the_only_thing_stopping_it(recognised)
+    _assert_nothing_was_written(t_ok, store_ok)
+    _assert_one_identified_but_unposted_row(
+        store_ok, recognised, detail=f"Sundry Expenses {AMOUNT_PAISE} paise"
     )
 
     # ...and the UNACCENTED name is still a stranger to those same books
     assert mem_ok.lookup(UNACCENTED).status is CompanyMatchStatus.NO_MATCH
     assert propose_account(mem_ok, UNACCENTED) is None
 
-    assert pipeline.reverse(posted, t_ok) is True
+    # nothing was written, so there is nothing to undo and the books never moved
+    assert pipeline.reverse(recognised, t_ok) is False
     assert t_ok.list_our_vouchers(COMPANY) == ()
     assert t_ok.trial_balance(COMPANY) == _tally(
         _history(ACCENTED_NFC, "Sundry Expenses")
@@ -611,6 +738,13 @@ def test_whitespace_visible_or_invisible_never_changes_which_vendor_this_is() ->
     NEIGHBOURING name into this supplier (a wrong voucher). The second half is
     the one that matters, so it is checked against every variant rather than
     once.
+
+    THE END-TO-END HALF IS MEASURED WITHOUT A POST since 2026-08-17. "The
+    padding did not change which vendor this is" is a claim about the account
+    memory hands back, not about a voucher, and `stub` is not on
+    `AUTO_POST_ALLOWED_TIERS`. So the padded name is followed as far as the
+    account the draft carries and the account the blocked row records, and the
+    refusal is then asserted in its own right.
     """
     t = _tally(_history(LATIN_SHARMA, "Purchases"))
     store = MemoryStore(":memory:")
@@ -635,20 +769,29 @@ def test_whitespace_visible_or_invisible_never_changes_which_vendor_this_is() ->
     assert normalise_vendor("Shar\u200bma Traders") == "shar_ma_traders"
     assert memory.lookup("Shar\u200bma Traders").status is (CompanyMatchStatus.NO_MATCH)
 
-    # end to end on the nastiest padding: an invisible character must not stop
-    # a voucher, and must not send it anywhere new
+    # End to end on the nastiest padding: an invisible character must not turn
+    # the supplier into a stranger, and must not send it anywhere new. Both are
+    # read off the account the draft CARRIES - "Purchases" and sourced
+    # `company_history` - which is where a wrong match would show, whether or
+    # not the entry goes on to post.
     draft = _run(t, store, memory, "\u00a0Sharma\u200bTraders\u200b")
 
-    assert draft.outcome is Outcome.VALID
     assert draft.voucher.debit_account == "Purchases"
-    assert draft.reason == "nothing unclear and nothing surprising"
-    assert draft.posted_tally_id == "TALLY-1"
-    assert len(t.list_our_vouchers(COMPANY)) == 1
-    _assert_one_posted_row(store, draft, detail=f"Purchases {AMOUNT_PAISE} paise")
+    assert draft.voucher.provenance is not None
+    assert draft.voucher.provenance["debit_account"] == "company_history"
 
-    # cleanup: this one DID write, so the undo must find it and the books must
-    # come back to exactly the seeded state
-    assert pipeline.reverse(draft, t) is True
+    # And it does not post: the padding was survivable, the reading tier is not.
+    # `stub` is not on `AUTO_POST_ALLOWED_TIERS` (owner ruling 2026-08-17), and
+    # tidy numbers on a fixture must never buy a voucher.
+    _assert_the_tier_is_the_only_thing_stopping_it(draft)
+    _assert_nothing_was_written(t, store)
+    _assert_one_identified_but_unposted_row(
+        store, draft, detail=f"Purchases {AMOUNT_PAISE} paise"
+    )
+
+    # cleanup: nothing was written, so there is nothing to find, and the books
+    # are still in exactly the seeded state
+    assert pipeline.reverse(draft, t) is False
     assert t.list_our_vouchers(COMPANY) == ()
     assert len(t.read_vouchers(COMPANY)) == SEEDED
     assert t.trial_balance(COMPANY) == _tally(
@@ -670,6 +813,14 @@ def test_posting_sharma_trader_never_returns_sharma_traders_account() -> None:
     A shared key would not make one right and one wrong. It would make BOTH
     CONFLICTED, so `neither is conflicted` is the assertion that breaks first
     if singular and plural ever collapse.
+
+    NEITHER POSTS SINCE 2026-08-17, and the claim is unharmed. "Two suppliers,
+    two ledgers" is measured where the two ledgers actually diverge: the
+    account each draft carries, and the account each blocked row records. Both
+    are held by the tier - `stub` is not on `AUTO_POST_ALLOWED_TIERS` - so the
+    trail now holds two `blocked` rows rather than two posted ones, and the
+    two accounts in them are still asserted to be different and to be the
+    right way round.
     """
     t = _tally(
         _history(LATIN_SHARMA, "Purchases")
@@ -688,38 +839,36 @@ def test_posting_sharma_trader_never_returns_sharma_traders_account() -> None:
     assert memory.lookup(SINGULAR_SHARMA).status is not CompanyMatchStatus.CONFLICTED
 
     singular = _run(t, store, memory, SINGULAR_SHARMA)
-    assert singular.outcome is Outcome.VALID
     assert singular.voucher.debit_account == "Repairs & Maintenance"
     assert singular.voucher.debit_account != "Purchases"
+    _assert_the_tier_is_the_only_thing_stopping_it(singular)
 
     plural = _run(t, store, memory, LATIN_SHARMA)
-    assert plural.outcome is Outcome.VALID
     assert plural.voucher.debit_account == "Purchases"
     assert plural.voucher.debit_account != "Repairs & Maintenance"
+    _assert_the_tier_is_the_only_thing_stopping_it(plural)
 
     # a trailing full stop is punctuation, not a different supplier
     assert normalise_vendor("Sharma Traders.") == normalise_vendor(LATIN_SHARMA)
     assert memory.lookup("Sharma Traders.").accounts == ("Purchases",)
 
+    # TWO refusals, one per supplier, each naming its OWN account in the
+    # durable trail. This list is where a collapsed key would show: it would
+    # put the same account on both rows.
     log = _rows(store)
-    assert [r.action for r in log] == [
-        pipeline.WRITE_ATTEMPTED,
-        "posted",
-        pipeline.WRITE_ATTEMPTED,
-        "posted",
-    ]
-    # Posted rows only. Each write also leaves a `write_attempted` row carrying
-    # the same vendor, and counting both would say four suppliers were paid.
-    posted = [r for r in log if r.action == "posted"]
-    assert [r.vendor_id for r in posted] == [SINGULAR_SHARMA, LATIN_SHARMA]
+    assert [r.action for r in log] == ["blocked", "blocked"]
+    assert [r.vendor_id for r in log] == [SINGULAR_SHARMA, LATIN_SHARMA]
     assert {r.backend for r in log} == {"FakeTally"}
     assert {r.run_id for r in log} == {RUN_ID}
-    assert posted[0].detail == f"Repairs & Maintenance {AMOUNT_PAISE} paise"
-    assert posted[1].detail == f"Purchases {AMOUNT_PAISE} paise"
-    assert posted[0].operation_id != posted[1].operation_id
+    assert log[0].detail == f"Repairs & Maintenance {AMOUNT_PAISE} paise"
+    assert log[1].detail == f"Purchases {AMOUNT_PAISE} paise"
+    assert log[0].detail != log[1].detail
+    assert log[0].operation_id != log[1].operation_id
+    assert {r.reason for r in log} == {UNTRUSTED_TIER_REASON}
 
-    assert pipeline.reverse(singular, t) is True
-    assert pipeline.reverse(plural, t) is True
+    # neither wrote, so neither can be undone, and the books never moved
+    assert pipeline.reverse(singular, t) is False
+    assert pipeline.reverse(plural, t) is False
     assert t.list_our_vouchers(COMPANY) == ()
     assert len(t.read_vouchers(COMPANY)) == seeded
 
@@ -771,6 +920,14 @@ def test_an_llp_invoice_is_never_posted_to_the_limited_companys_account() -> Non
         written two ways, and splitting them cost a question for nothing. Note
         that this is the SAFE direction of merge: it joins two spellings of one
         registration, never two registrations.
+
+    THE Ltd CONTROL NO LONGER POSTS, AND THE CLAIM IS SHARPER FOR IT.
+    Owner ruling 2026-08-17: `stub` is not on `AUTO_POST_ALLOWED_TIERS`. Both
+    entities are now held, so the test can no longer lean on "one posted" as
+    the difference. It states the real one instead: the LLP is a stranger with
+    no account and two questions, the Ltd is a MATCH whose account reaches the
+    draft and the durable trail. Keying the LLP as the Ltd would put
+    "Purchases" on the LLP's row, and that is asserted against directly.
     """
     # Four legal forms, four keys. Distinctness is asserted pairwise, not just
     # against `acme_ltd`, because two of them sharing a key is the same defect.
@@ -849,22 +1006,32 @@ def test_an_llp_invoice_is_never_posted_to_the_limited_companys_account() -> Non
     assert log[0].detail == f"(none proposed) {AMOUNT_PAISE} paise"
     assert pipeline.reverse(draft, t) is False
 
-    # The positive control: the Ltd it DOES know still posts, so this test
-    # cannot pass by refusing everything that arrives.
+    # The positive control: the Ltd it DOES know is RECOGNISED, so this test
+    # cannot pass by refusing everything that arrives. The two refusals are
+    # told apart by their reason and their detail, which is a sharper
+    # distinction than "one posted and one did not": the LLP is held because
+    # nobody knows what it was for and how it was paid, the Ltd is held only
+    # because `stub` is not on `AUTO_POST_ALLOWED_TIERS`, and the Ltd's row
+    # names the account the LLP's row could not.
     good = _run(t, store, memory, ACME_LTD)
-    assert good.outcome is Outcome.VALID
+    assert memory.lookup(ACME_LTD).status is CompanyMatchStatus.MATCH
+    assert propose_account(memory, ACME_LTD) == "Purchases"
     assert good.voucher.debit_account == "Purchases"
-    assert good.problems == []
-    assert good.posted_tally_id == "TALLY-1"
-    assert len(t.list_our_vouchers(COMPANY)) == 1
-    assert [r.action for r in _rows(store)] == [
-        "blocked",
-        pipeline.WRITE_ATTEMPTED,
-        "posted",
-    ]
-    assert _rows(store)[-1].detail == f"Purchases {AMOUNT_PAISE} paise"
+    assert good.voucher.provenance is not None
+    assert good.voucher.provenance["debit_account"] == "company_history"
+    _assert_the_tier_is_the_only_thing_stopping_it(good)
+    _assert_one_identified_but_unposted_row(
+        store, good, detail=f"Purchases {AMOUNT_PAISE} paise", rows_before=1
+    )
 
-    assert pipeline.reverse(good, t) is True
+    assert [r.action for r in _rows(store)] == ["blocked", "blocked"]
+    assert [r.detail for r in _rows(store)] == [
+        f"(none proposed) {AMOUNT_PAISE} paise",
+        f"Purchases {AMOUNT_PAISE} paise",
+    ]
+
+    # neither entity wrote anything, so neither can be undone
+    assert pipeline.reverse(good, t) is False
     assert t.list_our_vouchers(COMPANY) == ()
     assert t.trial_balance(COMPANY) == _tally(
         _history(ACME_LTD, "Purchases")
@@ -1137,11 +1304,21 @@ def test_memory_belonging_to_another_company_is_refused_and_writes_nothing() -> 
     for company in (COMPANY, OTHER_COMPANY):
         assert _rows(store, company) == ()
 
-    # the positive control: the right memory for the right company DOES write a
-    # row, so "no row" above is a fact about the refusal, not about the log
+    # The positive control: the right memory for the right company DOES reach a
+    # decision and DOES write a log row scoped to its own key, so "no row"
+    # above is a fact about the refusal, not about the log.
+    #
+    # The row is `blocked`, not `posted`, and that changes nothing here. What
+    # this test is about is WHOSE SCOPE answered - the row exists, it carries
+    # the other company's key, it names the account only the other company's
+    # history knows, and the first company's trail is still empty. The tier
+    # ceiling holds the write back (`stub` is not on
+    # `AUTO_POST_ALLOWED_TIERS`, owner ruling 2026-08-17) without touching any
+    # of that.
     ok = _run(t, store, mem_theirs, LATIN_SHARMA, company=OTHER_COMPANY)
-    assert ok.outcome is Outcome.VALID
-    _assert_one_posted_row(
+    assert ok.voucher.debit_account == "Repairs & Maintenance"
+    _assert_the_tier_is_the_only_thing_stopping_it(ok)
+    _assert_one_identified_but_unposted_row(
         store,
         ok,
         company=OTHER_COMPANY,
@@ -1149,7 +1326,7 @@ def test_memory_belonging_to_another_company_is_refused_and_writes_nothing() -> 
     )
     assert _rows(store, OTHER_COMPANY)[0].company_key == mem_theirs.identity.key
     assert _rows(store, COMPANY) == ()
-    assert pipeline.reverse(ok, t) is True
+    assert pipeline.reverse(ok, t) is False
     assert t.list_our_vouchers(OTHER_COMPANY) == ()
 
 
@@ -1482,6 +1659,14 @@ def test_rebuilding_from_the_new_history_replaces_the_old_index_and_never_merges
     `bootstrap` calls `store.forget()` before loading. If it merged instead,
     this supplier would come back CONFLICTED across two accounts and start
     asking a question the current books already answer.
+
+    "REPLACES AND NEVER MERGES" IS A CLAIM ABOUT THE INDEX, NOT ABOUT A POST.
+    It is measured as such since 2026-08-17: MATCH rather than CONFLICTED, one
+    account rather than two in `store.vendors`, zero conflicts in the report,
+    and the NEW account - never the stale one - carried onto the draft and
+    recorded in the blocked row. The entry itself is held because `stub` is
+    not on `AUTO_POST_ALLOWED_TIERS`, and a merged index would fail the
+    assertions above long before it ever got that far.
     """
     before = _tally(_history(LATIN_SHARMA, "Purchases"))
     store = MemoryStore(":memory:")
@@ -1501,14 +1686,17 @@ def test_rebuilding_from_the_new_history_replaces_the_old_index_and_never_merges
     assert fresh.report.counts.conflicts == 0
 
     draft = _run(after, store, fresh, LATIN_SHARMA)
-    assert draft.outcome is Outcome.VALID
     assert draft.voucher.debit_account == "Repairs & Maintenance"
-    assert len(after.list_our_vouchers(COMPANY)) == 1
-    _assert_one_posted_row(
+    assert draft.voucher.debit_account != "Purchases", "the stale index answered"
+    assert draft.voucher.provenance is not None
+    assert draft.voucher.provenance["debit_account"] == "company_history"
+    _assert_the_tier_is_the_only_thing_stopping_it(draft)
+    _assert_nothing_was_written(after, store)
+    _assert_one_identified_but_unposted_row(
         store, draft, detail=f"Repairs & Maintenance {AMOUNT_PAISE} paise"
     )
 
-    assert pipeline.reverse(draft, after) is True
+    assert pipeline.reverse(draft, after) is False
     assert after.list_our_vouchers(COMPANY) == ()
     assert after.trial_balance(COMPANY) == _tally(
         _history(LATIN_SHARMA, "Repairs & Maintenance")

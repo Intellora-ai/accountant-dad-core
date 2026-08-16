@@ -68,6 +68,7 @@ from accountant.web import app
 from tests import test_adversarial_write_path as W
 from tests import test_real_tally as sim_module
 from tests import test_tally_contract as contract
+from tests.test_period_handoff import open_books_for
 from tests.test_real_tally import TWO_LEGGED, TallySim, import_response
 
 # BORROWED rather than copied, in the idiom `tests/test_adversarial_write_path.py`
@@ -1076,7 +1077,20 @@ def refusing_server() -> Iterator[tuple[str, RefusingTally]]:
     ready = threading.Event()
 
     def serve() -> None:
-        app.configure(tally, identity, store=MemoryStore(":memory:"))
+        # The subject here is a Tally that REFUSES A WRITE. Without a reader
+        # `Runtime.period_open` is `None` - "nobody looked" - and the cage blocks
+        # first with "I could not tell whether the books for this date are still
+        # open", so the write is never attempted and the refusal never happens:
+        # the test would pass on the wrong refusal. The company must be
+        # `app.COMPANY`, matching the `identity` above, because
+        # `parse_company_periods` matches on the name and any other name is NO
+        # MATCH -> UNVERIFIED -> blocked, silently unchanged.
+        app.configure(
+            tally,
+            identity,
+            store=MemoryStore(":memory:"),
+            period_reader=open_books_for(app.COMPANY),
+        )
         ready.set()
         httpd.serve_forever()
 

@@ -2,7 +2,7 @@
 
 WHY THIS FILE EXISTS
 --------------------
-`accountant/extract/labels.py` is meant to be the ONE label vocabulary, and its
+`accountant/labels.py` is meant to be the ONE label vocabulary, and its
 own docstring says what the alternative costs: "two label vocabularies drift,
 and the day one of them learns AMOUNT PAYABLE and the other does not is the day
 the same bill reads differently depending on whether it arrived as a PDF or as
@@ -53,7 +53,7 @@ import sys
 from collections.abc import Iterable
 from typing import Final, cast
 
-from accountant.extract import labels
+from accountant import labels
 from accountant.invoice import parse
 
 REPO: Final = pathlib.Path(__file__).resolve().parent.parent
@@ -99,7 +99,17 @@ for path in sorted((root / "accountant").rglob("*.py")):
 for name in names:
     importlib.import_module(name)
 
-reached = sorted(m for m in sys.modules if m.startswith("accountant.invoice"))
+# THE PACKAGE, NOT THE PREFIX. `startswith("accountant.invoice")` is a STRING
+# test, and it caught `accountant.invoicelike` the day that module moved up out
+# of `accountant/extract/` - a different module, not inside the package this
+# guard is about, reported as a breach. The exclusion loop above already gets
+# this right: `"invoice" in parts` compares path COMPONENTS, so it never
+# confused the two. Only the detection line did.
+reached = sorted(
+    m
+    for m in sys.modules
+    if m == "accountant.invoice" or m.startswith("accountant.invoice.")
+)
 print(len(names))
 print(" ".join(reached))
 """

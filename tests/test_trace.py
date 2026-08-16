@@ -39,7 +39,6 @@ from pathlib import Path
 import pytest
 
 from accountant.extract import trace as trace_module
-from accountant.extract.labels import TOTAL_LABELS, amounts_for
 from accountant.extract.trace import (
     FieldTrace,
     PageTrace,
@@ -47,6 +46,7 @@ from accountant.extract.trace import (
     sentence_for,
     where_from,
 )
+from accountant.labels import TOTAL_LABELS, amounts_for
 
 TRACE_FILE = Path(str(trace_module.__file__))
 
