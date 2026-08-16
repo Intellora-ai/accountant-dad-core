@@ -91,6 +91,7 @@ from accountant.cage.decision import (
     NUMBERS_DO_NOT_ADD_UP,
     Action,
     Decided,
+    DocumentType,
     Moment,
     Situation,
     decide,
@@ -128,10 +129,18 @@ def an_observation(
     party: object = "Blue Steel Traders",
     total_paise: object = CLEAN_TOTAL,
     tax_paise: object = 0,
+    #: `None` hands over an UNREAD date, on the same terms as `tax_paise` below
+    #: and for the same reason: a document that has no invoice date to read is
+    #: not the same thing as one whose date was read as blank.
+    date: object = "2026-08-12",
     confidence: float = 1.0,
 ) -> Observation:
     return Observation(
-        date=Field(value="2026-08-12", confidence=confidence, source="test"),
+        date=Field(
+            value=date,
+            confidence=0.0 if date is None else confidence,
+            source="test",
+        ),
         party=Field(value=party, confidence=confidence, source="test"),
         total_paise=Field(value=total_paise, confidence=confidence, source="test"),
         # A field with no value carries confidence 0.0 - the wall enforces it,
@@ -231,9 +240,14 @@ def a_situation(
     #: typed text; it is a text-layer PDF that needed no mending, which `None`
     #: covers ("there was nothing to repair").
     reading_tiers: object = (TEXT_LAYER,),
+    #: `INVOICE` because that is `Situation`'s own default and the strict side:
+    #: these builders describe the bill that auto-posts, and every one of them
+    #: was judged as an invoice before document types existed.
+    document_type: object = DocumentType.INVOICE,
 ) -> Situation:
     seen = an_observation() if observation is UNSET else observation
     return Situation(
+        document_type=document_type,  # type: ignore[arg-type]
         observation=seen,  # type: ignore[arg-type]
         conservation=all_laws_pass() if conservation is UNSET else conservation,  # type: ignore[arg-type]
         checked_paise=(  # type: ignore[arg-type]
@@ -300,6 +314,72 @@ def test_an_unread_field_drags_the_whole_bill_under_the_ask_floor() -> None:
         tax_paise=Field(value=0, confidence=0.99, source="test"),
     )
     assert decide(a_situation(observation=seen)).action is Action.BLOCK
+
+
+# ---- the two confidence bands count the same fields -------------------------
+#
+# REGRESSION, 2026-08-16. `_blocking` asked `lowest_confidence_where` with
+# `date_applies`; `_asking` asked the same method WITHOUT it, and the parameter
+# defaults to `True`. So the ASK band excused a missing date on a document that
+# has none and the POST band went on charging for it, and the comment above the
+# `_asking` call said in as many words that the two bands "cannot come to
+# disagree about which fields count". They could, and they did.
+#
+# The defect was invisible in every existing test because it can only be seen
+# on a document whose date does not apply, and `DocumentType` was one day old.
+
+
+def test_a_date_that_does_not_apply_is_excused_by_the_post_band_too() -> None:
+    """THE REGRESSION TEST. An expense note with no date, sure of everything else.
+
+    Before the fix this returned `ASK`: 1.0 on both fields a person typed
+    cleared `ASK_FLOOR` because `_blocking` dropped the date, then the same bill
+    scored 0.0 at `AUTO_POST_FLOOR` because `_asking` put it back. A bill that
+    can never be posted however well it is read is not a ceiling, it is a wall.
+    """
+    no_date = an_observation(date=None)
+    decided = decide(
+        a_situation(
+            observation=no_date,
+            document_type=DocumentType.NON_INVOICE_EXPENSE_NOTE,
+        )
+    )
+
+    assert decided.action is Action.POST
+
+
+def test_the_control_the_same_missing_date_on_an_invoice_still_blocks() -> None:
+    """The identical bill, one thing different: it claims to be an invoice.
+
+    This is what says the fix excused a field rather than a document. An invoice
+    HAS a date, so failing to read one is a field at 0.0, and 0.0 is under
+    `ASK_FLOOR` - it does not reach the post band at all.
+    """
+    decided = decide(
+        a_situation(
+            observation=an_observation(date=None),
+            document_type=DocumentType.INVOICE,
+        )
+    )
+
+    assert decided.action is Action.BLOCK
+
+
+def test_an_expense_note_still_has_to_be_read_well_to_post() -> None:
+    """The other control: the date is excused, the REST of the bill is not.
+
+    Without this, "the date does not apply" could be read as "this kind of
+    document is trusted", which is not what was fixed and not what is meant.
+    """
+    barely = an_observation(date=None, confidence=AUTO_POST_FLOOR - 0.01)
+    decided = decide(
+        a_situation(
+            observation=barely,
+            document_type=DocumentType.NON_INVOICE_EXPENSE_NOTE,
+        )
+    )
+
+    assert decided.action is Action.ASK
 
 
 # ---- arithmetic beats certainty. This is the point of the module. -----------

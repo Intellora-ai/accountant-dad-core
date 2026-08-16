@@ -47,6 +47,7 @@ from accountant.cage.decision import (
     GST_IS_OFF,
     Action,
     Decided,
+    DocumentType,
     Moment,
 )
 from accountant.cage.gate import gate, observed
@@ -162,6 +163,9 @@ def asked(
     balance_before_paise: int | None = BEFORE,
     balance_after_paise: int | None = AFTER,
     ambiguous_fields: tuple[str, ...] = (),
+    #: `INVOICE` is `gate`'s own default and the strict side, so every existing
+    #: caller of this helper is judged exactly as it was before document types.
+    document_type: DocumentType = DocumentType.INVOICE,
 ) -> Decided:
     """Every fact supplied and every law holding, so a test overrides ONE thing.
 
@@ -187,6 +191,7 @@ def asked(
         balance_before_paise=balance_before_paise,
         balance_after_paise=balance_after_paise,
         ambiguous_fields=ambiguous_fields,
+        document_type=document_type,
     )
 
 
@@ -425,6 +430,74 @@ def test_the_allowlist_names_the_tier_the_shipped_reader_actually_stamps() -> No
     """
     assert TextLayerReader.name in AUTO_POST_ALLOWED_TIERS
     assert READ_BY_PICTURE not in AUTO_POST_ALLOWED_TIERS
+
+
+def test_a_field_this_bill_does_not_have_does_not_cap_it_at_ask() -> None:
+    """REGRESSION, 2026-08-16. An unread field used to stamp `not_found: ...`.
+
+    That string is on no allowlist, so it capped the bill at ASK - and `_tiers`
+    justified it on the grounds that such a field "is confidence 0.0 and blocks
+    two layers earlier". That stopped being true the day `_tax_applies` and
+    `_date_applies` began dropping inapplicable fields from the minimum, and
+    this is the case where the difference is visible: `carries_gst=False`, so
+    the confidence bands do not count the tax field at all, and the tier list
+    was the last thing still charging for its absence.
+
+    Measured on `paid Sharma Traders 4200 for cement`, which could not post
+    however well it was read: `typed_text` is on the allowlist by the owner's
+    ruling of 2026-08-13, both typed fields read 1.0, and its absent date
+    stamped a tier that refused it.
+    """
+    no_date = a_record(date=None)
+
+    decided = asked(
+        a_draft(no_date), document_type=DocumentType.NON_INVOICE_EXPENSE_NOTE
+    )
+
+    assert decided.action is Action.POST
+
+
+def test_the_control_the_same_bill_called_an_invoice_does_not_post() -> None:
+    """One thing different: the kind of document it claims to be.
+
+    An invoice HAS a date, so an unread one is a field at 0.0 and the confidence
+    band stops it long before the tier list is consulted. This is what says the
+    fix excused a field that does not apply rather than excusing absence.
+    """
+    decided = asked(a_draft(a_record(date=None)), document_type=DocumentType.INVOICE)
+
+    assert decided.action is not Action.POST
+
+
+def test_the_control_a_field_read_badly_still_states_the_rung_that_read_it() -> None:
+    """The fix drops what was NOT READ, never what was read poorly.
+
+    A photographed party is a real reading by a rung that estimates, so it must
+    still cap this same expense note at ASK. If this ever returns POST, the
+    filter has widened from "nobody read it" into a bypass.
+    """
+    guessed_party = a_record(date=None, sources={"party": READ_BY_PICTURE})
+
+    decided = asked(
+        a_draft(guessed_party), document_type=DocumentType.NON_INVOICE_EXPENSE_NOTE
+    )
+
+    assert decided.action is Action.ASK
+
+
+def test_a_record_that_read_nothing_cannot_post_on_an_empty_tier_list() -> None:
+    """The fail-closed end of it, asserted rather than assumed.
+
+    Dropping unread fields can empty the tuple, and an empty tuple must not
+    clear the owner's check by having no inputs left to fail it. `_may_auto_post`
+    refuses `()` and the confidence band refuses 0.0; this says the bill dies
+    rather than slipping between them.
+    """
+    nothing = a_record(
+        sources=dict.fromkeys(ExtractedRecord.FIELDS, f"{NOT_FOUND}: nothing read")
+    )
+
+    assert asked(a_draft(nothing)).action is Action.BLOCK
 
 
 def test_a_bill_read_off_pixels_is_asked_about_rather_than_posted() -> None:

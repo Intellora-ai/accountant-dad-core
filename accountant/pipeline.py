@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from accountant import checks, problems
 from accountant import questions as Q
 from accountant.cage import gate as cage_gate
-from accountant.cage.decision import Action, Decided, Moment
+from accountant.cage.decision import Action, Decided, DocumentType, Moment
 from accountant.decide import decide_problems
 from accountant.detect import detectors
 from accountant.extract.adapter import NOT_FOUND, ExtractedRecord, Extractor
@@ -829,6 +829,21 @@ def evaluate(
             # `history` IS THE BOOKS. The owner's hard rule 7 is untouched and
             # is why the `or` is this way round: a party in NEITHER the chart
             # nor the history is still unknown, and still blocks.
+            # THE KIND OF DOCUMENT, DERIVED FROM THE TIER THAT READ IT, and
+            # not asked of the caller. `typed_text` is a person typing a
+            # sentence - there is no document, so there are no line items and
+            # no invoice date, and the invoice conservation laws describe
+            # nothing on it. Every other tier read an actual file.
+            #
+            # MEASURED: this is what refused `paid Sharma Traders 4200 for
+            # cement` with three reasons, none of which were true of it.
+            document_type=(
+                DocumentType.NON_INVOICE_EXPENSE_NOTE
+                if draft.record.per_field_source.get("total_paise", "").startswith(
+                    "typed_text"
+                )
+                else DocumentType.INVOICE
+            ),
             party_known=(
                 draft.voucher.party in accounts
                 or any(one.party == draft.voucher.party for one in history)

@@ -126,7 +126,9 @@ class Observation:
     tax_paise: Field
     line_paise: tuple[int, ...] | None = None
 
-    def lowest_confidence_where(self, *, tax_applies: bool) -> float:
+    def lowest_confidence_where(
+        self, *, tax_applies: bool, date_applies: bool = True
+    ) -> float:
         """The weakest field that applies to THIS bill, not the weakest field.
 
         A field nobody read scores 0.0 and the minimum takes it. On a bill with
@@ -144,16 +146,37 @@ class Observation:
         which is the shape of every defaulted world fact `Situation` has no
         defaults in order to stop.
 
-        A BOOLEAN AND NOT A SET OF FIELD NAMES. Tax is the one field a real
-        bill can genuinely not have; an amount, a date and a party are needed
-        by all of them. A caller-supplied list of applicable fields would let a
-        typo drop the amount, so the wrong answer would be one string away.
+        A BOOLEAN AND NOT A SET OF FIELD NAMES. Tax was the one field a real
+        bill could genuinely not have; an amount and a party are needed by
+        all of them.
+
+        `date_applies` JOINED IT ON 2026-08-16 ON THE SAME TERMS, and the
+        sentence above used to include the date. It was true of every
+        document this cage had seen and false of the one it blocked most:
+        `paid Sharma Traders 4200 for cement` is a typed expense note, it
+        has no invoice date, and it scored 0.0 for not carrying the thing it
+        correctly does not have - the exact defect the tax boolean was added
+        to fix, one field over. `decision._date_applies` is the caller that
+        answers it, from `Situation.document_type`. A caller-supplied list of
+        applicable fields would let a typo drop the amount, so the wrong
+        answer would be one string away.
         Here it is unreachable rather than merely untaken.
 
-        KEYWORD-ONLY, AND NO DEFAULT. There is no call that silently means "no
-        tax": forgetting raises `TypeError` here rather than posting there.
+        `tax_applies` IS KEYWORD-ONLY WITH NO DEFAULT. There is no call that
+        silently means "no tax": forgetting raises `TypeError` here rather
+        than posting there.
+
+        `date_applies` DEFAULTS TO `True`, WHICH IS THE STRICTER SIDE and is
+        the only reason it differs. Every document this cage judged before
+        2026-08-16 was treated as carrying a date, so the default preserves
+        that judgement exactly for the fifteen existing call sites: a caller
+        who has not heard of document types gets the behaviour it already
+        had. Forgetting it costs a question. The opposite default would
+        excuse a missing date on a real invoice, which costs a write.
         """
-        applicable = [self.date, self.party, self.total_paise]
+        applicable = [self.party, self.total_paise]
+        if date_applies:
+            applicable.append(self.date)
         if tax_applies:
             applicable.append(self.tax_paise)
         return min(field.confidence for field in applicable)

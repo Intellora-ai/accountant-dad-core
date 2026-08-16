@@ -17,8 +17,9 @@ from __future__ import annotations
 import datetime
 import re
 from dataclasses import dataclass, field
+from dataclasses import replace as _replace
 from decimal import Decimal, InvalidOperation
-from typing import Protocol, runtime_checkable
+from typing import Final, Protocol, runtime_checkable
 
 # The one name for "nothing was estimated", taken rather than written as a bare
 # 1.0. Same exception, same reasoning as `wall.py` importing `money`:
@@ -98,6 +99,13 @@ NOT_FOUND = "not_found"
 #: `tests/test_remote_reader_not_exact.py` holds both halves - the refusal, and
 #: the number surviving the refusal.
 ENTITLED_TO_EXACT: frozenset[str] = frozenset({"pdf_text_layer", "typed_text", "stub"})
+
+#: What `ExtractedRecord.with_answer` stamps when a PERSON supplied the value.
+#: Named rather than typed inline so the string cannot drift between the place
+#: that writes it and any place that reads it. It is deliberately NOT in
+#: `ENTITLED_TO_EXACT`: that list grants the right to become a vendor identity
+#: with no question asked, and a person's typed answer has not earned it.
+HUMAN_ANSWER: Final[str] = "human_answer"
 
 #: The one media type a sentence a person typed arrives as.
 #:
@@ -208,6 +216,32 @@ class ExtractedRecord:
     #: direction a missing statement has to fail in.
     per_field_confidence: dict[str, float] = field(default_factory=dict[str, float])
 
+    #: The READINGS A RUNG FOUND AND COULD NOT CHOOSE BETWEEN, per field, as the
+    #: characters the page printed. Added 2026-08-16 to carry what today is
+    #: thrown away.
+    #:
+    #: WHY IT EXISTS. When a bill states two different totals, `labels.the_one`
+    #: and the amount rules refuse - correctly, because picking one is a coin
+    #: toss that posts money - and return `None` with a reason. THE TWO VALUES
+    #: THEMSELVES ARE DISCARDED AT THAT POINT. So the only thing that can be
+    #: said downstream is "I could not read the total", when what is true is "I
+    #: read two and one of them is yours". A person holding the bill answers the
+    #: second question in a second and cannot answer the first at all.
+    #:
+    #: IT GRANTS NOTHING. A candidate is not a value: `total_paise` stays
+    #: `None`, every check still sees an unread field, and no code path reads a
+    #: candidate as a reading. `accountant/uncertainty.py` is its only consumer
+    #: and it uses them for one thing - offering the person the words the page
+    #: actually prints, instead of inventing choices.
+    #:
+    #: EMPTY BY DEFAULT, and empty is what every reader shipping today leaves
+    #: it. Filling it is a change to a reader, which is a separate piece of work
+    #: with a separate blast radius; the carrier is here first so that work has
+    #: somewhere to put its answer.
+    per_field_candidates: dict[str, tuple[str, ...]] = field(
+        default_factory=dict[str, tuple[str, ...]]
+    )
+
     FIELDS = ("date", "party", "total_paise", "tax_paise")
 
     def __post_init__(self) -> None:
@@ -247,6 +281,79 @@ class ExtractedRecord:
         reading an assertion where there is only a silence.
         """
         return self.per_field_confidence.get(name)
+
+    def with_answer(self, name: str, text: str) -> tuple[ExtractedRecord | None, str]:
+        """This record with ONE field replaced by what a person typed, or the
+        reason their words could not be read.
+
+        `(record, "")` on success and `(None, reason)` on refusal, so a caller
+        cannot read a rejected answer as an accepted one by looking at the wrong
+        half.
+
+        WHY THIS LIVES HERE AND NOT IN `accountant/uncertainty.py`, which is its
+        only caller. `tests/test_adapter_contract.py` holds a D-30 boundary: a
+        module outside `accountant/extract/` may import the CONTRACT from this
+        package and nothing else. The question flow needs `paise_or_none` and
+        `read_date` - the very parsers the readers are judged by, because a
+        second parser in a second module is a second opinion about what
+        characters mean, and this repository has paid for that four times. Both
+        are internals. Reaching for them from outside would have added a fifth
+        name to that guard's offender list, so the work moved to the side of the
+        boundary the parsers are already on and the caller reaches it through
+        `ExtractedRecord`, which is in the contract.
+
+        `ISO_ONLY` FOR A TYPED DATE. `11/08/2026` is two different days
+        depending on who printed it; `DateLocale.UNKNOWN` refuses exactly that,
+        and asking a person for one shape is kinder than accepting two and
+        picking one.
+
+        A PERSON READING THEIR OWN BILL IS NOT AN ESTIMATE, so the field is
+        scored `EXACT` and sourced `human_answer`. That grants NO post: every
+        check, the open-books question and the cage all still run on the record
+        this returns.
+        """
+        from accountant.extract.dates import DateLocale, read_date
+        from accountant.extract.labels import paise_or_none
+
+        said = text.strip()
+        if not said:
+            return None, "Nothing was typed."
+
+        value: object
+        if name in ("total_paise", "tax_paise", "net_paise"):
+            paise = paise_or_none(said)
+            if paise is None:
+                return None, f"I could not read {said!r} as an amount of money."
+            if paise < 0:
+                return None, "An amount on a bill cannot be less than nothing."
+            value = paise
+        elif name == "date":
+            seen = read_date(said, locale=DateLocale.ISO_ONLY)
+            if seen.value is None:
+                return (
+                    None,
+                    f"I could not read {said!r} as a date. Please type it like "
+                    "2026-08-12.",
+                )
+            value = seen.value
+        elif name == "party":
+            value = said
+        else:
+            return None, f"I do not know how to check an answer about {name!r}."
+
+        sources = dict(self.per_field_source)
+        sources[name] = HUMAN_ANSWER
+        scores = dict(self.per_field_confidence)
+        scores[name] = EXACT
+        return (
+            _replace(
+                self,
+                **{name: value},
+                per_field_source=sources,
+                per_field_confidence=scores,
+            ),
+            "",
+        )
 
     def read_exactly(self, name: str) -> bool:
         """Was this field read off the document with NOTHING estimated?

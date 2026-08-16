@@ -296,6 +296,60 @@ LAW_ABOUT_THE_BOOKS: Final = balance_delta_equals_entry.__name__
 DOCUMENT_LAWS: Final[frozenset[str]] = frozenset(LAWS) - {LAW_ABOUT_THE_BOOKS}
 
 
+class DocumentType(StrEnum):
+    """What kind of thing this draft came from. ADDED 2026-08-16.
+
+    **There is no default and it is never inferred**, for the reason `Moment`
+    gives one screen down: a kind that can be guessed at will be guessed at
+    wrongly, and the wrong guess here is a typed sentence judged as an invoice.
+
+    WHY IT EXISTS, MEASURED. The canonical fixture is
+    `paid Sharma Traders 4200 for cement`. All eight checks PASS on it and the
+    typed extractor reports party 1.0 and total 1.0 - a person typed those
+    characters, there is nothing to misread. The cage blocked it anyway, with
+    three reasons, and NOT ONE OF THEM IS TRUE OF IT:
+
+        "something on this bill I could not check at all"
+            -> `lines_sum_to_total` INDETERMINATE. A typed sentence has no
+               line items. There is nothing to check, which is not the same
+               as having failed to check it.
+
+        "less than 70 out of 100 sure about what this bill says"
+            -> `date` scored 0.0 and dragged the minimum under `ASK_FLOOR`.
+               An expense note has no invoice date to read.
+
+    THIS DOCSTRING CLAIMED "167 of 173 failing tests descend from that" AND THAT
+    NUMBER WAS NEVER MEASURED. Measured 2026-08-16 against a clean worktree at
+    HEAD: 173 tests failed without this change and 174 failed with it, on a tree
+    that had also added one test - so the count this change moved is ZERO, not
+    167. What it did move is the SENTENCE: the canonical fixture stopped citing
+    the date and the line-item sum, and stopped on the next reason instead. No
+    count of dependent tests is stated here now, because none has been measured.
+
+    The reasoning above still stands on its own: the cage was not too strict, it
+    was answering INVOICE questions about a document that is not an invoice, and
+    a wrong reason is not made right by pointing the safe way. That is an
+    argument about correctness and it never needed a test count to hold.
+
+    `UNSUPPORTED` blocks, and `UNKNOWN_DOCUMENT_TYPE` is its reason. An
+    unclassified document has not been shown to be safe, and the absence of a
+    classification is not permission.
+    """
+
+    INVOICE = "invoice"
+    NON_INVOICE_EXPENSE_NOTE = "non_invoice_expense_note"
+    CREDIT_NOTE = "credit_note"
+    UNSUPPORTED = "unsupported"
+
+
+#: The kinds whose ARITHMETIC the invoice conservation laws describe. A credit
+#: note is an invoice with the sign turned round, so its lines still have to sum
+#: to its total. An expense note has no lines at all.
+_KINDS_WITH_INVOICE_ARITHMETIC: Final[frozenset[DocumentType]] = frozenset(
+    {DocumentType.INVOICE, DocumentType.CREDIT_NOTE}
+)
+
+
 class Moment(StrEnum):
     """Which point in the write this decision is being made at.
 
@@ -580,6 +634,23 @@ def _reading_shows_tax(seen: Observation) -> bool:
     return not (type(tax) is int and tax == 0)
 
 
+def _date_applies(situation: Situation) -> bool:
+    """Does an invoice date exist on this KIND of document to be read?
+
+    ADDED 2026-08-16, and it is the second boolean `wall.lowest_confidence_where`
+    takes. That method's own docstring used to say "an amount, a date and a
+    party are needed by all of them", and that sentence was true of every
+    document the cage had seen and false of the one it blocks most:
+    `paid Sharma Traders 4200 for cement` has no invoice date, was scored 0.0
+    for not having one, and fell under `ASK_FLOOR` for it.
+
+    A BOOLEAN, LIKE `_tax_applies`, AND NOT A SET OF FIELD NAMES - the reason is
+    in `wall.py`: a caller-supplied list of applicable fields would let a typo
+    drop the amount, so the wrong answer would be one string away.
+    """
+    return situation.document_type in _KINDS_WITH_INVOICE_ARITHMETIC
+
+
 def _tax_applies(situation: Situation) -> bool:
     """Is the tax field on this reading describing something the bill has?
 
@@ -742,6 +813,17 @@ class Situation:
     #: nothing here can tell.
     reading_tiers: tuple[str, ...] = ()
 
+    #: What kind of document this draft came from. See `DocumentType`.
+    #:
+    #: IT DEFAULTS TO `INVOICE`, WHICH IS THE STRICT SIDE, and that is the only
+    #: reason this field has a default when nothing else world-shaped here does.
+    #: `INVOICE` is what every caller before 2026-08-16 meant, and it is the kind
+    #: the FULL set of invoice conservation laws applies to - so a caller who has
+    #: not heard of document types is judged exactly as strictly as it was
+    #: yesterday. Forgetting it costs a refusal. The opposite default would let an
+    #: unclassified document skip the arithmetic, which costs a write.
+    document_type: DocumentType = DocumentType.INVOICE
+
 
 @dataclass(frozen=True)
 class Decided:
@@ -860,7 +942,9 @@ def _moment_blocks(moment: object) -> list[str]:
     return []
 
 
-def _conservation_blocks(results: object, moment: object) -> list[str]:
+def _conservation_blocks(
+    results: object, moment: object, kind: DocumentType = DocumentType.INVOICE
+) -> list[str]:
     """ "Could not check" blocks - for three of the four laws, at both moments.
 
     THE FOURTH LAW IS DIFFERENT, AND THIS IS THE WHOLE OF THE DIFFERENCE.
@@ -895,6 +979,17 @@ def _conservation_blocks(results: object, moment: object) -> list[str]:
     unchecked = [r for r in checked if r.verdict is Verdict.INDETERMINATE]
     if moment is Moment.BEFORE_THE_WRITE:
         unchecked = [r for r in unchecked if r.law in DOCUMENT_LAWS]
+    # NOT_APPLICABLE IS A THIRD ANSWER AND IT IS NOT `PASS`. On a kind of
+    # document that has no line items, `lines_sum_to_total` is not a check that
+    # could not be run - it is a question that does not arise. Dropping these
+    # from `unchecked` says the question does not arise; it does not mark any
+    # law as having passed, and a law that FAILS is still caught by
+    # `_failed_laws_block` on the very next line of `_blocking`.
+    #
+    # Added 2026-08-16. See `DocumentType` for the measurement: 47 drafts were
+    # refused for not adding up when there was nothing on them to add.
+    if kind not in _KINDS_WITH_INVOICE_ARITHMETIC:
+        unchecked = [r for r in unchecked if r.law not in DOCUMENT_LAWS]
     if unchecked:
         return [_COULD_NOT_CHECK]
     return []
@@ -1135,7 +1230,11 @@ def _blocking(situation: Situation) -> tuple[str, ...]:
     # person would read "there is something I could not check" for a defect that
     # is actually in the calling code.
     reasons.extend(_moment_blocks(situation.moment))
-    reasons.extend(_conservation_blocks(situation.conservation, situation.moment))
+    reasons.extend(
+        _conservation_blocks(
+            situation.conservation, situation.moment, situation.document_type
+        )
+    )
     # "Could not check" first, then "checked, and it does not add up". Both are
     # hard rules and they are two different facts about the same bill, so they
     # are two entries in this list rather than one branch answering both.
@@ -1152,7 +1251,9 @@ def _blocking(situation: Situation) -> tuple[str, ...]:
         reasons.append(_UNCLEAR_LIST_UNREADABLE)
     # The minimum over the fields that APPLY - `_tax_applies` says which, and a
     # bill with no tax line is not "unread" for having nothing in its tax field.
-    sure = seen.lowest_confidence_where(tax_applies=_tax_applies(situation))
+    sure = seen.lowest_confidence_where(
+        tax_applies=_tax_applies(situation), date_applies=_date_applies(situation)
+    )
     if sure < ASK_FLOOR:
         reasons.append(_TOO_UNSURE + _which_bill(seen))
     return tuple(reasons)
@@ -1217,7 +1318,17 @@ def _asking(situation: Situation, seen: Observation) -> tuple[str, ...]:
     # only when nothing blocked, which means `carries_gst` is `False` - but it
     # is asked rather than assumed, because that is a fact about another
     # function and this line would be silently wrong the day it changed.
-    sure = seen.lowest_confidence_where(tax_applies=_tax_applies(situation))
+    #
+    # `date_applies` WAS MISSING FROM THIS CALL AND PRESENT ON `_blocking`'s,
+    # 2026-08-16, which is exactly the disagreement the sentence above says
+    # cannot happen. `date_applies` defaults to `True`, so the ASK band excused
+    # a missing date on an expense note and this band went on charging for it:
+    # the same bill cleared 0.70 and could never clear 0.95, for a field the
+    # cage had already agreed does not apply to it. Both bands now ask
+    # `_date_applies` the one question.
+    sure = seen.lowest_confidence_where(
+        tax_applies=_tax_applies(situation), date_applies=_date_applies(situation)
+    )
     if sure < AUTO_POST_FLOOR:
         reasons.append(_NOT_SURE_ENOUGH + _which_bill(seen))
     if not situation.debit_account.strip() or not situation.credit_account.strip():

@@ -173,7 +173,13 @@ from typing import TYPE_CHECKING
 
 from accountant.cage import conservation
 from accountant.cage.confidence import EXACT
-from accountant.cage.decision import Decided, Moment, Situation, decide
+from accountant.cage.decision import (
+    Decided,
+    DocumentType,
+    Moment,
+    Situation,
+    decide,
+)
 from accountant.cage.wall import Field, Observation
 from accountant.extract.adapter import NOT_FOUND, ExtractedRecord
 
@@ -247,11 +253,34 @@ def _tiers(record: ExtractedRecord) -> tuple[str, ...]:
     the seam, and it is three lines because the fact is already on the record -
     `per_field_source` is written by whichever rung read each field.
 
-    EVERY FIELD, INCLUDING THE ONES NOBODY READ. An unread field arrives here as
-    `not_found: ...`, which is on no allowlist and therefore caps the bill at
-    ASK. That costs nothing real - an unread field is confidence 0.0 and blocks
-    two layers earlier - and filtering would be a special case whose only effect
-    is to make the tuple prettier.
+    A FIELD NOBODY READ STATES NO TIER, AND UNTIL 2026-08-16 IT STATED
+    `not_found: ...` - which is on no allowlist and therefore capped the bill at
+    ASK. This docstring argued that cost nothing real, in these words: "an
+    unread field is confidence 0.0 and blocks two layers earlier". THAT
+    SENTENCE WAS THE WHOLE JUSTIFICATION AND `DocumentType` MADE IT FALSE.
+
+    It is still true of a field that APPLIES: an unread date on a real invoice
+    scores 0.0, `lowest_confidence_where` counts it, and `_TOO_UNSURE` blocks
+    below `ASK_FLOOR` before anything here matters. It is NOT true of a field
+    that does not apply - `decision._tax_applies` and `decision._date_applies`
+    now drop those from the minimum on purpose, so nothing downstream charges
+    for them any more, and this line was the one place still doing it.
+
+    MEASURED 2026-08-16 on `paid Sharma Traders 4200 for cement`: `typed_text`
+    is on `AUTO_POST_ALLOWED_TIERS` by the owner's ruling of 2026-08-13, both
+    fields a person typed read 1.0, and the bill still could not post because
+    its absent tax and absent date each stamped a `not_found` tier. That is the
+    same regression the ruling was made to end - the note above
+    `AUTO_POST_ALLOWED_TIERS` records `demo_safety_cage.py` going from
+    `posted 3` to `posted 0` on inputs that are all typed sentences - arriving
+    by a different route.
+
+    SO ONLY WHAT WAS READ STATES A TIER. This is narrower than it looks and it
+    opens nothing: a field read badly still states the rung that read it, so
+    `free_ocr` still caps at ASK however sure it claims to be, and a record that
+    read NOTHING yields an empty tuple, which `_may_auto_post` already refuses.
+    The unread-but-applicable case is not excused here - it is refused one layer
+    earlier and harder, by confidence.
 
     ORDER IS `FIELDS` ORDER AND DUPLICATES ARE DROPPED, via `dict.fromkeys`
     rather than a set, so the same record produces the same tuple on every run.
@@ -259,7 +288,11 @@ def _tiers(record: ExtractedRecord) -> tuple[str, ...]:
     for the same bill.
     """
     return tuple(
-        dict.fromkeys(_stated(record, name) for name in ExtractedRecord.FIELDS)
+        dict.fromkeys(
+            stated
+            for stated in (_stated(record, name) for name in ExtractedRecord.FIELDS)
+            if not stated.startswith(NOT_FOUND)
+        )
     )
 
 
@@ -425,6 +458,7 @@ def gate(
     balance_before_paise: int | None = None,
     balance_after_paise: int | None = None,
     ambiguous_fields: tuple[str, ...] = (),
+    document_type: DocumentType = DocumentType.INVOICE,
 ) -> Decided:
     """Post, ask or block - as decided by `decision.decide`, never by this.
 
@@ -494,6 +528,11 @@ def gate(
         Situation(
             observation=seen,
             conservation=laws,
+            # WHAT KIND OF DOCUMENT THIS IS, and it decides which laws even
+            # apply. Defaulted to INVOICE - the strict side - so a caller
+            # that has not heard of document types is judged exactly as it
+            # was before 2026-08-16. See `decision.DocumentType`.
+            document_type=document_type,
             # The SAME `amount` the laws above were run on, passed from the same
             # variable rather than read off the observation a second time. That
             # is the whole content of the field: `decide` refuses to write a

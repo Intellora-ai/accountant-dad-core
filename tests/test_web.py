@@ -58,7 +58,9 @@ from accountant.memory.store import IN_MEMORY, MemoryStore
 from accountant.schema import Outcome, Voucher
 from accountant.tallyio.factory import BackendIdentity, new_run_id
 from accountant.tallyio.fake import FakeTally
+from accountant.tallyio.period import PeriodReader
 from accountant.web import app
+from tests.test_period_handoff import Answering, period_response
 
 # The demo company's chart of accounts. S7 reads this list back: no name in it
 # may appear inside a question, so it has to be the same list the app was given.
@@ -133,6 +135,38 @@ def fake_backend() -> BackendIdentity:
     )
 
 
+def open_books_reader() -> PeriodReader:
+    """A TEST DOUBLE that answers OPEN for this company. In memory, no socket.
+
+    WHY IT HAD TO EXIST. `Runtime.period_reader` defaults to `None`, and `None`
+    BLOCKS: `app.Runtime.period_open` reads it as "nobody looked", which is not
+    the same fact as "the books are open" and is deliberately not treated as
+    one. Every test through `serving` posts a voucher dated today, so every one
+    of them needs somebody to have looked. Without this they all stopped on
+    `decision._PERIOD_UNKNOWN` - measured 2026-08-16, 9 of them in this file.
+
+    THE TRANSPORT IS CANNED AND THE READER IS REAL, which is the choice
+    `tests/test_period_handoff.py` already made and it is reused rather than
+    re-made: a doubled `PeriodReader` would prove only that `check_period`
+    returns what a double told it to, where this way `build_period_request`,
+    `parse_company_periods`, `period_for` and `open_on` all really run. No
+    socket is opened, no Tally is asked and nothing here is reachable from
+    shipped code.
+
+    THE WINDOW IS DERIVED FROM TODAY, not pinned to a literal financial year.
+    A pinned `20260401` passes now and starts blocking every test in this file
+    on 1 April 2027 - a test that expires is a test that fails for a reason
+    nobody changed.
+    """
+    today = datetime.date.today()
+    # The Indian financial year opens on 1 April, so a date in January belongs
+    # to the year that started the previous April.
+    opens = today.year if today.month >= 4 else today.year - 1
+    return PeriodReader(
+        transport=Answering(period_response(f"{opens}0401", name=app.COMPANY))
+    )
+
+
 @contextlib.contextmanager
 def serving(
     tally: FakeTally,
@@ -142,6 +176,7 @@ def serving(
     seed: Callable[[MemoryStore], None] | None = None,
     store_path: str | Path = IN_MEMORY,
     tls: ssl.SSLContext | None = None,
+    period_reader: PeriodReader | None = None,
 ) -> Generator[str]:
     """A real server on a real ephemeral port, torn down on the way out.
 
@@ -232,7 +267,20 @@ def serving(
 
     def serve() -> None:
         store = MemoryStore(store_path)
-        app.configure(tally, identity, store=store, extractor=extractor)
+        # `period_reader` goes in through the SAME `configure` seam the backend
+        # and the extractor use. Left unset it is `open_books_reader()` and not
+        # `None`: `None` is what the shipped app gets when nobody built a reader
+        # and it must go on blocking, so a test that wants the blocking path
+        # asks for it by name - `unreachable_reader()` from
+        # `tests/test_period_handoff.py` reaches it through the real code rather
+        # than by removing the reader.
+        app.configure(
+            tally,
+            identity,
+            store=store,
+            extractor=extractor,
+            period_reader=period_reader or open_books_reader(),
+        )
         if seed is not None:
             seed(store)
         ready.set()
