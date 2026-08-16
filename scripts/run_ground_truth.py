@@ -54,9 +54,9 @@ import pathlib
 import subprocess
 import sys
 import traceback
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeGuard
 
 # ---------------------------------------------------------------------------
 # exit codes
@@ -253,6 +253,35 @@ def pack_loader() -> tuple[Callable[..., Any] | None, str | None]:
     return load_sibling("build_ground_truth", ("load_cases", "load_pack", "cases"))
 
 
+# --- narrowing helpers -----------------------------------------------------
+# A sibling script is loaded by name, so what it returns is `Any` and every
+# `isinstance` against a generic leaves the members Unknown. These state the
+# member types the runner then relies on. Each one is the same runtime check
+# the code did inline before, so the accepted and rejected values are the same.
+
+
+def _is_tuple(value: object) -> TypeGuard[tuple[object, ...]]:
+    """A tuple whose members are stated rather than left Unknown."""
+    return isinstance(value, tuple)
+
+
+def _is_iterable(value: object) -> TypeGuard[Iterable[object]]:
+    """Anything a `for` loop can walk, with the members stated."""
+    return isinstance(value, Iterable)
+
+
+def _iterable(value: object) -> Iterable[object]:
+    """`for f in value`, typed. A non-iterable still raises `TypeError` here."""
+    if _is_iterable(value):
+        return value
+    raise TypeError(f"{type(value).__name__!r} object is not iterable")
+
+
+def _is_json_object(value: object) -> TypeGuard[dict[str, Any]]:
+    """A JSON object; `json.loads` gives no key or value types on its own."""
+    return isinstance(value, dict)
+
+
 def interpret_validation(result: Any) -> tuple[bool, list[str]]:
     if isinstance(result, bool):
         return result, []
@@ -260,9 +289,9 @@ def interpret_validation(result: Any) -> tuple[bool, list[str]]:
     if isinstance(ok, bool):
         failures = list(getattr(result, "failures", ()) or ())
         return ok, [str(f) for f in failures]
-    if isinstance(result, tuple) and len(result) == 2:
+    if _is_tuple(result) and len(result) == 2:
         first, second = result
-        return bool(first), [str(f) for f in (second or ())]
+        return bool(first), [str(f) for f in _iterable(second or ())]
     raise HarnessBroke(
         f"scripts/validate_ground_truth.py returned {type(result).__name__}, which "
         "matches none of the three shapes documented in pack_validator"
@@ -484,7 +513,7 @@ def run_s2(section: Section) -> None:
 
         if case.get("renderable", True):
             renderable += 1
-            want = case.get("expected") or {}
+            want: Mapping[str, Any] = case.get("expected") or {}
             for name in ExtractedRecord.FIELDS:
                 if field_matches(name, record, want):
                     exact[name] += 1
@@ -660,10 +689,10 @@ BLOCK_GATES = {
 
 def load_rule_cases() -> dict[str, Any]:
     try:
-        payload = json.loads(RULE_CASES.read_text())
+        payload: object = json.loads(RULE_CASES.read_text())
     except (OSError, ValueError) as exc:
         raise HarnessBroke(f"the GST rule cases could not be read: {exc!r}") from exc
-    if not isinstance(payload, dict) or "cases" not in payload:
+    if not _is_json_object(payload) or "cases" not in payload:
         raise HarnessBroke(f"{RULE_CASES} is not a GST rule case file")
     return payload
 

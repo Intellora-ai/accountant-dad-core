@@ -67,7 +67,7 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypeGuard, cast
 
 DEFAULT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -1392,6 +1392,17 @@ def _check_documented_decisions(
 # ---------------------------------------------------------------------------
 
 
+def _is_object_list(value: object) -> TypeGuard[list[object]]:
+    """`isinstance(value, list)`, said in a way that types the elements.
+
+    A bare `isinstance` on an `object` leaves the elements unknown, which is a
+    hole a checker cannot see into. This narrows to `list[object]` instead, so
+    every element still has to be narrowed before it is used. Same test, same
+    answer - only the type is different.
+    """
+    return isinstance(value, list)
+
+
 def _load_allow_list(path: Path) -> tuple[list[AllowEntry], str | None]:
     if not path.exists():
         return [], None
@@ -1399,7 +1410,7 @@ def _load_allow_list(path: Path) -> tuple[list[AllowEntry], str | None]:
         raw: object = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as error:
         return [], f"{path.name} is not valid JSON: {error}"
-    if not isinstance(raw, list):
+    if not _is_object_list(raw):
         return [], f"{path.name} must contain a JSON list of entries"
     entries: list[AllowEntry] = []
     items: list[object] = list(raw)

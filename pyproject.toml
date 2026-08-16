@@ -102,7 +102,28 @@ select = [
 # pyright - the only type checker
 # ---------------------------------------------------------------------------
 [tool.pyright]
-include = ["accountant", "tests", "ci"]
+# `scripts` JOINED 2026-08-17, ON THE OWNER'S APPROVAL, AND IT WAS AN OMISSION
+# RATHER THAN A DECISION. `ci/gates.toml` records the ruling this list is meant
+# to implement, verbatim: "Strict, over source AND tests. Owner-set 2026-08-07:
+# 'strict, on everything'." This line said three of the four. It was written once
+# in f653c07 and never revisited, no test pinned it, and nothing recorded a
+# reason to leave scripts out.
+#
+# WHAT THAT COST: 432 pyright strict errors accumulated in scripts/ that no tool
+# in this repository could see. The typecheck gate never looked, and the
+# staged-guard hook looks only at STAGED files - so an unmodified script was
+# invisible to everything. All 432 are fixed as of this change; the scope is
+# widened only once the count is zero, so the gate goes green on repaired code
+# and never on a suppression.
+#
+# scripts/ IS NOT STANDALONE, which is why it belongs here: 14 of its files
+# import `accountant`, and two test files import `scripts`. It is coupled to the
+# shipped package and to the suite.
+#
+# NOTE, MEASURED: 14 of the 33 scripts are in .gitignore, so they never reach a
+# CI runner and this line cannot check them there. It covers the 19 tracked
+# ones. pyright does not read .gitignore, so locally it checks all 33.
+include = ["accountant", "tests", "ci", "scripts"]
 typeCheckingMode = "strict"
 reportMissingImports = "error"
 # Without these, pyright resolves nothing from the project environment, pytest

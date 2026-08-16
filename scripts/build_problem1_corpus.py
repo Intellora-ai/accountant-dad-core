@@ -78,7 +78,7 @@ import tempfile
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, TypedDict
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -188,7 +188,9 @@ class Bill:
     money_style: Literal["indian", "plain"] = "indian"
     unreadable_fields: tuple[str, ...] = ()
     notes: str = ""
-    evidence: dict[str, str] = field(default_factory=dict)
+    # `dict[str, str]` and not bare `dict`: the parameterised alias is callable
+    # and returns the same empty dict, but it also states the member types.
+    evidence: dict[str, str] = field(default_factory=dict[str, str])
 
     @property
     def net_paise(self) -> int:
@@ -328,11 +330,18 @@ def degrade(image: Image.Image, level: str, rng: random.Random) -> Image.Image:
         (0.55, 0.12, 0.8) if level == "moderate" else (0.10, 0.55, 2.4)
     )
 
-    small = image.resize(
+    # The two `pyright: ignore` below are not about this code. Pillow annotates
+    # `resize(size: tuple[int, int] | list[int] | NumpyArray)`, and NumpyArray
+    # resolves to Unknown because numpy is not installed in this environment,
+    # so the whole member type is partially unknown at every call site. The
+    # arguments here are already a `tuple[int, int]` and an `Image.Size`.
+    small = image.resize(  # pyright: ignore[reportUnknownMemberType]
         (max(1, int(image.width * scale)), max(1, int(image.height * scale))),
         Image.Resampling.BILINEAR,
     )
-    back = small.resize(image.size, Image.Resampling.BILINEAR)
+    back = small.resize(  # pyright: ignore[reportUnknownMemberType]
+        image.size, Image.Resampling.BILINEAR
+    )
 
     noise = Image.frombytes("L", image.size, rng.randbytes(image.width * image.height))
     noisy = Image.blend(back, noise, alpha)
@@ -1477,7 +1486,19 @@ def save_pages(pages: list[Image.Image], stem: pathlib.Path) -> pathlib.Path:
     return out
 
 
-def generate(corpus_dir: pathlib.Path, *, fetch_real: bool) -> dict[str, object]:
+class Built(TypedDict):
+    """What `generate` hands back: the manifest rows and the ground truth.
+
+    A `dict[str, object]` here meant every caller had to re-discover that
+    `built["manifest"]` is a list of CSV rows, and the `isinstance` assert that
+    did the re-discovering could not say what the rows contained.
+    """
+
+    manifest: list[dict[str, str]]
+    ground_truth: dict[str, object]
+
+
+def generate(corpus_dir: pathlib.Path, *, fetch_real: bool) -> Built:
     corpus_dir.mkdir(parents=True, exist_ok=True)
     rng = random.Random(SEED)  # noqa: S311 - layout variety, not security
 
@@ -1563,10 +1584,9 @@ def generate(corpus_dir: pathlib.Path, *, fetch_real: bool) -> dict[str, object]
     return {"manifest": manifest, "ground_truth": ground_truth}
 
 
-def write_artifacts(built: dict[str, object], artifacts_dir: pathlib.Path) -> None:
+def write_artifacts(built: Built, artifacts_dir: pathlib.Path) -> None:
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     manifest = built["manifest"]
-    assert isinstance(manifest, list)  # noqa: S101 - internal shape, not user input
 
     path = artifacts_dir / "problem1_corpus_manifest.csv"
     with path.open("w", newline="", encoding="utf-8") as handle:
@@ -1599,7 +1619,7 @@ def main(argv: list[str] | None = None) -> int:
             generate(first, fetch_real=False)
             second = pathlib.Path(tmp) / "b"
             generate(second, fetch_real=False)
-            mismatched = []
+            mismatched: list[str] = []
             for left in sorted(first.glob("synthetic-*")):
                 right = second / left.name
                 if (
@@ -1619,7 +1639,6 @@ def main(argv: list[str] | None = None) -> int:
     built = generate(args.corpus_dir, fetch_real=not args.no_fetch)
     write_artifacts(built, args.artifacts_dir)
     manifest = built["manifest"]
-    assert isinstance(manifest, list)  # noqa: S101 - internal shape, not user input
     synthetic = [r for r in manifest if r["real_or_synthetic"] == "synthetic"]
     real = [
         r
